@@ -135,8 +135,7 @@ class TestEmailNotifier:
         captured = []
         with patch.object(notifier, "_send_message", side_effect=lambda m: captured.append(m)):
             notifier.send(SAMPLE_EVENT)
-        body = captured[0].get_payload()
-        # body is the plain-text MIMEText part
+        body = captured[0].get_payload()[0].get_payload()
         assert "pond-north" in body
         assert "87%" in body
 
