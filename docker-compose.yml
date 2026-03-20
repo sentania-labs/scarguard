@@ -1,0 +1,90 @@
+name: scarguard
+
+# Image names are built locally or pulled from GHCR.
+# Set GHCR_OWNER (e.g. your GitHub org/user) in a .env file or environment.
+# IMAGE_TAG defaults to "latest".
+#
+#   echo "GHCR_OWNER=myorg" > .env
+#
+# To build locally:   docker compose build
+# To pull from GHCR:  docker compose pull
+# To run:             docker compose up -d
+
+services:
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+
+  # ── Detector ──────────────────────────────────────────────────────────────
+  # Requires NVIDIA Container Runtime on the host (see infra/orin-setup.sh).
+  # GPU is used for YOLO inference via TensorRT / PyTorch.
+  detector:
+    build:
+      context: .
+      dockerfile: services/detector/Dockerfile
+    image: ghcr.io/${GHCR_OWNER}/scarguard-detector:${IMAGE_TAG:-latest}
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
+      CONFIG_PATH: /config/scarguard.yml
+      SNAPSHOT_DIR: /data/snapshots
+      DB_PATH: /data/scarguard.db
+    volumes:
+      - ./config:/config:ro
+      - ./models:/models:ro
+      - ./data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Web UI ─────────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: services/web/Dockerfile
+    image: ghcr.io/${GHCR_OWNER}/scarguard-web:${IMAGE_TAG:-latest}
+    ports:
+      - "8080:8080"
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+      SNAPSHOT_DIR: /data/snapshots
+      MODELS_DIR: /models
+      DB_PATH: /data/scarguard.db
+    volumes:
+      - ./config:/config      # rw — config editor writes scarguard.yml
+      - ./models:/models      # rw — model upload endpoint writes here
+      - ./data:/data:ro       # ro — reads SQLite + serves snapshot images
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Notifier ──────────────────────────────────────────────────────────────
+  notifier:
+    build:
+      context: .
+      dockerfile: services/notifier/Dockerfile
+    image: ghcr.io/${GHCR_OWNER}/scarguard-notifier:${IMAGE_TAG:-latest}
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+    volumes:
+      - ./config:/config:ro
+      - ./data:/data:ro       # ro — reads snapshot files for Discord/email attachments
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis-data:
