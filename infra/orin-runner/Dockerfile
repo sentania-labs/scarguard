@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     wget \
+    lsb-release \
  && rm -rf /var/lib/apt/lists/*
 
 # --- Trust internal CA ---
