@@ -20,7 +20,7 @@ async def models_page(request: Request, uploaded: str = ""):
             for f in MODELS_DIR.iterdir()
             if f.is_file() and f.suffix in ALLOWED_EXTENSIONS
         ],
-        key=lambda x: x["name"],
+        key=lambda x: str(x["name"]),
     )
     return templates.TemplateResponse(
         "models.html",
@@ -30,7 +30,8 @@ async def models_page(request: Request, uploaded: str = ""):
 
 @router.post("", response_class=HTMLResponse)
 async def upload_model(request: Request, file: UploadFile = File(...)):
-    suffix = Path(file.filename).suffix.lower()
+    filename = file.filename or ""
+    suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         files = _list_files()
         return templates.TemplateResponse(
@@ -43,7 +44,7 @@ async def upload_model(request: Request, file: UploadFile = File(...)):
             },
         )
 
-    dest = MODELS_DIR / Path(file.filename).name
+    dest = MODELS_DIR / Path(filename).name
     contents = await file.read()
     dest.write_bytes(contents)
 
@@ -57,5 +58,5 @@ def _list_files() -> list[dict]:
             for f in MODELS_DIR.iterdir()
             if f.is_file() and f.suffix in ALLOWED_EXTENSIONS
         ],
-        key=lambda x: x["name"],
+        key=lambda x: str(x["name"]),
     )
