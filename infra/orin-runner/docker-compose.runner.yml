@@ -1,0 +1,51 @@
+# docker-compose.runner.yml
+# Runs the GitHub Actions runner on the Orin
+#
+# Prerequisites:
+#   1. Docker + NVIDIA Container Toolkit installed (run orin-setup.sh)
+#   2. Copy your "sentania Lab Root 2.crt" into infra/orin-runner/
+#   3. Create a .env file (see below) or export the variables
+#
+# Usage:
+#   cd infra
+#   docker compose -f docker-compose.runner.yml up -d --build
+#
+# Required .env file (or environment variables):
+#   GITHUB_OWNER=your-github-org
+#   GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+#
+# Optional .env overrides:
+#   GITHUB_REPO=scarguard        # Omit for org-level runner
+#   RUNNER_NAME=orin-nano         # Default: container hostname
+#   RUNNER_LABELS=self-hosted,linux,arm64,jetson
+
+services:
+  runner:
+    build:
+      context: ./orin-runner
+      dockerfile: Dockerfile
+    container_name: scarguard-runner
+    restart: unless-stopped
+    environment:
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO:-}
+      - RUNNER_NAME=${RUNNER_NAME:-orin-nano}
+      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64,jetson}
+    volumes:
+      # Docker socket mount — runner issues commands to host Docker daemon
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Give runner access to workspace that persists across jobs
+      - runner-work:/home/runner/_work
+    # GPU access for integration tests (builds don't need GPU but tests do)
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  runner-work:
