@@ -79,7 +79,7 @@ scarguard/
 
 ### Container Base Images
 
-- **detector:** `nvcr.io/nvidia/l4t-pytorch:r36.4.0-pth2.5-py3` (provides CUDA, cuDNN, TensorRT). GPU accessed via NVIDIA Container Runtime (`runtime: nvidia` in Compose).
+- **detector:** `dustynv/l4t-pytorch:r36.4.0` (provides CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU accessed via NVIDIA Container Runtime (`runtime: nvidia` in Compose).
 - **web and notifier:** `python:3.11-slim` — no GPU needed.
 
 ### Container Registry
@@ -260,4 +260,4 @@ Before running any containers, the Orin host needs:
 3. `nvidia-container-runtime` set as default runtime
 4. GitHub Actions runner container running (see `infra/` directory)
 
-Use `infra/orin-setup.sh` for steps 1-3. See GETTING_STARTED.md for the full sequence.
+Use `infra/orin-setup.sh` for steps 1-3. Test with: `docker run --rm --runtime=nvidia --gpus all dustynv/l4t-pytorch:r36.4.0 python3 -c "import torch; print(torch.cuda.is_available())"`

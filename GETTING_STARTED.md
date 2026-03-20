@@ -28,7 +28,7 @@ exit
 
 # Verify Docker + GPU
 docker run --rm --runtime=nvidia --gpus all \
-  nvcr.io/nvidia/l4t-pytorch:r36.4.0-pth2.5-py3 \
+  dustynv/l4t-pytorch:r36.4.0 \
   python3 -c "import torch; print(torch.cuda.is_available())"
 ```
 
@@ -139,7 +139,7 @@ Build one phase at a time. Test each before moving on. Commit after each working
 
 ```
 Build the detector service. Start with:
-1. Dockerfile based on nvcr.io/nvidia/l4t-pytorch:r36.4.0-pth2.5-py3
+1. Dockerfile based on dustynv/l4t-pytorch:r36.4.0
 2. src/stream.py - RTSP stream reader using OpenCV with reconnect logic
 3. src/detector.py - YOLO model wrapper that loads .engine or .pt files
 4. src/events.py - Detection event processing with cooldown dedup

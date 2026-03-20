@@ -97,7 +97,7 @@ echo "[5/5] Testing GPU access in a container..."
 echo "  (This may pull an image on first run — could take a few minutes)"
 echo ""
 docker run --rm --runtime=nvidia --gpus all \
-  nvcr.io/nvidia/l4t-pytorch:r36.4.0-pth2.5-py3 \
+  dustynv/l4t-pytorch:r36.4.0 \
   python3 -c "import torch; print(f'  CUDA available: {torch.cuda.is_available()}'); print(f'  GPU: {torch.cuda.get_device_name(0)}')"
 
 echo ""
