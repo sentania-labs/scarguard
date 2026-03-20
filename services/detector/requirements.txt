@@ -1,0 +1,7 @@
+# torch / torchvision / torchaudio are provided by dustynv/l4t-pytorch base image.
+# Do NOT add them here — pip will skip reinstalling compatible versions.
+ultralytics
+opencv-python-headless
+redis
+pyyaml
+pydantic>=2.0

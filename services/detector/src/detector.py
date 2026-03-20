@@ -1,0 +1,58 @@
+"""YOLO model wrapper — loads .pt or .engine files and runs inference."""
+
+import logging
+from dataclasses import dataclass
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Detection:
+    class_name: str
+    confidence: float
+    bbox: tuple[int, int, int, int]  # x1, y1, x2, y2
+
+
+class YOLODetector:
+    def __init__(
+        self,
+        model_path: str,
+        confidence_threshold: float,
+        target_classes: list[str],
+    ) -> None:
+        self.model_path = model_path
+        self.confidence_threshold = confidence_threshold
+        self.target_classes = set(target_classes)
+        self._model = None
+        self._load()
+
+    def _load(self) -> None:
+        # Import here so the module can be imported without ultralytics installed
+        # (e.g., during unit tests that mock the model).
+        from ultralytics import YOLO
+
+        logger.info("Loading model: %s", self.model_path)
+        self._model = YOLO(self.model_path)
+        logger.info("Model ready (classes: %s)", sorted(self.target_classes))
+
+    def predict(self, frame: np.ndarray) -> list[Detection]:
+        """Run inference and return detections that pass class + confidence filters."""
+        results = self._model.predict(
+            frame,
+            conf=self.confidence_threshold,
+            verbose=False,
+        )
+
+        detections: list[Detection] = []
+        for result in results:
+            for box in result.boxes:
+                class_name: str = result.names[int(box.cls)]
+                if self.target_classes and class_name not in self.target_classes:
+                    continue
+                confidence = float(box.conf)
+                x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])
+                detections.append(Detection(class_name, confidence, (x1, y1, x2, y2)))
+
+        return detections
