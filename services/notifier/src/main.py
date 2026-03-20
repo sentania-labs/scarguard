@@ -36,7 +36,7 @@ def setup_logging(log_level: str) -> None:
 
 
 def build_notifiers(notif_cfg: dict) -> list:
-    notifiers = []
+    notifiers: list[DiscordNotifier | EmailNotifier] = []
 
     discord_cfg = notif_cfg.get("discord", {})
     if discord_cfg.get("enabled") and discord_cfg.get("webhook_url"):

@@ -49,7 +49,7 @@ jobs:
 
       - name: Install deps
         run: |
-          pip install mypy types-PyYAML \
+          pip install mypy types-PyYAML types-requests \
             -r services/web/requirements.txt \
             -r services/notifier/requirements.txt
 

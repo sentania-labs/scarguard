@@ -28,13 +28,13 @@ class DiscordNotifier:
             f"Camera: `{camera_name}` | Confidence: `{confidence:.0%}` | `{timestamp}`"
         )
 
-        payload = {"content": content}
+        payload: dict[str, object] = {"content": content}
 
         snapshot_bytes: bytes | None = None
         if self._include_snapshot and snapshot_path:
             snapshot_bytes = _read_snapshot(snapshot_path)
 
-        if snapshot_bytes:
+        if snapshot_bytes and snapshot_path:
             # Embed the image in a Discord embed so it renders inline.
             filename = Path(snapshot_path).name
             payload["embeds"] = [{"image": {"url": f"attachment://{filename}"}}]
