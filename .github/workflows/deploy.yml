@@ -1,0 +1,141 @@
+name: Deploy
+
+on:
+  # Trigger automatically once CI passes on main
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Allow manual trigger for re-deploys without a new push
+  workflow_dispatch:
+
+jobs:
+
+  deploy:
+    name: Deploy to Orin
+    # For workflow_run: only proceed if CI succeeded.
+    # workflow_dispatch always runs.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    runs-on: [self-hosted, linux, arm64, jetson]
+
+    # Required to push to GHCR and pull the checked-out SHA
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      GHCR_OWNER: ${{ github.repository_owner }}
+      IMAGE_TAG: latest
+      DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Ensure runtime directories exist ──────────────────────────────────
+      # ./config, ./models, ./data are bind-mounted by docker-compose.yml.
+      # They persist between runs since the self-hosted runner keeps its workspace.
+      - name: Ensure runtime directories exist
+        run: |
+          mkdir -p config data/snapshots models
+          if [ ! -f config/scarguard.yml ]; then
+            echo "::warning::config/scarguard.yml not found — create it before the detector will start"
+          fi
+
+      # ── Docker Compose plugin ─────────────────────────────────────────────
+      # The runner container has the Docker CLI but may not have the Compose
+      # plugin. Install it idempotently.
+      - name: Ensure docker compose plugin is available
+        run: |
+          if ! docker compose version &>/dev/null; then
+            echo "Installing docker-compose-plugin..."
+            apt-get update -qq && apt-get install -y -qq docker-compose-plugin
+          fi
+          docker compose version
+
+      # ── GHCR login ────────────────────────────────────────────────────────
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Stop detector to free the GPU before building ─────────────────────
+      # Image build itself doesn't use the GPU, but subsequent smoke test does.
+      # Stopping first keeps the gap short and avoids contention.
+      - name: Stop detector (free GPU)
+        run: |
+          docker compose stop detector || true
+          echo "Detector stopped (or was not running)"
+
+      # ── Build detector image locally on the Orin ──────────────────────────
+      # Must be built on the Orin: the L4T base image is ARM64-only and
+      # TensorRT engine files are architecture-specific.
+      - name: Build detector image
+        run: |
+          docker build \
+            --file services/detector/Dockerfile \
+            --tag ${{ env.DETECTOR_IMAGE }}:latest \
+            --tag ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }} \
+            .
+
+      # ── GPU smoke test ────────────────────────────────────────────────────
+      # Verifies CUDA is accessible inside the new image before we deploy it.
+      # Runs a short Python snippet — no model file required.
+      - name: GPU smoke test
+        run: |
+          docker run --rm \
+            --runtime nvidia \
+            -e NVIDIA_VISIBLE_DEVICES=all \
+            ${{ env.DETECTOR_IMAGE }}:latest \
+            python - <<'EOF'
+          import torch
+          assert torch.cuda.is_available(), f"CUDA not available — check NVIDIA runtime"
+          name = torch.cuda.get_device_name(0)
+          cap  = torch.cuda.get_device_capability(0)
+          print(f"GPU : {name}")
+          print(f"SM  : {cap[0]}.{cap[1]}")
+          print(f"CUDA: {torch.version.cuda}")
+          print("Smoke test passed")
+          EOF
+
+      # ── Push detector image to GHCR ───────────────────────────────────────
+      - name: Push detector image
+        run: |
+          docker push ${{ env.DETECTOR_IMAGE }}:latest
+          docker push ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }}
+
+      # ── Pull updated web + notifier images ───────────────────────────────
+      # These were built and pushed by the x86 CI job.
+      - name: Pull web and notifier images
+        run: docker compose pull web notifier
+
+      # ── Deploy ────────────────────────────────────────────────────────────
+      - name: Bring up all services
+        run: docker compose up -d --remove-orphans
+
+      # ── Verify ────────────────────────────────────────────────────────────
+      - name: Verify services are running
+        run: |
+          echo "Waiting for services to settle..."
+          sleep 8
+          docker compose ps
+          echo ""
+          # Fail the deployment if detector or web didn't come up
+          for svc in detector web notifier redis; do
+            status=$(docker compose ps --format json $svc 2>/dev/null \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('State','unknown'))" 2>/dev/null \
+              || echo "unknown")
+            echo "$svc: $status"
+            if [[ "$status" != "running" ]]; then
+              echo "::error::Service '$svc' is not running (state: $status)"
+              docker compose logs --tail=50 $svc
+              exit 1
+            fi
+          done
+          echo ""
+          echo "All services running."

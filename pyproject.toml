@@ -1,0 +1,23 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# E/W = pycodestyle, F = pyflakes, I = isort
+select = ["E", "F", "W", "I"]
+# E501 line-length — already enforced by the formatter, not the linter
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use assert and relative imports freely
+"tests/**" = ["F401"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+# Each service has its own src/ tree; MYPYPATH is set per-invocation in CI.
+
+[tool.pytest.ini_options]
+# PYTHONPATH is injected by the CI step; tests live under each service's tests/ dir.
+addopts = "-v"
