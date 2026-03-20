@@ -4,40 +4,39 @@
 # Prerequisites:
 #   1. Docker + NVIDIA Container Toolkit installed (run orin-setup.sh)
 #   2. Copy your "sentania Lab Root 2.crt" into infra/orin-runner/
-#   3. Create a .env file (see below) or export the variables
+#   3. Create a .env file (see below)
 #
 # Usage:
 #   cd infra
 #   docker compose -f docker-compose.runner.yml up -d --build
 #
-# Required .env file (or environment variables):
-#   GITHUB_OWNER=your-github-org
-#   GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+# Required .env file:
+#   RUNNER_TOKEN=<token from GitHub Settings -> Actions -> Runners -> New self-hosted runner>
+#   REPO_URL=https://github.com/your-org
 #
 # Optional .env overrides:
-#   GITHUB_REPO=scarguard        # Omit for org-level runner
-#   RUNNER_NAME=orin-nano         # Default: container hostname
+#   RUNNER_NAME=orin-nano
 #   RUNNER_LABELS=self-hosted,linux,arm64,jetson
 
 services:
   runner:
     build:
       context: ./orin-runner
-      dockerfile: Dockerfile
     container_name: scarguard-runner
-    restart: unless-stopped
     environment:
-      - GITHUB_OWNER=${GITHUB_OWNER}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_REPO=${GITHUB_REPO:-}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
       - RUNNER_NAME=${RUNNER_NAME:-orin-nano}
       - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64,jetson}
+      - REPO_URL=${REPO_URL}
     volumes:
+      # Persistent runner config — survives rebuilds, avoids re-registration
+      - runner-data:/home/runner
       # Docker socket mount — runner issues commands to host Docker daemon
       - /var/run/docker.sock:/var/run/docker.sock
-      # Give runner access to workspace that persists across jobs
-      - runner-work:/home/runner/_work
-    # GPU access for integration tests (builds don't need GPU but tests do)
+      # Timezone sync
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    # GPU access for integration tests
     runtime: nvidia
     deploy:
       resources:
@@ -46,6 +45,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    restart: always
 
 volumes:
-  runner-work:
+  runner-data:
