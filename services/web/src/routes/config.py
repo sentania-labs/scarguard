@@ -1,11 +1,10 @@
 from pathlib import Path
 
+import config_store
 import yaml
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-
-import config_store
 
 router = APIRouter(prefix="/config")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))

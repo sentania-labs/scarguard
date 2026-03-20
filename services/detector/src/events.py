@@ -8,7 +8,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-
 from detector import Detection
 
 logger = logging.getLogger(__name__)

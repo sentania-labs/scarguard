@@ -11,7 +11,6 @@ import sys
 import time
 
 import yaml
-
 from detector import YOLODetector
 from events import EventProcessor
 from publisher import RedisPublisher

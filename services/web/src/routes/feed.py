@@ -3,13 +3,12 @@
 import json
 from pathlib import Path
 
+import config_store
+import db
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-
-import config_store
-import db
 
 router = APIRouter(prefix="/feed")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))

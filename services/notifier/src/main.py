@@ -9,7 +9,6 @@ import time
 
 import redis as redis_lib
 import yaml
-
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
 
