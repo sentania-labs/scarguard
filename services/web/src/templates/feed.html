@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Live Feed — ScarGuard{% endblock %}
+{% block content %}
+<h1>Live Feed</h1>
+
+<p class="hint">
+  Displays the latest annotated snapshot each time a detection fires.
+  The image updates automatically over SSE — no polling needed.
+</p>
+
+<section class="card">
+  <div id="feed-label" class="muted">
+    {% if latest %}
+    Last: {{ latest.class_name.replace("_"," ").title() }} —
+    {{ latest.camera_name }} —
+    {{ latest.timestamp[:19].replace("T"," ") }} UTC
+    {% else %}
+    Waiting for first detection…
+    {% endif %}
+  </div>
+  <div id="feed-frame" style="margin-top:0.75rem;">
+    {% if latest and latest.snapshot_path %}
+    {% set fname = latest.snapshot_path.split("/")[-1] %}
+    <img id="live-snapshot" src="/snapshots/{{ fname }}"
+         style="max-width:100%;border-radius:4px;">
+    {% else %}
+    <p id="live-snapshot" class="muted">No snapshot yet.</p>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  const src = new EventSource("/feed/stream");
+  src.addEventListener("detection", function(e) {
+    const data = JSON.parse(e.data);
+    document.getElementById("feed-frame").innerHTML = data.html;
+    document.getElementById("feed-label").textContent = data.label;
+  });
+  src.onerror = function() {
+    console.warn("Feed SSE disconnected — will retry automatically.");
+  };
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — ScarGuard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<section class="card">
+  <h2>System Status</h2>
+  <div id="arm-status">
+    {% if armed %}
+    <span class="badge badge-armed">ARMED</span>
+    <button hx-post="/disarm" hx-target="#arm-status" hx-swap="outerHTML">Disarm</button>
+    {% else %}
+    <span class="badge badge-disarmed">DISARMED</span>
+    <button hx-post="/arm" hx-target="#arm-status" hx-swap="outerHTML">Arm</button>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <h2>Stats</h2>
+  <dl>
+    <dt>Total detections</dt><dd>{{ total_events }}</dd>
+    <dt>Active model</dt><dd><code>{{ model_path }}</code></dd>
+    <dt>Cameras configured</dt><dd>{{ cameras | length }}</dd>
+  </dl>
+  {% if cameras %}
+  <table>
+    <thead><tr><th>Name</th><th>Enabled</th><th>Resolution</th></tr></thead>
+    <tbody>
+    {% for cam in cameras %}
+    <tr>
+      <td>{{ cam.name }}</td>
+      <td>{{ "Yes" if cam.enabled else "No" }}</td>
+      <td>{{ cam.resolution }}p</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% if latest %}
+<section class="card">
+  <h2>Latest Detection</h2>
+  <p>
+    <strong>{{ latest.class_name.replace("_", " ").title() }}</strong>
+    on <em>{{ latest.camera_name }}</em>
+    at {{ latest.timestamp[:19].replace("T", " ") }} UTC
+    (conf {{ "%.0f%%"|format(latest.confidence * 100) }})
+  </p>
+  {% if latest.snapshot_path %}
+  {% set fname = latest.snapshot_path.split("/")[-1] %}
+  <a href="/snapshots/{{ fname }}" target="_blank">
+    <img src="/snapshots/{{ fname }}" style="max-width:480px;border-radius:4px;">
+  </a>
+  {% endif %}
+</section>
+{% endif %}
+
+{% endblock %}

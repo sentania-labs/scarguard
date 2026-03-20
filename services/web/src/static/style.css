@@ -1,0 +1,160 @@
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0f1117;
+  --surface:  #1a1d27;
+  --border:   #2a2d3a;
+  --text:     #e2e4ed;
+  --muted:    #7a7d8e;
+  --accent:   #4e9fff;
+  --ok:       #3ecf8e;
+  --warn:     #f5a623;
+  --danger:   #e05c5c;
+  --font:     system-ui, -apple-system, sans-serif;
+  --mono:     "JetBrains Mono", "Fira Code", "Courier New", monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code { font-family: var(--mono); font-size: 0.85em; color: var(--warn); }
+
+/* ── Nav ──────────────────────────────────────────────────────────────────── */
+nav {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+nav .brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--text);
+  margin-right: auto;
+}
+
+nav a { color: var(--muted); font-size: 0.9rem; }
+nav a:hover { color: var(--text); text-decoration: none; }
+
+/* ── Main layout ──────────────────────────────────────────────────────────── */
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.25rem; }
+h2 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.75rem; }
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+/* ── Badges ───────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  padding: 0.2em 0.65em;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+.badge-armed    { background: var(--ok);     color: #0a1a12; }
+.badge-disarmed { background: var(--danger); color: #fff; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.35em 0.9em;
+  font-size: 0.875rem;
+  cursor: pointer;
+  font-family: var(--font);
+}
+button:hover { opacity: 0.88; }
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+th {
+  text-align: left;
+  padding: 0.45rem 0.75rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+td {
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(255,255,255,0.03); }
+
+td img { display: block; border-radius: 3px; }
+
+/* ── Definition list ──────────────────────────────────────────────────────── */
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1.5rem; }
+dt { color: var(--muted); font-size: 0.875rem; }
+dd { font-weight: 500; }
+
+/* ── Forms ────────────────────────────────────────────────────────────────── */
+textarea, input[type="file"] {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+textarea:focus, input:focus { outline: 1px solid var(--accent); }
+
+/* ── Alerts ───────────────────────────────────────────────────────────────── */
+.alert {
+  padding: 0.65rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+.alert-ok  { background: rgba(62,207,142,0.15); border: 1px solid var(--ok);     color: var(--ok); }
+.alert-err { background: rgba(224, 92, 92,0.15); border: 1px solid var(--danger); color: var(--danger); }
+
+/* ── Utility ──────────────────────────────────────────────────────────────── */
+.muted { color: var(--muted); }
+.hint  { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem; }
+
+/* ── Pagination ───────────────────────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}

@@ -1,0 +1,7 @@
+{% if armed %}
+<span class="badge badge-armed">ARMED</span>
+<button hx-post="/disarm" hx-target="#arm-status" hx-swap="outerHTML">Disarm</button>
+{% else %}
+<span class="badge badge-disarmed">DISARMED</span>
+<button hx-post="/arm" hx-target="#arm-status" hx-swap="outerHTML">Arm</button>
+{% endif %}

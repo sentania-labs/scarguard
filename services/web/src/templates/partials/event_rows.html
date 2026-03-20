@@ -1,0 +1,18 @@
+{% for e in events %}
+<tr>
+  <td>{{ e.timestamp[:19].replace("T", " ") }}</td>
+  <td>{{ e.class_name.replace("_", " ").title() }}</td>
+  <td>{{ "%.0f%%"|format(e.confidence * 100) }}</td>
+  <td>{{ e.camera_name }}</td>
+  <td>
+    {% if e.snapshot_path %}
+    {% set fname = e.snapshot_path.split("/")[-1] %}
+    <a href="/snapshots/{{ fname }}" target="_blank">
+      <img src="/snapshots/{{ fname }}" width="80" loading="lazy">
+    </a>
+    {% else %}—{% endif %}
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="5" class="muted">No events yet.</td></tr>
+{% endfor %}

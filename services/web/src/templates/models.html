@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Models — ScarGuard{% endblock %}
+{% block content %}
+<h1>Models</h1>
+
+{% if uploaded %}
+<div class="alert alert-ok">Uploaded: <code>{{ uploaded }}</code></div>
+{% endif %}
+{% if error %}
+<div class="alert alert-err">{{ error }}</div>
+{% endif %}
+
+<section class="card">
+  <h2>Upload Model</h2>
+  <p class="hint">Accepted: <code>.pt</code>, <code>.engine</code>, <code>.onnx</code></p>
+  <form method="post" action="/models" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".pt,.engine,.onnx" required>
+    <button type="submit" style="margin-left:0.5rem;">Upload</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Available Models</h2>
+  {% if files %}
+  <table>
+    <thead><tr><th>File</th><th>Size</th><th>Download</th></tr></thead>
+    <tbody>
+    {% for f in files %}
+    <tr>
+      <td><code>{{ f.name }}</code></td>
+      <td>{{ f.size_mb }} MB</td>
+      <td><a href="/model-files/{{ f.name }}">↓</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No model files found in <code>/models</code>.</p>
+  {% endif %}
+</section>
+
+<p class="hint">
+  Update <code>detection.model_path</code> in <a href="/config">Config</a>
+  to switch the active model, then restart the detector.
+</p>
+{% endblock %}

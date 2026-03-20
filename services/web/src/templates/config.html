@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Config — ScarGuard{% endblock %}
+{% block content %}
+<h1>Configuration</h1>
+
+{% if saved %}
+<div class="alert alert-ok">Config saved successfully.</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-err">Error: {{ error }}</div>
+{% endif %}
+
+<p class="hint">
+  Edit <code>scarguard.yml</code> directly. The detector and notifier read this
+  file on startup — restart those services after saving.
+</p>
+
+<form method="post" action="/config">
+  <textarea name="raw_yaml" rows="40" style="width:100%;font-family:monospace;font-size:0.85rem;">{{ raw_yaml }}</textarea>
+  <div style="margin-top:0.5rem;">
+    <button type="submit">Save</button>
+  </div>
+</form>
+{% endblock %}

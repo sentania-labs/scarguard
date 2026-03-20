@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Events — ScarGuard{% endblock %}
+{% block content %}
+<h1>Detection Events <span class="muted">({{ total }} total)</span></h1>
+
+<p class="hint">New events appear automatically at the top of the table.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Time (UTC)</th>
+      <th>Class</th>
+      <th>Conf</th>
+      <th>Camera</th>
+      <th>Snapshot</th>
+    </tr>
+  </thead>
+  <tbody id="event-table-body"
+         hx-ext="sse"
+         sse-connect="/events/stream"
+         sse-swap="detection"
+         hx-swap="afterbegin">
+    {% include "partials/event_rows.html" %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+  <a href="/events?page={{ page - 1 }}">&laquo; Newer</a>
+  {% endif %}
+  <span>Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="/events?page={{ page + 1 }}">Older &raquo;</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+<script>
+  // HTMX SSE extension needs to be loaded separately
+</script>
+<script src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js" defer></script>
+{% endblock %}
