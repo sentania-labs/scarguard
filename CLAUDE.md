@@ -67,8 +67,7 @@ scarguard/
 │   └── orin-setup.sh               # Host setup script (Docker + NVIDIA runtime)
 └── .github/
     └── workflows/
-        ├── ci.yml                   # Lint, test, build (x86 runners)
-        └── deploy.yml               # Build + deploy to Orin (Orin runner)
+        └── ci.yml                   # Lint, test, build conainters images 
 ```
 
 ### Service Communication
@@ -164,6 +163,12 @@ redis:
 - **x86 runners (existing org runners):** Lint, type checking, pytest for web + notifier, build and push non-GPU images to GHCR
 - **Orin runner (self-hosted, containerized):** Build detector image (ARM64 + L4T base), GPU integration tests, full Compose smoke tests
 
+### x86 Runner Details
+
+- Containerized GitHub Actions runner on an ubuntu24 host, docker file managed out of band
+- Docker socket mount from host — runner container issues Docker commands against host daemon
+- Labels: `self-hosted`, `linux`, `X64`, `docker`
+
 ### Orin Runner Details
 
 - Containerized GitHub Actions runner on the Orin (ARM64 Dockerfile in `infra/orin-runner/`)
@@ -181,21 +186,10 @@ Push to main
   │   └── Build + push web/notifier images to ghcr.io
   │
   └── Orin runner:
-      ├── Stop detector service (free GPU)
       ├── Build detector image locally (ARM64 + L4T base)
       ├── Run GPU smoke test (load model, single frame inference)
-      ├── Push detector image to ghcr.io
-      ├── docker compose pull + up (deploy new images)
-      └── Detector resumes with new image
+      └── Push detector image to ghcr.io
 ```
-
-### GPU Contention
-
-The Orin has a single GPU shared between detection and CI. During builds:
-- Image builds (`docker build`) do NOT use the GPU — no contention
-- GPU tests require stopping the detector first
-- Workflow stops detector → builds/tests → restarts detector
-- Detection gap is brief and typically during non-peak hours (herons hunt dawn/dusk)
 
 ### Runner Image Updates
 

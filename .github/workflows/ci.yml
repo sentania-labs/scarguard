@@ -111,7 +111,6 @@ jobs:
 
   # ── Build & push — web + notifier ───────────────────────────────────────────
   # Only runs on push to main (not PRs). Requires all quality gates to pass.
-  # Detector is built and pushed by the Orin runner in deploy.yml.
   build-push:
     name: Build & push images
     runs-on: [self-hosted, linux, docker]
@@ -156,3 +155,61 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/scarguard-notifier:sha-${{ github.sha }}
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
+
+  # ── Build & push — detector (Orin runner, ARM64) ────────────────────────────
+  # Must run on the Orin: L4T base image is ARM64-only and TensorRT engine files
+  # are architecture-specific. Docker socket is mounted from host so the smoke
+  # test can reach the GPU without nested containers.
+  # Only runs on push to main (not PRs).
+  build-push-detector:
+    name: Build & push detector image
+    runs-on: [self-hosted, linux, arm64, jetson]
+    needs: [lint, typecheck]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build detector image
+        run: |
+          docker build \
+            --file services/detector/Dockerfile \
+            --tag ${{ env.DETECTOR_IMAGE }}:latest \
+            --tag ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }} \
+            .
+
+      # Verifies CUDA is accessible inside the new image before pushing.
+      - name: GPU smoke test
+        run: |
+          docker run --rm \
+            --runtime nvidia \
+            -e NVIDIA_VISIBLE_DEVICES=all \
+            ${{ env.DETECTOR_IMAGE }}:latest \
+            python - <<'EOF'
+          import torch
+          assert torch.cuda.is_available(), "CUDA not available — check NVIDIA runtime"
+          name = torch.cuda.get_device_name(0)
+          cap  = torch.cuda.get_device_capability(0)
+          print(f"GPU : {name}")
+          print(f"SM  : {cap[0]}.{cap[1]}")
+          print(f"CUDA: {torch.version.cuda}")
+          print("Smoke test passed")
+          EOF
+
+      - name: Push detector image
+        run: |
+          docker push ${{ env.DETECTOR_IMAGE }}:latest
+          docker push ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }}
