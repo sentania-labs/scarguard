@@ -114,7 +114,7 @@ jobs:
   # Detector is built and pushed by the Orin runner in deploy.yml.
   build-push:
     name: Build & push images
-    runs-on: [self-hosted, linux, generic]
+    runs-on: [self-hosted, linux, docker]
     needs: [lint, typecheck, test-web, test-notifier]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
