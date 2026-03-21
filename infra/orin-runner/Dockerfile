@@ -31,8 +31,10 @@ ENV GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
 ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # Non-root user for runner (match host user UID if needed)
-ARG RUNNER_UID=1000
-RUN useradd -m -u ${RUNNER_UID} runner \
+ARG RUNNER_UID=994
+ARG GROUP_GID=994
+RUN groupadd -g ${GROUP_GID} docker \
+ && useradd -m -u ${RUNNER_UID} runner \
  && usermod -aG docker runner
 WORKDIR /home/runner
 
