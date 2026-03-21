@@ -13,7 +13,7 @@ jobs:
   # We lint all services including detector (where GPU deps aren't available).
   lint:
     name: Lint (ruff)
-    runs-on: [self-hosted, linux, generic]
+    runs-on: [self-hosted, linux, arm64, jetson]
     steps:
       - uses: actions/checkout@v4
 
@@ -38,7 +38,7 @@ jobs:
   # only available on the L4T base image (ARM64, CUDA).
   typecheck:
     name: Type check (mypy)
-    runs-on: [self-hosted, linux, generic]
+    runs-on: [self-hosted, linux, arm64, jetson]
     steps:
       - uses: actions/checkout@v4
 
@@ -72,7 +72,7 @@ jobs:
   # ── Tests — web ─────────────────────────────────────────────────────────────
   test-web:
     name: Tests — web
-    runs-on: [self-hosted, linux, generic]
+    runs-on: [self-hosted, linux, arm64, jetson]
     steps:
       - uses: actions/checkout@v4
 
@@ -92,7 +92,7 @@ jobs:
   # ── Tests — notifier ────────────────────────────────────────────────────────
   test-notifier:
     name: Tests — notifier
-    runs-on: [self-hosted, linux, generic]
+    runs-on: [self-hosted, linux, arm64, jetson]
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +113,7 @@ jobs:
   # Only runs on push to main (not PRs). Requires all quality gates to pass.
   build-push:
     name: Build & push images
-    runs-on: [self-hosted, linux, docker]
+    runs-on: [self-hosted, linux, arm64, jetson]
     needs: [lint, typecheck, test-web, test-notifier]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
