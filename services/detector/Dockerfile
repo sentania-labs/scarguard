@@ -16,7 +16,7 @@ WORKDIR /app
 COPY services/detector/requirements.txt ./requirements.txt
 # torch/torchvision/torchaudio are pre-installed in the base image;
 # pip will skip reinstalling them if versions are compatible.
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt
 
 # Copy application source
 COPY services/detector/src/ ./src/
