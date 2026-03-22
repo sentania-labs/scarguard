@@ -199,7 +199,7 @@ jobs:
             --runtime nvidia \
             -e NVIDIA_VISIBLE_DEVICES=all \
             ${{ env.DETECTOR_IMAGE }}:latest \
-            python - <<'EOF'
+            python3 - <<'EOF'
           import torch
           assert torch.cuda.is_available(), "CUDA not available — check NVIDIA runtime"
           name = torch.cuda.get_device_name(0)
