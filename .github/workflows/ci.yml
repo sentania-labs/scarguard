@@ -14,11 +14,11 @@ jobs:
   # We lint all services including detector (where GPU deps aren't available).
   lint:
     name: Lint (ruff)
-    runs-on: [self-hosted, linux, genric]
+    runs-on: [self-hosted, linux, generic]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5H
         with:
           python-version: "3.12"
           cache: pip
@@ -39,7 +39,7 @@ jobs:
   # only available on the L4T base image (ARM64, CUDA).
   typecheck:
     name: Type check (mypy)
-    runs-on: [self-hosted, linux, genric]
+    runs-on: [self-hosted, linux, generic]
     steps:
       - uses: actions/checkout@v4
 
@@ -73,7 +73,7 @@ jobs:
   # ── Tests — web ─────────────────────────────────────────────────────────────
   test-web:
     name: Tests — web
-    runs-on: [self-hosted, linux, genric]
+    runs-on: [self-hosted, linux, generic]
     steps:
       - uses: actions/checkout@v4
 
@@ -93,7 +93,7 @@ jobs:
   # ── Tests — notifier ────────────────────────────────────────────────────────
   test-notifier:
     name: Tests — notifier
-    runs-on: [self-hosted, linux, genric]
+    runs-on: [self-hosted, linux, generic]
     steps:
       - uses: actions/checkout@v4
 
