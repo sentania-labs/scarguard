@@ -214,8 +214,3 @@ jobs:
         run: |
           docker push ${{ env.DETECTOR_IMAGE }}:latest
           docker push ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }}
-
-      # Restore detector regardless of smoke test / push outcome.
-      - name: Restart detector
-        if: always()
-        run: docker compose start detector || true
