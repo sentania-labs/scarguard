@@ -31,7 +31,7 @@ services:
     build:
       context: .
       dockerfile: services/detector/Dockerfile
-    image: ghcr.io/${GHCR_OWNER}/scarguard-detector:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-detector:${IMAGE_TAG:-latest}
     runtime: nvidia
     environment:
       NVIDIA_VISIBLE_DEVICES: all
@@ -53,9 +53,9 @@ services:
     build:
       context: .
       dockerfile: services/web/Dockerfile
-    image: ghcr.io/${GHCR_OWNER}/scarguard-web:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-web:${IMAGE_TAG:-latest}
     ports:
-      - "8080:8080"
+      - "${WEB_PORT:-8080}:8080"
     environment:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
@@ -75,7 +75,7 @@ services:
     build:
       context: .
       dockerfile: services/notifier/Dockerfile
-    image: ghcr.io/${GHCR_OWNER}/scarguard-notifier:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-notifier:${IMAGE_TAG:-latest}
     environment:
       CONFIG_PATH: /config/scarguard.yml
     volumes:

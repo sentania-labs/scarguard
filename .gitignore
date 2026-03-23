@@ -1,0 +1,29 @@
+# User-generated config (keep the example, ignore the live copy)
+config/scarguard.yml
+
+# Runtime data — snapshots, SQLite database
+data/
+
+# Model files — large binaries not tracked in git
+models/
+
+# Docker environment overrides
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store

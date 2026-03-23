@@ -1,0 +1,154 @@
+name: Release
+
+# Triggered when a version tag is pushed, e.g. v1.0.0
+# Builds all three service images with the semver tag AND updates :latest.
+#
+# To cut a release:
+#   git tag v1.0.0
+#   git push origin v1.0.0
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+jobs:
+
+  # ── Build & push — web + notifier (x86 runner) ──────────────────────────────
+  release-x86:
+    name: Release web + notifier images
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push — web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/web/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/scarguard-web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Build and push — notifier
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/notifier/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/scarguard-notifier:latest
+          cache-from: type=gha,scope=notifier
+          cache-to: type=gha,scope=notifier,mode=max
+
+  # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
+  release-detector:
+    name: Release detector image
+    runs-on: [self-hosted, linux, arm64, jetson]
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build detector image
+        run: |
+          docker build \
+            --file services/detector/Dockerfile \
+            --tag ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} \
+            --tag ${{ env.DETECTOR_IMAGE }}:latest \
+            .
+
+      - name: GPU smoke test
+        run: |
+          docker run --rm \
+            --runtime nvidia \
+            -e NVIDIA_VISIBLE_DEVICES=all \
+            ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} \
+            python3 -c "
+          import torch
+          assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
+          name = torch.cuda.get_device_name(0)
+          cap  = torch.cuda.get_device_capability(0)
+          print(f'GPU : {name}')
+          print(f'SM  : {cap[0]}.{cap[1]}')
+          print(f'CUDA: {torch.version.cuda}')
+          print('Smoke test passed')
+          "
+
+      - name: Push detector image
+        run: |
+          docker push ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }}
+          docker push ${{ env.DETECTOR_IMAGE }}:latest
+
+  # ── Create GitHub Release ──────────────────────────────────────────────────
+  # Waits for both image builds to succeed, then creates a GitHub Release
+  # with auto-generated notes so there's a visible changelog on the repo.
+  create-release:
+    name: Create GitHub Release
+    needs: [release-x86, release-detector]
+    runs-on: [self-hosted, linux, generic]
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Docker Images
+
+            Pull and run this release:
+
+            ```bash
+            # In your .env file, set:
+            IMAGE_TAG=${{ github.ref_name }}
+
+            docker compose pull
+            docker compose up -d
+            ```
+
+            Or update a running installation:
+            ```bash
+            echo "IMAGE_TAG=${{ github.ref_name }}" >> .env
+            docker compose pull && docker compose up -d
+            ```
+
+            ## Images
+
+            | Service | Image |
+            |---------|-------|
+            | detector | `ghcr.io/${{ github.repository_owner }}/scarguard-detector:${{ github.ref_name }}` |
+            | web | `ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}` |
+            | notifier | `ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}` |
