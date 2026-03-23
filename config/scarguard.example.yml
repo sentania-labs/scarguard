@@ -1,0 +1,120 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║              ScarGuard — Example Configuration File                        ║
+# ║                                                                              ║
+# ║  Copy this file to config/scarguard.yml and fill in your values.           ║
+# ║  Lines starting with '#' are comments and are ignored.                     ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+
+# ── System ────────────────────────────────────────────────────────────────────
+system:
+  # When armed, detections trigger notifications (and future valve actuation).
+  # Toggle this from the web UI dashboard without restarting services.
+  armed: true
+
+  # Log verbosity: debug | info | warning | error
+  log_level: info
+
+
+# ── Cameras ───────────────────────────────────────────────────────────────────
+# List one or more UniFi Protect cameras by their RTSP stream URL.
+#
+# To find your RTSP URL:
+#   1. Open UniFi Protect in a browser
+#   2. Settings → Cameras → select a camera → RTSP
+#   3. Enable the "High" or "Medium" quality stream and copy the URL
+#   4. The URL format is:  rtsp://<UDM-IP>:7447/<stream-token>
+#
+# Use the 720p substream (medium quality) — 4K wastes GPU cycles.
+cameras:
+  - name: pond-north                              # REQUIRED — display name
+    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN_1"  # REQUIRED
+    enabled: true
+    resolution: 720                               # Substream resolution hint (informational)
+
+  # Add a second camera by uncommenting and editing:
+  # - name: pond-south
+  #   rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN_2"
+  #   enabled: true
+  #   resolution: 720
+
+
+# ── Detection ─────────────────────────────────────────────────────────────────
+detection:
+  # Path to the YOLO model file INSIDE the container.
+  # The host models/ directory is mounted at /models inside the detector container.
+  # Place your .pt or .engine file in the models/ directory, then set the path here.
+  #
+  # Examples:
+  #   model_path: /models/best.engine   # TensorRT engine (fastest on Jetson)
+  #   model_path: /models/best.pt       # PyTorch weights (universal, slower)
+  #   model_path: /models/yolov8n.pt    # Starter model — detects generic "bird" class
+  model_path: /models/yolov8n.pt        # REQUIRED — update after adding your model
+
+  # Only trigger events above this confidence level (0.0–1.0).
+  # Lower = more sensitive (more false positives); higher = stricter.
+  confidence_threshold: 0.25
+
+  # Class names to react to. Must match the class names in your model.
+  #
+  # If using the starter model (yolov8n.pt), use: [bird]
+  # If using a custom heron model, use the classes it was trained with:
+  #   [great_blue_heron, green_heron, duck, raccoon]
+  target_classes:
+    - bird                                        # starter model — replace for custom model
+
+  # Minimum time (seconds) between events for the same class on the same camera.
+  # Prevents dozens of events for a heron standing still. 30s is a reasonable start.
+  cooldown_seconds: 30
+
+  # Process every Nth frame (1 = every frame, 2 = every other frame, etc.).
+  # Higher = fewer CPU/GPU cycles but slightly delayed detection.
+  frame_skip: 2
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+notifications:
+
+  discord:
+    enabled: false                                # Set to true after adding your webhook URL
+
+    # To get a webhook URL:
+    #   Discord server settings → Integrations → Webhooks → New Webhook → Copy URL
+    webhook_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+
+    # Optional: mention a role when a detection fires. Leave empty to disable.
+    # Find the role ID by enabling Developer Mode in Discord, then right-clicking the role.
+    mention_role: ""
+
+    # Send an annotated snapshot image with each notification.
+    include_snapshot: true
+
+  email:
+    enabled: false                                # Set to true to receive email alerts
+
+    smtp_host: "smtp.example.com"                 # e.g. smtp.gmail.com
+    smtp_port: 587                                # 587 for STARTTLS, 465 for SSL, 25 for plain
+    smtp_user: "you@example.com"
+    smtp_pass: "your-app-password"                # Use an app password, not your main password
+    to_addresses:
+      - "you@example.com"                         # Can list multiple recipients
+    include_snapshot: true
+
+
+# ── Redis (internal message bus) ──────────────────────────────────────────────
+# These settings match the redis service defined in docker-compose.yml.
+# You should not need to change these unless you run Redis externally.
+redis:
+  host: redis
+  port: 6379
+
+
+# ── Future: Valve Actuation ────────────────────────────────────────────────────
+# Uncomment and configure after setting up the ESP32 valve controller.
+# valves:
+#   mqtt_broker: "192.168.1.x"
+#   mqtt_topic_prefix: "scarguard/valve"
+#   spray_duration_min_sec: 3
+#   spray_duration_max_sec: 8
+#   valve_count: 4
+#   randomize: true
+#   cooldown_seconds: 60

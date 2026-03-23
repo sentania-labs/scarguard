@@ -6,6 +6,121 @@ Named after Scar (aka Kroger), a koi who survived a heron attack and lived to te
 
 ---
 
+## Deploy on Jetson Orin Nano
+
+> **You don't need to build anything.** Pre-built images are published to GitHub Container Registry automatically. Just clone, configure, and run.
+
+### Prerequisites
+
+- Jetson Orin Nano running JetPack 6.x (L4T 36.x)
+- Internet connection (to pull images from ghcr.io)
+- RTSP streams enabled in UniFi Protect for your cameras
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/sentania-labs/scarguard.git
+cd scarguard
+```
+
+### 2. Run the setup script
+
+```bash
+bash setup.sh
+```
+
+The script will:
+- Check that Docker and the NVIDIA container runtime are installed (and offer to install them via `infra/orin-setup.sh` if not)
+- Ask which port to use for the web UI (default: 8080)
+- Create `config/scarguard.yml` from the example template
+- Offer to download a starter YOLO model (detects generic birds — good for testing the pipeline)
+- Pull all pre-built images from GHCR
+
+### 3. Edit your configuration
+
+```bash
+nano config/scarguard.yml
+```
+
+At minimum, set your camera RTSP URLs:
+
+```yaml
+cameras:
+  - name: pond-north
+    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN"
+    enabled: true
+```
+
+Optionally enable Discord notifications:
+
+```yaml
+notifications:
+  discord:
+    enabled: true
+    webhook_url: "https://discord.com/api/webhooks/..."
+```
+
+### 4. Add a YOLO model (if you skipped the starter download)
+
+Place your `.pt` or `.engine` file in `models/`, then update `config/scarguard.yml`:
+
+```yaml
+detection:
+  model_path: /models/your-model.pt
+  target_classes:
+    - great_blue_heron
+    - green_heron
+```
+
+> The starter model (`yolov8n.pt`) uses the COCO `bird` class and is useful for verifying the system is working before you have a custom-trained model. It will not distinguish herons from sparrows.
+
+### 5. Start ScarGuard
+
+```bash
+docker compose up -d
+```
+
+### 6. Open the web UI
+
+```
+http://<your-orin-ip>:8080
+```
+
+---
+
+### Useful Commands
+
+```bash
+# View live logs from all services
+docker compose logs -f
+
+# View logs from a specific service
+docker compose logs -f detector
+
+# Stop all services
+docker compose down
+
+# Update to the latest images
+docker compose pull && docker compose up -d
+
+# Pin to a specific release
+echo "IMAGE_TAG=v1.0.0" >> .env
+docker compose pull && docker compose up -d
+```
+
+---
+
+### Changing the Web UI Port
+
+If port 8080 is already in use, edit `.env`:
+
+```bash
+echo "WEB_PORT=9090" >> .env
+docker compose up -d
+```
+
+---
+
 ## The Problem
 
 Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents — plastic owls, reflective tape — lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a deterrent that fires at random times, in random patterns, triggered only when a bird is actually present.
@@ -81,27 +196,11 @@ Services communicate over Redis pub/sub. All configuration lives in a single `co
 
 ---
 
-## Quick Start
-
-```bash
-# 1. Copy and edit config
-cp config/scarguard.yml.example config/scarguard.yml
-
-# 2. Add your RTSP URLs and Discord webhook
-
-# 3. Start the stack
-docker compose up -d
-```
-
-The web UI is available at `http://<jetson-ip>:8080`.
-
----
-
 ## Development Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Detection engine (RTSP + YOLO + SQLite + Redis) | In progress |
-| 2 | Notifications (Discord + email) | Planned |
-| 3 | Web UI | Planned |
+| 1 | Detection engine (RTSP + YOLO + SQLite + Redis) | Complete |
+| 2 | Notifications (Discord + email) | Complete |
+| 3 | Web UI | Complete |
 | 4 | Valve actuation (ESP32 + MQTT) | Planned |
