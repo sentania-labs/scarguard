@@ -36,7 +36,10 @@ WORKER_INTERVAL: int = 15
 
 _QUEUE_PATH: str = os.environ.get(
     "QUEUE_PATH",
-    os.path.join(os.environ.get("DATA_DIR", "/data"), "notification_queue.json"),
+    os.path.join(
+        os.environ.get("NOTIFIER_STATE_DIR", "/var/lib/scarguard"),
+        "notification_queue.json",
+    ),
 )
 
 
