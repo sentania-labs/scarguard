@@ -308,7 +308,7 @@ fi
 
 echo "       docker compose up -d"
 echo
-echo "  $(([[ -z "$MODEL_FILES" ]] && echo 4 || echo 3)). ${BOLD}Open the web UI:${RESET}"
+echo "  $([[ -z "$MODEL_FILES" ]] && echo 4 || echo 3). ${BOLD}Open the web UI:${RESET}"
 
 # Determine likely IP for the Orin
 ORIN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || echo "YOUR_ORIN_IP")
