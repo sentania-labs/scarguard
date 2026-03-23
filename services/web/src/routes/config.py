@@ -44,8 +44,16 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
     if not isinstance(raw_cfg, dict):
         return StructuredConfigPayload()
 
+    raw_cameras = raw_cfg.get("cameras", [])
+    if not isinstance(raw_cameras, list):
+        log.warning(
+            "Config section cameras must be a list; got %s. Using empty list.",
+            type(raw_cameras).__name__,
+        )
+        raw_cameras = []
+
     cameras: list[CameraConfig] = []
-    for i, cam in enumerate(raw_cfg.get("cameras", [])):
+    for i, cam in enumerate(raw_cameras):
         try:
             cameras.append(CameraConfig.model_validate(cam))
         except Exception as exc:

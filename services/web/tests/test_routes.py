@@ -146,6 +146,23 @@ class TestConfig:
         # cameras_json should be empty because the only camera had an invalid name
         assert "[]" in resp.text
 
+    @pytest.mark.parametrize("bad_cameras_value", [None, "rtsp://localhost/one", 123])
+    def test_page_handles_non_list_cameras_section(self, client, monkeypatch, bad_cameras_value):
+        """Malformed cameras sections should not crash /config and should fall back gracefully."""
+        cfg = {
+            "system": {"armed": True, "log_level": "warning"},
+            "cameras": bad_cameras_value,
+            "detection": {"model_path": "/models/best.pt"},
+            "notifications": {},
+        }
+        monkeypatch.setattr("config_store.load", lambda: cfg)
+        resp = client.get("/config")
+        assert resp.status_code == 200
+        # Non-camera sections should still render from config.
+        assert "warning" in resp.text
+        # cameras_json should fall back to an empty list.
+        assert "[]" in resp.text
+
     def test_structured_save_preserves_exclusion_zones(self, client, monkeypatch):
         """Saving via the structured form must not drop exclusion_zones from cameras."""
         existing = {
