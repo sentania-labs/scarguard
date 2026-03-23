@@ -48,11 +48,8 @@ class EmailNotifier:
         if self._include_snapshot and snapshot_path:
             _attach_snapshot(msg, snapshot_path)
 
-        try:
-            self._send_message(msg)
-            logger.info("Email notification sent to %s", self._to_addresses)
-        except Exception:
-            logger.exception("Failed to send email notification")
+        self._send_message(msg)
+        logger.info("Email notification sent to %s", self._to_addresses)
 
     def _send_message(self, msg: MIMEMultipart) -> None:
         # Port 587 → STARTTLS. Any other port (e.g. 465) → plain connection

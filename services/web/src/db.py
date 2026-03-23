@@ -43,3 +43,15 @@ def get_latest_event() -> sqlite3.Row | None:
         return conn.execute(
             "SELECT * FROM detection_events ORDER BY id DESC LIMIT 1"
         ).fetchone()
+
+
+def count_events_today() -> int:
+    """Count detection events that occurred since midnight UTC today."""
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) FROM detection_events
+            WHERE timestamp >= strftime('%Y-%m-%dT00:00:00', 'now')
+            """
+        ).fetchone()
+        return row[0] if row else 0

@@ -38,28 +38,22 @@ class DiscordNotifier:
             # Embed the image in a Discord embed so it renders inline.
             filename = Path(snapshot_path).name
             payload["embeds"] = [{"image": {"url": f"attachment://{filename}"}}]
-            try:
-                resp = requests.post(
-                    self._webhook_url,
-                    data={"payload_json": json.dumps(payload)},
-                    files={"file": (filename, snapshot_bytes, "image/jpeg")},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                logger.info("Discord notification sent with snapshot")
-            except requests.RequestException:
-                logger.exception("Failed to send Discord notification with snapshot")
+            resp = requests.post(
+                self._webhook_url,
+                data={"payload_json": json.dumps(payload)},
+                files={"file": (filename, snapshot_bytes, "image/jpeg")},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            logger.info("Discord notification sent with snapshot")
         else:
-            try:
-                resp = requests.post(
-                    self._webhook_url,
-                    json=payload,
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                logger.info("Discord notification sent (no snapshot)")
-            except requests.RequestException:
-                logger.exception("Failed to send Discord notification")
+            resp = requests.post(
+                self._webhook_url,
+                json=payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            logger.info("Discord notification sent (no snapshot)")
 
 
 def _read_snapshot(path: str) -> bytes | None:

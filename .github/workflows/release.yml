@@ -47,6 +47,9 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/scarguard-web:latest
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 

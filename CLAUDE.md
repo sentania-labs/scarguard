@@ -11,77 +11,93 @@ Named after Scar (aka Kroger), a survivor fish who was badly injured by a heron 
 ## Current Status
 
 ### What's Working (Validated)
+
 - **Detection pipeline:** Detector service loads a YOLO model, pulls RTSP frames, runs inference, logs to SQLite, publishes to Redis. Running with a basic COCO `bird` class model.
 - **Email notifications:** SMTP dispatch with snapshot attachment — tested and confirmed working.
 - **Discord notifications:** Webhook dispatch with snapshot image — tested and confirmed working.
 - **Web UI:** Dashboard, event log, config editor, model upload — functional.
 - **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational.
 - **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
+- **Config hot-reload:** Notifier and detector services automatically restart upon config change.
+- **External data directory:** Application assets (config, data, models, snapshots) are stored externally to the project repo.
+
+### Implemented but Not Fully Vetted / Buggy
+
+- **Form-based config GUI:** The enable/disable toggle for features/cameras is not visually aligned properly.
+- **Form-based config GUI:** Existing cameras are not correctly loaded from the YAML — possible misaligned config structure.
+- **Multi-camera simultaneous detection:** Multiple cameras loaded and monitored, but in test setup one camera seems to be preferred over the other. Physical camera stream validation still needed.
+- **Notifications:** Internet interruptions are not handled gracefully by the notifier — notifications should be queued and sent when internet access is restored.
+- **External data directory (docker-compose.yml):** `setup.sh` and `.env.example` define `DATA_DIR`, but `docker-compose.yml` still uses hardcoded relative paths (`./config`, `./models`, `./data`) instead of `${DATA_DIR}/config`, etc. The external data dir works only if the repo-local directories are symlinked or if setup copies data back into the repo tree. Compose file needs updating to use `${DATA_DIR}`.
 
 ### What's Not Yet Validated / Built
+
 - Custom-trained heron model (currently using generic COCO bird class)
-- Multi-camera simultaneous detection (config supports it, needs testing/hardening)
-- Externalized data directory (config/data/models currently live in repo checkout)
-- Config hot-reload (services currently require restart on config change)
-- Form-based config GUI (currently raw YAML editor)
 - SSL/TLS for web UI
 - Snapshot retention/cleanup
 - Enhanced event logs with action tracking and filtering
 - Generic REST webhook notification channel
 - Valve actuation (ESP32 hardware not wired yet)
 - Live camera feed with bounding box overlay in web UI (SSE)
+- About page (project info, versions, component status)
+- Admin/logs tab (view service logs from web UI)
 
 ---
 
 ## Roadmap — Current Priorities (in order)
 
-### Priority 1: Multi-Camera Support
-Add reliable second camera to the detection pipeline. Each camera should have its own detection loop (thread or async task) with independent cooldown tracking. Config already defines a `cameras` list — the detector needs to handle N cameras, not just the first one.
+### Priority 1: Harden Multi-Camera Detection
+Multi-camera is implemented but one camera appears to be starved in practice. Fix scheduling so all enabled cameras get fair processing time.
 
 **Acceptance criteria:**
-- Both `pond-north` and `pond-south` streams processed concurrently
+- Both `pond-north` and `pond-south` streams processed concurrently with balanced frame rates
 - Detection events include camera name for traceability
-- One camera going down does not crash the other
+- One camera going down does not crash or starve the other
 - Snapshots saved per-camera with camera name in filename
+- Validated with physical camera streams (not just config)
 
-### Priority 2: Externalize Data/Config Directory + Config Hot-Reload
-Two related changes, tackle together:
-
-**2a — Move config and data out of the repo.** During `setup.sh`, prompt the user for a data root directory (default: `/var/docker/scarguard`). All runtime state lives there:
-```
-/var/docker/scarguard/
-├── config/
-│   └── scarguard.yml
-├── data/
-│   ├── scarguard.db
-│   └── snapshots/
-└── models/
-```
-The repo itself contains only code, Dockerfiles, and a `config/scarguard.example.yml` template. `docker-compose.yml` reads the data root path from `.env` (e.g. `DATA_DIR=/var/docker/scarguard`) and mounts volumes accordingly. This means a `git pull` never clobbers user config.
-
-**Acceptance criteria (2a):**
-- `setup.sh` prompts for data directory, creates the folder structure, copies example config if no config exists
-- `docker-compose.yml` uses `${DATA_DIR}` for all volume mounts
-- Existing installs can migrate by moving `config/`, `data/`, `models/` to the new path and setting `DATA_DIR` in `.env`
-
-**2b — Config hot-reload.** Services detect changes to `scarguard.yml` and reload without `docker compose restart`. Options: inotify watch, polling on interval, or SIGHUP handler.
-
-**Acceptance criteria (2b):**
-- Changing `system.armed`, notification settings, or confidence thresholds takes effect within 30 seconds without restart
-- Adding/removing a camera from the config triggers the detector to start/stop that stream
-- Log a clear message when config is reloaded
-
-### Priority 3: Web UI Config Editor — Real GUI
-Replace the raw YAML text editor with a proper form-based configuration UI. Structured fields, dropdowns, toggles, and validation — not a textarea. The backend still reads/writes `scarguard.yml`, but the user never touches YAML directly in the UI.
+### Priority 2: Fix Form-Based Config GUI
+The structured config editor exists but has rendering and data-loading bugs.
 
 **Acceptance criteria:**
-- Form fields for all config sections: system, cameras, detection, notifications
+- Enable/disable toggles for features and cameras are visually aligned and functional
+- Existing cameras correctly populated from `scarguard.yml` on page load
 - Add/remove cameras via the UI
-- Toggle notifications on/off with a switch
 - Validation before save (e.g. RTSP URL format, required fields)
-- Save writes back to `scarguard.yml` (triggers hot-reload from Priority 2b)
+- Save writes back to `scarguard.yml` (triggers hot-reload)
 
-### Priority 4: SSL / TLS for Web UI
+### Priority 3: Notification Resilience
+Notifier does not handle internet outages gracefully. Notifications should queue and retry.
+
+**Acceptance criteria:**
+- On send failure (network error, timeout), notifications are queued in-memory or on disk
+- Queued notifications are retried with exponential backoff when connectivity is restored
+- A connectivity health check runs periodically (ping or lightweight HTTP request)
+- Notification queue is bounded (configurable max size, oldest dropped if full)
+- Logged clearly: queue depth, retry attempts, eventual success/failure
+
+### Priority 4: About Page
+Add an "About" page/tab to the web UI that displays project info, version, and component status at a glance.
+
+**Acceptance criteria:**
+- Accessible from the main navigation as an "About" tab/link
+- Displays: project name, version (from a `VERSION` file), build info (git commit hash, build date if available)
+- `VERSION` file lives in the repo root and is bumped as part of the release/tag CI workflow
+- Shows component status: Redis connectivity, detector running, notifier running, camera stream status
+- Shows system info: host platform, Python version, YOLO model loaded, config file path
+- Lightweight — no heavy polling, snapshot of current state on page load
+
+### Priority 5: Admin Logs Tab
+Add a "Logs" tab under an admin/configuration section of the web UI to view recent service logs.
+
+**Acceptance criteria:**
+- Accessible from the web UI navigation (e.g. under an "Admin" or "System" dropdown)
+- Displays recent log output from each service: detector, notifier, web
+- Logs sourced from Docker container logs via the Docker socket or from log files if services write to a shared volume
+- Filterable by service name and log level (info, warning, error)
+- Auto-scroll / tail mode with pause option
+- Reasonable log buffer (last N lines or last N minutes, configurable)
+
+### Priority 6: SSL / TLS for Web UI
 Support both HTTP and HTTPS. Generate a self-signed cert by default during setup, with the option to provide a custom cert and key.
 
 **Acceptance criteria:**
@@ -90,7 +106,7 @@ Support both HTTP and HTTPS. Generate a self-signed cert by default during setup
 - Web service listens on both HTTP (8080) and HTTPS (8443), or HTTPS-only if configured
 - User can drop in their own cert/key and restart to use it
 
-### Priority 5: Snapshot Retention & Cleanup
+### Priority 7: Snapshot Retention & Cleanup
 Snapshots accumulate on disk indefinitely. Add a configurable retention policy.
 
 **Acceptance criteria:**
@@ -99,7 +115,7 @@ Snapshots accumulate on disk indefinitely. Add a configurable retention policy.
 - Corresponding SQLite detection records are cleaned up or marked as snapshot-expired
 - Runs on a schedule (daily) and at startup
 
-### Priority 6: Detection Exclusion Zones
+### Priority 8: Detection Exclusion Zones
 Suppress false positives from static objects (e.g. a heron decoy that never moves). Two tiers — implement Tier 1 now, Tier 2 is a future stretch goal.
 
 **Tier 1 — Manual exclusion zones (implement now):**
@@ -115,7 +131,7 @@ Per-camera rectangular mask regions drawn in the web UI. Any detection whose bou
 **Tier 2 — Automatic static object detection (future/stretch):**
 The detector tracks detections that remain in the same position across many frames over an extended period (hours/days). If a detected object hasn't moved beyond a threshold, flag it in the web UI: "This object at [camera: pond-north] has been detected 847 times in the same spot over 3 days — add an exclusion zone?" User confirms or dismisses. Don't auto-exclude without user approval.
 
-### Priority 7: Enhanced Detection Event Logs
+### Priority 9: Enhanced Detection Event Logs
 Improve the event log in the web UI to show richer detail and support filtering.
 
 **Acceptance criteria:**
@@ -124,7 +140,7 @@ Improve the event log in the web UI to show richer detail and support filtering.
 - Support for per-class or per-camera action rules in config (e.g. "bird → notify only", "heron → notify + valve", "human → log only")
 - Action rules are configurable in `scarguard.yml` and the GUI config editor
 
-### Priority 8: Live Camera Feed in Web UI
+### Priority 10: Live Camera Feed in Web UI
 SSE or WebSocket endpoint that streams annotated frames (with bounding boxes on detections) to the dashboard.
 
 **Acceptance criteria:**
@@ -132,7 +148,7 @@ SSE or WebSocket endpoint that streams annotated frames (with bounding boxes on 
 - Bounding boxes drawn on detected objects in real-time
 - Feed degrades gracefully if stream drops (shows "offline" state, auto-reconnects)
 
-### Priority 9: Custom REST API Notification Channel
+### Priority 11: Custom REST API Notification Channel
 Add a generic outbound webhook/REST API notification type. On detection events, POST a JSON payload to a user-configured URL. This is the integration point for valve actuation (ESP32 listening on a REST endpoint), home automation, or any external system.
 
 **Acceptance criteria:**
@@ -142,8 +158,8 @@ Add a generic outbound webhook/REST API notification type. On detection events, 
 - Retry with backoff on failure (same pattern as other notification channels)
 - Multiple webhook endpoints supported (e.g. one for valves, one for Home Assistant)
 
-### Priority 10: Valve Actuation (Phase 4)
-ESP32 + ESPHome controlling 4x Orbit DC solenoid valves. Can be triggered via the REST webhook (Priority 9) or MQTT — owner's choice. Randomized spray patterns.
+### Priority 12: Valve Actuation
+ESP32 + ESPHome controlling 4x Orbit DC solenoid valves. Can be triggered via the REST webhook (Priority 11) or MQTT — owner's choice. Randomized spray patterns.
 
 **Acceptance criteria:**
 - Valve controller accepts commands via REST endpoint (and optionally MQTT)
@@ -151,7 +167,7 @@ ESP32 + ESPHome controlling 4x Orbit DC solenoid valves. Can be triggered via th
 - Independent cooldown prevents over-watering
 - Config section in `scarguard.yml` controls all valve parameters
 
-### Priority 11: Custom Heron Model Training
+### Priority 13: Custom Heron Model Training
 Replace the generic COCO bird model with a fine-tuned model that distinguishes heron species. This is a data collection and training task, not primarily a code task.
 
 ---
@@ -165,6 +181,10 @@ Replace the generic COCO bird model with a fine-tuned model that distinguishes h
 | 3 | Web UI (dashboard, events, config editor, model upload) | ✅ Complete |
 | — | CI/CD pipeline (GitHub Actions, GHCR, self-hosted runners) | ✅ Complete |
 | — | Docker Compose orchestration + setup.sh installer | ✅ Complete |
+| — | External data directory (config/data/models outside repo) | ✅ Complete |
+| — | Config hot-reload (detector + notifier restart on config change) | ✅ Complete |
+| — | Form-based config GUI (initial implementation) | ⚠️ Buggy — see Priority 2 |
+| — | Multi-camera detection (initial implementation) | ⚠️ Needs hardening — see Priority 1 |
 
 ---
 
@@ -181,8 +201,11 @@ Replace the generic COCO bird model with a fine-tuned model that distinguishes h
 ```
 scarguard/
 ├── docker-compose.yml              # Application services
+├── setup.sh                        # First-run setup script
+├── pyproject.toml                  # Python project config (linting, testing)
+├── .env.example                    # Environment variable template
 ├── config/
-│   └── scarguard.yml               # Single source of truth for all config
+│   └── scarguard.example.yml      # Example config template (copied to DATA_DIR by setup.sh)
 ├── models/                          # YOLO model files (.pt, .engine)
 ├── data/
 │   └── scarguard.db                # SQLite database
@@ -205,7 +228,9 @@ scarguard/
 │   │   │   │   ├── dashboard.py    # Live view, status, arm/disarm
 │   │   │   │   ├── events.py       # Detection event log
 │   │   │   │   ├── config.py       # Config viewer/editor
-│   │   │   │   └── models.py       # Model upload/swap
+│   │   │   │   ├── models.py       # Model upload/swap
+│   │   │   │   ├── about.py        # About page (version, component status)
+│   │   │   │   └── admin.py        # Admin tools (service logs viewer)
 │   │   │   ├── api/
 │   │   │   │   └── v1.py           # REST API for programmatic access
 │   │   │   └── db.py               # SQLite access layer
@@ -233,7 +258,7 @@ scarguard/
 
 ### Service Communication
 - **Between services:** Redis pub/sub as internal message bus. The detector publishes detection events; notifier and web UI subscribe.
-- **Config:** All services read from mounted `config/scarguard.yml`. The web UI can write to it. Services currently require restart on config changes (hot-reload is Priority 2).
+- **Config:** All services read from mounted `config/scarguard.yml` in the external data directory. The web UI can write to it. Detector and notifier auto-restart on config file changes (hot-reload).
 - **Database:** SQLite at `data/scarguard.db`, shared volume between web and detector.
 
 ### Container Base Images
@@ -256,7 +281,7 @@ All application images are pushed to **GitHub Container Registry (ghcr.io)**. Th
 7. **RTSP streams will drop.** The detector must reconnect gracefully with exponential backoff. Never crash on a dropped stream.
 8. **Snapshots are files on disk**, served by the web service from `data/snapshots/`. Don't move them to a blob store or database.
 9. **Prefer REST over MQTT for external integrations.** Valve actuation and home automation should use outbound REST webhooks unless there's a specific reason to add MQTT. Keep the dependency surface small.
-10. **Data directory is external to the repo.** After Priority 2a, `git pull` never touches user config, models, database, or snapshots. The repo is code-only.
+10. **Data directory is external to the repo.** `git pull` never touches user config, models, database, or snapshots. The repo is code-only.
 
 ---
 

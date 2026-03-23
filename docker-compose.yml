@@ -78,9 +78,11 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-notifier:${IMAGE_TAG:-latest}
     environment:
       CONFIG_PATH: /config/scarguard.yml
+      NOTIFIER_STATE_DIR: /var/lib/scarguard
     volumes:
       - ${DATA_DIR}/config:/config:ro
       - ${DATA_DIR}/data:/data:ro       # ro — reads snapshot files for Discord/email attachments
+      - ${DATA_DIR}/notifier:/var/lib/scarguard
     depends_on:
       redis:
         condition: service_healthy
