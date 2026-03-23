@@ -7,7 +7,6 @@ the services have separate Python paths and no shared source installation.
 import logging
 import os
 import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 

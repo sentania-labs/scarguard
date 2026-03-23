@@ -2,11 +2,10 @@
 
 import logging
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-
-import threading
 
 import cv2
 import numpy as np

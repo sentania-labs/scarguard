@@ -5,9 +5,8 @@ import logging
 import os
 import signal
 import sys
-import time
-
 import threading
+import time
 from typing import Optional
 
 import redis as redis_lib
