@@ -58,6 +58,12 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
+      - name: Prune Docker images and build cache
+        if: always()
+        run: |
+          docker image prune -f
+          docker builder prune -f --keep-storage 5GB
+
   # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
   release-detector:
     name: Release detector image
@@ -108,6 +114,19 @@ jobs:
         run: |
           docker push ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }}
           docker push ${{ env.DETECTOR_IMAGE }}:latest
+
+      - name: Prune stale detector images
+        if: always()
+        run: |
+          docker image prune -f
+          # Remove old scarguard-detector images, keeping only the just-built tag and latest
+          docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
+            | grep "scarguard-detector" \
+            | grep -v ":${{ github.ref_name }}" \
+            | grep -v ":latest" \
+            | awk '{print $2}' \
+            | sort -u \
+            | xargs -r docker rmi -f || true
 
   # ── Create GitHub Release ──────────────────────────────────────────────────
   # Waits for both image builds to succeed, then creates a GitHub Release
