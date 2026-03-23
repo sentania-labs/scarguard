@@ -17,9 +17,9 @@ async def dashboard(request: Request):
     total = db.count_events()
     cameras = cfg.get("cameras", [])
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "armed": cfg.get("system", {}).get("armed", True),
             "cameras": cameras,
             "total_events": total,
@@ -44,6 +44,7 @@ async def disarm(request: Request):
 def _arm_badge(request: Request, *, armed: bool) -> HTMLResponse:
     """Return just the status badge fragment for HTMX swap."""
     return templates.TemplateResponse(
+        request,
         "partials/arm_badge.html",
-        {"request": request, "armed": armed},
+        {"armed": armed},
     )

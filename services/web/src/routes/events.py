@@ -21,9 +21,9 @@ async def events_page(request: Request, page: int = 1):
     rows = db.get_events(limit=PAGE_SIZE, offset=offset)
     total = db.count_events()
     return templates.TemplateResponse(
+        request,
         "events.html",
         {
-            "request": request,
             "events": [dict(r) for r in rows],
             "page": page,
             "total_pages": max(1, -(-total // PAGE_SIZE)),  # ceiling div
@@ -38,8 +38,9 @@ async def event_rows(request: Request, page: int = 1):
     offset = (page - 1) * PAGE_SIZE
     rows = db.get_events(limit=PAGE_SIZE, offset=offset)
     return templates.TemplateResponse(
+        request,
         "partials/event_rows.html",
-        {"request": request, "events": [dict(r) for r in rows]},
+        {"events": [dict(r) for r in rows]},
     )
 
 

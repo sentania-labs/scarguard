@@ -23,8 +23,9 @@ async def models_page(request: Request, uploaded: str = ""):
         key=lambda x: str(x["name"]),
     )
     return templates.TemplateResponse(
+        request,
         "models.html",
-        {"request": request, "files": files, "uploaded": uploaded, "error": None},
+        {"files": files, "uploaded": uploaded, "error": None},
     )
 
 
@@ -35,9 +36,9 @@ async def upload_model(request: Request, file: UploadFile = File(...)):
     if suffix not in ALLOWED_EXTENSIONS:
         files = _list_files()
         return templates.TemplateResponse(
+            request,
             "models.html",
             {
-                "request": request,
                 "files": files,
                 "uploaded": "",
                 "error": f"Unsupported file type '{suffix}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",

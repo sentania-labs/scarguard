@@ -22,9 +22,9 @@ async def feed_page(request: Request):
     cameras = cfg.get("cameras", [])
     latest = db.get_latest_event()
     return templates.TemplateResponse(
+        request,
         "feed.html",
         {
-            "request": request,
             "cameras": cameras,
             "latest": dict(latest) if latest else None,
         },
