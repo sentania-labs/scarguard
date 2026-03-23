@@ -5,10 +5,13 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
+from typing import Optional
 
 import redis as redis_lib
 import yaml
+from config_watcher import ConfigWatcher
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
 
@@ -51,15 +54,29 @@ def build_notifiers(notif_cfg: dict) -> list:
     return notifiers
 
 
-def dispatch(event: dict, notifiers: list) -> None:
-    for notifier in notifiers:
+def dispatch(
+    event: dict,
+    notifiers: list,
+    notifiers_lock: Optional[threading.Lock] = None,
+) -> None:
+    if notifiers_lock is not None:
+        with notifiers_lock:
+            current = list(notifiers)
+    else:
+        current = list(notifiers)
+    for notifier in current:
         try:
             notifier.send(event)
         except Exception:
             logger.exception("Unhandled error in %s", type(notifier).__name__)
 
 
-def subscribe_loop(redis_cfg: dict, notifiers: list, shutdown_flag: list) -> None:
+def subscribe_loop(
+    redis_cfg: dict,
+    notifiers: list,
+    notifiers_lock: threading.Lock,
+    shutdown_flag: list,
+) -> None:
     """Connect to Redis and listen for events, reconnecting on failure."""
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
@@ -90,7 +107,7 @@ def subscribe_loop(redis_cfg: dict, notifiers: list, shutdown_flag: list) -> Non
                     event.get("camera_name"),
                     event.get("confidence", 0.0),
                 )
-                dispatch(event, notifiers)
+                dispatch(event, notifiers, notifiers_lock)
 
         except redis_lib.RedisError:
             if shutdown_flag[0]:
@@ -110,6 +127,7 @@ def main() -> None:
     logger.info("ScarGuard notifier starting")
 
     notifiers = build_notifiers(cfg.get("notifications", {}))
+    notifiers_lock = threading.Lock()
     if not notifiers:
         logger.warning("No notifiers enabled — will consume events without dispatching")
 
@@ -123,7 +141,25 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    subscribe_loop(cfg.get("redis", {}), notifiers, shutdown_flag)
+    def _on_config_change(new_cfg: dict) -> None:
+        new_notifiers = build_notifiers(new_cfg.get("notifications", {}))
+        with notifiers_lock:
+            notifiers.clear()
+            notifiers.extend(new_notifiers)
+        if new_notifiers:
+            logger.info(
+                "Config reloaded — notifiers: %s",
+                ", ".join(type(n).__name__ for n in new_notifiers),
+            )
+        else:
+            logger.info("Config reloaded — no notifiers enabled")
+
+    watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
+    watcher.start()
+
+    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag)
+
+    watcher.stop()
     logger.info("Notifier stopped cleanly")
 
 

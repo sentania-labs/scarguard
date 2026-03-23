@@ -40,9 +40,9 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
     volumes:
-      - ./config:/config:ro
-      - ./models:/models:ro
-      - ./data:/data
+      - ${DATA_DIR}/config:/config:ro
+      - ${DATA_DIR}/models:/models:ro
+      - ${DATA_DIR}/data:/data
     depends_on:
       redis:
         condition: service_healthy
@@ -62,9 +62,9 @@ services:
       MODELS_DIR: /models
       DB_PATH: /data/scarguard.db
     volumes:
-      - ./config:/config      # rw — config editor writes scarguard.yml
-      - ./models:/models      # rw — model upload endpoint writes here
-      - ./data:/data:ro       # ro — reads SQLite + serves snapshot images
+      - ${DATA_DIR}/config:/config      # rw — config editor writes scarguard.yml
+      - ${DATA_DIR}/models:/models      # rw — model upload endpoint writes here
+      - ${DATA_DIR}/data:/data:ro       # ro — reads SQLite + serves snapshot images
     depends_on:
       redis:
         condition: service_healthy
@@ -79,8 +79,8 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
     volumes:
-      - ./config:/config:ro
-      - ./data:/data:ro       # ro — reads snapshot files for Discord/email attachments
+      - ${DATA_DIR}/config:/config:ro
+      - ${DATA_DIR}/data:/data:ro       # ro — reads snapshot files for Discord/email attachments
     depends_on:
       redis:
         condition: service_healthy

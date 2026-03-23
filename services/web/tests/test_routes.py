@@ -66,6 +66,12 @@ class TestConfig:
         assert resp.status_code == 200
         assert "<textarea" in resp.text
 
+    def test_cameras_json_is_not_html_escaped(self, client):
+        resp = client.get("/config")
+        assert resp.status_code == 200
+        assert '"rtsp_url": "rtsp://localhost/test"' in resp.text
+        assert "&#34;rtsp_url&#34;" not in resp.text
+
     def test_post_valid_yaml(self, client, monkeypatch):
         saved = []
         monkeypatch.setattr("config_store.save", lambda cfg: saved.append(cfg))

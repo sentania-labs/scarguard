@@ -3,22 +3,184 @@
 {% block content %}
 <h1>Configuration</h1>
 
-{% if saved %}
-<div class="alert alert-ok">Config saved successfully.</div>
-{% endif %}
-{% if error %}
-<div class="alert alert-err">Error: {{ error }}</div>
-{% endif %}
+<div class="tabs">
+  <button class="tab-btn active" data-tab="tab-settings">Settings</button>
+  <button class="tab-btn" data-tab="tab-advanced">Advanced / Raw YAML</button>
+</div>
 
-<p class="hint">
-  Edit <code>scarguard.yml</code> directly. The detector and notifier read this
-  file on startup — restart those services after saving.
-</p>
+{# ── Settings tab ─────────────────────────────────────────────────────────── #}
+<div id="tab-settings" class="tab-panel active">
 
-<form method="post" action="/config">
-  <textarea name="raw_yaml" rows="40" style="width:100%;font-family:monospace;font-size:0.85rem;">{{ raw_yaml }}</textarea>
-  <div style="margin-top:0.5rem;">
-    <button type="submit">Save</button>
+  <div id="form-banner"></div>
+
+  {# System #}
+  <p class="form-section-title">System</p>
+  <div class="card">
+    <div class="field-row">
+      <div class="field-group">
+        <label class="toggle-label">
+          <input type="checkbox" id="sys-armed" {% if cfg.system.armed %}checked{% endif %}>
+          <span class="toggle-track"></span>
+          Armed (detections trigger notifications)
+        </label>
+      </div>
+      <div class="field-group">
+        <label>Log level</label>
+        <select id="sys-log-level">
+          {% for level in ["debug","info","warning","error"] %}
+          <option value="{{ level }}" {% if cfg.system.log_level == level %}selected{% endif %}>{{ level }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
   </div>
-</form>
+
+  {# Cameras #}
+  <p class="form-section-title">Cameras</p>
+  <div class="card">
+    {# Server-side camera data passed to JS #}
+    <script id="cameras-data" type="application/json">
+      {{ cameras_json | safe }}
+    </script>
+    <div id="cameras-list"></div>
+    <button type="button" class="btn-add" onclick="addCamera()">+ Add Camera</button>
+  </div>
+
+  {# Detection #}
+  <p class="form-section-title">Detection</p>
+  <div class="card">
+    <div class="field-group">
+      <label>Model path (inside container)</label>
+      <input type="text" id="det-model-path" value="{{ cfg.detection.model_path }}" placeholder="/models/yolov8n.pt">
+    </div>
+    <div class="field-group">
+      <label>Confidence threshold</label>
+      <div class="slider-row">
+        <input type="range" id="conf-slider" min="0" max="1" step="0.01"
+               value="{{ cfg.detection.confidence_threshold }}">
+        <span class="slider-value" id="conf-value">{{ "%.2f"|format(cfg.detection.confidence_threshold) }}</span>
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Target classes (comma-separated)</label>
+      <input type="text" id="target-classes" value="{{ cfg.detection.target_classes | join(', ') }}"
+             placeholder="bird, great_blue_heron, duck">
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label>Cooldown between events (seconds)</label>
+        <input type="number" id="det-cooldown" value="{{ cfg.detection.cooldown_seconds }}" min="1" max="3600">
+      </div>
+      <div class="field-group">
+        <label>Frame skip (process every Nth frame)</label>
+        <input type="number" id="det-frame-skip" value="{{ cfg.detection.frame_skip }}" min="1" max="60">
+      </div>
+    </div>
+  </div>
+
+  {# Notifications — Discord #}
+  <p class="form-section-title">Notifications — Discord</p>
+  <div class="card">
+    <div class="field-group">
+      <label class="toggle-label">
+        <input type="checkbox" id="discord-enabled" {% if cfg.notifications.discord.enabled %}checked{% endif %}>
+        <span class="toggle-track"></span>
+        Enable Discord notifications
+      </label>
+    </div>
+    <div class="field-group">
+      <label>Webhook URL</label>
+      <input type="text" id="discord-url" value="{{ cfg.notifications.discord.webhook_url }}"
+             placeholder="https://discord.com/api/webhooks/…">
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label>Mention role ID (leave blank to disable)</label>
+        <input type="text" id="discord-role" value="{{ cfg.notifications.discord.mention_role }}">
+      </div>
+      <div class="field-group" style="padding-top:1.5rem;">
+        <label class="toggle-label">
+          <input type="checkbox" id="discord-snapshot" {% if cfg.notifications.discord.include_snapshot %}checked{% endif %}>
+          <span class="toggle-track"></span>
+          Attach snapshot image
+        </label>
+      </div>
+    </div>
+  </div>
+
+  {# Notifications — Email #}
+  <p class="form-section-title">Notifications — Email</p>
+  <div class="card">
+    <div class="field-group">
+      <label class="toggle-label">
+        <input type="checkbox" id="email-enabled" {% if cfg.notifications.email.enabled %}checked{% endif %}>
+        <span class="toggle-track"></span>
+        Enable email notifications
+      </label>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label>SMTP host</label>
+        <input type="text" id="email-host" value="{{ cfg.notifications.email.smtp_host }}"
+               placeholder="smtp.gmail.com">
+      </div>
+      <div class="field-group">
+        <label>SMTP port</label>
+        <input type="number" id="email-port" value="{{ cfg.notifications.email.smtp_port }}"
+               min="1" max="65535">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label>SMTP username</label>
+        <input type="text" id="email-user" value="{{ cfg.notifications.email.smtp_user }}"
+               placeholder="you@example.com">
+      </div>
+      <div class="field-group">
+        <label>SMTP password</label>
+        <input type="password" id="email-pass" value="{{ cfg.notifications.email.smtp_pass }}">
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Recipients (one address per line)</label>
+      <textarea id="email-to" rows="3" style="width:100%;">{{ cfg.notifications.email.to_addresses | join('\n') }}</textarea>
+    </div>
+    <div class="field-group">
+      <label class="toggle-label">
+        <input type="checkbox" id="email-snapshot" {% if cfg.notifications.email.include_snapshot %}checked{% endif %}>
+        <span class="toggle-track"></span>
+        Attach snapshot image
+      </label>
+    </div>
+  </div>
+
+  <button id="save-btn" type="button" onclick="saveConfig()">Save</button>
+
+</div>{# /tab-settings #}
+
+{# ── Advanced tab ─────────────────────────────────────────────────────────── #}
+<div id="tab-advanced" class="tab-panel">
+
+  {% if saved %}
+  <div class="alert alert-ok">Config saved successfully.</div>
+  {% endif %}
+  {% if error %}
+  <div class="alert alert-err">Error: {{ error }}</div>
+  {% endif %}
+
+  <p class="hint">
+    Direct YAML editor. Changes here are applied immediately on save.
+    Services reload within ~10 seconds — no restart required.
+  </p>
+
+  <form method="post" action="/config">
+    <textarea name="raw_yaml" rows="40" style="width:100%;font-family:monospace;font-size:0.85rem;">{{ raw_yaml }}</textarea>
+    <div style="margin-top:0.5rem;">
+      <button type="submit">Save</button>
+    </div>
+  </form>
+
+</div>{# /tab-advanced #}
+
+<script src="/static/config.js"></script>
 {% endblock %}

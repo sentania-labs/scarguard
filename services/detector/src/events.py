@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ class EventProcessor:
         self._db_path = db_path
         # Cooldown tracker: "{camera_name}:{class_name}" → monotonic time of last event
         self._last_event: dict[str, float] = {}
+        self._cooldown_lock = threading.Lock()
         self._init_db()
 
     # ------------------------------------------------------------------
@@ -48,13 +50,14 @@ class EventProcessor:
 
         for det in detections:
             key = f"{camera_name}:{det.class_name}"
-            if now - self._last_event.get(key, 0.0) < self.cooldown_seconds:
-                logger.debug(
-                    "[%s] %s suppressed — cooldown active", camera_name, det.class_name
-                )
-                continue
-
-            self._last_event[key] = now
+            with self._cooldown_lock:
+                last = self._last_event.get(key, 0.0)
+                if now - last < self.cooldown_seconds:
+                    logger.debug(
+                        "[%s] %s suppressed — cooldown active", camera_name, det.class_name
+                    )
+                    continue
+                self._last_event[key] = now
             timestamp = datetime.now(timezone.utc)
             snapshot_path = self._save_snapshot(frame, det, camera_name, timestamp)
             self._persist(timestamp, det, camera_name, snapshot_path)

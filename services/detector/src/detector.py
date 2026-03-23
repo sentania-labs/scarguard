@@ -1,6 +1,7 @@
 """YOLO model wrapper — loads .pt or .engine files and runs inference."""
 
 import logging
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -26,6 +27,7 @@ class YOLODetector:
         self.confidence_threshold = confidence_threshold
         self.target_classes = set(target_classes)
         self._model = None
+        self._lock = threading.Lock()
         self._load()
 
     def _load(self) -> None:
@@ -38,12 +40,17 @@ class YOLODetector:
         logger.info("Model ready (classes: %s)", sorted(self.target_classes))
 
     def predict(self, frame: np.ndarray) -> list[Detection]:
-        """Run inference and return detections that pass class + confidence filters."""
-        results = self._model.predict(
-            frame,
-            conf=self.confidence_threshold,
-            verbose=False,
-        )
+        """Run inference and return detections that pass class + confidence filters.
+
+        Thread-safe: acquires a lock so multiple camera threads share one GPU
+        without concurrent model calls.
+        """
+        with self._lock:
+            results = self._model.predict(
+                frame,
+                conf=self.confidence_threshold,
+                verbose=False,
+            )
 
         detections: list[Detection] = []
         for result in results:
