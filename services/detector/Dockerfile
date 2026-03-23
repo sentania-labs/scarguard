@@ -26,4 +26,4 @@ COPY shared/ ./shared/
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "src/main.py"]
+CMD ["python3", "src/main.py"]
