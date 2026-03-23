@@ -134,8 +134,33 @@ fi
 step "Setting up environment (.env)"
 
 if [[ -f ".env" ]]; then
-    info ".env already exists — skipping."
+    info ".env already exists — loading."
+    # Source it to pick up any previously set values.
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+
+    # Back-fill DATA_DIR if an older .env predates this field.
+    if [[ -z "${DATA_DIR:-}" ]]; then
+        DATA_DIR="/var/docker/scarguard"
+        printf '\n# Data directory (config, models, snapshots, database)\nDATA_DIR=%s\n' \
+            "$DATA_DIR" >> .env
+        info "Added DATA_DIR=${DATA_DIR} to existing .env"
+        warn "Edit .env and change DATA_DIR if you want a different location, then re-run setup.sh."
+    else
+        info "DATA_DIR=${DATA_DIR}"
+    fi
 else
+    # Prompt for DATA_DIR
+    echo
+    echo "  ScarGuard stores config, models, snapshots, and the database outside"
+    echo "  the repo so that git pull never clobbers your settings."
+    echo
+    ask "Data directory? (Enter for default /var/docker/scarguard): "
+    read -r DATA_DIR_INPUT </dev/tty
+    DATA_DIR="${DATA_DIR_INPUT:-/var/docker/scarguard}"
+
     # Prompt for web port
     ask "Web UI port? (press Enter for default 8080): "
     read -r WEB_PORT_INPUT </dev/tty
@@ -150,12 +175,12 @@ else
     fi
 
     cp .env.example .env
-    # Update WEB_PORT in the new .env if user provided a non-default value
+    sed -i "s|^DATA_DIR=.*|DATA_DIR=${DATA_DIR}|" .env
     if [[ "$WEB_PORT_VALUE" != "8080" ]]; then
         sed -i "s/^WEB_PORT=.*/WEB_PORT=${WEB_PORT_VALUE}/" .env
     fi
 
-    info "Created .env (WEB_PORT=${WEB_PORT_VALUE})"
+    info "Created .env (DATA_DIR=${DATA_DIR}, WEB_PORT=${WEB_PORT_VALUE})"
 fi
 
 # Read WEB_PORT for use in the final message
@@ -164,30 +189,30 @@ WEB_PORT_FINAL=$(grep -E '^WEB_PORT=' .env | cut -d= -f2 || echo "8080")
 # ── Step 5: Create config/scarguard.yml ───────────────────────────────────────
 step "Setting up configuration"
 
-mkdir -p config
+mkdir -p "${DATA_DIR}/config"
 
-if [[ -f "config/scarguard.yml" ]]; then
-    info "config/scarguard.yml already exists — skipping."
+if [[ -f "${DATA_DIR}/config/scarguard.yml" ]]; then
+    info "${DATA_DIR}/config/scarguard.yml already exists — skipping."
     CONFIG_IS_NEW=false
 else
-    cp config/scarguard.example.yml config/scarguard.yml
-    info "Created config/scarguard.yml from example."
+    cp config/scarguard.example.yml "${DATA_DIR}/config/scarguard.yml"
+    info "Created ${DATA_DIR}/config/scarguard.yml from example."
     CONFIG_IS_NEW=true
 fi
 
 # ── Step 6: Create data and models directories ────────────────────────────────
 step "Creating directories"
 
-mkdir -p data/snapshots
-info "data/snapshots/ ready"
+mkdir -p "${DATA_DIR}/data/snapshots"
+info "${DATA_DIR}/data/snapshots/ ready"
 
-mkdir -p models
-info "models/ ready"
+mkdir -p "${DATA_DIR}/models"
+info "${DATA_DIR}/models/ ready"
 
 # ── Step 7: Model check / starter model download ──────────────────────────────
 step "Checking for YOLO model"
 
-MODEL_FILES=$(find models/ -maxdepth 1 \( -name "*.pt" -o -name "*.engine" \) 2>/dev/null | head -5)
+MODEL_FILES=$(find "${DATA_DIR}/models/" -maxdepth 1 \( -name "*.pt" -o -name "*.engine" \) 2>/dev/null | head -5)
 
 if [[ -n "$MODEL_FILES" ]]; then
     info "Model file(s) found in models/:"
@@ -214,7 +239,7 @@ else
 
     if confirm "Download the starter model (yolov8n.pt) now?" "y"; then
         STARTER_URL="https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt"
-        STARTER_PATH="models/yolov8n.pt"
+        STARTER_PATH="${DATA_DIR}/models/yolov8n.pt"
 
         if command -v curl &>/dev/null; then
             echo "  Downloading yolov8n.pt..."
@@ -299,7 +324,7 @@ echo
 echo "${BOLD}Next steps:${RESET}"
 echo
 echo "  1. ${BOLD}Edit your configuration:${RESET}"
-echo "       nano config/scarguard.yml"
+echo "       nano ${DATA_DIR}/config/scarguard.yml"
 echo
 echo "     Key settings to update:"
 echo "       - cameras[*].rtsp_url   → Your UniFi Protect RTSP stream URLs"
@@ -310,8 +335,8 @@ echo
 
 if [[ -z "$MODEL_FILES" ]]; then
     echo "  2. ${BOLD}Add a YOLO model${RESET} (if you skipped the starter download):"
-    echo "       Copy your .pt or .engine file to models/"
-    echo "       Then update detection.model_path in config/scarguard.yml"
+    echo "       Copy your .pt or .engine file to ${DATA_DIR}/models/"
+    echo "       Then update detection.model_path in ${DATA_DIR}/config/scarguard.yml"
     echo
     echo "  3. ${BOLD}Start ScarGuard:${RESET}"
 else
@@ -335,11 +360,19 @@ if [[ "$NVIDIA_OK" == "false" ]]; then
 fi
 
 if [[ "$CONFIG_IS_NEW" == "true" ]]; then
-    echo "${YELLOW}Important:${RESET} config/scarguard.yml was created from the example."
+    echo "${YELLOW}Important:${RESET} ${DATA_DIR}/config/scarguard.yml was created from the example."
     echo "  Update your RTSP camera URLs before starting — the system will not"
     echo "  detect anything until real camera streams are configured."
     echo
 fi
+
+echo "${BOLD}Migrating from an older install?${RESET}"
+echo "  If you previously ran ScarGuard with config/data/models in the repo"
+echo "  directory, move them to the new location:"
+echo "    mv <repo>/config/scarguard.yml ${DATA_DIR}/config/"
+echo "    mv <repo>/data/                ${DATA_DIR}/"
+echo "    mv <repo>/models/              ${DATA_DIR}/"
+echo
 
 echo "  To view logs:     docker compose logs -f"
 echo "  To stop:          docker compose down"
