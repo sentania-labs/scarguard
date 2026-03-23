@@ -49,7 +49,7 @@ function buildCameraCard(cam) {
     </div>
     <div class="field-group">
       <label>RTSP URL</label>
-      <input type="text" class="cam-rtsp" value="${_esc(cam.rtsp_url || "")}" placeholder="rtsp://192.168.1.1:7447/TOKEN">
+      <input type="text" class="cam-rtsp" value="${_esc(cam.rtsp_url || "")}" placeholder="rtsp:// or rtsps://192.168.1.1:7447/TOKEN">
     </div>
     <label class="toggle-label">
       <input type="checkbox" class="cam-enabled" ${enabled ? "checked" : ""}>
@@ -128,8 +128,8 @@ function validate(data) {
 
   data.cameras.forEach((cam, i) => {
     if (!cam.name) errors.push(`Camera ${i + 1}: name is required`);
-    if (cam.rtsp_url && !cam.rtsp_url.startsWith("rtsp://"))
-      errors.push(`Camera ${i + 1} (${cam.name || i + 1}): RTSP URL must start with rtsp://`);
+    if (cam.rtsp_url && !cam.rtsp_url.startsWith("rtsp://") && !cam.rtsp_url.startsWith("rtsps://"))
+      errors.push(`Camera ${i + 1} (${cam.name || i + 1}): RTSP URL must start with rtsp:// or rtsps://`);
   });
 
   const conf = data.detection.confidence_threshold;

@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}About — ScarGuard{% endblock %}
+{% block content %}
+<h1>About ScarGuard</h1>
+<p class="hint">
+  Named after Scar (aka Kroger), a koi who survived a heron attack and lived to tell the tale.
+</p>
+
+{# ── Version & build ──────────────────────────────────────────────────────── #}
+<p class="form-section-title">Version</p>
+<div class="card">
+  <div class="field-row">
+    <div class="field-group">
+      <label>Version</label>
+      <div class="about-value">{{ version }}</div>
+    </div>
+    <div class="field-group">
+      <label>Git commit</label>
+      <div class="about-value mono">
+        {% if git_commit != "unknown" %}
+          {{ git_commit[:12] }}
+        {% else %}
+          <span class="muted">unknown</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="field-row">
+    <div class="field-group">
+      <label>Build date</label>
+      <div class="about-value">
+        {% if build_date != "unknown" %}
+          {{ build_date }}
+        {% else %}
+          <span class="muted">unknown</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Python</label>
+      <div class="about-value mono">{{ python_version }}</div>
+    </div>
+  </div>
+</div>
+
+{# ── Component status ──────────────────────────────────────────────────────── #}
+<p class="form-section-title">Component Status</p>
+<div class="card">
+  <div class="about-status-grid">
+
+    <div class="about-status-item">
+      <span class="status-dot {% if redis_ok %}dot-ok{% else %}dot-err{% endif %}"></span>
+      <div>
+        <div class="about-status-label">Redis</div>
+        <div class="about-status-detail">
+          {% if redis_ok %}Connected{% else %}Unreachable{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="about-status-item">
+      <span class="status-dot {% if latest_event %}dot-ok{% else %}dot-warn{% endif %}"></span>
+      <div>
+        <div class="about-status-label">Detector</div>
+        <div class="about-status-detail">
+          {% if latest_event %}
+            Last detection {{ latest_ago }}
+          {% else %}
+            No detections recorded yet
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="about-status-item">
+      <span class="status-dot {% if armed %}dot-ok{% else %}dot-warn{% endif %}"></span>
+      <div>
+        <div class="about-status-label">System</div>
+        <div class="about-status-detail">
+          {% if armed %}Armed — detections trigger notifications{% else %}Disarmed{% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="about-stat-row" style="margin-top:1rem;">
+    <span class="about-stat-num">{{ today_count }}</span>
+    <span class="about-stat-label">detection(s) today</span>
+  </div>
+</div>
+
+{# ── Config snapshot ────────────────────────────────────────────────────────── #}
+<p class="form-section-title">Configuration</p>
+<div class="card">
+  <div class="field-row">
+    <div class="field-group">
+      <label>Config file</label>
+      <div class="about-value mono">{{ config_path }}</div>
+    </div>
+    <div class="field-group">
+      <label>YOLO model</label>
+      <div class="about-value mono">{{ model_path }}</div>
+    </div>
+  </div>
+
+  <div class="field-group" style="margin-top:0.75rem;">
+    <label>Cameras ({{ cameras | length }})</label>
+    {% if cameras %}
+    <div class="about-camera-list">
+      {% for cam in cameras %}
+      <div class="about-camera-row">
+        <span class="status-dot {% if cam.get('enabled', true) %}dot-ok{% else %}dot-muted{% endif %}"></span>
+        <span class="about-camera-name">{{ cam.get('name', '—') }}</span>
+        <span class="muted about-camera-res">{{ cam.get('resolution', '—') }}p</span>
+        <span class="muted">{% if not cam.get('enabled', true) %}disabled{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="muted">No cameras configured</div>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.about-value {
+  font-size: 0.95rem;
+  color: var(--text);
+  padding: 0.25rem 0;
+}
+.about-value.mono { font-family: var(--mono); font-size: 0.85rem; }
+.muted { color: var(--muted); }
+.mono  { font-family: var(--mono); font-size: 0.85rem; }
+
+.about-status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+.about-status-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  flex: 1;
+  min-width: 180px;
+}
+.about-status-label { font-size: 0.875rem; font-weight: 600; }
+.about-status-detail { font-size: 0.8rem; color: var(--muted); margin-top: 0.1rem; }
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.dot-ok   { background: var(--ok); }
+.dot-warn { background: var(--warn); }
+.dot-err  { background: var(--danger); }
+.dot-muted { background: var(--border); }
+
+.about-stat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.about-stat-num   { font-size: 2rem; font-weight: 700; color: var(--accent); }
+.about-stat-label { font-size: 0.875rem; color: var(--muted); }
+
+.about-camera-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem; }
+.about-camera-row  {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.about-camera-name { font-weight: 500; }
+.about-camera-res  { font-size: 0.8rem; }
+</style>
+{% endblock %}

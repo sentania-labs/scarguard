@@ -14,6 +14,7 @@ import yaml
 from config_watcher import ConfigWatcher
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
+from notification_queue import NotificationQueue, WORKER_INTERVAL
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +59,56 @@ def dispatch(
     event: dict,
     notifiers: list,
     notifiers_lock: Optional[threading.Lock] = None,
+    queue: Optional[NotificationQueue] = None,
 ) -> None:
+    """Send an event to all active notifiers.
+
+    If a notifier raises (e.g. network error), the event is enqueued for retry
+    when a queue is provided.  Without a queue the error is logged and the next
+    notifier is still attempted.
+    """
     if notifiers_lock is not None:
         with notifiers_lock:
             current = list(notifiers)
     else:
         current = list(notifiers)
+
     for notifier in current:
         try:
             notifier.send(event)
         except Exception:
-            logger.exception("Unhandled error in %s", type(notifier).__name__)
+            if queue is not None:
+                logger.warning(
+                    "%s failed — event queued for retry (queue depth: %d)",
+                    type(notifier).__name__,
+                    queue.depth,
+                )
+                queue.enqueue(event, notifier)
+            else:
+                logger.exception("Unhandled error in %s (no retry queue)", type(notifier).__name__)
+
+
+def _start_retry_worker(
+    queue: NotificationQueue,
+    notifiers: list,
+    notifiers_lock: threading.Lock,
+    shutdown_flag: list,
+) -> threading.Thread:
+    """Start the background thread that processes due retry queue entries."""
+
+    def _worker() -> None:
+        logger.info("Notification retry worker started (interval: %ds)", WORKER_INTERVAL)
+        while not shutdown_flag[0]:
+            try:
+                queue.process_due(notifiers, notifiers_lock)
+            except Exception:
+                logger.exception("Unexpected error in notification retry worker")
+            time.sleep(WORKER_INTERVAL)
+        logger.info("Notification retry worker stopped")
+
+    t = threading.Thread(target=_worker, name="notif-retry-worker", daemon=True)
+    t.start()
+    return t
 
 
 def subscribe_loop(
@@ -76,6 +116,7 @@ def subscribe_loop(
     notifiers: list,
     notifiers_lock: threading.Lock,
     shutdown_flag: list,
+    queue: NotificationQueue,
 ) -> None:
     """Connect to Redis and listen for events, reconnecting on failure."""
     host = redis_cfg.get("host", "redis")
@@ -107,7 +148,7 @@ def subscribe_loop(
                     event.get("camera_name"),
                     event.get("confidence", 0.0),
                 )
-                dispatch(event, notifiers, notifiers_lock)
+                dispatch(event, notifiers, notifiers_lock, queue)
 
         except redis_lib.RedisError:
             if shutdown_flag[0]:
@@ -130,6 +171,10 @@ def main() -> None:
     notifiers_lock = threading.Lock()
     if not notifiers:
         logger.warning("No notifiers enabled — will consume events without dispatching")
+
+    queue = NotificationQueue()
+    if queue.depth:
+        logger.info("Resuming with %d notification(s) pending in retry queue", queue.depth)
 
     # Use a mutable flag so the signal handler can stop the blocking listen loop.
     shutdown_flag = [False]
@@ -157,7 +202,9 @@ def main() -> None:
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
-    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag)
+    _start_retry_worker(queue, notifiers, notifiers_lock, shutdown_flag)
+
+    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag, queue)
 
     watcher.stop()
     logger.info("Notifier stopped cleanly")
