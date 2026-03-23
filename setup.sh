@@ -274,7 +274,7 @@ else
     error "docker compose pull failed."
     warn "This may be a network or authentication issue (e.g. private GHCR registry)."
     echo
-    if confirm "Pull failed. Build images locally from source instead?" "y"; then
+    if [[ -t 1 ]] && confirm "Pull failed. Build images locally from source instead?" "n"; then
         echo "  Running docker compose build (this may take several minutes)..."
         if docker compose build; then
             info "Images built successfully from source."
