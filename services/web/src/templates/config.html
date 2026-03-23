@@ -40,7 +40,7 @@
   <div class="card">
     {# Server-side camera data passed to JS #}
     <script id="cameras-data" type="application/json">
-      {{ cameras_json }}
+      {{ cameras_json | safe }}
     </script>
     <div id="cameras-list"></div>
     <button type="button" class="btn-add" onclick="addCamera()">+ Add Camera</button>
