@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -116,7 +117,7 @@ jobs:
     name: Build & push images
     runs-on: [self-hosted, linux, docker]
     needs: [lint, typecheck, test-web, test-notifier]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
       packages: write
@@ -135,6 +136,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker metadata — web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          flavor: |
+            latest=false
+          images: ghcr.io/${{ github.repository_owner }}/scarguard-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push — web
         uses: docker/build-push-action@v5
         with:
@@ -142,11 +156,24 @@ jobs:
           file: services/web/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-web:latest
-            ghcr.io/${{ github.repository_owner }}/scarguard-web:sha-${{ github.sha }}
+          provenance: false
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+
+      - name: Docker metadata — notifier
+        id: meta-notifier
+        uses: docker/metadata-action@v5
+        with:
+          flavor: |
+            latest=false
+          images: ghcr.io/${{ github.repository_owner }}/scarguard-notifier
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push — notifier
         uses: docker/build-push-action@v5
@@ -155,9 +182,9 @@ jobs:
           file: services/notifier/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-notifier:latest
-            ghcr.io/${{ github.repository_owner }}/scarguard-notifier:sha-${{ github.sha }}
+          provenance: false
+          tags: ${{ steps.meta-notifier.outputs.tags }}
+          labels: ${{ steps.meta-notifier.outputs.labels }}
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
@@ -165,12 +192,12 @@ jobs:
   # Must run on the Orin: L4T base image is ARM64-only and TensorRT engine files
   # are architecture-specific. Docker socket is mounted from host so the smoke
   # test can reach the GPU without nested containers.
-  # Only runs on push to main (not PRs).
+  # Only runs on push to main or version tags (not PRs).
   build-push-detector:
     name: Build & push detector image
     runs-on: [self-hosted, linux, arm64, jetson]
     needs: [lint, typecheck]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       contents: read
       packages: write
@@ -188,13 +215,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker metadata — detector
+        id: meta-detector
+        uses: docker/metadata-action@v5
+        with:
+          flavor: |
+            latest=false
+          images: ghcr.io/${{ github.repository_owner }}/scarguard-detector
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build detector image
         run: |
           docker build \
             --file services/detector/Dockerfile \
-            --tag ${{ env.DETECTOR_IMAGE }}:latest \
-            --tag ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }} \
+            --tag ${{ env.DETECTOR_IMAGE }}:build \
             .
+          while IFS= read -r tag; do
+            docker tag ${{ env.DETECTOR_IMAGE }}:build "$tag"
+          done <<< "${{ steps.meta-detector.outputs.tags }}"
 
       # Verifies CUDA is accessible inside the new image before pushing.
       - name: GPU smoke test
@@ -202,7 +244,7 @@ jobs:
           docker run --rm \
             --runtime nvidia \
             -e NVIDIA_VISIBLE_DEVICES=all \
-            ${{ env.DETECTOR_IMAGE }}:latest \
+            ${{ env.DETECTOR_IMAGE }}:build \
             python3 -c "
           import torch
           assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
@@ -216,5 +258,6 @@ jobs:
 
       - name: Push detector image
         run: |
-          docker push ${{ env.DETECTOR_IMAGE }}:latest
-          docker push ${{ env.DETECTOR_IMAGE }}:sha-${{ github.sha }}
+          while IFS= read -r tag; do
+            docker push "$tag"
+          done <<< "${{ steps.meta-detector.outputs.tags }}"
