@@ -25,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -39,7 +41,9 @@ jobs:
         with:
           context: .
           file: services/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
           tags: |
             ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/scarguard-web:latest
@@ -51,7 +55,9 @@ jobs:
         with:
           context: .
           file: services/notifier/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
+          provenance: false
           tags: |
             ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/scarguard-notifier:latest
