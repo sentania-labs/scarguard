@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from routes import config, dashboard, events, feed, models
+from routes import about, config, dashboard, events, feed, models
 
 app = FastAPI(title="ScarGuard")
 
@@ -29,3 +29,4 @@ app.include_router(events.router)
 app.include_router(config.router)
 app.include_router(models.router)
 app.include_router(feed.router)
+app.include_router(about.router)

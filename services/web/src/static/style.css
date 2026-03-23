@@ -201,14 +201,29 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
   cursor: pointer;
   font-size: 0.875rem;
   user-select: none;
+  position: relative;  /* contain the zero-size checkbox */
 }
-.toggle-label input[type="checkbox"] { display: none; }
+/* Hide the native checkbox without removing it from the DOM.
+   display:none can mis-render in some environments; opacity+position
+   is universally reliable while keeping the :checked sibling selector
+   and keyboard/accessibility behaviour intact. */
+.toggle-label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
 .toggle-track {
   width: 36px;
+  min-width: 36px;
   height: 20px;
   background: var(--border);
   border-radius: 10px;
   position: relative;
+  overflow: hidden;
   transition: background 0.2s;
   flex-shrink: 0;
 }

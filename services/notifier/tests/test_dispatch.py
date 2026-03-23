@@ -80,13 +80,14 @@ class TestDiscordNotifier:
         assert "json" in kwargs
         assert "files" not in kwargs
 
-    def test_does_not_raise_on_request_error(self):
+    def test_raises_on_request_error(self):
         import requests as req_lib
 
         notifier = self._make()
         with patch("requests.post", side_effect=req_lib.ConnectionError("timeout")):
-            # Should log and return, never raise
-            notifier.send(SAMPLE_EVENT)
+            # Propagates so the dispatch layer can enqueue for retry
+            with pytest.raises(req_lib.ConnectionError):
+                notifier.send(SAMPLE_EVENT)
 
     def test_include_snapshot_false_skips_file(self, tmp_path):
         snap = tmp_path / "frame.jpg"
@@ -155,13 +156,14 @@ class TestEmailNotifier:
         attachment = parts[1]
         assert attachment.get_filename() == "frame.jpg"
 
-    def test_does_not_raise_on_smtp_error(self):
+    def test_raises_on_smtp_error(self):
         import smtplib
 
         notifier = self._make()
         with patch.object(notifier, "_send_message", side_effect=smtplib.SMTPException("fail")):
-            # Should log and return, never propagate
-            notifier.send(SAMPLE_EVENT)
+            # Propagates so the dispatch layer can enqueue for retry
+            with pytest.raises(smtplib.SMTPException):
+                notifier.send(SAMPLE_EVENT)
 
 
 class TestDispatchRouting:
