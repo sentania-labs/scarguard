@@ -15,8 +15,9 @@ async def config_page(request: Request):
     cfg = config_store.load()
     raw = yaml.dump(cfg, default_flow_style=False, sort_keys=False)
     return templates.TemplateResponse(
+        request,
         "config.html",
-        {"request": request, "raw_yaml": raw, "saved": False, "error": None},
+        {"raw_yaml": raw, "saved": False, "error": None},
     )
 
 
@@ -36,6 +37,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)):
         error = str(exc)
 
     return templates.TemplateResponse(
+        request,
         "config.html",
-        {"request": request, "raw_yaml": raw_yaml, "saved": saved, "error": error},
+        {"raw_yaml": raw_yaml, "saved": saved, "error": error},
     )
