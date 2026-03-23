@@ -272,9 +272,21 @@ if docker compose pull; then
     info "Images pulled successfully."
 else
     error "docker compose pull failed."
-    warn "This may be a network issue. Check your connection and try again."
-    warn "  docker compose pull"
-    # Don't exit — user can still review the config and pull later.
+    warn "This may be a network or authentication issue (e.g. private GHCR registry)."
+    echo
+    if [[ -t 1 ]] && confirm "Pull failed. Build images locally from source instead?" "n"; then
+        echo "  Running docker compose build (this may take several minutes)..."
+        if docker compose build; then
+            info "Images built successfully from source."
+        else
+            error "docker compose build also failed. Check the output above."
+            warn "You can retry manually:  docker compose build"
+        fi
+    else
+        warn "Skipping image build. Run one of these before starting:"
+        warn "  docker compose pull    (once registry access is resolved)"
+        warn "  docker compose build   (to build from source)"
+    fi
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
