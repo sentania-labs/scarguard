@@ -11,19 +11,27 @@ Named after Scar (aka Kroger), a survivor fish who was badly injured by a heron 
 ## Current Status
 
 ### What's Working (Validated)
+
 - **Detection pipeline:** Detector service loads a YOLO model, pulls RTSP frames, runs inference, logs to SQLite, publishes to Redis. Running with a basic COCO `bird` class model.
 - **Email notifications:** SMTP dispatch with snapshot attachment — tested and confirmed working.
 - **Discord notifications:** Webhook dispatch with snapshot image — tested and confirmed working.
 - **Web UI:** Dashboard, event log, config editor, model upload — functional.
 - **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational.
 - **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
+- **Config hot-reload:**  Notifier and detector services automatically restart upon config change.
+- **External data directory:** Application assets are stored externally to project repo. 
+
+### Implemented but not fully vetted and/or buggy
+
+- **Form-based config GUI:** The enable/disable toggle for features/cameras is not visually aligned properly
+- **Form-based config GUI:** Existing cameras are not correctly loaded from the yaml, possible due to misaligned config yaml.
+- **Multi-camera simultaneous detection:** Multiple cameras loaded and monitored - but in test setup one camera seems to be preferred.  Validation of physical camera stream needs to be done.
+- **Notifications:** Internet interruptions are not handled gracefully by notifier - notificaitons should be queued and sent when internet access is restored.
 
 ### What's Not Yet Validated / Built
+
 - Custom-trained heron model (currently using generic COCO bird class)
-- Multi-camera simultaneous detection (config supports it, needs testing/hardening)
 - Externalized data directory (config/data/models currently live in repo checkout)
-- Config hot-reload (services currently require restart on config change)
-- Form-based config GUI (currently raw YAML editor)
 - SSL/TLS for web UI
 - Snapshot retention/cleanup
 - Enhanced event logs with action tracking and filtering
