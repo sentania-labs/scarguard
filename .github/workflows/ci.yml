@@ -140,6 +140,8 @@ jobs:
         id: meta-web
         uses: docker/metadata-action@v5
         with:
+          flavor: |
+            latest=false
           images: ghcr.io/${{ github.repository_owner }}/scarguard-web
           tags: |
             type=semver,pattern={{version}}
@@ -164,6 +166,8 @@ jobs:
         id: meta-notifier
         uses: docker/metadata-action@v5
         with:
+          flavor: |
+            latest=false
           images: ghcr.io/${{ github.repository_owner }}/scarguard-notifier
           tags: |
             type=semver,pattern={{version}}
@@ -215,6 +219,8 @@ jobs:
         id: meta-detector
         uses: docker/metadata-action@v5
         with:
+          flavor: |
+            latest=false
           images: ghcr.io/${{ github.repository_owner }}/scarguard-detector
           tags: |
             type=semver,pattern={{version}}
