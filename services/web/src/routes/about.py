@@ -7,13 +7,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import config_store
+import db
 import redis as redis_lib
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-
-import config_store
-import db
 
 log = logging.getLogger(__name__)
 

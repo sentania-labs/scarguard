@@ -14,7 +14,7 @@ import yaml
 from config_watcher import ConfigWatcher
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
-from notification_queue import NotificationQueue, WORKER_INTERVAL
+from notification_queue import WORKER_INTERVAL, NotificationQueue
 
 logger = logging.getLogger(__name__)
 
