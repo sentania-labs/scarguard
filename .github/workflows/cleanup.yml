@@ -1,0 +1,35 @@
+name: Runner Cleanup
+
+# Prunes stale Docker images, stopped containers, and unused build cache
+# on both runner types to prevent disk exhaustion over time.
+#
+# Runs weekly automatically, or trigger manually via workflow_dispatch.
+# Note: does NOT prune volumes on the Orin to preserve model weights.
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"  # Sunday 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+
+  # ── x86 runner cleanup ─────────────────────────────────────────────────────
+  cleanup-x86:
+    name: Cleanup x86 runner
+    runs-on: [self-hosted, linux, docker]
+    steps:
+      - name: Docker system prune
+        run: docker system prune -f --volumes
+
+      - name: Prune build cache older than 7 days
+        run: docker builder prune -f --keep-storage 5GB
+
+  # ── Orin runner cleanup ────────────────────────────────────────────────────
+  cleanup-orin:
+    name: Cleanup Orin runner
+    runs-on: [self-hosted, linux, arm64, jetson]
+    steps:
+      - name: Docker image and container prune
+        # Skip --volumes: model weights and SQLite DB live in named volumes
+        # and should survive cleanup runs.
+        run: docker system prune -f
