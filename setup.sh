@@ -140,6 +140,10 @@ if [[ -f ".env" ]]; then
     # shellcheck disable=SC1091
     source .env
     set +a
+    if [[ -z "${DATA_DIR:-}" ]]; then
+        error "DATA_DIR is not set in .env. Delete .env and re-run setup.sh."
+        exit 1
+    fi
     info "DATA_DIR=${DATA_DIR}"
 else
     # Prompt for DATA_DIR
