@@ -17,14 +17,12 @@
 ## Not Yet Built
 
 - Custom-trained heron model (currently using generic COCO bird class)
-- SSL/TLS for web UI
-- Snapshot retention/cleanup
 - Enhanced event logs with action tracking and filtering
 - Generic REST webhook notification channel
 - Valve actuation (ESP32 hardware not wired yet)
 - Live camera feed with bounding box overlay in web UI (SSE)
-- Admin/logs tab (view service logs from web UI)
 - Detection exclusion zones
+- App security / user accounts (admin logs endpoint exposes Docker socket — must be gated before external exposure)
 
 ## Completed Work
 
@@ -40,3 +38,6 @@
 | — | Form-based config GUI (initial implementation) | ✅ Complete |
 | — | Multi-camera detection (initial implementation) | ✅ Complete  |
 | — | About page to display version and service status | ✅ Complete |
+| v0.3 | Admin logs tab (live Docker log tail via SSE, filterable by service and level) | ✅ Complete |
+| v0.3 | SSL/TLS for web UI (self-signed cert generation in setup.sh, HTTP+HTTPS dual-listener) | ✅ Complete |
+| v0.3 | Snapshot retention & cleanup (configurable retention_days, daily pruning in detector) | ✅ Complete |

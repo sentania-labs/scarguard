@@ -33,13 +33,15 @@ The script will:
 - Check that Docker and the NVIDIA container runtime are installed (and offer to install them via `infra/orin-setup.sh` if not)
 - Ask which port to use for the web UI (default: 8080)
 - Create `config/scarguard.yml` from the example template
+- Offer to generate a self-signed SSL certificate for HTTPS (stored in `${DATA_DIR}/config/certs/`)
 - Offer to download a starter YOLO model (detects generic birds — good for testing the pipeline)
 - Pull all pre-built images from GHCR
 
 ### 3. Edit your configuration
 
 ```bash
-nano config/scarguard.yml
+# DATA_DIR is set in .env (default: /var/docker/scarguard)
+nano /var/docker/scarguard/config/scarguard.yml
 ```
 
 At minimum, set your camera RTSP URLs:
@@ -121,6 +123,93 @@ docker compose up -d
 
 ---
 
+### Enabling HTTPS
+
+ScarGuard can serve the web UI over HTTPS on port 8443 alongside plain HTTP on 8080 (or HTTPS-only if you prefer).
+
+#### Step 1 — Generate or provide a certificate
+
+`setup.sh` offers to generate a self-signed certificate automatically. If you skipped that step or want to do it manually:
+
+```bash
+# Substitute your actual DATA_DIR path (from .env)
+DATA_DIR=/var/docker/scarguard
+
+mkdir -p "${DATA_DIR}/config/certs"
+openssl req -x509 -newkey rsa:4096 \
+    -keyout "${DATA_DIR}/config/certs/key.pem" \
+    -out    "${DATA_DIR}/config/certs/cert.pem" \
+    -days 3650 -nodes -subj "/CN=scarguard"
+chmod 600 "${DATA_DIR}/config/certs/key.pem"
+```
+
+To use your own certificate (e.g. from Let's Encrypt or an internal CA), drop `cert.pem` and `key.pem` into `${DATA_DIR}/config/certs/` and proceed to Step 2. No container rebuild is needed — the directory is bind-mounted into the web container.
+
+#### Step 2 — Enable SSL in `scarguard.yml`
+
+```yaml
+ssl:
+  enabled: true
+  cert_path: /certs/cert.pem   # container-internal path; do not change unless you
+  key_path: /certs/key.pem     # also change the volume mount in docker-compose.yml
+  https_only: false            # set true to disable plain HTTP on port 8080
+```
+
+#### Step 3 — Restart the web service
+
+```bash
+docker compose up -d web
+```
+
+The startup log will confirm:
+
+```
+INFO     start — Starting with SSL: cert=/certs/cert.pem key=/certs/key.pem https_only=False ...
+```
+
+#### Changing the HTTPS port
+
+The default HTTPS port is 8443. To use a different port, add to `.env`:
+
+```bash
+echo "WEB_HTTPS_PORT=9443" >> .env
+docker compose up -d web
+```
+
+#### Passphrase-protected private keys
+
+If your private key has a passphrase, add to `scarguard.yml`:
+
+```yaml
+ssl:
+  enabled: true
+  keyfile_password: "your-passphrase"
+```
+
+> **Note:** Browsers will show a security warning for self-signed certificates. You can dismiss it, add a permanent exception, or install the cert into your OS/browser trust store for a clean experience on your local network.
+
+---
+
+### Upgrading from a previous version
+
+```bash
+git pull
+docker compose pull
+docker compose up -d
+```
+
+That's all that's needed. HTTP continues to work on your existing port with no config changes.
+
+**What changed in v0.3 and what it means for existing installs:**
+
+| Change | Impact |
+|--------|--------|
+| New port mapping `${WEB_HTTPS_PORT:-8443}:8443` | Host port 8443 is now bound. Nothing listens on it until `ssl.enabled: true`, so existing HTTP deployments are unaffected. If 8443 is already in use on your host, add `WEB_HTTPS_PORT=<other>` to `.env` before running `docker compose up -d`. |
+| New volume `${DATA_DIR}/config/certs:/certs:ro` | Docker Compose creates the empty host directory automatically. No action needed; the web service starts normally with an empty certs directory when SSL is disabled. |
+| New volume `/var/run/docker.sock:/var/run/docker.sock:ro` | Enables the **Logs** tab in the web UI (live log tail from each service). Requires `docker compose up -d` to recreate the web container. If your Docker socket is at a non-standard path, the Logs tab will show a connection error — everything else is unaffected. |
+
+---
+
 ## The Problem
 
 Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents — plastic owls, reflective tape — lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a deterrent that fires at random times, in random patterns, triggered only when a bird is actually present.
@@ -161,6 +250,8 @@ ScarGuard is that deterrent. It watches the pond around the clock, identifies th
 - Live camera feed with bounding box overlay (SSE)
 - Model upload and hot-swap
 - Config editor (reads/writes `scarguard.yml`)
+- Admin logs tab: live log tail from each service, filterable by level
+- HTTPS support: self-signed cert or custom cert, HTTP+HTTPS dual-listener
 
 ### Operations
 - Containerized stack: `docker compose up` is the full deployment

@@ -209,7 +209,55 @@ info "${DATA_DIR}/data/snapshots/ ready"
 mkdir -p "${DATA_DIR}/models"
 info "${DATA_DIR}/models/ ready"
 
-# ── Step 7: Model check / starter model download ──────────────────────────────
+# ── Step 7: SSL certificate setup ────────────────────────────────────────────
+step "Setting up SSL certificate"
+
+CERT_DIR="${DATA_DIR}/config/certs"
+CERT_FILE="${CERT_DIR}/cert.pem"
+KEY_FILE="${CERT_DIR}/key.pem"
+
+mkdir -p "${CERT_DIR}"
+
+if [[ -f "${CERT_FILE}" && -f "${KEY_FILE}" ]]; then
+    info "SSL certificate already exists — skipping generation."
+    info "  cert: ${CERT_FILE}"
+    info "  key:  ${KEY_FILE}"
+elif command -v openssl &>/dev/null; then
+    echo "  ScarGuard can serve the web UI over HTTPS (port 8443)."
+    echo "  A self-signed certificate will be generated now.  You can replace it"
+    echo "  with your own cert/key at any time by dropping cert.pem and key.pem into:"
+    echo "    ${CERT_DIR}/"
+    echo "  Then set ssl.enabled: true in scarguard.yml and restart the stack."
+    echo
+    if confirm "Generate a self-signed SSL certificate?" "y"; then
+        _ssl_log=$(mktemp)
+        if openssl req -x509 -newkey rsa:4096 \
+            -keyout "${KEY_FILE}" \
+            -out "${CERT_FILE}" \
+            -days 3650 -nodes \
+            -subj "/CN=scarguard" 2>"${_ssl_log}"; then
+            rm -f "${_ssl_log}"
+            chmod 600 "${KEY_FILE}"
+            info "Self-signed certificate generated (valid 10 years)."
+            info "  cert: ${CERT_FILE}"
+            info "  key:  ${KEY_FILE}"
+            warn "To enable HTTPS: set ssl.enabled: true in ${DATA_DIR}/config/scarguard.yml"
+            warn "then restart:    docker compose up -d"
+        else
+            error "Certificate generation failed. openssl output:"
+            cat "${_ssl_log}" >&2
+            rm -f "${_ssl_log}"
+        fi
+    else
+        warn "Skipping SSL certificate generation."
+        warn "To generate later:  openssl req -x509 -newkey rsa:4096 -keyout ${KEY_FILE} -out ${CERT_FILE} -days 3650 -nodes -subj '/CN=scarguard'"
+    fi
+else
+    warn "openssl not found — skipping SSL certificate generation."
+    warn "Install openssl and re-run setup.sh, or provide your own cert/key."
+fi
+
+# ── Step 8: Model check / starter model download ──────────────────────────────
 step "Checking for YOLO model"
 
 MODEL_FILES=$(find "${DATA_DIR}/models/" -maxdepth 1 \( -name "*.pt" -o -name "*.engine" \) 2>/dev/null | head -5)
@@ -281,7 +329,7 @@ else
     fi
 fi
 
-# ── Step 8: Pull images ───────────────────────────────────────────────────────
+# ── Step 9: Pull images ───────────────────────────────────────────────────────
 step "Pulling Docker images from GHCR"
 
 echo "  This downloads pre-built images — no compilation required."

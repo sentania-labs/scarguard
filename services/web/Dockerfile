@@ -19,5 +19,6 @@ ENV BUILD_DATE=${BUILD_DATE}
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
-# Uvicorn on 8080; override with ENV in compose if needed
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--app-dir", "src"]
+# start.py reads scarguard.yml and launches uvicorn with optional SSL.
+# HTTP: port 8080 (always). HTTPS: port 8443 (when ssl.enabled=true in config).
+CMD ["python3", "src/start.py"]

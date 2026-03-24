@@ -4,45 +4,64 @@ Current priorities in order. Each item includes acceptance criteria.
 
 ---
 
-## Priority 1: Admin Logs Tab
+## ~~Feature 1: Admin Logs Tab~~ ✓ Complete (v0.3)
 
 Add a "Logs" tab under admin/configuration section of the web UI.
 
 **Acceptance criteria:**
-- Accessible from web UI navigation (e.g. under "Admin" or "System" dropdown)
-- Displays recent log output from each service: detector, notifier, web
-- Logs sourced from Docker container logs via Docker socket or from shared volume log files
-- Filterable by service name and log level (info, warning, error)
-- Auto-scroll / tail mode with pause option
-- Reasonable log buffer (last N lines or last N minutes, configurable)
+- ✓ Accessible from web UI navigation (e.g. under "Admin" or "System" dropdown)
+- ✓ Displays recent log output from each service: detector, notifier, web
+- ✓ Logs sourced from Docker container logs via Docker socket or from shared volume log files
+- ✓ Filterable by service name and log level (info, warning, error)
+- ✓ Auto-scroll / tail mode with pause option
+- ✓ Reasonable log buffer (last N lines or last N minutes, configurable)
+
+**Implementation notes:**
+- Docker SDK streams container logs via `/var/run/docker.sock` (mounted read-only into web container)
+- SSE endpoint at `/admin/logs/stream`; CSS-driven level filtering avoids reconnect on filter change
+- `docker` Python package added to `services/web/requirements.txt`
+- Security: Docker socket = host-root equivalent access; must be gated by Feature 9 (auth) before exposing beyond LAN
 
 ---
 
-## Priority 2: SSL / TLS for Web UI
+## ~~Feature 2: SSL / TLS for Web UI~~ ✓ Complete (v0.3)
 
 Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert.
 
 **Acceptance criteria:**
-- `setup.sh` generates a self-signed cert if none exists at the configured path
-- Config in `scarguard.yml` specifies cert/key paths and whether HTTPS is enabled
-- Web service listens on both HTTP (8080) and HTTPS (8443), or HTTPS-only if configured
-- User can drop in their own cert/key and restart to use it
+- ✓ `setup.sh` generates a self-signed cert if none exists at the configured path
+- ✓ Config in `scarguard.yml` specifies cert/key paths and whether HTTPS is enabled
+- ✓ Web service listens on both HTTP (8080) and HTTPS (8443), or HTTPS-only if configured
+- ✓ User can drop in their own cert/key and restart to use it
+
+**Implementation notes:**
+- `services/web/src/start.py` replaces direct `uvicorn` CMD; reads `ssl` section from `scarguard.yml` at boot
+- HTTP (8080) daemon thread + HTTPS (8443) main thread; `https_only: true` skips HTTP listener
+- `ssl.keyfile_password` supported for passphrase-protected private keys
+- Certs directory (`${DATA_DIR}/config/certs`) bind-mounted into web container as `/certs:ro`
+- New port mapping `${WEB_HTTPS_PORT:-8443}:8443` in `docker-compose.yml`; nothing listens until SSL enabled — backward-compatible
 
 ---
 
-## Priority 3: Snapshot Retention & Cleanup
+## ~~Feature 3: Snapshot Retention & Cleanup~~ ✓ Complete (v0.3)
 
 Snapshots accumulate indefinitely. Add configurable retention policy.
 
 **Acceptance criteria:**
-- Config field: `system.snapshot_retention_days` (default: 30)
-- Background task prunes snapshots older than retention period
-- Corresponding SQLite records cleaned up or marked as snapshot-expired
-- Runs on schedule (daily) and at startup
+- ✓ Config field: `system.snapshot_retention_days` (default: 30)
+- ✓ Background task prunes snapshots older than retention period
+- ✓ Corresponding SQLite records cleaned up or marked as snapshot-expired
+- ✓ Runs on schedule (daily) and at startup
+
+**Implementation notes:**
+- `services/detector/src/cleanup.py`: `SnapshotCleaner` daemon thread; runs at startup then every 24h
+- Deletes snapshot files on disk; NULLs `snapshot_path` in SQLite for pruned rows
+- Uses `sqlite3.connect(timeout=30)` to handle rare WAL contention with `EventProcessor`
+- Set `snapshot_retention_days: 0` to disable retention (keep forever)
 
 ---
 
-## Priority 4: Detection Exclusion Zones
+## Feature 4: Detection Exclusion Zones
 
 Suppress false positives from static objects (e.g. heron decoy). Two tiers.
 
@@ -61,7 +80,7 @@ Track detections that remain in the same position across many frames over hours/
 
 ---
 
-## Priority 5: Enhanced Detection Event Logs
+## Feature 5: Enhanced Detection Event Logs
 
 Richer detail and filtering in the web UI event log.
 
@@ -73,7 +92,7 @@ Richer detail and filtering in the web UI event log.
 
 ---
 
-## Priority 6: Live Camera Feed in Web UI
+## Feature 6: Live Camera Feed in Web UI
 
 SSE or WebSocket endpoint streaming annotated frames with bounding boxes.
 
@@ -84,7 +103,7 @@ SSE or WebSocket endpoint streaming annotated frames with bounding boxes.
 
 ---
 
-## Priority 7: Named Notification Channels & Webhook Support
+## Feature 7: Named Notification Channels & Webhook Support
 
 Refactor notifications from single-instance-per-type to named, multi-instance channels. Add webhook as a new channel type. Each channel gets a unique name that action rules reference — just like cameras.
 
@@ -128,13 +147,13 @@ notifications:
 - Webhook type is configurable: URL, HTTP method (POST/PUT), custom headers, optional auth token
 - Webhook payload includes: event timestamp, camera, detected class, confidence, snapshot URL
 - Retry with backoff on failure (all channel types)
-- Action rules in Priority 10 reference channels by name (e.g. `actions: [pond-alerts, heron-deterrent]`)
+- Action rules in Feature 10 reference channels by name (e.g. `actions: [pond-alerts, heron-deterrent]`)
 - Web UI config editor supports add/remove/edit of named channels
 - Backward compatibility: if existing config uses the old flat `notifications.discord` / `notifications.email` structure, auto-migrate to named channel format on first load (or document migration in upgrade notes)
 
 ---
 
-## Priority 8: Scheduled Arm/Disarm
+## Feature 8: Scheduled Arm/Disarm
 
 Automatically arm and disarm the detection system on a daily schedule. Primary use case: arm at dawn when herons hunt, disarm at dusk when activity is expected around the pond. Eliminates daily manual toggling of `system.armed`.
 
@@ -149,7 +168,7 @@ Automatically arm and disarm the detection system on a daily schedule. Primary u
 
 ---
 
-## Priority 9: App Security & User Accounts
+## Feature 9: App Security & User Accounts
 
 Add authentication to the web UI. Currently anyone on the network can access the dashboard, config, and admin tools.
 
@@ -171,7 +190,7 @@ Add authentication to the web UI. Currently anyone on the network can access the
 
 ---
 
-## Priority 10: Per-Camera Detection Models, Classes & Action Routing
+## Feature 10: Per-Camera Detection Models, Classes & Action Routing
 
 Allow each camera to use a different YOLO model, detect different object classes, and route detections to specific notification channels. This is the core of multi-camera/multi-model setups.
 
@@ -211,7 +230,7 @@ cameras:
 - Camera config gains optional fields: `model_path`, `detect_classes`, and `action_rules`
 - If `model_path` or `detect_classes` omitted, camera falls back to global `detection.model_path` / `detection.classes`
 - `action_rules` is a list of `{classes: [...], actions: [...]}` pairs — matched top-down, first match wins
-- Actions reference notification channels by name (as defined in Priority 7), not by type
+- Actions reference notification channels by name (as defined in Feature 7), not by type
 - Validate at startup that all channel names referenced in action rules exist; log a warning for unresolved references
 - If no `action_rules` defined on a camera, falls back to global notification behavior (all enabled channels)
 - Detector loads each unique model once in memory and shares across cameras using the same model
@@ -223,7 +242,7 @@ cameras:
 
 ---
 
-## Priority 11: GPU/CPU Load Stats View
+## Feature 11: GPU/CPU Load Stats View
 
 System health panel in the web UI showing resource utilization of the host. Useful for tuning inference intervals, monitoring thermal throttling on the Orin, and knowing when hardware limits are hit.
 
@@ -237,24 +256,104 @@ System health panel in the web UI showing resource utilization of the host. Usef
 
 ---
 
-## Priority 12: Custom Heron Model Training
+## Feature 12: Detection Feedback & Dataset Collection
 
-Replace generic COCO bird model with fine-tuned model distinguishing heron species. Data collection and training task, not primarily code.
+Add a feedback mechanism to each detection event so confirmed positives and false positives can be labeled in-app. This is the foundation of the model improvement pipeline (Features 13–15).
 
 **Acceptance criteria:**
-- Training dataset: minimum 500 labeled images per target species, sourced from pond cameras and supplemented with public datasets (iNaturalist, Macaulay Library)
+- Each detection event in the web UI has a feedback control: **Correct**, **False Positive**, **Wrong Class** (with optional corrected class dropdown)
+- Feedback written to SQLite: `feedback` column on the events table (`correct` / `false_positive` / `wrong_class`), plus `corrected_class` when applicable
+- Feedback can be changed after initial submission
+- Unfeedback'd events are visually distinct from reviewed ones in the event log (e.g. badge or row highlight)
+- No feedback is required — the system continues to function normally without it; this is purely additive
+
+---
+
+## Feature 13: Dataset Quality Dashboard & Export
+
+Give visibility into the labeled dataset being built from feedback, and provide a one-click export for use in model training.
+
+**Acceptance criteria:**
+- Admin page (e.g. "Training Data") showing:
+  - Count of confirmed positives per class
+  - Count of false positives per class
+  - Count of wrong-class corrections
+  - Date range coverage of the dataset
+  - Simple bar chart of class distribution so gaps are obvious at a glance
+- Export button generates a YOLO-format dataset zip: annotated images + per-image `.txt` files (class index + bounding box), plus a `data.yaml` describing classes and splits
+- Export respects a date range filter (e.g. export only the last 90 days)
+- Export only includes events with `feedback = correct` — false positives and wrong-class events are excluded from the positive set
+- Export is downloadable directly from the browser
+
+---
+
+## Feature 14: Custom Model Training
+
+Replace the generic COCO bird model with a fine-tuned model that distinguishes heron species from pond camera imagery. Training is run manually via a committed script; this is not automated.
+
+**Acceptance criteria:**
+- `training/train.py` script committed to repo — takes an exported dataset (from Feature 13), fine-tunes a YOLOv8 (or current best) checkpoint, validates, and writes a `.pt` to a configurable output path
+- Script is self-contained: all hyperparameters (epochs, image size, batch size, patience) are configurable via CLI args with sensible defaults
+- Training dataset: minimum 500 labeled images per target species, sourced from pond cameras and supplemented with public datasets (iNaturalist, Macaulay Library) as needed
 - Annotations in YOLO format (one `.txt` per image, class + bounding box)
-- Model trained using YOLOv8 (or current best) fine-tuning from a COCO-pretrained checkpoint
 - Validation mAP@0.5 ≥ 0.75 on a held-out test set of pond camera images
-- Exported model (`.pt` or `.onnx`) drops into `models/` directory and is selectable in config
 - Species classes at minimum: `great_blue_heron`, `green_heron` — additional species as data allows
-- Training notebook or script committed to repo under `training/` for reproducibility
+- Training notebook or equivalent committed under `training/` for reproducibility
+- **Model promotion is always manual** — the script produces a `.pt` file; the user places it in `models/` and selects it in config or the web UI. No automated deployment of trained models.
+
+---
+
+## Feature 15: Model Evaluation in Web UI
+
+Before promoting a newly trained model, compare it against the current one using stored snapshots. Prevents deploying a regression.
+
+**Acceptance criteria:**
+- Admin page lets user select two models (current active + a candidate from `models/`) and a date range of stored snapshots to evaluate against
+- Runs both models against the selected snapshots and displays side-by-side: precision, recall, mAP@0.5, and a sample of detections from each
+- Results are not persisted — this is an interactive comparison tool, not a benchmark database
+- Evaluation runs on-device (Jetson GPU); show a progress indicator for long runs
+- User can promote the candidate model directly from this page (updates `scarguard.yml` and triggers hot-reload per Feature 10)
+- Graceful handling of snapshots where the original annotated bounding box is unavailable (skip or flag)
+
+---
+
+## Feature 16: CI/CD Pipeline Hardening
+
+Current CI builds images on merge to main and pushes on tag, but PRs have no image validation. Add a three-gate CI strategy: lint on push, build + test on PR, push on release.
+
+**Gate 1 — On push to any branch:**
+- Lint (ruff/flake8) and type check (mypy) across all services
+- Fast feedback, no image builds
+
+**Gate 2 — On PR to main:**
+- Build all three service images (web, notifier on x86; detector on Orin runner)
+- Run pytest *inside* the built containers (not just against source)
+- Smoke test: `docker compose up`, verify Redis health, web UI `/health` endpoint responds, detector logs "Model loaded" (Orin runner only)
+- Images are disposable — not pushed to GHCR
+- PR cannot merge if any gate fails
+
+**Gate 3 — On tag push:**
+- Build and push images to GHCR (same as today)
+- Optionally: auto-deploy to Orin via SSH or webhook
+
+**Acceptance criteria:**
+- Ruff + mypy run on every branch push, fail the check on violations
+- PR workflow builds all three images and runs pytest inside each container
+- PR workflow runs a compose smoke test (stack up, health check, stack down)
+- Detector smoke test runs on Orin runner with GPU (model load + single frame inference)
+- Tag workflow builds and pushes to GHCR (existing behavior, unchanged)
 
 ---
 
 ## Future Ideas (Unprioritized)
 
 - SMS/iMessage notifications
-- Automated Orin runner updates via SSH from x86 runners
-- Second Orin or AGX as dedicated build runner
 - Multi-model support (seasonal species profiles)
+- Add some splash to the interface, logo on the login screen, favicon
+- Automated retraining trigger — a scheduled job that checks "N new confirmed positives since last training run?" and queues a training run; model promotion always remains manual
+- Deterrence effectiveness tracking — log how long after a valve fires the animal leaves (based on next detection timestamp), gives you data on what's actually working
+- Detection heatmap overlay — where on the camera frame do detections cluster? Useful for tuning detection zones and understanding animal behavior
+- Live stats widget — detections this week, most active camera, last detection time, most frequent species. Simple SQLite queries, satisfying dashboard data
+- Mobile-friendly layout
+- Prometheus metrics endpoint + Grafana — expose inference latency, detection counts, stream reconnect events as metrics
+- Automated Orin runner updates via SSH from x86 runners

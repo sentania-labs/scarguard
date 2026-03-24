@@ -24,11 +24,14 @@ scarguard/
 │   │       ├── stream.py
 │   │       ├── detector.py
 │   │       ├── events.py
-│   │       └── publisher.py
+│   │       ├── publisher.py
+│   │       ├── cleanup.py           # Snapshot retention / daily pruning daemon
+│   │       └── config_watcher.py
 │   ├── web/                         # FastAPI + Jinja web UI
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   └── src/
+│   │       ├── start.py             # Startup script: reads ssl config, launches uvicorn
 │   │       ├── config_model.py
 │   │       ├── config_store.py
 │   │       ├── db.py
@@ -36,6 +39,7 @@ scarguard/
 │   │       ├── routes/
 │   │       │   ├── __init__.py
 │   │       │   ├── about.py
+│   │       │   ├── admin.py         # Admin logs tab: SSE log stream from Docker containers
 │   │       │   ├── config.py
 │   │       │   ├── dashboard.py
 │   │       │   ├── events.py
@@ -51,6 +55,7 @@ scarguard/
 │   │           ├── dashboard.html
 │   │           ├── events.html
 │   │           ├── feed.html
+│   │           ├── logs.html        # Admin logs page (service selector, level filter, SSE)
 │   │           ├── models.html
 │   │           └── partials/
 │   │               ├── arm_badge.html
@@ -81,6 +86,18 @@ scarguard/
 
 - **detector:** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`runtime: nvidia` in Compose).
 - **web and notifier:** `python:3.11-slim` — no GPU needed.
+
+## Notable Volume Mounts
+
+| Volume | Service | Purpose |
+|--------|---------|---------|
+| `${DATA_DIR}/config:/config:ro` | all | Shared `scarguard.yml` config |
+| `${DATA_DIR}/data:/data` | detector, web | SQLite DB + snapshots |
+| `${DATA_DIR}/models:/models:ro` | detector, web | YOLO model files |
+| `${DATA_DIR}/config/certs:/certs:ro` | web | TLS cert and key for HTTPS (Feature 2) |
+| `/var/run/docker.sock:/var/run/docker.sock:ro` | web | Docker log streaming for Admin Logs tab (Feature 1) |
+
+> **Security note:** Mounting `/var/run/docker.sock` gives the web container host-root equivalent access to the Docker daemon. The Admin Logs endpoint is currently unprotected. This must be gated behind authentication (Feature 9) before the web UI is exposed beyond the local network.
 
 ## Container Registry
 

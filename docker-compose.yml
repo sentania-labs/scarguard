@@ -56,6 +56,7 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-web:${IMAGE_TAG:-latest}
     ports:
       - "${WEB_PORT:-8080}:8080"
+      - "${WEB_HTTPS_PORT:-8443}:8443"
     environment:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
@@ -63,8 +64,10 @@ services:
       DB_PATH: /data/scarguard.db
     volumes:
       - ${DATA_DIR}/config:/config      # rw — config editor writes scarguard.yml
+      - ${DATA_DIR}/config/certs:/certs:ro  # SSL certificates (cert.pem + key.pem)
       - ${DATA_DIR}/models:/models      # rw — model upload endpoint writes here
       - ${DATA_DIR}/data:/data:ro       # ro — reads SQLite + serves snapshot images
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Admin logs tab
     depends_on:
       redis:
         condition: service_healthy

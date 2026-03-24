@@ -41,6 +41,27 @@ A containerized wildlife detection and deterrent system running on an NVIDIA Jet
 - **No over-engineering:** This is a pond guardian, not a distributed platform. Keep it simple.
 - **Documentation is not an afterthought:** Update the readme and supporting documents (STATUS, ROADMAP, INFRASTRUCTURE, CONFIG_REFERENCE) with updates and progress.
 
+## Code Review Protocol
+
+After completing any non-trivial code change (new feature, bug fix, refactor), you MUST perform a self-review via subagent before considering the task done.
+
+### Mandatory Review Step
+1. Run `git diff HEAD` to capture all uncommitted changes
+2. Spawn a review subagent with this prompt:
+   > "Review the following diff for: correctness, error handling, consistency with the scarguard Python style (type hints, Pydantic models, structured logging), and any risks specific to a Jetson/Docker/RTSP environment. Be direct about issues. Diff: [paste diff]"
+3. Address any issues flagged before marking the task complete
+
+### When This Applies
+- Any changes to services/ (detector, web, notifier)
+- Any changes to shared/models.py
+- Any changes to docker-compose.yml or Dockerfiles
+- Config schema changes
+
+### When It Doesn't Apply
+- Documentation only changes
+- Comment/whitespace changes
+- Dependency bumps with no logic changes
+
 ## Reference Documents
 
 Read these as needed — don't load them all for every task.
