@@ -8,6 +8,7 @@ from config_model import (
     CameraConfig,
     DetectionConfig,
     NotificationsConfig,
+    SSLConfig,
     StructuredConfigPayload,
     SystemConfig,
 )
@@ -64,6 +65,7 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         cameras=cameras,
         detection=_section(DetectionConfig, raw_cfg.get("detection", {})),
         notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
+        ssl=_section(SSLConfig, raw_cfg.get("ssl", {})),
     )
 
 
@@ -155,8 +157,29 @@ async def save_structured_config(request: Request) -> JSONResponse:
     existing["notifications"]["discord"] = payload.notifications.discord.model_dump()
     existing["notifications"]["email"] = payload.notifications.email.model_dump()
 
+    # SSL — detect changes so we can tell the UI a restart is needed.
+    # Normalize both sides through defaults so a missing ssl section in the
+    # existing config doesn't false-positive as "changed" on every save.
+    def _normalize(raw: dict) -> dict:
+        return {
+            "enabled": bool(raw.get("enabled", False)),
+            "cert_path": raw.get("cert_path", "/certs/cert.pem"),
+            "key_path": raw.get("key_path", "/certs/key.pem"),
+            "https_only": bool(raw.get("https_only", False)),
+            "keyfile_password": raw.get("keyfile_password", ""),
+        }
+
+    ssl_changed = _normalize(existing.get("ssl", {})) != _normalize(
+        payload.ssl.model_dump()
+    )
+    new_ssl = payload.ssl.model_dump()
+    # Strip empty keyfile_password so it doesn't clutter the YAML.
+    if not new_ssl.get("keyfile_password"):
+        new_ssl.pop("keyfile_password", None)
+    existing["ssl"] = new_ssl
+
     config_store.save(existing)
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "ssl_changed": ssl_changed})
 
 
 @router.post("", response_class=HTMLResponse)

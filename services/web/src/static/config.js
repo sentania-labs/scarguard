@@ -126,6 +126,13 @@ function readForm() {
         include_snapshot: document.getElementById("email-snapshot").checked,
       },
     },
+    ssl: {
+      enabled: document.getElementById("ssl-enabled").checked,
+      cert_path: document.getElementById("ssl-cert-path").value.trim(),
+      key_path: document.getElementById("ssl-key-path").value.trim(),
+      https_only: document.getElementById("ssl-https-only").checked,
+      keyfile_password: document.getElementById("ssl-key-password").value,
+    },
   };
 }
 
@@ -152,6 +159,12 @@ function validate(data) {
     errors.push("Email: SMTP host is required when email notifications are enabled");
   if (ep.smtp_port < 1 || ep.smtp_port > 65535)
     errors.push("Email: SMTP port must be between 1 and 65535");
+
+  const ssl = data.ssl;
+  if (ssl.enabled && !ssl.cert_path)
+    errors.push("SSL: Certificate path is required when SSL is enabled");
+  if (ssl.enabled && !ssl.key_path)
+    errors.push("SSL: Key path is required when SSL is enabled");
 
   return errors;
 }
@@ -184,7 +197,11 @@ async function saveConfig() {
     const result = await resp.json();
     if (result.ok) {
       banner.className = "alert alert-ok";
-      banner.textContent = "Config saved. Changes take effect within ~10 seconds.";
+      if (result.ssl_changed) {
+        banner.textContent = "Config saved. SSL settings changed — the web service will restart automatically. This page may briefly disconnect.";
+      } else {
+        banner.textContent = "Config saved. Changes take effect within ~10 seconds.";
+      }
       // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
       try {
         const rawRes = await fetch("/config/raw");

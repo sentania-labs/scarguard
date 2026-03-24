@@ -140,17 +140,11 @@ if [[ -f ".env" ]]; then
     # shellcheck disable=SC1091
     source .env
     set +a
-
-    # Back-fill DATA_DIR if an older .env predates this field.
     if [[ -z "${DATA_DIR:-}" ]]; then
-        DATA_DIR="/var/docker/scarguard"
-        printf '\n# Data directory (config, models, snapshots, database)\nDATA_DIR=%s\n' \
-            "$DATA_DIR" >> .env
-        info "Added DATA_DIR=${DATA_DIR} to existing .env"
-        warn "Edit .env and change DATA_DIR if you want a different location, then re-run setup.sh."
-    else
-        info "DATA_DIR=${DATA_DIR}"
+        error "DATA_DIR is not set in .env. Delete .env and re-run setup.sh."
+        exit 1
     fi
+    info "DATA_DIR=${DATA_DIR}"
 else
     # Prompt for DATA_DIR
     echo
@@ -241,8 +235,8 @@ elif command -v openssl &>/dev/null; then
             info "Self-signed certificate generated (valid 10 years)."
             info "  cert: ${CERT_FILE}"
             info "  key:  ${KEY_FILE}"
-            warn "To enable HTTPS: set ssl.enabled: true in ${DATA_DIR}/config/scarguard.yml"
-            warn "then restart:    docker compose up -d"
+            warn "To enable HTTPS: set ssl.enabled: true in scarguard.yml (or use the web UI Settings page)."
+            warn "The web service restarts automatically when SSL settings change."
         else
             error "Certificate generation failed. openssl output:"
             cat "${_ssl_log}" >&2
@@ -413,14 +407,6 @@ if [[ "$CONFIG_IS_NEW" == "true" ]]; then
     echo "  detect anything until real camera streams are configured."
     echo
 fi
-
-echo "${BOLD}Migrating from an older install?${RESET}"
-echo "  If you previously ran ScarGuard with config/data/models in the repo"
-echo "  directory, move them to the new location:"
-echo "    mv <repo>/config/scarguard.yml ${DATA_DIR}/config/"
-echo "    mv <repo>/data/                ${DATA_DIR}/"
-echo "    mv <repo>/models/              ${DATA_DIR}/"
-echo
 
 echo "  To view logs:     docker compose logs -f"
 echo "  To stop:          docker compose down"

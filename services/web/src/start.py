@@ -17,8 +17,10 @@ passphrase-protected.  Leave unset (or empty) for unencrypted keys.
 
 import logging
 import os
+import signal
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,52 @@ def _load_ssl_cfg() -> dict:
         return {}
 
 
+def _normalize_ssl_cfg(ssl_cfg: dict) -> dict:
+    """Return a canonical dict for comparison (strip empty password, sort keys)."""
+    canonical = {
+        "enabled": bool(ssl_cfg.get("enabled", False)),
+        "cert_path": ssl_cfg.get("cert_path", "/certs/cert.pem"),
+        "key_path": ssl_cfg.get("key_path", "/certs/key.pem"),
+        "https_only": bool(ssl_cfg.get("https_only", False)),
+    }
+    kp = ssl_cfg.get("keyfile_password")
+    if isinstance(kp, str) and kp:
+        canonical["keyfile_password"] = kp
+    return canonical
+
+
+def _ssl_config_watcher(initial_ssl: dict, poll_interval: int = 5) -> None:
+    """Background thread that exits the process when SSL config changes.
+
+    Docker ``restart: unless-stopped`` will bring the container back up with the
+    new SSL settings applied.
+    """
+    current = _normalize_ssl_cfg(initial_ssl)
+    consecutive_errors = 0
+    while True:
+        time.sleep(poll_interval)
+        try:
+            fresh = _normalize_ssl_cfg(_load_ssl_cfg())
+            consecutive_errors = 0
+        except Exception as exc:
+            consecutive_errors += 1
+            if consecutive_errors % 12 == 1:  # log every ~60s of failures
+                log.warning(
+                    "SSL config watcher: cannot read config (%d consecutive failures): %s",
+                    consecutive_errors,
+                    exc,
+                )
+            continue
+        if fresh != current:
+            log.info(
+                "SSL configuration changed — restarting web service to apply new settings"
+            )
+            # Brief delay so any in-flight HTTP response can finish.
+            time.sleep(1)
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
+
 def _uvicorn_cfg(**extra: Any) -> dict[str, Any]:
     return {
         "app": "main:app",
@@ -58,6 +106,16 @@ def _uvicorn_cfg(**extra: Any) -> dict[str, Any]:
 
 def main() -> None:
     ssl_cfg = _load_ssl_cfg()
+
+    # Watch for SSL config changes and restart if needed.
+    watcher = threading.Thread(
+        target=_ssl_config_watcher,
+        args=(ssl_cfg,),
+        name="ssl-config-watcher",
+        daemon=True,
+    )
+    watcher.start()
+
     ssl_enabled: bool = bool(ssl_cfg.get("enabled", False))
     cert_path: str = ssl_cfg.get("cert_path", "/certs/cert.pem")
     key_path: str = ssl_cfg.get("key_path", "/certs/key.pem")
