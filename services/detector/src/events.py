@@ -7,7 +7,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import cv2
 import numpy as np
 from detector import Detection
 
@@ -28,6 +27,9 @@ class EventProcessor:
         # Cooldown tracker: "{camera_name}:{class_name}" → monotonic time of last event
         self._last_event: dict[str, float] = {}
         self._cooldown_lock = threading.Lock()
+        # SQLite writes are serialized through one lock and one long-lived connection.
+        self._db_lock = threading.Lock()
+        self._conn = self._open_connection()
         self._init_db()
 
     # ------------------------------------------------------------------
@@ -80,6 +82,14 @@ class EventProcessor:
 
         return events
 
+    def close(self) -> None:
+        """Close DB resources for a graceful shutdown."""
+        with self._db_lock:
+            if self._conn is None:
+                return
+            self._conn.close()
+            self._conn = None
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -92,6 +102,9 @@ class EventProcessor:
         timestamp: datetime,
     ) -> str | None:
         try:
+            # Import lazily so unit tests can run in environments without OpenCV system libs.
+            import cv2
+
             annotated = frame.copy()
             x1, y1, x2, y2 = det.bbox
             cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
@@ -117,8 +130,10 @@ class EventProcessor:
             return None
 
     def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.execute(
+        with self._db_lock:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS detection_events (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,6 +145,7 @@ class EventProcessor:
                 )
                 """
             )
+            self._conn.commit()
 
     def _persist(
         self,
@@ -138,24 +154,43 @@ class EventProcessor:
         camera_name: str,
         snapshot_path: str | None,
     ) -> None:
-        try:
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO detection_events
-                        (timestamp, class_name, confidence, camera_name, snapshot_path)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        timestamp.isoformat(),
-                        det.class_name,
-                        det.confidence,
-                        camera_name,
-                        snapshot_path,
-                    ),
-                )
-        except Exception:
-            logger.exception("Failed to persist detection event to database")
+        with self._db_lock:
+            try:
+                self._insert_event(timestamp, det, camera_name, snapshot_path)
+                self._conn.commit()
+            except Exception:
+                logger.exception("Failed to persist detection event to database")
+                self._reset_connection_locked()
 
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._db_path)
+    def _insert_event(
+        self,
+        timestamp: datetime,
+        det: Detection,
+        camera_name: str,
+        snapshot_path: str | None,
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO detection_events
+                (timestamp, class_name, confidence, camera_name, snapshot_path)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp.isoformat(),
+                det.class_name,
+                det.confidence,
+                camera_name,
+                snapshot_path,
+            ),
+        )
+
+    def _reset_connection_locked(self) -> None:
+        if self._conn is not None:
+            self._conn.close()
+        self._conn = self._open_connection()
+
+    def _open_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
