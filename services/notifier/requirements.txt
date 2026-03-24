@@ -2,3 +2,4 @@ redis
 pyyaml
 pydantic>=2.0
 requests
+tzdata

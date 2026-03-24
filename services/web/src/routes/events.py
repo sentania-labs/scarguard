@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config_store
 import db
@@ -15,16 +17,41 @@ PAGE_SIZE = 50
 CHANNEL = "scarguard:detections"
 
 
+def _to_local(iso_str: str, tz_name: str) -> str:
+    """Convert a UTC ISO 8601 string to a formatted local-time string."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        tz = ZoneInfo("UTC")
+    try:
+        dt = datetime.fromisoformat(iso_str).astimezone(tz)
+        return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+    except (ValueError, TypeError):
+        return str(iso_str)
+
+
+def _tz_name() -> str:
+    return config_store.load().get("system", {}).get("timezone", "UTC")
+
+
+def _apply_display_timestamp(events: list[dict]) -> list[dict]:
+    tz = _tz_name()
+    for e in events:
+        e["display_timestamp"] = _to_local(e.get("timestamp", ""), tz)
+    return events
+
+
 @router.get("", response_class=HTMLResponse)
 async def events_page(request: Request, page: int = 1):
     offset = (page - 1) * PAGE_SIZE
     rows = db.get_events(limit=PAGE_SIZE, offset=offset)
     total = db.count_events()
+    events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
         request,
         "events.html",
         {
-            "events": [dict(r) for r in rows],
+            "events": events,
             "page": page,
             "total_pages": max(1, -(-total // PAGE_SIZE)),  # ceiling div
             "total": total,
@@ -37,17 +64,19 @@ async def event_rows(request: Request, page: int = 1):
     """HTMX partial — just the table body rows."""
     offset = (page - 1) * PAGE_SIZE
     rows = db.get_events(limit=PAGE_SIZE, offset=offset)
+    events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
         request,
         "partials/event_rows.html",
-        {"events": [dict(r) for r in rows]},
+        {"events": events},
     )
 
 
 @router.get("/stream")
 async def event_stream(request: Request):
     """SSE stream — pushes a new event row fragment whenever a detection fires."""
-    redis_cfg = config_store.load().get("redis", {})
+    cfg = config_store.load()
+    redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
@@ -65,7 +94,8 @@ async def event_stream(request: Request):
                     event = json.loads(message["data"])
                 except json.JSONDecodeError:
                     continue
-                html = _render_event_row(event)
+                tz = config_store.load().get("system", {}).get("timezone", "UTC")
+                html = _render_event_row(event, tz)
                 yield f"event: detection\ndata: {html}\n\n"
         finally:
             await pubsub.unsubscribe(CHANNEL)
@@ -74,16 +104,17 @@ async def event_stream(request: Request):
     return StreamingResponse(generator(), media_type="text/event-stream")
 
 
-def _render_event_row(event: dict) -> str:
+def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
     snap = event.get("snapshot_path")
     snap_html = ""
     if snap:
         fname = Path(snap).name
         snap_html = f'<a href="/snapshots/{fname}" target="_blank"><img src="/snapshots/{fname}" width="80"></a>'
     conf = event.get("confidence", 0)
+    display_ts = _to_local(event.get("timestamp", ""), tz_name)
     return (
         f'<tr id="event-live">'
-        f'<td>{event.get("timestamp", "")[:19].replace("T", " ")}</td>'
+        f'<td>{display_ts}</td>'
         f'<td>{event.get("class_name", "").replace("_", " ").title()}</td>'
         f'<td>{conf:.0%}</td>'
         f'<td>{event.get("camera_name", "")}</td>'

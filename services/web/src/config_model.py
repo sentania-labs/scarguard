@@ -1,11 +1,23 @@
 """Pydantic models for structured config validation (form-based editor)."""
 
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from pydantic import BaseModel, field_validator
 
 
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
+    timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, KeyError):
+            raise ValueError(f"Unknown timezone: {v!r}")
+        return v
 
 
 class CameraConfig(BaseModel):
