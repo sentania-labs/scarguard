@@ -11,7 +11,13 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 ALLOWED_EXTENSIONS = {".pt", ".engine", ".onnx"}
-UPLOAD_CHUNK_SIZE = int(os.environ.get("MODEL_UPLOAD_CHUNK_SIZE", str(4 * 1024 * 1024)))
+_DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
+UPLOAD_CHUNK_SIZE = int(os.environ.get("MODEL_UPLOAD_CHUNK_SIZE", str(_DEFAULT_CHUNK_SIZE)))
+if UPLOAD_CHUNK_SIZE <= 0:
+    raise ValueError(
+        f"MODEL_UPLOAD_CHUNK_SIZE must be a positive integer (got {UPLOAD_CHUNK_SIZE}); "
+        f"default is {_DEFAULT_CHUNK_SIZE} bytes"
+    )
 MAX_UPLOAD_BYTES = int(os.environ["MODEL_UPLOAD_MAX_BYTES"]) if "MODEL_UPLOAD_MAX_BYTES" in os.environ else None
 
 
