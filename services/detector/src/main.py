@@ -47,7 +47,7 @@ def run_camera(
     detector: YOLODetector,
     event_processor: EventProcessor,
     redis_cfg: dict,
-    det_cfg: dict,
+    frame_skip_ref: list[int],
     armed_ref: list[bool],
     stop_event: threading.Event,
 ) -> None:
@@ -58,7 +58,6 @@ def run_camera(
     setting *stop_event*.
     """
     name = camera_cfg["name"]
-    frame_skip: int = det_cfg.get("frame_skip", 2)
 
     publisher = RedisPublisher(
         host=redis_cfg.get("host", "redis"),
@@ -67,10 +66,9 @@ def run_camera(
     stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"])
 
     logger.info(
-        "[%s] Camera thread starting | frame_skip=%d | cooldown=%ds",
+        "[%s] Camera thread starting | frame_skip=%d",
         name,
-        frame_skip,
-        det_cfg.get("cooldown_seconds", 30),
+        frame_skip_ref[0],
     )
 
     frame_count = 0
@@ -83,7 +81,7 @@ def run_camera(
             continue
 
         frame_count += 1
-        if frame_count % frame_skip != 0:
+        if frame_count % frame_skip_ref[0] != 0:
             continue
 
         if not armed_ref[0]:
@@ -113,8 +111,9 @@ def main() -> None:
     # ---- Config sections -------------------------------------------------------
     det_cfg: dict = cfg.get("detection", {})
     redis_cfg: dict = cfg.get("redis", {})
-    # Mutable reference so hot-reload (P2b) can update armed without restarting threads.
+    # Mutable references so hot-reload can update these without restarting threads.
     armed_ref: list[bool] = [cfg.get("system", {}).get("armed", True)]
+    frame_skip_ref: list[int] = [det_cfg.get("frame_skip", 2)]
 
     # ---- Shared components -----------------------------------------------------
     detector = YOLODetector(
@@ -153,7 +152,7 @@ def main() -> None:
                 detector,
                 event_processor,
                 redis_cfg,
-                det_cfg,
+                frame_skip_ref,
                 armed_ref,
                 cam_stop,
             ),
@@ -216,6 +215,11 @@ def main() -> None:
         if new_cooldown != event_processor.cooldown_seconds:
             event_processor.cooldown_seconds = new_cooldown
             changes.append(f"cooldown_seconds={new_cooldown}")
+
+        new_frame_skip = new_det.get("frame_skip", 2)
+        if new_frame_skip != frame_skip_ref[0]:
+            frame_skip_ref[0] = new_frame_skip
+            changes.append(f"frame_skip={new_frame_skip}")
 
         # cameras added
         for cam_cfg in new_cameras_list:
