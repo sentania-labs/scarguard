@@ -113,7 +113,15 @@ async def save_structured_config(request: Request) -> JSONResponse:
 
     existing = config_store.load()
 
-    existing["system"] = payload.system.model_dump()
+    # Merge system settings so omitted structured-form fields (e.g. timezone)
+    # are preserved from existing config instead of being reset to defaults.
+    existing_system = existing.get("system", {})
+    if not isinstance(existing_system, dict):
+        existing_system = {}
+    existing["system"] = {
+        **existing_system,
+        **payload.system.model_dump(exclude_unset=True),
+    }
 
     # Merge cameras: start from the existing entry (preserves exclusion_zones and
     # any other fields the form doesn't know about), then overlay the form values.

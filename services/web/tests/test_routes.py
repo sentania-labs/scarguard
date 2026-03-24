@@ -257,6 +257,47 @@ class TestConfig:
         assert saved["redis"] == {"host": "redis", "port": 6379}
         assert "action_rules" in saved
 
+    def test_structured_save_preserves_existing_timezone_when_omitted(self, client, monkeypatch):
+        """Structured saves that omit system.timezone must not reset it to UTC."""
+        existing = {
+            "system": {"armed": True, "log_level": "info", "timezone": "America/New_York"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": 0.25,
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {},
+        }
+        saved_cfgs = []
+        monkeypatch.setattr("config_store.load", lambda: existing)
+        monkeypatch.setattr("config_store.save", lambda cfg: saved_cfgs.append(cfg))
+
+        payload = {
+            "system": {"armed": False, "log_level": "debug"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": 0.25,
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {
+                "discord": {"enabled": False, "webhook_url": "", "mention_role": "", "include_snapshot": True},
+                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+            },
+        }
+        resp = client.post("/config/structured", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        saved = saved_cfgs[0]
+        assert saved["system"]["armed"] is False
+        assert saved["system"]["log_level"] == "debug"
+        assert saved["system"]["timezone"] == "America/New_York"
+
 
 class TestModels:
     def test_page_loads(self, client):
