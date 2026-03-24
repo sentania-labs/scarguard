@@ -14,9 +14,6 @@
 
 ## Known Issues / Buggy
 
-- **Timezone:** Some GUI locations and logs still display UTC. (https://github.com/sentania-labs/scarguard/issues/25)
-- **Multi-camera fairness:** Multiple cameras loaded but one camera seems preferred over the other in test setup. Physical camera stream validation still needed. (implemented but needs evaluation)
-
 ## Not Yet Built
 
 - Custom-trained heron model (currently using generic COCO bird class)
@@ -41,5 +38,5 @@
 | — | External data directory (config/data/models outside repo) | ✅ Complete |
 | — | Config hot-reload (detector + notifier restart on config change) | ✅ Complete |
 | — | Form-based config GUI (initial implementation) | ✅ Complete |
-| — | Multi-camera detection (initial implementation) | ⚠️ Needs hardening |
+| — | Multi-camera detection (initial implementation) | ✅ Complete  |
 | — | About page to display version and service status | ✅ Complete |
