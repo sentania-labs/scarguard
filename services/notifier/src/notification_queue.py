@@ -137,12 +137,13 @@ class NotificationQueue:
                     datetime.fromtimestamp(dropped.first_failed, tz=timezone.utc).isoformat(),
                 )
             self._entries.append(entry)
+            queue_depth = len(self._entries)
             self._save()
         logger.info(
             "Queued failed %s notification for retry in %ds (queue depth: %d)",
             notifier_type,
             _BACKOFF_STEPS[0],
-            self.depth,
+            queue_depth,
         )
 
     def process_due(self, notifiers: list, notifiers_lock: threading.Lock) -> None:
@@ -155,20 +156,21 @@ class NotificationQueue:
         # Snapshot entries that are due — don't hold the lock during network I/O.
         with self._lock:
             due = [e for e in self._entries if e.next_retry <= now]
+            queue_depth = len(self._entries)
 
         if not due:
             return
 
         with notifiers_lock:
             active_notifiers = list(notifiers)
+            notifiers_by_type = {
+                type(notifier).__name__: notifier for notifier in active_notifiers
+            }
 
         to_remove: list[QueueEntry] = []
 
         for entry in due:
-            target = next(
-                (n for n in active_notifiers if type(n).__name__ == entry.notifier_type),
-                None,
-            )
+            target = notifiers_by_type.get(entry.notifier_type)
             if target is None:
                 # Notifier was disabled in config; leave entry in queue.
                 logger.debug(
@@ -209,7 +211,7 @@ class NotificationQueue:
                         entry.notifier_type,
                         delay,
                         elapsed / 3600,
-                        self.depth,
+                        queue_depth,
                     )
 
         # Commit changes (removals + updated next_retry timestamps) to disk.
