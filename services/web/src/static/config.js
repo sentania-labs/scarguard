@@ -184,6 +184,15 @@ async function saveConfig() {
     if (result.ok) {
       banner.className = "alert alert-ok";
       banner.textContent = "Config saved. Changes take effect within ~10 seconds.";
+      // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
+      try {
+        const rawRes = await fetch("/config/raw");
+        if (rawRes.ok) {
+          const rawData = await rawRes.json();
+          const yamlArea = document.querySelector("#tab-advanced textarea[name='raw_yaml']");
+          if (yamlArea) yamlArea.value = rawData.yaml;
+        }
+      } catch (_) { /* non-critical — textarea will update on next page load */ }
     } else {
       banner.className = "alert alert-err";
       banner.textContent = "Error: " + result.error;

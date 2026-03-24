@@ -36,12 +36,19 @@ async def feed_page(request: Request):
     cfg = config_store.load()
     cameras = cfg.get("cameras", [])
     latest = db.get_latest_event()
+    tz_name = cfg.get("system", {}).get("timezone", "UTC")
+    latest_dict = None
+    if latest:
+        latest_dict = dict(latest)
+        latest_dict["display_timestamp"] = _to_local(
+            str(latest_dict.get("timestamp", "")), tz_name
+        )
     return templates.TemplateResponse(
         request,
         "feed.html",
         {
             "cameras": cameras,
-            "latest": dict(latest) if latest else None,
+            "latest": latest_dict,
         },
     )
 
