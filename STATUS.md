@@ -9,13 +9,14 @@
 - **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational.
 - **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
 - **Config hot-reload:** Notifier and detector services automatically restart on config change.
+- **Config GUI toggles:** Enable/disable toggle for features/cameras not visually aligned properly.
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
 
 ## Known Issues / Buggy
 
-- **Config GUI toggles:** Enable/disable toggle for features/cameras not visually aligned properly.
-- **Multi-camera fairness:** Multiple cameras loaded but one camera seems preferred over the other in test setup. Physical camera stream validation still needed.
-- **Notifier resilience:** Internet interruptions not handled gracefully — notifications should be queued and retried.
+- **Timezone:** Some GUI locations and logs still display UTC.
+- **Multi-camera fairness:** Multiple cameras loaded but one camera seems preferred over the other in test setup. Physical camera stream validation still needed. (implemented but needs evaluation)
+- **Notifier resilience:** Internet interruptions not handled gracefully — notifications should be queued and retried. (implementet but needs testing)
 
 ## Not Yet Built
 
@@ -40,6 +41,6 @@
 | — | Docker Compose orchestration + setup.sh installer | ✅ Complete |
 | — | External data directory (config/data/models outside repo) | ✅ Complete |
 | — | Config hot-reload (detector + notifier restart on config change) | ✅ Complete |
-| — | Form-based config GUI (initial implementation) | ⚠️ Buggy |
+| — | Form-based config GUI (initial implementation) | ✅ Complete |
 | — | Multi-camera detection (initial implementation) | ⚠️ Needs hardening |
 | — | About page to display version and service status | ✅ Complete |

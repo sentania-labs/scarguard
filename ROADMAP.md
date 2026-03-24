@@ -4,19 +4,6 @@ Current priorities in order. Each item includes acceptance criteria.
 
 ---
 
-## Priority 1: Fix Form-Based Config GUI
-
-The structured config editor exists but has rendering and data-loading bugs.
-
-**Acceptance criteria:**
-- Enable/disable toggles for features and cameras are visually aligned and functional
-- Existing cameras correctly populated from `scarguard.yml` on page load
-- Add/remove cameras via the UI
-- Validation before save (e.g. RTSP URL format, required fields)
-- Save writes back to `scarguard.yml` (triggers hot-reload)
-
----
-
 ## Priority 2: Notification Resilience
 
 Notifier does not handle internet outages gracefully. Notifications should queue and retry.
