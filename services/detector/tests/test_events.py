@@ -53,3 +53,26 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
 
     # First insert fails and triggers a connection reset; second insert succeeds.
     assert _count_rows(str(db_path)) == 1
+
+
+def test_persist_swallows_reset_connection_errors(monkeypatch, tmp_path):
+    db_path = tmp_path / "events.db"
+    processor = EventProcessor(
+        cooldown_seconds=30,
+        snapshot_dir=str(tmp_path / "snapshots"),
+        db_path=str(db_path),
+    )
+    det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
+
+    def always_fail_insert(*_args, **_kwargs):
+        raise sqlite3.OperationalError("simulated insert failure")
+
+    def fail_reset():
+        raise sqlite3.OperationalError("simulated reset failure")
+
+    monkeypatch.setattr(processor, "_insert_event", always_fail_insert)
+    monkeypatch.setattr(processor, "_reset_connection_locked", fail_reset)
+
+    # _persist should never raise, even if recovery fails.
+    processor._persist(datetime.now(timezone.utc), det, "cam-a", None)
+    processor.close()

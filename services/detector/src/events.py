@@ -160,7 +160,10 @@ class EventProcessor:
                 self._conn.commit()
             except Exception:
                 logger.exception("Failed to persist detection event to database")
-                self._reset_connection_locked()
+                try:
+                    self._reset_connection_locked()
+                except Exception:
+                    logger.exception("Failed to recover SQLite connection after write error")
 
     def _insert_event(
         self,
