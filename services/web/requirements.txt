@@ -6,3 +6,4 @@ pyyaml
 pydantic>=2.0
 redis[asyncio]
 aiofiles
+tzdata

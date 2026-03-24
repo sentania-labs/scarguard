@@ -1,7 +1,9 @@
 """Live feed page — SSE stream pushes latest annotated snapshot on each detection."""
 
 import json
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config_store
 import db
@@ -14,6 +16,19 @@ router = APIRouter(prefix="/feed")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 CHANNEL = "scarguard:detections"
+
+
+def _to_local(iso_str: str, tz_name: str) -> str:
+    """Convert a UTC ISO 8601 string to a formatted local-time string."""
+    try:
+        tz = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        tz = ZoneInfo("UTC")
+    try:
+        dt = datetime.fromisoformat(iso_str).astimezone(tz)
+        return dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+    except (ValueError, TypeError):
+        return str(iso_str)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -70,11 +85,13 @@ async def feed_stream(request: Request):
                 else:
                     img_html = '<p id="live-snapshot">Detection — no snapshot.</p>'
 
+                tz = config_store.load().get("system", {}).get("timezone", "UTC")
+                display_ts = _to_local(str(event.get("timestamp", "")), tz)
                 label = (
                     f'{event.get("class_name","").replace("_"," ").title()} '
                     f'@ {event.get("confidence",0):.0%} — '
                     f'{event.get("camera_name","")} — '
-                    f'{str(event.get("timestamp",""))[:19].replace("T"," ")} UTC'
+                    f'{display_ts}'
                 )
                 payload = json.dumps({"html": img_html, "label": label})
                 yield f"event: detection\ndata: {payload}\n\n"

@@ -39,17 +39,17 @@ def setup_logging(log_level: str) -> None:
     )
 
 
-def build_notifiers(notif_cfg: dict) -> list:
+def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list:
     notifiers: list[DiscordNotifier | EmailNotifier] = []
 
     discord_cfg = notif_cfg.get("discord", {})
     if discord_cfg.get("enabled") and discord_cfg.get("webhook_url"):
-        notifiers.append(DiscordNotifier(discord_cfg))
+        notifiers.append(DiscordNotifier(discord_cfg, tz_name))
         logger.info("Discord notifier enabled")
 
     email_cfg = notif_cfg.get("email", {})
     if email_cfg.get("enabled") and email_cfg.get("smtp_host"):
-        notifiers.append(EmailNotifier(email_cfg))
+        notifiers.append(EmailNotifier(email_cfg, tz_name))
         logger.info("Email notifier enabled")
 
     return notifiers
@@ -167,7 +167,8 @@ def main() -> None:
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard notifier starting")
 
-    notifiers = build_notifiers(cfg.get("notifications", {}))
+    tz_name = cfg.get("system", {}).get("timezone", "UTC")
+    notifiers = build_notifiers(cfg.get("notifications", {}), tz_name)
     notifiers_lock = threading.Lock()
     if not notifiers:
         logger.warning("No notifiers enabled — will consume events without dispatching")
@@ -187,7 +188,8 @@ def main() -> None:
     signal.signal(signal.SIGINT, _shutdown)
 
     def _on_config_change(new_cfg: dict) -> None:
-        new_notifiers = build_notifiers(new_cfg.get("notifications", {}))
+        new_tz = new_cfg.get("system", {}).get("timezone", "UTC")
+        new_notifiers = build_notifiers(new_cfg.get("notifications", {}), new_tz)
         with notifiers_lock:
             notifiers.clear()
             notifiers.extend(new_notifiers)

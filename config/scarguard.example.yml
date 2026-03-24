@@ -14,6 +14,13 @@ system:
   # Log verbosity: debug | info | warning | error
   log_level: info
 
+  # IANA timezone name used when displaying timestamps in the web UI and
+  # notifications.  All events are stored in UTC — this only affects display.
+  # Examples: "America/Los_Angeles", "America/Chicago", "America/New_York",
+  #           "Europe/London", "Asia/Tokyo"
+  # Leave as "UTC" to keep the existing behaviour.
+  timezone: "UTC"
+
 
 # ── Cameras ───────────────────────────────────────────────────────────────────
 # List one or more UniFi Protect cameras by their RTSP stream URL.

@@ -1,6 +1,6 @@
 {% for e in events %}
 <tr>
-  <td>{{ e.timestamp[:19].replace("T", " ") }}</td>
+  <td>{{ e.display_timestamp }}</td>
   <td>{{ e.class_name.replace("_", " ").title() }}</td>
   <td>{{ "%.0f%%"|format(e.confidence * 100) }}</td>
   <td>{{ e.camera_name }}</td>
