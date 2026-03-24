@@ -152,11 +152,8 @@ ScarGuard is that deterrent. It watches the pond around the clock, identifies th
 - Discord webhook with snapshot image attached
 - Email (SMTP) with snapshot attachment
 - Configurable per-channel enable/disable and mention roles
+- Planned support for webhook notfications
 
-### Valve Actuation (Phase 4)
-- Four Orbit DC solenoid valves controlled via ESP32 over MQTT
-- Randomized valve selection, spray duration, and inter-spray delay
-- Independent cooldown to avoid over-saturating the yard
 
 ### Web UI
 - Dashboard: arm/disarm toggle, live system status
@@ -203,4 +200,5 @@ Services communicate over Redis pub/sub. All configuration lives in a single `co
 | 1 | Detection engine (RTSP + YOLO + SQLite + Redis) | Complete |
 | 2 | Notifications (Discord + email) | Complete |
 | 3 | Web UI | Complete |
-| 4 | Valve actuation (ESP32 + MQTT) | Planned |
+| 4 | Web hook notifications | Planned |
+| 5 | See Roadmap.md | Planned
