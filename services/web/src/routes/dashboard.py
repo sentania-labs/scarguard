@@ -16,7 +16,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
     """Convert a UTC ISO 8601 string to a formatted local-time string."""
     try:
         tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, KeyError):
+    except (ZoneInfoNotFoundError, KeyError, TypeError):
         tz = ZoneInfo("UTC")
     try:
         dt = datetime.fromisoformat(iso_str).astimezone(tz)
@@ -31,7 +31,7 @@ async def dashboard(request: Request):
     latest = db.get_latest_event()
     total = db.count_events()
     cameras = cfg.get("cameras", [])
-    tz_name = cfg.get("system", {}).get("timezone", "UTC")
+    tz_name = cfg.get("system", {}).get("timezone") or "UTC"
     latest_dict = None
     if latest:
         latest_dict = dict(latest)
