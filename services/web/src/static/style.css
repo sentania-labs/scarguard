@@ -203,6 +203,10 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
   user-select: none;
   position: relative;  /* contain the zero-size checkbox */
 }
+/* .field-group label sets display:block; override for toggle-labels inside field-groups */
+.field-group .toggle-label {
+  display: flex;
+}
 /* Hide the native checkbox without removing it from the DOM.
    display:none can mis-render in some environments; opacity+position
    is universally reliable while keeping the :checked sibling selector
@@ -333,3 +337,49 @@ input[type="range"] {
   border-bottom: 1px solid var(--border);
 }
 .form-section-title:first-child { margin-top: 0; }
+
+/* Collapsible config sections */
+.config-section { margin-bottom: 0.25rem; }
+
+.config-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  margin: 1.5rem 0 0.75rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+.config-section-header:first-child { margin-top: 0; }
+
+.config-section-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.config-section-chevron {
+  font-size: 0.75rem;
+  color: var(--muted);
+  transition: transform 0.2s;
+  line-height: 1;
+}
+
+.config-section.collapsed .config-section-chevron {
+  transform: rotate(-90deg);
+}
+
+.config-section-body {
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+  max-height: 4000px;
+  opacity: 1;
+}
+
+.config-section.collapsed .config-section-body {
+  max-height: 0;
+  opacity: 0;
+}

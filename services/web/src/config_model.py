@@ -89,7 +89,7 @@ class StructuredConfigPayload(BaseModel):
     """Subset of scarguard.yml written by the structured form editor.
 
     Only the sections the form knows about.  Other top-level keys (redis,
-    action_rules, webhooks, etc.) are preserved from the existing config.
+    action_rules, webhooks, etc.) are preserved unchanged from the existing config.
     """
 
     system: SystemConfig = SystemConfig()

@@ -12,6 +12,12 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   });
 });
 
+// ── Collapsible sections ──────────────────────────────────────────────────────
+
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle("collapsed");
+}
+
 // ── Confidence slider ─────────────────────────────────────────────────────────
 
 const slider = document.getElementById("conf-slider");
@@ -92,6 +98,7 @@ function readForm() {
     system: {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
+      timezone: document.getElementById("sys-timezone").value.trim(),
     },
     cameras: readCameras(),
     detection: {

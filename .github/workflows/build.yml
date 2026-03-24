@@ -1,0 +1,73 @@
+name: Build
+
+# Validates that all Docker images build successfully on every merge to main.
+# Catches Dockerfile / dependency issues before they block a release.
+#
+# Images are built but NOT pushed — this is a build-only validation.
+# Versioned releases and GHCR pushes are handled by release.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+
+  # ── Build web + notifier (x86 runner) ────────────────────────────────────────
+  build-web-notifier:
+    name: Build web + notifier images
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build web (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+      - name: Build notifier (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/notifier/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=notifier
+          cache-to: type=gha,scope=notifier,mode=max
+
+  # ── Build detector (Orin runner, ARM64) ───────────────────────────────────────
+  build-detector:
+    name: Build detector image
+    runs-on: [self-hosted, linux, arm64, jetson]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build detector image (validate only, no push)
+        run: |
+          docker build \
+            --file services/detector/Dockerfile \
+            --tag scarguard-detector:build-validate \
+            .
+
+      - name: Clean up build-validate image
+        if: always()
+        run: docker rmi scarguard-detector:build-validate || true
