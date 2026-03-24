@@ -7,10 +7,33 @@ import threading
 import cv2
 import numpy as np
 
-# 5-second RTSP socket I/O timeout — prevents cap.read() from blocking
-# indefinitely when a stream hangs after connect (server stops sending data).
-# Uses setdefault so a value already set in the environment is preserved.
-os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|stimeout;5000000")
+def _ensure_ffmpeg_socket_timeout(options: str | None, timeout_us: int = 5_000_000) -> str:
+    """Return capture options with stimeout ensured and existing options preserved."""
+    merged: list[str] = []
+    has_stimeout = False
+    for token in (options or "").split("|"):
+        token = token.strip()
+        if not token:
+            continue
+        key, _sep, _value = token.partition(";")
+        if key == "stimeout":
+            if not has_stimeout:
+                merged.append(f"stimeout;{timeout_us}")
+                has_stimeout = True
+            continue
+        merged.append(token)
+
+    if not has_stimeout:
+        merged.append(f"stimeout;{timeout_us}")
+
+    return "|".join(merged)
+
+
+# Ensure a 5-second RTSP socket I/O timeout so cap.read() won't block
+# indefinitely when a stream hangs after connect.
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = _ensure_ffmpeg_socket_timeout(
+    os.environ.get("OPENCV_FFMPEG_CAPTURE_OPTIONS")
+)
 
 logger = logging.getLogger(__name__)
 
