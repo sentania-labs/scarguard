@@ -17,11 +17,15 @@ _cache_loaded_at = 0.0
 
 
 def _read_unlocked() -> dict:
-    with CONFIG_PATH.open() as f:
-        loaded = yaml.safe_load(f) or {}
-        if not isinstance(loaded, dict):
-            raise ValueError("Config root must be a mapping (YAML dictionary)")
-        return loaded
+    try:
+        with CONFIG_PATH.open() as f:
+            loaded = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+
+    if not isinstance(loaded, dict):
+        raise ValueError("Config root must be a mapping (YAML dictionary)")
+    return loaded
 
 
 def load() -> dict:
@@ -46,7 +50,10 @@ def load_cached(ttl_seconds: float = 1.0) -> dict:
             and (now - _cache_loaded_at) < ttl_seconds
         )
         if cache_valid:
-            return copy.deepcopy(_cache_cfg)
+            cached_cfg = _cache_cfg
+            if cached_cfg is None:
+                return {}
+            return copy.deepcopy(cached_cfg)
 
         cfg = _read_unlocked()
         _cache_cfg = cfg

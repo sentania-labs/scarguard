@@ -22,3 +22,10 @@ def test_set_armed_does_not_overwrite_non_mapping_config(tmp_path, monkeypatch):
         config_store.set_armed(True)
 
     assert cfg_path.read_text() == original
+
+
+def test_load_cached_returns_empty_dict_when_config_file_missing(tmp_path, monkeypatch):
+    missing_cfg_path = tmp_path / "missing.yml"
+    monkeypatch.setattr(config_store, "CONFIG_PATH", missing_cfg_path)
+
+    assert config_store.load_cached() == {}
