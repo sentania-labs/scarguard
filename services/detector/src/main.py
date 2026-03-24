@@ -13,6 +13,7 @@ import os
 import signal
 import sys
 import threading
+
 import yaml
 from config_watcher import ConfigWatcher
 from detector import YOLODetector
