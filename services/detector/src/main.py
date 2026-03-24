@@ -13,8 +13,6 @@ import os
 import signal
 import sys
 import threading
-import time
-
 import yaml
 from config_watcher import ConfigWatcher
 from detector import YOLODetector
@@ -63,7 +61,7 @@ def run_camera(
         host=redis_cfg.get("host", "redis"),
         port=int(redis_cfg.get("port", 6379)),
     )
-    stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"])
+    stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"], stop_event=stop_event)
 
     logger.info(
         "[%s] Camera thread starting | frame_skip=%d",
@@ -75,9 +73,10 @@ def run_camera(
     while not stop_event.is_set():
         ret, frame = stream.read()
         if not ret:
-            # RTSPStream handles its own backoff; just sleep briefly here so
-            # we don't spin-check stop_event too aggressively.
-            time.sleep(1)
+            # RTSPStream handles its own backoff; wait briefly so we don't
+            # spin-check stop_event too aggressively, but wake up immediately
+            # on shutdown rather than blocking for a full second.
+            stop_event.wait(1.0)
             continue
 
         frame_count += 1
