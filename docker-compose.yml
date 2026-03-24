@@ -9,6 +9,7 @@ name: scarguard
 # To build locally:   docker compose build
 # To pull from GHCR:  docker compose pull
 # To run:             docker compose up -d
+# To run with SSL:    docker compose -f docker-compose.yml -f docker-compose.ssl.yml up -d
 
 services:
 
@@ -63,8 +64,10 @@ services:
       DB_PATH: /data/scarguard.db
     volumes:
       - ${DATA_DIR}/config:/config      # rw — config editor writes scarguard.yml
+      - ${DATA_DIR}/config/certs:/certs:ro  # SSL certificates (cert.pem + key.pem)
       - ${DATA_DIR}/models:/models      # rw — model upload endpoint writes here
       - ${DATA_DIR}/data:/data:ro       # ro — reads SQLite + serves snapshot images
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Admin logs tab
     depends_on:
       redis:
         condition: service_healthy

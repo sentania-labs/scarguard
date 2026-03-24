@@ -99,6 +99,7 @@ function readForm() {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
+      snapshot_retention_days: (v => isNaN(v) ? 30 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
     },
     cameras: readCameras(),
     detection: {

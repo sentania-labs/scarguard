@@ -38,10 +38,17 @@
             </select>
           </div>
         </div>
-        <div class="field-group">
-          <label>Timezone (IANA name)</label>
-          <input type="text" id="sys-timezone" value="{{ cfg.system.timezone }}"
-                 placeholder="UTC, America/Los_Angeles, Europe/London…">
+        <div class="field-row">
+          <div class="field-group">
+            <label>Timezone (IANA name)</label>
+            <input type="text" id="sys-timezone" value="{{ cfg.system.timezone }}"
+                   placeholder="UTC, America/Los_Angeles, Europe/London…">
+          </div>
+          <div class="field-group">
+            <label>Snapshot retention (days, 0 = keep forever)</label>
+            <input type="number" id="sys-retention" value="{{ cfg.system.snapshot_retention_days }}"
+                   min="0" max="3650">
+          </div>
         </div>
       </div>
     </div>

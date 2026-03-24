@@ -15,6 +15,7 @@ import sys
 import threading
 
 import yaml
+from cleanup import SnapshotCleaner
 from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from events import EventProcessor
@@ -127,6 +128,14 @@ def main() -> None:
         snapshot_dir=SNAPSHOT_DIR,
         db_path=DB_PATH,
     )
+
+    retention_days = int(cfg.get("system", {}).get("snapshot_retention_days", 30))
+    cleaner = SnapshotCleaner(
+        snapshot_dir=SNAPSHOT_DIR,
+        db_path=DB_PATH,
+        retention_days=retention_days,
+    )
+    cleaner.start()
 
     # ---- Signal handling -------------------------------------------------------
     global_stop = threading.Event()
@@ -247,6 +256,7 @@ def main() -> None:
     for name in list(active_cameras.keys()):
         _stop_camera(name)
     event_processor.close()
+    cleaner.stop()
 
     logger.info("Detector stopped cleanly")
 

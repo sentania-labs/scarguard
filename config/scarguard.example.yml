@@ -21,6 +21,11 @@ system:
   # Leave as "UTC" to keep the existing behaviour.
   timezone: "UTC"
 
+  # How many days to keep snapshot images on disk.
+  # The detector deletes snapshots older than this at startup and once per day.
+  # Set to 0 to disable automatic cleanup.
+  snapshot_retention_days: 30
+
 
 # ── Cameras ───────────────────────────────────────────────────────────────────
 # List one or more UniFi Protect cameras by their RTSP stream URL.
@@ -105,6 +110,21 @@ notifications:
     to_addresses:
       - "you@example.com"                         # Can list multiple recipients
     include_snapshot: true
+
+
+# ── SSL / TLS ─────────────────────────────────────────────────────────────────
+# Run setup.sh to generate a self-signed certificate automatically.
+# To use your own certificate, drop cert.pem and key.pem into the certs
+# directory (default: ${DATA_DIR}/config/certs/) and set enabled: true.
+#
+# cert_path / key_path are paths inside the container (mapped from
+# ${DATA_DIR}/config/certs/ by docker-compose.yml).
+ssl:
+  enabled: false                        # Set to true to enable HTTPS on port 8443
+  cert_path: /certs/cert.pem
+  key_path: /certs/key.pem
+  https_only: false                     # Set to true to disable plain HTTP (port 8080)
+  # keyfile_password: ""               # Uncomment if your private key is passphrase-protected
 
 
 # ── Redis (internal message bus) ──────────────────────────────────────────────

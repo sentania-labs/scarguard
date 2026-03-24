@@ -9,6 +9,7 @@ class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"
+    snapshot_retention_days: int = 30
 
     @field_validator("timezone")
     @classmethod

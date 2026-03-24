@@ -6,15 +6,18 @@
 system:
   armed: true
   log_level: info
-  snapshot_retention_days: 30
+  timezone: "UTC"
+  snapshot_retention_days: 30   # days; 0 = keep forever
 
-web:
-  http_port: 8080
-  https_port: 8443
-  ssl:
-    enabled: false
-    cert_path: /config/certs/scarguard.crt
-    key_path: /config/certs/scarguard.key
+# SSL is off by default. Run setup.sh to generate a self-signed cert.
+# cert_path / key_path are container-internal paths; docker-compose mounts
+# ${DATA_DIR}/config/certs/ to /certs/ inside the web container.
+ssl:
+  enabled: false
+  cert_path: /certs/cert.pem
+  key_path: /certs/key.pem
+  https_only: false              # true = disable plain HTTP on port 8080
+  # keyfile_password: ""        # only if private key is passphrase-protected
 
 cameras:
   - name: pond-north
