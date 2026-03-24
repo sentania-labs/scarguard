@@ -20,7 +20,7 @@ def _read_unlocked() -> dict:
     with CONFIG_PATH.open() as f:
         loaded = yaml.safe_load(f) or {}
         if not isinstance(loaded, dict):
-            return {}
+            raise ValueError("Config root must be a mapping (YAML dictionary)")
         return loaded
 
 
