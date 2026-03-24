@@ -92,6 +92,14 @@ async def config_page(request: Request):
     )
 
 
+@router.get("/raw")
+async def get_raw_config() -> JSONResponse:
+    """Return the current config as a raw YAML string for the Advanced editor."""
+    cfg = config_store.load()
+    raw = yaml.dump(cfg, default_flow_style=False, sort_keys=False)
+    return JSONResponse({"yaml": raw})
+
+
 @router.post("/structured", response_class=JSONResponse)
 async def save_structured_config(request: Request) -> JSONResponse:
     """Accept JSON from the form-based config editor and write to scarguard.yml.

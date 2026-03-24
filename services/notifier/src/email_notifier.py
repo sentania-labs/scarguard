@@ -17,7 +17,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
     """Convert a UTC ISO 8601 string to a formatted local-time string."""
     try:
         tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, KeyError):
+    except (ZoneInfoNotFoundError, KeyError, TypeError):
         tz = ZoneInfo("UTC")
     try:
         dt = datetime.fromisoformat(iso_str).astimezone(tz)

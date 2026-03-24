@@ -13,7 +13,7 @@
     {% if latest %}
     Last: {{ latest.class_name.replace("_"," ").title() }} —
     {{ latest.camera_name }} —
-    {{ latest.timestamp[:19].replace("T"," ") }} UTC
+    {{ latest.display_timestamp }}
     {% else %}
     Waiting for first detection…
     {% endif %}

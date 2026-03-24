@@ -21,7 +21,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
     """Convert a UTC ISO 8601 string to a formatted local-time string."""
     try:
         tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, KeyError):
+    except (ZoneInfoNotFoundError, KeyError, TypeError):
         tz = ZoneInfo("UTC")
     try:
         dt = datetime.fromisoformat(iso_str).astimezone(tz)
@@ -31,7 +31,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
 
 
 def _tz_name() -> str:
-    return config_store.load().get("system", {}).get("timezone", "UTC")
+    return config_store.load().get("system", {}).get("timezone") or "UTC"
 
 
 def _apply_display_timestamp(events: list[dict]) -> list[dict]:
@@ -94,7 +94,7 @@ async def event_stream(request: Request):
                     event = json.loads(message["data"])
                 except json.JSONDecodeError:
                     continue
-                tz = config_store.load().get("system", {}).get("timezone", "UTC")
+                tz = config_store.load().get("system", {}).get("timezone") or "UTC"
                 html = _render_event_row(event, tz)
                 yield f"event: detection\ndata: {html}\n\n"
         finally:

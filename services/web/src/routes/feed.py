@@ -22,7 +22,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
     """Convert a UTC ISO 8601 string to a formatted local-time string."""
     try:
         tz = ZoneInfo(tz_name)
-    except (ZoneInfoNotFoundError, KeyError):
+    except (ZoneInfoNotFoundError, KeyError, TypeError):
         tz = ZoneInfo("UTC")
     try:
         dt = datetime.fromisoformat(iso_str).astimezone(tz)
@@ -36,12 +36,19 @@ async def feed_page(request: Request):
     cfg = config_store.load()
     cameras = cfg.get("cameras", [])
     latest = db.get_latest_event()
+    tz_name = cfg.get("system", {}).get("timezone") or "UTC"
+    latest_dict = None
+    if latest:
+        latest_dict = dict(latest)
+        latest_dict["display_timestamp"] = _to_local(
+            str(latest_dict.get("timestamp", "")), tz_name
+        )
     return templates.TemplateResponse(
         request,
         "feed.html",
         {
             "cameras": cameras,
-            "latest": dict(latest) if latest else None,
+            "latest": latest_dict,
         },
     )
 
@@ -85,7 +92,7 @@ async def feed_stream(request: Request):
                 else:
                     img_html = '<p id="live-snapshot">Detection — no snapshot.</p>'
 
-                tz = config_store.load().get("system", {}).get("timezone", "UTC")
+                tz = config_store.load().get("system", {}).get("timezone") or "UTC"
                 display_ts = _to_local(str(event.get("timestamp", "")), tz)
                 label = (
                     f'{event.get("class_name","").replace("_"," ").title()} '
