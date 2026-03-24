@@ -31,7 +31,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
 
 
 def _tz_name() -> str:
-    return config_store.load().get("system", {}).get("timezone") or "UTC"
+    return config_store.load_cached().get("system", {}).get("timezone") or "UTC"
 
 
 def _apply_display_timestamp(events: list[dict]) -> list[dict]:
@@ -75,7 +75,7 @@ async def event_rows(request: Request, page: int = 1):
 @router.get("/stream")
 async def event_stream(request: Request):
     """SSE stream — pushes a new event row fragment whenever a detection fires."""
-    cfg = config_store.load()
+    cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
@@ -94,7 +94,7 @@ async def event_stream(request: Request):
                     event = json.loads(message["data"])
                 except json.JSONDecodeError:
                     continue
-                tz = config_store.load().get("system", {}).get("timezone") or "UTC"
+                tz = _tz_name()
                 html = _render_event_row(event, tz)
                 yield f"event: detection\ndata: {html}\n\n"
         finally:
