@@ -26,7 +26,6 @@
 - Generic REST webhook notification channel
 - Valve actuation (ESP32 hardware not wired yet)
 - Live camera feed with bounding box overlay in web UI (SSE)
-- About page (project info, versions, component status)
 - Admin/logs tab (view service logs from web UI)
 - Detection exclusion zones
 
