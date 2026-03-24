@@ -8,7 +8,6 @@ from config_model import (
     CameraConfig,
     DetectionConfig,
     NotificationsConfig,
-    RedisConfig,
     StructuredConfigPayload,
     SystemConfig,
 )
@@ -65,7 +64,6 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         cameras=cameras,
         detection=_section(DetectionConfig, raw_cfg.get("detection", {})),
         notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
-        redis=_section(RedisConfig, raw_cfg.get("redis", {})),
     )
 
 
@@ -99,8 +97,8 @@ async def save_structured_config(request: Request) -> JSONResponse:
     """Accept JSON from the form-based config editor and write to scarguard.yml.
 
     Only updates the sections the form knows about (system, cameras, detection,
-    notifications.discord, notifications.email, redis.host, redis.port).  All other
-    keys in the existing config (action_rules, webhooks, etc.) are preserved unchanged.
+    notifications.discord, notifications.email).  All other keys in the existing
+    config (redis, action_rules, webhooks, etc.) are preserved unchanged.
 
     For cameras, unknown fields (e.g. exclusion_zones) are preserved by merging
     the form values over the existing entry matched by name.
@@ -148,12 +146,6 @@ async def save_structured_config(request: Request) -> JSONResponse:
     existing.setdefault("notifications", {})
     existing["notifications"]["discord"] = payload.notifications.discord.model_dump()
     existing["notifications"]["email"] = payload.notifications.email.model_dump()
-
-    # Merge redis: preserve any extra keys the form doesn't know about.
-    existing_redis = existing.get("redis", {})
-    if not isinstance(existing_redis, dict):
-        existing_redis = {}
-    existing["redis"] = {**existing_redis, **payload.redis.model_dump(exclude_unset=True)}
 
     config_store.save(existing)
     return JSONResponse({"ok": True})

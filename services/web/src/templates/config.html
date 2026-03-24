@@ -193,29 +193,6 @@
     </div>
   </div>
 
-  {# ── Redis ────────────────────────────────────────────────────────────────── #}
-  <div class="config-section" id="section-redis">
-    <div class="config-section-header" onclick="toggleSection('section-redis')">
-      <span class="config-section-label">Redis</span>
-      <span class="config-section-chevron">▾</span>
-    </div>
-    <div class="config-section-body">
-      <div class="card">
-        <p class="hint" style="margin-bottom:0.75rem;">Internal message bus. Matches the <code>redis</code> service in docker-compose.yml — only change if running Redis externally.</p>
-        <div class="field-row">
-          <div class="field-group">
-            <label>Host</label>
-            <input type="text" id="redis-host" value="{{ cfg.redis.host }}" placeholder="redis">
-          </div>
-          <div class="field-group">
-            <label>Port</label>
-            <input type="number" id="redis-port" value="{{ cfg.redis.port }}" min="1" max="65535">
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <button id="save-btn" type="button" onclick="saveConfig()">Save</button>
 
 </div>{# /tab-settings #}

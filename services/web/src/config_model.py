@@ -85,27 +85,14 @@ class NotificationsConfig(BaseModel):
     email: EmailConfig = EmailConfig()
 
 
-class RedisConfig(BaseModel):
-    host: str = "redis"
-    port: int = 6379
-
-    @field_validator("port")
-    @classmethod
-    def port_range(cls, v: int) -> int:
-        if not 1 <= v <= 65535:
-            raise ValueError("redis.port must be between 1 and 65535")
-        return v
-
-
 class StructuredConfigPayload(BaseModel):
     """Subset of scarguard.yml written by the structured form editor.
 
     Only the sections the form knows about.  Other top-level keys (redis,
-    action_rules, webhooks, etc.) are preserved from the existing config.
+    action_rules, webhooks, etc.) are preserved unchanged from the existing config.
     """
 
     system: SystemConfig = SystemConfig()
     cameras: list[CameraConfig] = []
     detection: DetectionConfig = DetectionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
-    redis: RedisConfig = RedisConfig()
