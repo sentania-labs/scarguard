@@ -4,20 +4,7 @@ Current priorities in order. Each item includes acceptance criteria.
 
 ---
 
-## Priority 2: Notification Resilience
-
-Notifier does not handle internet outages gracefully. Notifications should queue and retry.
-
-**Acceptance criteria:**
-- On send failure (network error, timeout), notifications are queued in-memory or on disk
-- Queued notifications are retried with exponential backoff when connectivity is restored
-- A connectivity health check runs periodically (ping or lightweight HTTP request)
-- Notification queue is bounded (configurable max size, oldest dropped if full)
-- Logged clearly: queue depth, retry attempts, eventual success/failure
-
----
-
-## Priority 3: Admin Logs Tab
+## Priority 1: Admin Logs Tab
 
 Add a "Logs" tab under admin/configuration section of the web UI.
 
@@ -31,7 +18,7 @@ Add a "Logs" tab under admin/configuration section of the web UI.
 
 ---
 
-## Priority 4: SSL / TLS for Web UI
+## Priority 2: SSL / TLS for Web UI
 
 Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert.
 
@@ -43,7 +30,7 @@ Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert
 
 ---
 
-## Priority 5: Snapshot Retention & Cleanup
+## Priority 3: Snapshot Retention & Cleanup
 
 Snapshots accumulate indefinitely. Add configurable retention policy.
 
@@ -55,7 +42,7 @@ Snapshots accumulate indefinitely. Add configurable retention policy.
 
 ---
 
-## Priority 6: Detection Exclusion Zones
+## Priority 4: Detection Exclusion Zones
 
 Suppress false positives from static objects (e.g. heron decoy). Two tiers.
 
@@ -74,7 +61,7 @@ Track detections that remain in the same position across many frames over hours/
 
 ---
 
-## Priority 7: Enhanced Detection Event Logs
+## Priority 5: Enhanced Detection Event Logs
 
 Richer detail and filtering in the web UI event log.
 
@@ -86,7 +73,7 @@ Richer detail and filtering in the web UI event log.
 
 ---
 
-## Priority 8: Live Camera Feed in Web UI
+## Priority 6: Live Camera Feed in Web UI
 
 SSE or WebSocket endpoint streaming annotated frames with bounding boxes.
 
@@ -97,22 +84,171 @@ SSE or WebSocket endpoint streaming annotated frames with bounding boxes.
 
 ---
 
-## Priority 9: Custom REST API Notification Channel
+## Priority 7: Named Notification Channels & Webhook Support
 
-Generic outbound webhook/REST notification type for external integrations.
+Refactor notifications from single-instance-per-type to named, multi-instance channels. Add webhook as a new channel type. Each channel gets a unique name that action rules reference — just like cameras.
+
+**Example config:**
+```yaml
+notifications:
+  channels:
+    - name: pond-alerts
+      type: discord
+      enabled: true
+      webhook_url: https://discord.com/api/webhooks/...pond-channel...
+
+    - name: security-alerts
+      type: discord
+      enabled: true
+      webhook_url: https://discord.com/api/webhooks/...security-channel...
+
+    - name: email-digest
+      type: email
+      enabled: true
+      smtp_host: smtp.gmail.com
+      recipients: [scott@example.com]
+
+    - name: heron-deterrent
+      type: webhook
+      enabled: true
+      url: http://192.168.1.50/api/spray
+      method: POST
+      headers: { "Authorization": "Bearer ..." }
+
+    - name: home-assistant
+      type: webhook
+      enabled: true
+      url: http://homeassistant.local:8123/api/webhook/scarguard
+      method: POST
+```
 
 **Acceptance criteria:**
-- New `webhook` notification channel type alongside discord and email
-- Configurable: URL, HTTP method (POST/PUT), custom headers, optional auth token
-- Payload includes: event timestamp, camera, detected class, confidence, snapshot URL
-- Retry with backoff on failure
-- Multiple webhook endpoints supported
+- Every notification channel has a unique `name` and a `type` (discord, email, webhook)
+- Multiple instances of the same type supported (e.g. two Discord webhooks to different channels)
+- Webhook type is configurable: URL, HTTP method (POST/PUT), custom headers, optional auth token
+- Webhook payload includes: event timestamp, camera, detected class, confidence, snapshot URL
+- Retry with backoff on failure (all channel types)
+- Action rules in Priority 10 reference channels by name (e.g. `actions: [pond-alerts, heron-deterrent]`)
+- Web UI config editor supports add/remove/edit of named channels
+- Backward compatibility: if existing config uses the old flat `notifications.discord` / `notifications.email` structure, auto-migrate to named channel format on first load (or document migration in upgrade notes)
 
 ---
 
-## Priority 10: Custom Heron Model Training
+## Priority 8: Scheduled Arm/Disarm
+
+Automatically arm and disarm the detection system on a daily schedule. Primary use case: arm at dawn when herons hunt, disarm at dusk when activity is expected around the pond. Eliminates daily manual toggling of `system.armed`.
+
+**Acceptance criteria:**
+- Config fields: `system.schedule.arm_time` and `system.schedule.disarm_time` (24h format, e.g. `"06:00"`, `"20:30"`)
+- Optional: `system.schedule.use_solar` — if `true`, calculate sunrise/sunset from `system.schedule.latitude` and `system.schedule.longitude` instead of fixed times
+- Scheduler runs inside the detector service, checks every 60 seconds
+- Manual arm/disarm via UI or API overrides the schedule until the next scheduled transition
+- Arm/disarm transitions logged as system events visible in the event log
+- If no schedule configured, behavior unchanged (manual only)
+- Schedule status and next transition time visible on the dashboard
+
+---
+
+## Priority 9: App Security & User Accounts
+
+Add authentication to the web UI. Currently anyone on the network can access the dashboard, config, and admin tools.
+
+**Acceptance criteria:**
+- Login page gates all web UI routes — no unauthenticated access to dashboard, config, admin, or API endpoints
+- At least one admin user created during `setup.sh` (prompted for username/password)
+- Passwords hashed (bcrypt or argon2), stored in SQLite — never plaintext
+- Session-based auth with configurable timeout (default: 24h)
+- User management in admin UI: add/remove users, change passwords
+- API endpoints (webhook callbacks, SSE feeds) support token-based auth as alternative to session cookies
+- Rate-limit or lockout after N failed login attempts (default: 5 attempts, 15 min lockout)
+- Works over both HTTP and HTTPS (log a warning on startup if auth is enabled without TLS)
+
+**Upgrade path for existing installations:**
+- If no users exist in the database on startup (i.e. pre-auth install upgraded via `docker pull`), the app starts in a **first-run setup mode**: web UI redirects to a one-time account creation page before anything else is accessible
+- No default/hardcoded credentials — the user must set their own on first launch
+- Existing API integrations (webhooks, SSE) continue to work unauthenticated until the user explicitly enables API token auth via config (`system.require_api_auth: true`, default `false`)
+- Migration is non-destructive: pulling the new image and restarting is all that's needed
+
+---
+
+## Priority 10: Per-Camera Detection Models, Classes & Action Routing
+
+Allow each camera to use a different YOLO model, detect different object classes, and route detections to specific notification channels. This is the core of multi-camera/multi-model setups.
+
+**Example config:**
+```yaml
+cameras:
+  - name: pond-north
+    rtsp_url: rtsp://...
+    model_path: models/heron-v1.pt
+    detect_classes: [great_blue_heron, green_heron]
+    action_rules:
+      - classes: [great_blue_heron, green_heron]
+        actions: [pond-alerts, heron-deterrent]   # Discord + spray valve
+
+  - name: front-door
+    rtsp_url: rtsp://...
+    # model_path omitted — falls back to global detection.model_path
+    detect_classes: [person, car]
+    action_rules:
+      - classes: [person]
+        actions: [security-alerts]                 # different Discord channel
+      - classes: [car]
+        actions: []                                # log only
+
+  - name: pond-south
+    rtsp_url: rtsp://...
+    model_path: models/heron-v1.pt
+    detect_classes: [person, great_blue_heron]
+    action_rules:
+      - classes: [person]
+        actions: []                                # humans at pond = do nothing
+      - classes: [great_blue_heron]
+        actions: [heron-deterrent]                 # spray only, no notification
+```
+
+**Acceptance criteria:**
+- Camera config gains optional fields: `model_path`, `detect_classes`, and `action_rules`
+- If `model_path` or `detect_classes` omitted, camera falls back to global `detection.model_path` / `detection.classes`
+- `action_rules` is a list of `{classes: [...], actions: [...]}` pairs — matched top-down, first match wins
+- Actions reference notification channels by name (as defined in Priority 7), not by type
+- Validate at startup that all channel names referenced in action rules exist; log a warning for unresolved references
+- If no `action_rules` defined on a camera, falls back to global notification behavior (all enabled channels)
+- Detector loads each unique model once in memory and shares across cameras using the same model
+- Model swap per-camera via the web UI config editor (dropdown of uploaded models)
+- Hot-reload: changing a camera's model, classes, or action rules takes effect without restarting the stack
+- Validate at startup that referenced model files exist; log a clear error and skip the camera if not
+- Web UI config editor surfaces per-camera model/class/action-rule editing with a usable UI (not raw YAML)
+- Detection events include which actions were triggered (or "log only") for traceability in the event log
+
+---
+
+## Priority 11: GPU/CPU Load Stats View
+
+System health panel in the web UI showing resource utilization of the host. Useful for tuning inference intervals, monitoring thermal throttling on the Orin, and knowing when hardware limits are hit.
+
+**Acceptance criteria:**
+- Dashboard widget or dedicated admin page showing: CPU usage (%), GPU usage (%), GPU memory (used/total), system RAM (used/total), CPU temperature, GPU temperature
+- GPU stats sourced from `jtop`/`tegrastats` (Jetson) or `nvidia-smi` (x86) — auto-detect platform
+- Updates on a polling interval (configurable, default: 5s)
+- Graceful degradation: if no NVIDIA GPU detected, show CPU-only stats without errors
+- Per-camera inference FPS and average inference latency displayed alongside resource stats
+- Historical mini-chart (last 5–10 minutes) for GPU/CPU usage so user can spot trends and throttling
+
+---
+
+## Priority 12: Custom Heron Model Training
 
 Replace generic COCO bird model with fine-tuned model distinguishing heron species. Data collection and training task, not primarily code.
+
+**Acceptance criteria:**
+- Training dataset: minimum 500 labeled images per target species, sourced from pond cameras and supplemented with public datasets (iNaturalist, Macaulay Library)
+- Annotations in YOLO format (one `.txt` per image, class + bounding box)
+- Model trained using YOLOv8 (or current best) fine-tuning from a COCO-pretrained checkpoint
+- Validation mAP@0.5 ≥ 0.75 on a held-out test set of pond camera images
+- Exported model (`.pt` or `.onnx`) drops into `models/` directory and is selectable in config
+- Species classes at minimum: `great_blue_heron`, `green_heron` — additional species as data allows
+- Training notebook or script committed to repo under `training/` for reproducibility
 
 ---
 
@@ -122,6 +258,3 @@ Replace generic COCO bird model with fine-tuned model distinguishing heron speci
 - Automated Orin runner updates via SSH from x86 runners
 - Second Orin or AGX as dedicated build runner
 - Multi-model support (seasonal species profiles)
-- Scheduled arm/disarm (arm at dawn, disarm at dusk)
-- App security, user accounts
-- Different detection models and classes per stream
