@@ -14,7 +14,7 @@
 
 ## Known Issues / Buggy
 
-- **Timezone:** Some GUI locations and logs still display UTC.
+- **Timezone:** Some GUI locations and logs still display UTC. (https://github.com/sentania-labs/scarguard/issues/25)
 - **Multi-camera fairness:** Multiple cameras loaded but one camera seems preferred over the other in test setup. Physical camera stream validation still needed. (implemented but needs evaluation)
 - **Notifier resilience:** Internet interruptions not handled gracefully — notifications should be queued and retried. (implementet but needs testing)
 
