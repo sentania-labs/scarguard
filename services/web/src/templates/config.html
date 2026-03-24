@@ -200,6 +200,53 @@
     </div>
   </div>
 
+  {# ── SSL / TLS ──────────────────────────────────────────────────────────── #}
+  <div class="config-section collapsed" id="section-ssl">
+    <div class="config-section-header" onclick="toggleSection('section-ssl')">
+      <span class="config-section-label">SSL / TLS</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <p class="hint">
+          HTTPS for the web UI. Run <code>setup.sh</code> to generate a self-signed certificate,
+          or drop your own <code>cert.pem</code> and <code>key.pem</code> into the certs directory.
+          Changes to SSL settings require a web service restart (applied automatically on save).
+        </p>
+        <div class="field-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="ssl-enabled" {% if cfg.ssl.enabled %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            Enable HTTPS (port 8443)
+          </label>
+        </div>
+        <div class="field-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="ssl-https-only" {% if cfg.ssl.https_only %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            HTTPS only (disable plain HTTP on port 8080)
+          </label>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Certificate path (inside container)</label>
+            <input type="text" id="ssl-cert-path" value="{{ cfg.ssl.cert_path }}"
+                   placeholder="/certs/cert.pem">
+          </div>
+          <div class="field-group">
+            <label>Key path (inside container)</label>
+            <input type="text" id="ssl-key-path" value="{{ cfg.ssl.key_path }}"
+                   placeholder="/certs/key.pem">
+          </div>
+        </div>
+        <div class="field-group">
+          <label>Key password (leave blank if key is not passphrase-protected)</label>
+          <input type="password" id="ssl-key-password" value="{{ cfg.ssl.keyfile_password }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
   <button id="save-btn" type="button" onclick="saveConfig()">Save</button>
 
 </div>{# /tab-settings #}

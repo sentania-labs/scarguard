@@ -39,7 +39,9 @@ Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert
 - HTTP (8080) daemon thread + HTTPS (8443) main thread; `https_only: true` skips HTTP listener
 - `ssl.keyfile_password` supported for passphrase-protected private keys
 - Certs directory (`${DATA_DIR}/config/certs`) bind-mounted into web container as `/certs:ro`
-- New port mapping `${WEB_HTTPS_PORT:-8443}:8443` in `docker-compose.yml`; nothing listens until SSL enabled — backward-compatible
+- HTTPS port `${WEB_HTTPS_PORT:-8443}:8443` bound in `docker-compose.yml` alongside HTTP
+- SSL settings widget in the web UI config editor (v0.3.1)
+- Config watcher thread in `start.py` detects SSL changes and triggers automatic web service restart (v0.3.1)
 
 ---
 

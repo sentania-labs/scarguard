@@ -86,6 +86,14 @@ class NotificationsConfig(BaseModel):
     email: EmailConfig = EmailConfig()
 
 
+class SSLConfig(BaseModel):
+    enabled: bool = False
+    cert_path: str = "/certs/cert.pem"
+    key_path: str = "/certs/key.pem"
+    https_only: bool = False
+    keyfile_password: str = ""
+
+
 class StructuredConfigPayload(BaseModel):
     """Subset of scarguard.yml written by the structured form editor.
 
@@ -97,3 +105,4 @@ class StructuredConfigPayload(BaseModel):
     cameras: list[CameraConfig] = []
     detection: DetectionConfig = DetectionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    ssl: SSLConfig = SSLConfig()

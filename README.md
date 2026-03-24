@@ -145,7 +145,11 @@ chmod 600 "${DATA_DIR}/config/certs/key.pem"
 
 To use your own certificate (e.g. from Let's Encrypt or an internal CA), drop `cert.pem` and `key.pem` into `${DATA_DIR}/config/certs/` and proceed to Step 2. No container rebuild is needed — the directory is bind-mounted into the web container.
 
-#### Step 2 — Enable SSL in `scarguard.yml`
+#### Step 2 — Enable SSL
+
+**Option A — Web UI:** Open the Settings page, expand the **SSL / TLS** section, check **Enable HTTPS**, and click Save. The web service restarts automatically.
+
+**Option B — Edit `scarguard.yml` directly:**
 
 ```yaml
 ssl:
@@ -155,13 +159,7 @@ ssl:
   https_only: false            # set true to disable plain HTTP on port 8080
 ```
 
-#### Step 3 — Restart the web service
-
-```bash
-docker compose up -d web
-```
-
-The startup log will confirm:
+The web service detects SSL config changes and restarts automatically. The startup log will confirm:
 
 ```
 INFO     start — Starting with SSL: cert=/certs/cert.pem key=/certs/key.pem https_only=False ...
@@ -199,14 +197,6 @@ docker compose up -d
 ```
 
 That's all that's needed. HTTP continues to work on your existing port with no config changes.
-
-**What changed in v0.3 and what it means for existing installs:**
-
-| Change | Impact |
-|--------|--------|
-| New port mapping `${WEB_HTTPS_PORT:-8443}:8443` | Host port 8443 is now bound. Nothing listens on it until `ssl.enabled: true`, so existing HTTP deployments are unaffected. If 8443 is already in use on your host, add `WEB_HTTPS_PORT=<other>` to `.env` before running `docker compose up -d`. |
-| New volume `${DATA_DIR}/config/certs:/certs:ro` | Docker Compose creates the empty host directory automatically. No action needed; the web service starts normally with an empty certs directory when SSL is disabled. |
-| New volume `/var/run/docker.sock:/var/run/docker.sock:ro` | Enables the **Logs** tab in the web UI (live log tail from each service). Requires `docker compose up -d` to recreate the web container. If your Docker socket is at a non-standard path, the Logs tab will show a connection error — everything else is unaffected. |
 
 ---
 

@@ -41,3 +41,5 @@
 | v0.3 | Admin logs tab (live Docker log tail via SSE, filterable by service and level) | ✅ Complete |
 | v0.3 | SSL/TLS for web UI (self-signed cert generation in setup.sh, HTTP+HTTPS dual-listener) | ✅ Complete |
 | v0.3 | Snapshot retention & cleanup (configurable retention_days, daily pruning in detector) | ✅ Complete |
+| v0.3.1 | SSL settings widget in config editor, auto-restart on SSL config change | ✅ Complete |
+| v0.3.1 | Removed docker-compose.ssl.yml override (HTTPS port now in main compose) | ✅ Complete |
