@@ -20,6 +20,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 import yaml
@@ -46,7 +47,7 @@ def _load_ssl_cfg() -> dict:
         return {}
 
 
-def _uvicorn_cfg(**extra: object) -> dict[str, object]:
+def _uvicorn_cfg(**extra: Any) -> dict[str, Any]:
     return {
         "app": "main:app",
         "host": "0.0.0.0",
@@ -100,7 +101,7 @@ def main() -> None:
             log.info("HTTP listener started on port 8080")
 
         # HTTPS in the main thread (blocks until shutdown).
-        https_kwargs: dict[str, object] = dict(
+        https_kwargs: dict[str, Any] = dict(
             port=8443,
             ssl_certfile=cert_path,
             ssl_keyfile=key_path,

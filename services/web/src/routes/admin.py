@@ -16,6 +16,10 @@ router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 SERVICES = ["detector", "notifier", "web"]
+# Must match `name:` in docker-compose.yml. If the project is renamed or run
+# with `docker compose -p <name>`, this constant must be updated to match or
+# the container lookup will silently return nothing.
+COMPOSE_PROJECT = "scarguard"
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mK]")
 
 # Check at import time so a missing dependency surfaces in startup logs rather
@@ -35,31 +39,30 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
-def _find_container(service: str) -> object | None:
-    """Return the first running container whose compose service label matches.
+def _find_container(client, service: str) -> object | None:
+    """Return the first running container for *service* within this Compose project.
+
+    Scoping by both service name and project name prevents cross-stack matches
+    when multiple Compose projects with the same service names run on the host.
 
     NOTE: /var/run/docker.sock gives host-root equivalent access. This endpoint
     must be protected by authentication (Feature 9) before being exposed beyond
     the local network. The service parameter is validated against SERVICES before
     this function is called, preventing injection via the label filter.
     """
-    client = None
     try:
-        import docker  # type: ignore[import-untyped]
-        client = docker.from_env()
         containers = client.containers.list(
-            filters={"label": f"com.docker.compose.service={service}"}
+            filters={
+                "label": [
+                    f"com.docker.compose.service={service}",
+                    f"com.docker.compose.project={COMPOSE_PROJECT}",
+                ]
+            }
         )
         return containers[0] if containers else None
     except Exception as exc:
         log.warning("Cannot access Docker socket (service=%s): %s", service, exc)
         return None
-    finally:
-        if client is not None:
-            try:
-                client.close()
-            except Exception:
-                pass
 
 
 def _tail_logs_to_queue(
@@ -109,47 +112,63 @@ async def logs_stream(
     async def generator():
         loop = asyncio.get_running_loop()
 
-        container = await loop.run_in_executor(None, _find_container, service)
-        if container is None:
-            yield (
-                "data: [ScarGuard] Cannot reach Docker socket or container "
-                f"'{service}' is not running. "
-                "Ensure /var/run/docker.sock is mounted in the web service.\n\n"
-            )
+        if not _DOCKER_AVAILABLE:
+            yield "data: [ScarGuard] Docker SDK not installed — Admin Logs unavailable.\n\n"
             return
 
-        q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=500)
-        stop = threading.Event()
+        import docker
 
-        t = threading.Thread(
-            target=_tail_logs_to_queue,
-            args=(container, q, loop, tail, stop),
-            name=f"log-tail-{service}",
-            daemon=True,
-        )
-        t.start()
-
+        client = docker.from_env()
         try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    line = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    # Send a comment to keep the connection alive.
-                    yield ": keepalive\n\n"
-                    continue
+            container = await loop.run_in_executor(None, _find_container, client, service)
+            if container is None:
+                yield (
+                    "data: [ScarGuard] Cannot reach Docker socket or container "
+                    f"'{service}' is not running. "
+                    "Ensure /var/run/docker.sock is mounted in the web service.\n\n"
+                )
+                return
 
-                if line is None:
-                    break
+            q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=500)
+            stop = threading.Event()
 
-                clean = _strip_ansi(line).rstrip("\n\r")
-                if clean:
-                    # SSE data lines must not contain raw newlines.
-                    safe = clean.replace("\n", "  ")
-                    yield f"data: {safe}\n\n"
+            t = threading.Thread(
+                target=_tail_logs_to_queue,
+                args=(container, q, loop, tail, stop),
+                name=f"log-tail-{service}",
+                daemon=True,
+            )
+            t.start()
+
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        line = await asyncio.wait_for(q.get(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        # Send a comment to keep the connection alive.
+                        yield ": keepalive\n\n"
+                        continue
+
+                    if line is None:
+                        break
+
+                    clean = _strip_ansi(line).rstrip("\n\r")
+                    if clean:
+                        # SSE data lines must not contain raw newlines.
+                        safe = clean.replace("\n", "  ")
+                        yield f"data: {safe}\n\n"
+            finally:
+                stop.set()
         finally:
-            stop.set()
+            # Closing the client interrupts the blocking container.logs() iterator
+            # in the tail thread, causing it to raise and exit promptly rather than
+            # waiting indefinitely for the next log chunk.
+            try:
+                client.close()
+            except Exception:
+                pass
 
     return StreamingResponse(
         generator(),

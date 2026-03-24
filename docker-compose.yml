@@ -9,6 +9,7 @@ name: scarguard
 # To build locally:   docker compose build
 # To pull from GHCR:  docker compose pull
 # To run:             docker compose up -d
+# To run with SSL:    docker compose -f docker-compose.yml -f docker-compose.ssl.yml up -d
 
 services:
 
@@ -56,7 +57,6 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-web:${IMAGE_TAG:-latest}
     ports:
       - "${WEB_PORT:-8080}:8080"
-      - "${WEB_HTTPS_PORT:-8443}:8443"
     environment:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots

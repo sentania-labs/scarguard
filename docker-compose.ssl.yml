@@ -1,0 +1,14 @@
+# SSL override — apply on top of docker-compose.yml when ssl.enabled = true in scarguard.yml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ssl.yml up -d
+#
+# This file adds the HTTPS port binding so that HTTP-only deployments do not
+# reserve port 8443 on the host.  Docker publishes host ports at container
+# start regardless of whether the app is listening inside the container, so
+# keeping the binding conditional avoids startup failures on hosts where
+# 8443 is already in use.
+
+services:
+  web:
+    ports:
+      - "${WEB_HTTPS_PORT:-8443}:8443"
