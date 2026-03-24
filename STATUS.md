@@ -9,14 +9,13 @@
 - **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational.
 - **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
 - **Config hot-reload:** Notifier and detector services automatically restart on config change.
-- **Config GUI toggles:** Enable/disable toggle for features/cameras not visually aligned properly.
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
+- **Notifier resilience:** Internet interruptions now handled gracefully
 
 ## Known Issues / Buggy
 
 - **Timezone:** Some GUI locations and logs still display UTC. (https://github.com/sentania-labs/scarguard/issues/25)
 - **Multi-camera fairness:** Multiple cameras loaded but one camera seems preferred over the other in test setup. Physical camera stream validation still needed. (implemented but needs evaluation)
-- **Notifier resilience:** Internet interruptions not handled gracefully — notifications should be queued and retried. (implementet but needs testing)
 
 ## Not Yet Built
 
