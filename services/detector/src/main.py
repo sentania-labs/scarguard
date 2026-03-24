@@ -246,6 +246,7 @@ def main() -> None:
     watcher.stop()
     for name in list(active_cameras.keys()):
         _stop_camera(name)
+    event_processor.close()
 
     logger.info("Detector stopped cleanly")
 
