@@ -1,5 +1,7 @@
 # ScarGuard — Infrastructure
 
+Doc last verified: 2026-03-24
+
 ## Repository Structure
 
 ```
@@ -26,27 +28,42 @@ scarguard/
 │   ├── web/                         # FastAPI + Jinja web UI
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
-│   │   ├── src/
-│   │   │   ├── main.py
-│   │   │   ├── routes/
-│   │   │   │   ├── dashboard.py
-│   │   │   │   ├── events.py
-│   │   │   │   ├── config.py
-│   │   │   │   ├── models.py
-│   │   │   │   ├── about.py
-│   │   │   │   └── admin.py
-│   │   │   ├── api/
-│   │   │   │   └── v1.py
-│   │   │   └── db.py
-│   │   ├── templates/
-│   │   └── static/
+│   │   └── src/
+│   │       ├── config_model.py
+│   │       ├── config_store.py
+│   │       ├── db.py
+│   │       ├── main.py
+│   │       ├── routes/
+│   │       │   ├── __init__.py
+│   │       │   ├── about.py
+│   │       │   ├── config.py
+│   │       │   ├── dashboard.py
+│   │       │   ├── events.py
+│   │       │   ├── feed.py
+│   │       │   └── models.py
+│   │       ├── static/
+│   │       │   ├── config.js
+│   │       │   └── style.css
+│   │       └── templates/
+│   │           ├── about.html
+│   │           ├── base.html
+│   │           ├── config.html
+│   │           ├── dashboard.html
+│   │           ├── events.html
+│   │           ├── feed.html
+│   │           ├── models.html
+│   │           └── partials/
+│   │               ├── arm_badge.html
+│   │               └── event_rows.html
 │   └── notifier/
 │       ├── Dockerfile
 │       ├── requirements.txt
 │       └── src/
-│           ├── main.py
+│           ├── config_watcher.py
 │           ├── discord.py
-│           └── email.py
+│           ├── email_notifier.py
+│           ├── main.py
+│           └── notification_queue.py
 ├── shared/
 │   └── models.py                    # Shared Pydantic data models
 ├── infra/
