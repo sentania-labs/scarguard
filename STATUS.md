@@ -8,7 +8,7 @@
 - **Web UI:** Dashboard, event log, config editor, model upload — functional.
 - **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational.
 - **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
-- **Config hot-reload:** Notifier and detector services automatically restart on config change.
+- **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required). Detector dynamically updates armed flag, threshold/classes, cooldown, frame_skip, and enabled cameras; notifier dynamically rebuilds its notifier set. Web service reads config on request, so most config display changes do not require restart.
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
 - **Notifier resilience:** Internet interruptions now handled gracefully
 
@@ -36,7 +36,7 @@
 | — | CI/CD pipeline (GitHub Actions, GHCR, self-hosted runners) | ✅ Complete |
 | — | Docker Compose orchestration + setup.sh installer | ✅ Complete |
 | — | External data directory (config/data/models outside repo) | ✅ Complete |
-| — | Config hot-reload (detector + notifier restart on config change) | ✅ Complete |
+| — | Config hot-reload (detector + notifier poll and apply config in-process) | ✅ Complete |
 | — | Form-based config GUI (initial implementation) | ✅ Complete |
 | — | Multi-camera detection (initial implementation) | ✅ Complete  |
 | — | About page to display version and service status | ✅ Complete |
