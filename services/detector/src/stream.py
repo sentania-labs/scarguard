@@ -7,11 +7,18 @@ import threading
 import cv2
 import numpy as np
 
-def _ensure_ffmpeg_socket_timeout(options: str | None, timeout_us: int = 5_000_000) -> str:
-    """Return capture options with stimeout ensured and existing options preserved."""
+
+def _ensure_ffmpeg_socket_timeout(
+    options: str | None,
+    timeout_us: int = 5_000_000,
+    default_options: str = "rtsp_transport;tcp",
+) -> str:
+    """Return capture options with defaults and stimeout ensured."""
+    source_options = options if options and options.strip() else default_options
+
     merged: list[str] = []
     has_stimeout = False
-    for token in (options or "").split("|"):
+    for token in source_options.split("|"):
         token = token.strip()
         if not token:
             continue
