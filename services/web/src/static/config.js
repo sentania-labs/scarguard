@@ -12,6 +12,12 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   });
 });
 
+// ── Collapsible sections ──────────────────────────────────────────────────────
+
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle("collapsed");
+}
+
 // ── Confidence slider ─────────────────────────────────────────────────────────
 
 const slider = document.getElementById("conf-slider");
@@ -92,6 +98,7 @@ function readForm() {
     system: {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
+      timezone: document.getElementById("sys-timezone").value.trim(),
     },
     cameras: readCameras(),
     detection: {
@@ -117,6 +124,10 @@ function readForm() {
         to_addresses: toAddresses,
         include_snapshot: document.getElementById("email-snapshot").checked,
       },
+    },
+    redis: {
+      host: document.getElementById("redis-host").value.trim(),
+      port: parseInt(document.getElementById("redis-port").value, 10) || 6379,
     },
   };
 }
@@ -144,6 +155,10 @@ function validate(data) {
     errors.push("Email: SMTP host is required when email notifications are enabled");
   if (ep.smtp_port < 1 || ep.smtp_port > 65535)
     errors.push("Email: SMTP port must be between 1 and 65535");
+
+  const rp = data.redis.port;
+  if (isNaN(rp) || rp < 1 || rp > 65535)
+    errors.push("Redis: port must be between 1 and 65535");
 
   return errors;
 }
