@@ -31,9 +31,13 @@ def _to_local(iso_str: str, tz_name: str) -> str:
         return str(iso_str)
 
 
+def _tz_name() -> str:
+    return config_store.load_cached().get("system", {}).get("timezone") or "UTC"
+
+
 @router.get("", response_class=HTMLResponse)
 async def feed_page(request: Request):
-    cfg = config_store.load()
+    cfg = config_store.load_cached()
     cameras = cfg.get("cameras", [])
     latest = db.get_latest_event()
     tz_name = cfg.get("system", {}).get("timezone") or "UTC"
@@ -60,7 +64,7 @@ async def feed_stream(request: Request):
     The browser swaps it into the feed container via HTMX hx-swap-oob or
     a simple EventSource listener in the template.
     """
-    redis_cfg = config_store.load().get("redis", {})
+    redis_cfg = config_store.load_cached().get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
@@ -92,7 +96,7 @@ async def feed_stream(request: Request):
                 else:
                     img_html = '<p id="live-snapshot">Detection — no snapshot.</p>'
 
-                tz = config_store.load().get("system", {}).get("timezone") or "UTC"
+                tz = _tz_name()
                 display_ts = _to_local(str(event.get("timestamp", "")), tz)
                 label = (
                     f'{event.get("class_name","").replace("_"," ").title()} '
