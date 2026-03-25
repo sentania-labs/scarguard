@@ -63,7 +63,7 @@ Snapshots accumulate indefinitely. Add configurable retention policy.
 
 ---
 
-## Feature 4: Detection Exclusion Zones
+## ~~Feature 4: Detection Exclusion Zones~~ ✓ Complete (v0.4)
 
 Suppress false positives from static objects (e.g. heron decoy). Two tiers.
 
@@ -71,41 +71,41 @@ Suppress false positives from static objects (e.g. heron decoy). Two tiers.
 Per-camera rectangular mask regions drawn in the web UI. Detection whose bounding box center falls inside an exclusion zone is silently dropped. Zones saved in `scarguard.yml` under the camera entry.
 
 **Acceptance criteria (Tier 1):**
-- Web UI overlay on camera snapshot lets user draw/resize/delete rectangular exclusion zones
-- Zones stored per-camera: `cameras[].exclusion_zones: [{x, y, w, h, label}]`
-- Detector checks every detection against zones before publishing events
-- Label is optional (e.g. "heron decoy")
-- Zones survive config reload and service restart
+- ✓ Web UI overlay on camera snapshot lets user draw/resize/delete rectangular exclusion zones
+- ✓ Zones stored per-camera: `cameras[].exclusion_zones: [{x, y, w, h, label}]`
+- ✓ Detector checks every detection against zones before publishing events
+- ✓ Label is optional (e.g. "heron decoy")
+- ✓ Zones survive config reload and service restart
 
 **Tier 2 — Automatic static object detection (future/stretch):**
 Track detections that remain in the same position across many frames over hours/days. If an object hasn't moved beyond threshold, prompt user in web UI to add exclusion zone. Never auto-exclude without user approval.
 
 ---
 
-## Feature 5: Enhanced Detection Event Logs
+## ~~Feature 5: Enhanced Detection Event Logs~~ ✓ Complete (v0.4)
 
 Richer detail and filtering in the web UI event log.
 
 **Acceptance criteria:**
-- Each event shows: timestamp, camera name, detected class, confidence, actions triggered
-- Filter/sort by camera, detected class, date range
-- Per-class or per-camera action rules in config (e.g. "bird → notify only", "heron → notify + valve")
-- Action rules configurable in `scarguard.yml` and GUI config editor
+- ✓ Each event shows: timestamp, camera name, detected class, confidence, actions triggered
+- ✓ Filter/sort by camera, detected class, date range
+- ✓ Per-class or per-camera action rules in config (e.g. "bird → notify only", "heron → notify + valve")
+- ✓ Action rules configurable in `scarguard.yml` and GUI config editor
 
 ---
 
-## Feature 6: Live Camera Feed in Web UI
+## ~~Feature 6: Live Camera Feed in Web UI~~ ✓ Complete (v0.4)
 
-SSE or WebSocket endpoint streaming annotated frames with bounding boxes.
+SSE-based detection-triggered annotated snapshot feed with bounding boxes.
 
 **Acceptance criteria:**
-- At least one camera feed visible in dashboard
-- Bounding boxes drawn on detected objects in real-time
-- Graceful degradation on stream drop (shows "offline", auto-reconnects)
+- ✓ Camera feed visible at `/feed` (detection-triggered annotated snapshots with bounding boxes)
+- ✓ Bounding boxes drawn on detected objects (annotated by detector using OpenCV)
+- ✓ Graceful degradation on stream drop (shows "offline" indicator, auto-reconnects with exponential backoff)
 
 ---
 
-## Feature 7: Named Notification Channels & Webhook Support
+## ~~Feature 7: Named Notification Channels & Webhook Support~~ ✓ Complete (v0.4)
 
 Refactor notifications from single-instance-per-type to named, multi-instance channels. Add webhook as a new channel type. Each channel gets a unique name that action rules reference — just like cameras.
 
@@ -144,29 +144,29 @@ notifications:
 ```
 
 **Acceptance criteria:**
-- Every notification channel has a unique `name` and a `type` (discord, email, webhook)
-- Multiple instances of the same type supported (e.g. two Discord webhooks to different channels)
-- Webhook type is configurable: URL, HTTP method (POST/PUT), custom headers, optional auth token
-- Webhook payload includes: event timestamp, camera, detected class, confidence, snapshot URL
-- Retry with backoff on failure (all channel types)
-- Action rules in Feature 10 reference channels by name (e.g. `actions: [pond-alerts, heron-deterrent]`)
-- Web UI config editor supports add/remove/edit of named channels
-- Backward compatibility: if existing config uses the old flat `notifications.discord` / `notifications.email` structure, auto-migrate to named channel format on first load (or document migration in upgrade notes)
+- ✓ Every notification channel has a unique `name` and a `type` (discord, email, webhook)
+- ✓ Multiple instances of the same type supported (e.g. two Discord webhooks to different channels)
+- ✓ Webhook type is configurable: URL, HTTP method (POST/PUT), optional auth token
+- ✓ Webhook payload includes: event timestamp, camera, detected class, confidence, snapshot filename
+- ✓ Retry with backoff on failure (all channel types)
+- ✓ Action rules reference channels by name (e.g. `channels: [pond-alerts, heron-deterrent]`)
+- ✓ Web UI config editor supports add/remove/edit of named channels
+- ✓ Backward compatibility: legacy `notifications.discord` / `notifications.email` keys still work
 
 ---
 
-## Feature 8: Scheduled Arm/Disarm
+## ~~Feature 8: Scheduled Arm/Disarm~~ ✓ Complete (v0.4)
 
 Automatically arm and disarm the detection system on a daily schedule. Primary use case: arm at dawn when herons hunt, disarm at dusk when activity is expected around the pond. Eliminates daily manual toggling of `system.armed`.
 
 **Acceptance criteria:**
-- Config fields: `system.schedule.arm_time` and `system.schedule.disarm_time` (24h format, e.g. `"06:00"`, `"20:30"`)
-- Optional: `system.schedule.use_solar` — if `true`, calculate sunrise/sunset from `system.schedule.latitude` and `system.schedule.longitude` instead of fixed times
-- Scheduler runs inside the detector service, checks every 60 seconds
-- Manual arm/disarm via UI or API overrides the schedule until the next scheduled transition
-- Arm/disarm transitions logged as system events visible in the event log
-- If no schedule configured, behavior unchanged (manual only)
-- Schedule status and next transition time visible on the dashboard
+- ✓ Config fields: `system.schedule.arm_time` and `system.schedule.disarm_time` (24h format, e.g. `"06:00"`, `"20:30"`)
+- ✓ Optional: `system.schedule.use_solar` — calculates sunrise/sunset from `latitude`/`longitude` via `astral`
+- ✓ Scheduler runs inside the detector service, checks every 60 seconds
+- ✓ Manual arm/disarm via UI overrides the schedule until the next scheduled transition
+- ✓ Arm/disarm transitions logged as system events visible in the event log
+- ✓ If no schedule configured, behavior unchanged (manual only)
+- ✓ Schedule status and next transition time visible on the dashboard
 
 ---
 

@@ -49,8 +49,9 @@ def client(monkeypatch):
     monkeypatch.setattr("config_store.save", lambda _cfg: None)
     monkeypatch.setattr("config_store.set_armed", lambda _armed: None)
     monkeypatch.setattr("db.get_latest_event", lambda: None)
-    monkeypatch.setattr("db.count_events", lambda: 0)
+    monkeypatch.setattr("db.count_events", lambda **_kw: 0)
     monkeypatch.setattr("db.get_events", lambda **_kw: [])
+    monkeypatch.setattr("db.get_latest_snapshots_by_camera", lambda: {})
 
     from fastapi.testclient import TestClient
     from main import app

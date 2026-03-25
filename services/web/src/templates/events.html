@@ -3,6 +3,36 @@
 {% block content %}
 <h1>Detection Events <span class="muted">({{ total }} total)</span></h1>
 
+<form method="get" action="/events" class="filter-form">
+  <div class="filter-row">
+    <label>
+      Camera
+      <select name="camera">
+        <option value="">All</option>
+        {% for cam in camera_names %}
+        <option value="{{ cam }}" {% if filter_camera == cam %}selected{% endif %}>{{ cam }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Class
+      <input type="text" name="class_name" value="{{ filter_class }}" placeholder="e.g. great_blue_heron">
+    </label>
+    <label>
+      From
+      <input type="date" name="date_from" value="{{ filter_date_from }}">
+    </label>
+    <label>
+      To
+      <input type="date" name="date_to" value="{{ filter_date_to }}">
+    </label>
+    <button type="submit">Filter</button>
+    {% if filter_camera or filter_class or filter_date_from or filter_date_to %}
+    <a href="/events" class="btn-secondary">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
 <p class="hint">New events appear automatically at the top of the table.</p>
 
 <table>
@@ -12,6 +42,7 @@
       <th>Class</th>
       <th>Conf</th>
       <th>Camera</th>
+      <th>Actions</th>
       <th>Snapshot</th>
     </tr>
   </thead>
@@ -27,11 +58,11 @@
 {% if total_pages > 1 %}
 <nav class="pagination">
   {% if page > 1 %}
-  <a href="/events?page={{ page - 1 }}">&laquo; Newer</a>
+  <a href="/events?page={{ page - 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}">&laquo; Newer</a>
   {% endif %}
   <span>Page {{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a href="/events?page={{ page + 1 }}">Older &raquo;</a>
+  <a href="/events?page={{ page + 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}">Older &raquo;</a>
   {% endif %}
 </nav>
 {% endif %}

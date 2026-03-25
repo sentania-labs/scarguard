@@ -149,6 +149,105 @@ textarea:focus, input:focus { outline: 1px solid var(--accent); }
 .muted { color: var(--muted); }
 .hint  { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem; }
 
+/* ── Tag badges (actions_triggered channel names) ─────────────────────────── */
+.tag {
+  display: inline-block;
+  background: rgba(78,159,255,0.15);
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+/* ── Live feed connection status ──────────────────────────────────────────── */
+.feed-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  border: 1px solid transparent;
+}
+.feed-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.feed-status--live {
+  color: #4caf50;
+  border-color: rgba(76,175,80,0.35);
+  background: rgba(76,175,80,0.08);
+}
+.feed-status--live .feed-status__dot {
+  background: #4caf50;
+  box-shadow: 0 0 4px #4caf50;
+  animation: pulse-green 2s infinite;
+}
+.feed-status--connecting,
+.feed-status--reconnecting {
+  color: #f0a500;
+  border-color: rgba(240,165,0,0.35);
+  background: rgba(240,165,0,0.08);
+}
+.feed-status--connecting .feed-status__dot,
+.feed-status--reconnecting .feed-status__dot {
+  background: #f0a500;
+  animation: pulse-amber 1s infinite;
+}
+.feed-status--offline {
+  color: var(--muted);
+  border-color: var(--border);
+  background: transparent;
+}
+.feed-status--offline .feed-status__dot { background: var(--muted); }
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── Events filter form ───────────────────────────────────────────────────── */
+.filter-form { margin-bottom: 1rem; }
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+.filter-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.filter-row input[type="text"],
+.filter-row input[type="date"],
+.filter-row select { width: auto; min-width: 8rem; }
+.filter-row button { align-self: flex-end; }
+.btn-secondary {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  text-decoration: none;
+  align-self: flex-end;
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
 /* ── Pagination ───────────────────────────────────────────────────────────── */
 .pagination {
   display: flex;

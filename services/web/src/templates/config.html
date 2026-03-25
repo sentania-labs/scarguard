@@ -200,6 +200,82 @@
     </div>
   </div>
 
+  {# ── Notification Channels (named, multi-instance) ───────────────────────── #}
+  <div class="config-section collapsed" id="section-channels">
+    <div class="config-section-header" onclick="toggleSection('section-channels')">
+      <span class="config-section-label">Notification Channels</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <p class="hint">
+          Named notification channels let you send alerts to multiple destinations — multiple
+          Discord webhooks, email addresses, or custom HTTP endpoints. Each channel has a unique
+          name used by action rules. Leave this empty to use the legacy Discord/Email settings above.
+        </p>
+        <script id="channels-data" type="application/json">{{ channels_json | safe }}</script>
+        <div id="channels-list"></div>
+        <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button type="button" class="btn-add" onclick="addChannel('discord')">+ Discord</button>
+          <button type="button" class="btn-add" onclick="addChannel('email')">+ Email</button>
+          <button type="button" class="btn-add" onclick="addChannel('webhook')">+ Webhook</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Schedule ─────────────────────────────────────────────────────────────── #}
+  <div class="config-section collapsed" id="section-schedule">
+    <div class="config-section-header" onclick="toggleSection('section-schedule')">
+      <span class="config-section-label">Schedule (Auto Arm/Disarm)</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <p class="hint">
+          Automatically arm at dawn and disarm at dusk. Uses 24-hour format (e.g. <code>06:00</code>).
+          Manual arm/disarm overrides the schedule until the next scheduled transition.
+          Enable solar mode to use sunrise/sunset instead of fixed times.
+        </p>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Arm time (HH:MM, 24h)</label>
+            <input type="text" id="sched-arm-time"
+                   value="{{ cfg.system.schedule.arm_time }}" placeholder="06:00">
+          </div>
+          <div class="field-group">
+            <label>Disarm time (HH:MM, 24h)</label>
+            <input type="text" id="sched-disarm-time"
+                   value="{{ cfg.system.schedule.disarm_time }}" placeholder="20:00">
+          </div>
+        </div>
+        <div class="field-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="sched-use-solar"
+                   {% if cfg.system.schedule.use_solar %}checked{% endif %}
+                   onchange="toggleSolar(this.checked)">
+            <span class="toggle-track"></span>
+            Use sunrise/sunset instead of fixed times
+          </label>
+        </div>
+        <div id="sched-solar-fields" style="display:{% if cfg.system.schedule.use_solar %}block{% else %}none{% endif %};">
+          <div class="field-row">
+            <div class="field-group">
+              <label>Latitude</label>
+              <input type="number" id="sched-lat" step="0.0001"
+                     value="{{ cfg.system.schedule.latitude or '' }}" placeholder="37.7749">
+            </div>
+            <div class="field-group">
+              <label>Longitude</label>
+              <input type="number" id="sched-lon" step="0.0001"
+                     value="{{ cfg.system.schedule.longitude or '' }}" placeholder="-122.4194">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   {# ── SSL / TLS ──────────────────────────────────────────────────────────── #}
   <div class="config-section collapsed" id="section-ssl">
     <div class="config-section-header" onclick="toggleSection('section-ssl')">

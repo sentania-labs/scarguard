@@ -1,3 +1,4 @@
+import html as _html
 import json
 from datetime import datetime
 from pathlib import Path
@@ -38,14 +39,45 @@ def _apply_display_timestamp(events: list[dict]) -> list[dict]:
     tz = _tz_name()
     for e in events:
         e["display_timestamp"] = _to_local(e.get("timestamp", ""), tz)
+        # Deserialize actions_triggered from its JSON string (stored in SQLite).
+        raw = e.get("actions_triggered")
+        if isinstance(raw, str):
+            try:
+                e["actions_triggered"] = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                e["actions_triggered"] = []
     return events
 
 
+def _get_camera_names() -> list[str]:
+    """Return distinct camera names from the DB for the filter dropdown."""
+    try:
+        with db._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT camera_name FROM detection_events"
+                " WHERE camera_name != '_system' ORDER BY camera_name"
+            ).fetchall()
+        return [r["camera_name"] for r in rows]
+    except Exception:
+        return []
+
+
 @router.get("", response_class=HTMLResponse)
-async def events_page(request: Request, page: int = 1):
+async def events_page(
+    request: Request,
+    page: int = 1,
+    camera: str = "",
+    class_name: str = "",
+    date_from: str = "",
+    date_to: str = "",
+):
     offset = (page - 1) * PAGE_SIZE
-    rows = db.get_events(limit=PAGE_SIZE, offset=offset)
-    total = db.count_events()
+    cam = camera or None
+    cls = class_name or None
+    dfrom = date_from or None
+    dto = date_to or None
+    rows = db.get_events(limit=PAGE_SIZE, offset=offset, camera=cam, class_name=cls, date_from=dfrom, date_to=dto)
+    total = db.count_events(camera=cam, class_name=cls, date_from=dfrom, date_to=dto)
     events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
         request,
@@ -55,15 +87,31 @@ async def events_page(request: Request, page: int = 1):
             "page": page,
             "total_pages": max(1, -(-total // PAGE_SIZE)),  # ceiling div
             "total": total,
+            "camera_names": _get_camera_names(),
+            "filter_camera": camera,
+            "filter_class": class_name,
+            "filter_date_from": date_from,
+            "filter_date_to": date_to,
         },
     )
 
 
 @router.get("/rows", response_class=HTMLResponse)
-async def event_rows(request: Request, page: int = 1):
+async def event_rows(
+    request: Request,
+    page: int = 1,
+    camera: str = "",
+    class_name: str = "",
+    date_from: str = "",
+    date_to: str = "",
+):
     """HTMX partial — just the table body rows."""
     offset = (page - 1) * PAGE_SIZE
-    rows = db.get_events(limit=PAGE_SIZE, offset=offset)
+    rows = db.get_events(
+        limit=PAGE_SIZE, offset=offset,
+        camera=camera or None, class_name=class_name or None,
+        date_from=date_from or None, date_to=date_to or None,
+    )
     events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
         request,
@@ -112,12 +160,19 @@ def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
         snap_html = f'<a href="/snapshots/{fname}" target="_blank"><img src="/snapshots/{fname}" width="80"></a>'
     conf = event.get("confidence", 0)
     display_ts = _to_local(event.get("timestamp", ""), tz_name)
+    actions: list[str] = event.get("actions_triggered") or []
+    actions_html = (
+        "".join(f'<span class="tag">{_html.escape(ch)}</span>' for ch in actions)
+        if actions
+        else "—"
+    )
     return (
         f'<tr id="event-live">'
         f'<td>{display_ts}</td>'
         f'<td>{event.get("class_name", "").replace("_", " ").title()}</td>'
         f'<td>{conf:.0%}</td>'
         f'<td>{event.get("camera_name", "")}</td>'
+        f'<td class="actions-cell">{actions_html}</td>'
         f'<td>{snap_html}</td>'
         f'</tr>'
     )

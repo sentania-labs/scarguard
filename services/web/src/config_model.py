@@ -5,11 +5,34 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, field_validator
 
 
+class ScheduleConfig(BaseModel):
+    arm_time: str = ""
+    disarm_time: str = ""
+    use_solar: bool = False
+    latitude: float | None = None
+    longitude: float | None = None
+
+    @field_validator("arm_time", "disarm_time")
+    @classmethod
+    def valid_time_format(cls, v: str) -> str:
+        if not v:
+            return v
+        parts = v.strip().split(":")
+        try:
+            h, m = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            raise ValueError(f"Time must be in HH:MM format, got {v!r}")
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"Invalid time {v!r}")
+        return f"{h:02d}:{m:02d}"
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"
     snapshot_retention_days: int = 30
+    schedule: ScheduleConfig = ScheduleConfig()
 
     @field_validator("timezone")
     @classmethod
@@ -21,11 +44,35 @@ class SystemConfig(BaseModel):
         return v
 
 
+class ExclusionZoneConfig(BaseModel):
+    x: float = 0.0
+    y: float = 0.0
+    w: float = 0.0
+    h: float = 0.0
+    label: str = ""
+
+    @field_validator("x", "y", "w", "h")
+    @classmethod
+    def in_unit_range(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("Exclusion zone coordinates must be between 0.0 and 1.0")
+        return v
+
+
+class ActionRuleConfig(BaseModel):
+    """Maps a detected class (or "*" wildcard) to notification channel names."""
+
+    class_name: str = "*"
+    channels: list[str] = []
+
+
 class CameraConfig(BaseModel):
     name: str
     rtsp_url: str
     enabled: bool = True
     resolution: int = 720
+    exclusion_zones: list[ExclusionZoneConfig] = []
+    action_rules: list[ActionRuleConfig] = []
 
     @field_validator("name")
     @classmethod
@@ -84,6 +131,7 @@ class EmailConfig(BaseModel):
 class NotificationsConfig(BaseModel):
     discord: DiscordConfig = DiscordConfig()
     email: EmailConfig = EmailConfig()
+    channels: list[dict] = []
 
 
 class SSLConfig(BaseModel):

@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 import config_store
+import db
 import yaml
 from config_model import (
     CameraConfig,
@@ -69,6 +70,26 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
     )
 
 
+def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
+    """Serialize cameras to JSON, including latest snapshot URL per camera."""
+    latest_snaps = db.get_latest_snapshots_by_camera()
+    result = []
+    for cam in cfg_cameras:
+        d = cam.model_dump()
+        snap_path = latest_snaps.get(cam.name)
+        d["snapshot_url"] = ("/snapshots/" + Path(snap_path).name) if snap_path else None
+        result.append(d)
+    return json.dumps(result)
+
+
+def _channels_json(raw_cfg: dict) -> str:
+    if not isinstance(raw_cfg, dict):
+        return json.dumps([])
+    raw_notif = raw_cfg.get("notifications", {})
+    channels = raw_notif.get("channels", []) if isinstance(raw_notif, dict) else []
+    return json.dumps(channels if isinstance(channels, list) else [])
+
+
 @router.get("", response_class=HTMLResponse)
 async def config_page(request: Request):
     raw_cfg = config_store.load()
@@ -79,8 +100,6 @@ async def config_page(request: Request):
     # blank out the entire form.
     cfg = _parse_cfg(raw_cfg)
 
-    cameras_json = json.dumps([c.model_dump() for c in cfg.cameras])
-
     return templates.TemplateResponse(
         request,
         "config.html",
@@ -89,7 +108,8 @@ async def config_page(request: Request):
             "saved": False,
             "error": None,
             "cfg": cfg,
-            "cameras_json": cameras_json,
+            "cameras_json": _cameras_json(cfg.cameras),
+            "channels_json": _channels_json(raw_cfg),
         },
     )
 
@@ -123,15 +143,19 @@ async def save_structured_config(request: Request) -> JSONResponse:
 
     existing = config_store.load()
 
-    # Merge system settings so omitted structured-form fields (e.g. timezone)
-    # are preserved from existing config instead of being reset to defaults.
+    # Merge system settings so omitted structured-form fields are preserved.
+    # The nested schedule dict is handled specially: merge it too so partial
+    # schedule edits don't wipe unset fields.
     existing_system = existing.get("system", {})
     if not isinstance(existing_system, dict):
         existing_system = {}
-    existing["system"] = {
-        **existing_system,
-        **payload.system.model_dump(exclude_unset=True),
-    }
+    system_dump = payload.system.model_dump(exclude_unset=True)
+    if "schedule" in system_dump:
+        existing_schedule = existing_system.get("schedule", {})
+        if not isinstance(existing_schedule, dict):
+            existing_schedule = {}
+        system_dump["schedule"] = {**existing_schedule, **system_dump["schedule"]}
+    existing["system"] = {**existing_system, **system_dump}
 
     # Merge cameras: start from the existing entry (preserves exclusion_zones and
     # any other fields the form doesn't know about), then overlay the form values.
@@ -142,7 +166,7 @@ async def save_structured_config(request: Request) -> JSONResponse:
     }
     merged_cameras = []
     for cam in payload.cameras:
-        cam_dict = cam.model_dump()
+        cam_dict = cam.model_dump(exclude_unset=True)
         if cam.name in existing_cameras_by_name:
             merged = {**existing_cameras_by_name[cam.name], **cam_dict}
         else:
@@ -152,10 +176,12 @@ async def save_structured_config(request: Request) -> JSONResponse:
 
     existing["detection"] = payload.detection.model_dump()
 
-    # Merge notifications: preserve webhooks and other channels not in the form.
+    # Merge notifications: write legacy discord/email; always write channels list
+    # (an empty list from the form intentionally clears all named channels).
     existing.setdefault("notifications", {})
     existing["notifications"]["discord"] = payload.notifications.discord.model_dump()
     existing["notifications"]["email"] = payload.notifications.email.model_dump()
+    existing["notifications"]["channels"] = payload.notifications.channels
 
     # SSL — detect changes so we can tell the UI a restart is needed.
     # Normalize both sides through defaults so a missing ssl section in the
@@ -199,8 +225,6 @@ async def save_config(request: Request, raw_yaml: str = Form(...)):
 
     cfg = _parse_cfg(raw_cfg)
 
-    cameras_json = json.dumps([c.model_dump() for c in cfg.cameras])
-
     return templates.TemplateResponse(
         request,
         "config.html",
@@ -209,6 +233,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)):
             "saved": saved,
             "error": error,
             "cfg": cfg,
-            "cameras_json": cameras_json,
+            "cameras_json": _cameras_json(cfg.cameras),
+            "channels_json": _channels_json(raw_cfg),
         },
     )
