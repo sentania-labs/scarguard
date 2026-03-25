@@ -167,7 +167,7 @@ class NotificationQueue:
             active_notifiers = list(notifiers)
             # Index by channel name (.name property) first; fall back to class name
             # so legacy queue entries (stored by class name) still match.
-            notifiers_by_type: dict[str, object] = {}
+            notifiers_by_type: dict[str, Any] = {}
             for notifier in active_notifiers:
                 channel_name = getattr(notifier, "name", None) or type(notifier).__name__
                 notifiers_by_type[channel_name] = notifier

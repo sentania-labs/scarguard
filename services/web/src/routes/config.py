@@ -83,6 +83,8 @@ def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
 
 
 def _channels_json(raw_cfg: dict) -> str:
+    if not isinstance(raw_cfg, dict):
+        return json.dumps([])
     raw_notif = raw_cfg.get("notifications", {})
     channels = raw_notif.get("channels", []) if isinstance(raw_notif, dict) else []
     return json.dumps(channels if isinstance(channels, list) else [])
@@ -164,7 +166,7 @@ async def save_structured_config(request: Request) -> JSONResponse:
     }
     merged_cameras = []
     for cam in payload.cameras:
-        cam_dict = cam.model_dump()
+        cam_dict = cam.model_dump(exclude_unset=True)
         if cam.name in existing_cameras_by_name:
             merged = {**existing_cameras_by_name[cam.name], **cam_dict}
         else:
