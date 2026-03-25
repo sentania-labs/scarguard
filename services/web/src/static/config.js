@@ -188,6 +188,7 @@ function readForm() {
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
       snapshot_retention_days: (v => isNaN(v) ? 30 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
+      stats_interval: (v => isNaN(v) || v < 1 ? 5 : Math.min(v, 60))(parseInt(document.getElementById("sys-stats-interval").value, 10)),
       schedule,
       auth: {
         enabled: document.getElementById("auth-enabled").checked,
