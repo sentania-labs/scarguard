@@ -26,6 +26,23 @@ system:
   # Set to 0 to disable automatic cleanup.
   snapshot_retention_days: 30
 
+  # ── Automatic arm/disarm schedule ─────────────────────────────────────────
+  # Arm and disarm automatically at fixed times each day (24-hour format).
+  # Manual arm/disarm from the dashboard overrides the schedule until the
+  # next scheduled transition.  Leave both fields empty to disable scheduling.
+  #
+  # Alternatively, set use_solar: true to arm at sunrise and disarm at sunset.
+  # Requires latitude and longitude of your location.
+  #
+  # schedule:
+  #   arm_time: "06:00"          # arm at 6:00 AM local time
+  #   disarm_time: "20:00"       # disarm at 8:00 PM local time
+  #
+  #   # Solar mode (overrides arm_time/disarm_time when use_solar: true)
+  #   use_solar: false
+  #   latitude: 37.7749
+  #   longitude: -122.4194
+
 
 # ── Cameras ───────────────────────────────────────────────────────────────────
 # List one or more UniFi Protect cameras by their RTSP stream URL.
@@ -42,6 +59,17 @@ cameras:
     rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN_1"  # REQUIRED
     enabled: true
     resolution: 720                               # Substream resolution hint (informational)
+
+  # ── Per-camera action rules ─────────────────────────────────────────────
+  # Optional: route detections to specific notification channels.
+  # Rules are evaluated in order; the first match wins.
+  # Use class_name: "*" as a catch-all.  Omit action_rules to notify all channels.
+  #
+  # action_rules:
+  #   - class_name: great_blue_heron
+  #     channels: [pond-alerts, email-digest]
+  #   - class_name: "*"
+  #     channels: [pond-alerts]
 
   # Add a second camera by uncommenting and editing:
   # - name: pond-south
@@ -133,6 +161,39 @@ ssl:
 redis:
   host: redis
   port: 6379
+
+
+  # ── Named channels (new format) ───────────────────────────────────────────
+  # Define multiple named channels; each channel has a unique name and type.
+  # When channels are defined, they take precedence over the legacy discord/email
+  # sections above.  Reference channels by name in camera action_rules.
+  #
+  # Supported types: discord, email, webhook
+  #
+  # channels:
+  #   - name: pond-alerts
+  #     type: discord
+  #     enabled: true
+  #     webhook_url: "https://discord.com/api/webhooks/…"
+  #     mention_role: ""
+  #     include_snapshot: true
+  #
+  #   - name: email-digest
+  #     type: email
+  #     enabled: true
+  #     smtp_host: smtp.gmail.com
+  #     smtp_port: 587
+  #     smtp_user: you@example.com
+  #     smtp_pass: your-app-password
+  #     to_addresses: [you@example.com]
+  #     include_snapshot: true
+  #
+  #   - name: home-assistant
+  #     type: webhook
+  #     enabled: true
+  #     url: "http://homeassistant.local:8123/api/webhook/scarguard"
+  #     method: POST
+  #     # auth_token: "Bearer …"   # optional
 
 
 # ── Future: Valve Actuation ────────────────────────────────────────────────────

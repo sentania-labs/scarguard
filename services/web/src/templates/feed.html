@@ -5,8 +5,13 @@
 
 <p class="hint">
   Displays the latest annotated snapshot each time a detection fires.
-  The image updates automatically over SSE — no polling needed.
+  Bounding boxes are drawn on the detected object.
 </p>
+
+<div id="feed-status" class="feed-status feed-status--connecting">
+  <span class="feed-status__dot"></span>
+  <span id="feed-status-text">Connecting…</span>
+</div>
 
 <section class="card">
   <div id="feed-label" class="muted">
@@ -30,14 +35,68 @@
 </section>
 
 <script>
-  const src = new EventSource("/feed/stream");
-  src.addEventListener("detection", function(e) {
-    const data = JSON.parse(e.data);
-    document.getElementById("feed-frame").innerHTML = data.html;
-    document.getElementById("feed-label").textContent = data.label;
+  const statusEl   = document.getElementById("feed-status");
+  const statusText = document.getElementById("feed-status-text");
+
+  function setStatus(state) {
+    statusEl.className = "feed-status feed-status--" + state;
+    statusText.textContent = {
+      connecting:    "Connecting…",
+      live:          "Live",
+      reconnecting:  "Reconnecting…",
+      offline:       "Offline",
+    }[state] || state;
+  }
+
+  let reconnectDelay = 1000;
+  let reconnectTimer = null;
+  let src = null;
+
+  function connect() {
+    if (src) { src.close(); }
+    setStatus("connecting");
+    src = new EventSource("/feed/stream");
+
+    src.addEventListener("open", function() {
+      setStatus("live");
+      reconnectDelay = 1000;
+    });
+
+    src.addEventListener("detection", function(e) {
+      const data = JSON.parse(e.data);
+      const frame = document.getElementById("feed-frame");
+      if (data.snapshot_filename) {
+        let img = document.getElementById("live-snapshot");
+        if (!img || img.tagName !== "IMG") {
+          img = document.createElement("img");
+          img.id = "live-snapshot";
+          img.style.cssText = "max-width:100%;border-radius:4px;";
+          frame.replaceChildren(img);
+        }
+        img.src = "/snapshots/" + data.snapshot_filename;
+        img.alt = data.class_name + " detected";
+      }
+      document.getElementById("feed-label").textContent = data.label;
+    });
+
+    src.onerror = function() {
+      src.close();
+      src = null;
+      setStatus("reconnecting");
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      reconnectTimer = setTimeout(function() {
+        reconnectTimer = null;
+        connect();
+      }, reconnectDelay);
+    };
+  }
+
+  connect();
+
+  // Clean up on page unload to avoid ghost connections.
+  window.addEventListener("beforeunload", function() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); }
+    if (src) { src.close(); }
   });
-  src.onerror = function() {
-    console.warn("Feed SSE disconnected — will retry automatically.");
-  };
 </script>
 {% endblock %}

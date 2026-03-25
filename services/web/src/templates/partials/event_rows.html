@@ -4,6 +4,11 @@
   <td>{{ e.class_name.replace("_", " ").title() }}</td>
   <td>{{ "%.0f%%"|format(e.confidence * 100) }}</td>
   <td>{{ e.camera_name }}</td>
+  <td class="actions-cell">
+    {% if e.actions_triggered %}
+    {% for ch in e.actions_triggered %}<span class="tag">{{ ch }}</span>{% endfor %}
+    {% else %}—{% endif %}
+  </td>
   <td>
     {% if e.snapshot_path %}
     {% set fname = e.snapshot_path.split("/")[-1] %}
@@ -14,5 +19,5 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="5" class="muted">No events yet.</td></tr>
+<tr><td colspan="6" class="muted">No events yet.</td></tr>
 {% endfor %}

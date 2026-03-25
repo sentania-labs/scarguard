@@ -1,5 +1,6 @@
 """Detection event processing: cooldown dedup, snapshot capture, SQLite logging."""
 
+import json
 import logging
 import sqlite3
 import threading
@@ -41,9 +42,13 @@ class EventProcessor:
         detections: list[Detection],
         camera_name: str,
         frame: np.ndarray,
+        actions_by_class: dict[str, list[str]] | None = None,
     ) -> list[dict]:
         """
         Filter detections through cooldown logic and persist passing events.
+
+        *actions_by_class* maps class_name → list of channel names to trigger.
+        If absent or the class has no entry, all channels are notified (default).
 
         Returns a list of event dicts ready to be JSON-serialized and published.
         """
@@ -62,7 +67,10 @@ class EventProcessor:
                 self._last_event[key] = now
             timestamp = datetime.now(timezone.utc)
             snapshot_path = self._save_snapshot(frame, det, camera_name, timestamp)
-            self._persist(timestamp, det, camera_name, snapshot_path)
+            actions_triggered = (
+                (actions_by_class or {}).get(det.class_name) or []
+            )
+            self._persist(timestamp, det, camera_name, snapshot_path, actions_triggered)
 
             logger.info(
                 "[%s] %s detected (conf=%.2f)",
@@ -77,10 +85,32 @@ class EventProcessor:
                     "confidence": det.confidence,
                     "camera_name": camera_name,
                     "snapshot_path": snapshot_path,
+                    "actions_triggered": actions_triggered,
                 }
             )
 
         return events
+
+    def log_system_event(self, event_type: str) -> None:
+        """Persist an arm/disarm or other system transition to detection_events."""
+        timestamp = datetime.now(timezone.utc)
+        with self._db_lock:
+            try:
+                self._conn.execute(
+                    """
+                    INSERT INTO detection_events
+                        (timestamp, class_name, confidence, camera_name, snapshot_path)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (timestamp.isoformat(), event_type, 1.0, "_system", None),
+                )
+                self._conn.commit()
+            except Exception:
+                logger.exception("Failed to log system event %s", event_type)
+                try:
+                    self._reset_connection_locked()
+                except Exception:
+                    logger.exception("Failed to recover SQLite connection after system event error")
 
     def close(self) -> None:
         """Close DB resources for a graceful shutdown."""
@@ -88,7 +118,7 @@ class EventProcessor:
             if self._conn is None:
                 return
             self._conn.close()
-            self._conn = None
+            self._conn = None  # type: ignore[assignment]
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -136,15 +166,27 @@ class EventProcessor:
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS detection_events (
-                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp     TEXT    NOT NULL,
-                    class_name    TEXT    NOT NULL,
-                    confidence    REAL    NOT NULL,
-                    camera_name   TEXT    NOT NULL,
-                    snapshot_path TEXT
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp         TEXT    NOT NULL,
+                    class_name        TEXT    NOT NULL,
+                    confidence        REAL    NOT NULL,
+                    camera_name       TEXT    NOT NULL,
+                    snapshot_path     TEXT,
+                    actions_triggered TEXT
                 )
                 """
             )
+            # Migration: add actions_triggered column to existing databases
+            existing = {
+                row[1]
+                for row in self._conn.execute(
+                    "PRAGMA table_info(detection_events)"
+                ).fetchall()
+            }
+            if "actions_triggered" not in existing:
+                self._conn.execute(
+                    "ALTER TABLE detection_events ADD COLUMN actions_triggered TEXT"
+                )
             self._conn.commit()
 
     def _persist(
@@ -153,10 +195,11 @@ class EventProcessor:
         det: Detection,
         camera_name: str,
         snapshot_path: str | None,
+        actions_triggered: list[str],
     ) -> None:
         with self._db_lock:
             try:
-                self._insert_event(timestamp, det, camera_name, snapshot_path)
+                self._insert_event(timestamp, det, camera_name, snapshot_path, actions_triggered)
                 self._conn.commit()
             except Exception:
                 logger.exception("Failed to persist detection event to database")
@@ -171,12 +214,14 @@ class EventProcessor:
         det: Detection,
         camera_name: str,
         snapshot_path: str | None,
+        actions_triggered: list[str],
     ) -> None:
+        actions_json = json.dumps(actions_triggered) if actions_triggered else None
         self._conn.execute(
             """
             INSERT INTO detection_events
-                (timestamp, class_name, confidence, camera_name, snapshot_path)
-            VALUES (?, ?, ?, ?, ?)
+                (timestamp, class_name, confidence, camera_name, snapshot_path, actions_triggered)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp.isoformat(),
@@ -184,6 +229,7 @@ class EventProcessor:
                 det.confidence,
                 camera_name,
                 snapshot_path,
+                actions_json,
             ),
         )
 

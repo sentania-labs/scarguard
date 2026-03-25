@@ -15,6 +15,7 @@ from config_watcher import ConfigWatcher
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
 from notification_queue import WORKER_INTERVAL, NotificationQueue
+from webhook import WebhookNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -39,25 +40,68 @@ def setup_logging(log_level: str) -> None:
     )
 
 
-def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list:
-    notifiers: list[DiscordNotifier | EmailNotifier] = []
+def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifier | EmailNotifier | WebhookNotifier]:
+    """Build the list of active notifiers from config.
 
-    discord_cfg = notif_cfg.get("discord", {})
-    if discord_cfg.get("enabled") and discord_cfg.get("webhook_url"):
-        notifiers.append(DiscordNotifier(discord_cfg, tz_name))
-        logger.info("Discord notifier enabled")
+    Supports two config formats:
+    - New (named channels): notifications.channels: [{name, type, enabled, ...}]
+    - Legacy (flat keys): notifications.discord / notifications.email
 
-    email_cfg = notif_cfg.get("email", {})
-    if email_cfg.get("enabled") and email_cfg.get("smtp_host"):
-        notifiers.append(EmailNotifier(email_cfg, tz_name))
-        logger.info("Email notifier enabled")
+    If `channels` is present, it takes precedence.  Legacy keys are used as
+    a fallback for backward compatibility so existing configs keep working.
+    """
+    notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier] = []
+
+    channels: list[dict] = notif_cfg.get("channels") or []
+
+    if channels:
+        # New named-channel format
+        seen_names: set[str] = set()
+        for ch in channels:
+            if not ch.get("enabled", True):
+                continue
+            ch_type = ch.get("type", "").lower()
+            ch_name = ch.get("name", ch_type)
+            if ch_name in seen_names:
+                logger.warning("Duplicate channel name %r — skipping second definition", ch_name)
+                continue
+            try:
+                if ch_type == "discord" and ch.get("webhook_url"):
+                    notifiers.append(DiscordNotifier(ch, tz_name))
+                    logger.info("Discord channel [%s] enabled", ch_name)
+                    seen_names.add(ch_name)
+                elif ch_type == "email" and ch.get("smtp_host"):
+                    notifiers.append(EmailNotifier(ch, tz_name))
+                    logger.info("Email channel [%s] enabled", ch_name)
+                    seen_names.add(ch_name)
+                elif ch_type == "webhook" and ch.get("url"):
+                    notifiers.append(WebhookNotifier(ch, tz_name))
+                    # Log URL but not auth_token
+                    logger.info("Webhook channel [%s] enabled → %s", ch_name, ch["url"])
+                    seen_names.add(ch_name)
+                elif ch_type:
+                    logger.warning("Unknown channel type %r for [%s], skipping", ch_type, ch_name)
+            except Exception as exc:
+                # Log exc string only — not the full cfg dict to avoid exposing secrets
+                logger.error("Failed to build channel [%s]: %s", ch_name, exc)
+    else:
+        # Legacy flat format — backward compatibility
+        discord_cfg = notif_cfg.get("discord", {})
+        if discord_cfg.get("enabled") and discord_cfg.get("webhook_url"):
+            notifiers.append(DiscordNotifier(discord_cfg, tz_name))
+            logger.info("Discord notifier enabled (legacy config)")
+
+        email_cfg = notif_cfg.get("email", {})
+        if email_cfg.get("enabled") and email_cfg.get("smtp_host"):
+            notifiers.append(EmailNotifier(email_cfg, tz_name))
+            logger.info("Email notifier enabled (legacy config)")
 
     return notifiers
 
 
 def dispatch(
     event: dict,
-    notifiers: list,
+    notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier],
     notifiers_lock: Optional[threading.Lock] = None,
     queue: Optional[NotificationQueue] = None,
 ) -> None:
@@ -72,6 +116,18 @@ def dispatch(
             current = list(notifiers)
     else:
         current = list(notifiers)
+
+    # If the event specifies which channels to notify, filter to those only.
+    # An absent or empty actions_triggered means "notify all channels".
+    actions_triggered: list[str] = event.get("actions_triggered") or []
+    if actions_triggered:
+        current = [n for n in current if getattr(n, "name", None) in actions_triggered]
+        if not current:
+            logger.warning(
+                "actions_triggered=%s but no matching notifiers found "
+                "(check channel names in action_rules vs notifications.channels)",
+                actions_triggered,
+            )
 
     for notifier in current:
         try:
@@ -196,7 +252,7 @@ def main() -> None:
         if new_notifiers:
             logger.info(
                 "Config reloaded — notifiers: %s",
-                ", ".join(type(n).__name__ for n in new_notifiers),
+                ", ".join(getattr(n, "name", type(n).__name__) for n in new_notifiers),
             )
         else:
             logger.info("Config reloaded — no notifiers enabled")

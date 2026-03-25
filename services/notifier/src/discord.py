@@ -26,10 +26,15 @@ def _to_local(iso_str: str, tz_name: str) -> str:
 
 class DiscordNotifier:
     def __init__(self, cfg: dict, tz_name: str = "UTC") -> None:
+        self._name: str = cfg.get("name", "discord")
         self._webhook_url: str = cfg["webhook_url"]
         self._mention_role: str = cfg.get("mention_role", "")
         self._include_snapshot: bool = cfg.get("include_snapshot", True)
         self._tz_name: str = tz_name
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def send(self, event: dict) -> None:
         class_name = event["class_name"]

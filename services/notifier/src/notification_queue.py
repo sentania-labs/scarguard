@@ -46,7 +46,7 @@ _QUEUE_PATH: str = os.environ.get(
 @dataclass
 class QueueEntry:
     event: dict[str, Any]
-    notifier_type: str        # class name, e.g. "DiscordNotifier"
+    notifier_type: str        # channel name (new) or class name (legacy entries)
     attempt: int              # how many send attempts have been made so far
     next_retry: float         # Unix timestamp: earliest time to try again
     first_failed: float       # Unix timestamp: when this entry was first created
@@ -117,8 +117,10 @@ class NotificationQueue:
         """Add a failed notification to the retry queue.
 
         If the queue is at capacity, the oldest entry is dropped to make room.
+        Uses the notifier's channel name (via .name property) for retry matching;
+        falls back to the class name for notifiers that don't expose a name.
         """
-        notifier_type = type(notifier).__name__
+        notifier_type = getattr(notifier, "name", None) or type(notifier).__name__
         now = time.time()
         entry = QueueEntry(
             event=event,
@@ -163,9 +165,13 @@ class NotificationQueue:
 
         with notifiers_lock:
             active_notifiers = list(notifiers)
-            notifiers_by_type = {
-                type(notifier).__name__: notifier for notifier in active_notifiers
-            }
+            # Index by channel name (.name property) first; fall back to class name
+            # so legacy queue entries (stored by class name) still match.
+            notifiers_by_type: dict[str, object] = {}
+            for notifier in active_notifiers:
+                channel_name = getattr(notifier, "name", None) or type(notifier).__name__
+                notifiers_by_type[channel_name] = notifier
+                notifiers_by_type.setdefault(type(notifier).__name__, notifier)
 
         to_remove: list[QueueEntry] = []
 

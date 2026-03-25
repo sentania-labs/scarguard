@@ -28,6 +28,7 @@ def _to_local(iso_str: str, tz_name: str) -> str:
 
 class EmailNotifier:
     def __init__(self, cfg: dict, tz_name: str = "UTC") -> None:
+        self._name: str = cfg.get("name", "email")
         self._smtp_host: str = cfg["smtp_host"]
         self._smtp_port: int = int(cfg.get("smtp_port", 587))
         self._smtp_user: str = cfg.get("smtp_user", "")
@@ -35,6 +36,10 @@ class EmailNotifier:
         self._to_addresses: list[str] = cfg.get("to_addresses", [])
         self._include_snapshot: bool = cfg.get("include_snapshot", True)
         self._tz_name: str = tz_name
+
+    @property
+    def name(self) -> str:
+        return self._name
 
     def send(self, event: dict) -> None:
         if not self._to_addresses:

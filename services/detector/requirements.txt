@@ -6,3 +6,4 @@ opencv-python-headless
 redis
 pyyaml
 pydantic>=2.0
+astral

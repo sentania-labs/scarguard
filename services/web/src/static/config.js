@@ -32,9 +32,44 @@ if (slider && sliderVal) {
 
 let cameraIndex = 0;
 
+function _buildRuleRow(rule) {
+  const row = document.createElement("div");
+  row.className = "rule-row";
+  row.innerHTML = `
+    <div class="field-row" style="gap:0.5rem;align-items:flex-end;">
+      <div class="field-group" style="flex:1;">
+        <label>Class (or *)</label>
+        <input type="text" class="rule-class" value="${_esc(rule.class_name || "*")}" placeholder="* or great_blue_heron">
+      </div>
+      <div class="field-group" style="flex:2;">
+        <label>Channels (comma-separated names)</label>
+        <input type="text" class="rule-channels" value="${_esc((rule.channels || []).join(", "))}" placeholder="pond-alerts, email-digest">
+      </div>
+      <button type="button" class="btn-remove" onclick="this.closest('.rule-row').remove()">✕</button>
+    </div>
+  `;
+  return row;
+}
+
+function addActionRule(card) {
+  card.querySelector(".rules-list").appendChild(_buildRuleRow({ class_name: "*", channels: [] }));
+}
+
+function readActionRules(card) {
+  return Array.from(card.querySelectorAll(".rule-row")).map(row => ({
+    class_name: row.querySelector(".rule-class").value.trim() || "*",
+    channels: row.querySelector(".rule-channels").value
+      .split(",").map(s => s.trim()).filter(Boolean),
+  }));
+}
+
 function buildCameraCard(cam) {
   const idx = cameraIndex++;
   const enabled = cam.enabled !== false;
+  const zones = cam.exclusion_zones || [];
+  const rules = cam.action_rules || [];
+  const snapUrl = cam.snapshot_url || null;
+
   const div = document.createElement("div");
   div.className = "camera-card";
   div.dataset.idx = idx;
@@ -62,7 +97,39 @@ function buildCameraCard(cam) {
       <span class="toggle-track"></span>
       Enabled
     </label>
+    <details style="margin-top:0.75rem;">
+      <summary style="cursor:pointer;font-weight:500;">Exclusion Zones (${zones.length})</summary>
+      <div style="margin-top:0.5rem;">
+        <p class="hint">
+          Draw rectangles to suppress false positives. Detections whose center falls inside a zone are silently ignored.
+          ${snapUrl ? "Drag on the image to draw a zone. Click a zone to delete it." : "No snapshot available yet — add a zone below or wait for the first detection."}
+        </p>
+        <div class="zone-canvas-wrap" style="position:relative;display:inline-block;max-width:100%;">
+          ${snapUrl ? `<img class="zone-bg-img" src="${_esc(snapUrl)}" style="display:block;max-width:100%;border-radius:4px;" draggable="false">` : '<div class="zone-bg-img" style="width:640px;height:360px;background:#1a1a2e;border-radius:4px;"></div>'}
+          <canvas class="zone-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;"></canvas>
+        </div>
+        <div class="zone-list" style="margin-top:0.4rem;"></div>
+      </div>
+    </details>
+    <details style="margin-top:0.75rem;">
+      <summary style="cursor:pointer;font-weight:500;">Action Rules (${rules.length})</summary>
+      <div style="margin-top:0.5rem;">
+        <p class="hint">
+          Route detections to specific named channels. Rules are evaluated in order — first match wins.
+          Use <code>*</code> as a wildcard class to match any detection. Leave empty to notify all channels.
+        </p>
+        <div class="rules-list"></div>
+        <button type="button" class="btn-add" style="margin-top:0.4rem;" onclick="addActionRule(this.closest('.camera-card'))">+ Add Rule</button>
+      </div>
+    </details>
   `;
+
+  // Populate initial action rules (synchronous — no layout dependency)
+  const rulesList = div.querySelector(".rules-list");
+  rules.forEach(r => rulesList.appendChild(_buildRuleRow(r)));
+
+  // Initialize zone editor after inserting into DOM via microtask
+  requestAnimationFrame(() => initZoneEditor(div, zones));
   return div;
 }
 
@@ -77,11 +144,19 @@ function removeCamera(btn) {
 }
 
 function readCameras() {
-  return Array.from(document.querySelectorAll(".camera-card")).map(card => ({
+  return Array.from(document.querySelectorAll("#cameras-list .camera-card")).map(card => ({
     name: card.querySelector(".cam-name").value.trim(),
     rtsp_url: card.querySelector(".cam-rtsp").value.trim(),
     enabled: card.querySelector(".cam-enabled").checked,
     resolution: parseInt(card.querySelector(".cam-resolution").value, 10) || 720,
+    exclusion_zones: readZones(card),
+    action_rules: readActionRules(card),
+  }));
+}
+
+function readZones(card) {
+  return (card._zones || []).map(z => ({
+    x: z.x, y: z.y, w: z.w, h: z.h, label: z.label || "",
   }));
 }
 
@@ -94,12 +169,24 @@ function readForm() {
   const targetClasses = document.getElementById("target-classes").value
     .split(",").map(s => s.trim()).filter(Boolean);
 
+  const useSolar = document.getElementById("sched-use-solar").checked;
+  const schedLat = parseFloat(document.getElementById("sched-lat").value);
+  const schedLon = parseFloat(document.getElementById("sched-lon").value);
+  const schedule = {
+    arm_time: document.getElementById("sched-arm-time").value.trim(),
+    disarm_time: document.getElementById("sched-disarm-time").value.trim(),
+    use_solar: useSolar,
+    latitude: useSolar && !isNaN(schedLat) ? schedLat : null,
+    longitude: useSolar && !isNaN(schedLon) ? schedLon : null,
+  };
+
   return {
     system: {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
       snapshot_retention_days: (v => isNaN(v) ? 30 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
+      schedule,
     },
     cameras: readCameras(),
     detection: {
@@ -125,6 +212,7 @@ function readForm() {
         to_addresses: toAddresses,
         include_snapshot: document.getElementById("email-snapshot").checked,
       },
+      channels: readChannels(),
     },
     ssl: {
       enabled: document.getElementById("ssl-enabled").checked,
@@ -165,6 +253,15 @@ function validate(data) {
     errors.push("SSL: Certificate path is required when SSL is enabled");
   if (ssl.enabled && !ssl.key_path)
     errors.push("SSL: Key path is required when SSL is enabled");
+
+  const sched = data.system.schedule;
+  const timeRe = /^\d{2}:\d{2}$/;
+  if (sched.arm_time && !timeRe.test(sched.arm_time))
+    errors.push("Schedule: arm_time must be in HH:MM format");
+  if (sched.disarm_time && !timeRe.test(sched.disarm_time))
+    errors.push("Schedule: disarm_time must be in HH:MM format");
+  if (sched.use_solar && (sched.latitude === null || sched.longitude === null))
+    errors.push("Schedule: latitude and longitude are required for solar mode");
 
   return errors;
 }
@@ -224,6 +321,113 @@ async function saveConfig() {
   }
 }
 
+// ── Notification channel management ──────────────────────────────────────────
+
+let channelIndex = 0;
+
+const _CHANNEL_FIELDS = {
+  discord: [
+    { id: "webhook_url", label: "Webhook URL", type: "text", placeholder: "https://discord.com/api/webhooks/…" },
+    { id: "mention_role", label: "Mention role ID (optional)", type: "text", placeholder: "" },
+    { id: "include_snapshot", label: "Attach snapshot image", type: "checkbox", default: true },
+  ],
+  email: [
+    { id: "smtp_host", label: "SMTP host", type: "text", placeholder: "smtp.gmail.com" },
+    { id: "smtp_port", label: "SMTP port", type: "number", placeholder: "587" },
+    { id: "smtp_user", label: "SMTP username", type: "text", placeholder: "you@example.com" },
+    { id: "smtp_pass", label: "SMTP password", type: "password", placeholder: "" },
+    { id: "to_addresses", label: "Recipients (one per line)", type: "textarea", placeholder: "you@example.com" },
+    { id: "include_snapshot", label: "Attach snapshot image", type: "checkbox", default: true },
+  ],
+  webhook: [
+    { id: "url", label: "URL", type: "text", placeholder: "https://example.com/webhook" },
+    { id: "method", label: "HTTP method", type: "select", options: ["POST", "PUT"], default: "POST" },
+    { id: "auth_token", label: "Bearer token (optional)", type: "password", placeholder: "" },
+  ],
+};
+
+function buildChannelCard(ch) {
+  const idx = channelIndex++;
+  const type = (ch.type || "discord").toLowerCase();
+  const enabled = ch.enabled !== false;
+
+  const div = document.createElement("div");
+  div.className = "camera-card"; // reuse camera-card styles
+  div.dataset.idx = idx;
+  div.dataset.chtype = type;
+
+  const fields = _CHANNEL_FIELDS[type] || [];
+  const fieldsHtml = fields.map(f => {
+    const val = ch[f.id] !== undefined ? ch[f.id] : (f.default !== undefined ? f.default : "");
+    if (f.type === "checkbox") {
+      return `<label class="toggle-label"><input type="checkbox" class="ch-field" data-field="${f.id}" ${val ? "checked" : ""}><span class="toggle-track"></span> ${f.label}</label>`;
+    }
+    if (f.type === "textarea") {
+      const lines = Array.isArray(val) ? val.join("\n") : (val || "");
+      return `<div class="field-group"><label>${f.label}</label><textarea class="ch-field" data-field="${f.id}" rows="3" style="width:100%;">${_esc(lines)}</textarea></div>`;
+    }
+    if (f.type === "select") {
+      const opts = (f.options || []).map(o => `<option value="${o}" ${val === o ? "selected" : ""}>${o}</option>`).join("");
+      return `<div class="field-group"><label>${f.label}</label><select class="ch-field" data-field="${f.id}">${opts}</select></div>`;
+    }
+    return `<div class="field-group"><label>${f.label}</label><input type="${f.type}" class="ch-field" data-field="${f.id}" value="${_esc(String(val))}" placeholder="${_esc(f.placeholder || "")}"></div>`;
+  }).join("");
+
+  div.innerHTML = `
+    <div class="camera-card-header">
+      <span class="camera-card-title">${type.charAt(0).toUpperCase() + type.slice(1)} Channel</span>
+      <button type="button" class="btn-remove" onclick="removeChannel(this)">Remove</button>
+    </div>
+    <div class="field-row">
+      <div class="field-group">
+        <label>Channel name (unique)</label>
+        <input type="text" class="ch-name" value="${_esc(ch.name || "")}" placeholder="e.g. pond-alerts">
+      </div>
+      <div class="field-group">
+        <label class="toggle-label" style="padding-top:1.5rem;">
+          <input type="checkbox" class="ch-enabled" ${enabled ? "checked" : ""}>
+          <span class="toggle-track"></span> Enabled
+        </label>
+      </div>
+    </div>
+    ${fieldsHtml}
+  `;
+  return div;
+}
+
+function addChannel(type) {
+  const card = buildChannelCard({ type, name: "", enabled: true });
+  document.getElementById("channels-list").appendChild(card);
+}
+
+function removeChannel(btn) {
+  btn.closest(".camera-card").remove();
+}
+
+function readChannels() {
+  return Array.from(document.querySelectorAll("#channels-list .camera-card")).map(card => {
+    const type = card.dataset.chtype;
+    const ch = {
+      name: card.querySelector(".ch-name").value.trim(),
+      type,
+      enabled: card.querySelector(".ch-enabled").checked,
+    };
+    card.querySelectorAll(".ch-field").forEach(el => {
+      const field = el.dataset.field;
+      if (el.type === "checkbox") {
+        ch[field] = el.checked;
+      } else if (el.tagName === "TEXTAREA") {
+        ch[field] = el.value.split("\n").map(s => s.trim()).filter(Boolean);
+      } else if (el.type === "number") {
+        ch[field] = parseInt(el.value, 10) || 0;
+      } else {
+        ch[field] = el.value.trim();
+      }
+    });
+    return ch;
+  });
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 (function init() {
@@ -235,7 +439,183 @@ async function saveConfig() {
       document.getElementById("cameras-list").appendChild(buildCameraCard(cam));
     });
   }
+  // Populate notification channels
+  const channelsEl = document.getElementById("channels-data");
+  if (channelsEl) {
+    const channels = JSON.parse(channelsEl.textContent);
+    channels.forEach(ch => {
+      document.getElementById("channels-list").appendChild(buildChannelCard(ch));
+    });
+  }
 })();
+
+// ── Exclusion zone canvas editor ──────────────────────────────────────────────
+
+function initZoneEditor(card, initialZones) {
+  const canvas = card.querySelector(".zone-canvas");
+  const bg = card.querySelector(".zone-bg-img");
+  if (!canvas) return;
+
+  card._zones = initialZones.map(z => Object.assign({}, z));
+
+  // Size the canvas to match the rendered background
+  function syncCanvasSize() {
+    const rect = bg.getBoundingClientRect();
+    if (rect.width > 0) {
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+  }
+
+  if (bg.tagName === "IMG" && !bg.complete) {
+    bg.onload = () => { syncCanvasSize(); drawZones(card); };
+  } else {
+    syncCanvasSize();
+  }
+
+  drawZones(card);
+
+  // Draw on mouse drag
+  let dragging = false;
+  let startX = 0, startY = 0;
+
+  canvas.addEventListener("mousedown", e => {
+    if (e.button !== 0) return;
+    // Check if click hits an existing zone (to delete it)
+    const pos = _canvasPos(canvas, e);
+    const hitIdx = _hitZone(card, pos.x, pos.y);
+    if (hitIdx >= 0) {
+      card._zones.splice(hitIdx, 1);
+      drawZones(card);
+      updateZoneList(card);
+      return;
+    }
+    dragging = true;
+    startX = pos.x;
+    startY = pos.y;
+  });
+
+  canvas.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    const pos = _canvasPos(canvas, e);
+    drawZones(card, { x: startX, y: startY, ex: pos.x, ey: pos.y });
+  });
+
+  canvas.addEventListener("mouseup", e => {
+    if (!dragging) return;
+    dragging = false;
+    const pos = _canvasPos(canvas, e);
+    const nx = Math.min(startX, pos.x) / canvas.width;
+    const ny = Math.min(startY, pos.y) / canvas.height;
+    const nw = Math.abs(pos.x - startX) / canvas.width;
+    const nh = Math.abs(pos.y - startY) / canvas.height;
+    if (nw > 0.01 && nh > 0.01) {
+      card._zones.push({ x: nx, y: ny, w: nw, h: nh, label: "" });
+      drawZones(card);
+      updateZoneList(card);
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    if (dragging) { dragging = false; drawZones(card); }
+  });
+
+  updateZoneList(card);
+}
+
+function drawZones(card, drag) {
+  const canvas = card.querySelector(".zone-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const zones = card._zones || [];
+  zones.forEach((z, i) => {
+    const px = z.x * canvas.width;
+    const py = z.y * canvas.height;
+    const pw = z.w * canvas.width;
+    const ph = z.h * canvas.height;
+    ctx.fillStyle = "rgba(220,38,38,0.25)";
+    ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = "rgba(220,38,38,0.9)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px, py, pw, ph);
+    ctx.fillStyle = "rgba(220,38,38,0.9)";
+    ctx.font = "11px sans-serif";
+    ctx.fillText(z.label || `Zone ${i + 1}`, px + 4, py + 13);
+  });
+
+  if (drag) {
+    const rx = Math.min(drag.x, drag.ex);
+    const ry = Math.min(drag.y, drag.ey);
+    const rw = Math.abs(drag.ex - drag.x);
+    const rh = Math.abs(drag.ey - drag.y);
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.setLineDash([]);
+  }
+}
+
+function updateZoneList(card) {
+  const list = card.querySelector(".zone-list");
+  if (!list) return;
+  list.innerHTML = "";
+  const zones = card._zones || [];
+  if (zones.length === 0) {
+    list.innerHTML = '<p class="hint" style="margin:0;">No zones. Drag on the image above to add one.</p>';
+    return;
+  }
+  zones.forEach((z, i) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem;";
+    row.innerHTML = `
+      <span style="flex:0 0 auto;color:var(--muted);">Zone ${i + 1}</span>
+      <input type="text" placeholder="Label (optional)" value="${_esc(z.label || "")}"
+             style="flex:1;min-width:0;">
+      <button type="button" class="btn-remove" style="flex:0 0 auto;"
+              onclick="deleteZone(this,${i})">✕</button>
+    `;
+    const input = row.querySelector("input");
+    const zoneIdx = i;
+    input.addEventListener("input", function() {
+      if (card._zones[zoneIdx]) card._zones[zoneIdx].label = this.value;
+      drawZones(card);
+    });
+    list.appendChild(row);
+  });
+}
+
+function deleteZone(btn, idx) {
+  const card = btn.closest(".camera-card");
+  card._zones.splice(idx, 1);
+  drawZones(card);
+  updateZoneList(card);
+}
+
+function _canvasPos(canvas, e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+function _hitZone(card, px, py) {
+  const canvas = card.querySelector(".zone-canvas");
+  const zones = card._zones || [];
+  for (let i = zones.length - 1; i >= 0; i--) {
+    const z = zones[i];
+    const zx = z.x * canvas.width, zy = z.y * canvas.height;
+    const zw = z.w * canvas.width, zh = z.h * canvas.height;
+    if (px >= zx && px <= zx + zw && py >= zy && py <= zy + zh) return i;
+  }
+  return -1;
+}
+
+// ── Schedule helpers ──────────────────────────────────────────────────────────
+
+function toggleSolar(enabled) {
+  document.getElementById("sched-solar-fields").style.display = enabled ? "block" : "none";
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -86,16 +86,6 @@ async def feed_stream(request: Request):
                     continue
 
                 snap = event.get("snapshot_path")
-                if snap:
-                    fname = Path(snap).name
-                    img_html = (
-                        f'<img id="live-snapshot" src="/snapshots/{fname}" '
-                        f'alt="{event.get("class_name", "")} detected" '
-                        f'style="max-width:100%;border-radius:4px;">'
-                    )
-                else:
-                    img_html = '<p id="live-snapshot">Detection — no snapshot.</p>'
-
                 tz = _tz_name()
                 display_ts = _to_local(str(event.get("timestamp", "")), tz)
                 label = (
@@ -104,7 +94,11 @@ async def feed_stream(request: Request):
                     f'{event.get("camera_name","")} — '
                     f'{display_ts}'
                 )
-                payload = json.dumps({"html": img_html, "label": label})
+                payload = json.dumps({
+                    "snapshot_filename": Path(snap).name if snap else None,
+                    "class_name": event.get("class_name", ""),
+                    "label": label,
+                })
                 yield f"event: detection\ndata: {payload}\n\n"
         finally:
             await pubsub.unsubscribe(CHANNEL)
