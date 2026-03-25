@@ -47,6 +47,11 @@ class StatsCollector(threading.Thread):
 
         # Detect GPU platform once at init
         self._gpu_platform = self._detect_gpu_platform()
+        # Cache Orin sysfs path at init so _find_orin_gpu_load_path (which may
+        # glob /sys) is never called again on the hot stats-collection path.
+        self._orin_gpu_load_path: Path | None = (
+            self._find_orin_gpu_load_path() if self._gpu_platform == "orin" else None
+        )
         if self._gpu_platform:
             logger.info("GPU stats platform detected: %s", self._gpu_platform)
         else:
@@ -56,10 +61,15 @@ class StatsCollector(threading.Thread):
 
     @staticmethod
     def _detect_gpu_platform() -> str | None:
-        """Return 'tegrastats', 'jetson', 'nvidia-smi', or None."""
+        """Return 'tegrastats', 'orin', 'jetson', 'nvidia-smi', or None."""
         # tegrastats: official Jetson tool, covers all JetPack platforms incl. Orin
         if shutil.which("tegrastats"):
             return "tegrastats"
+        # Jetson Orin: GA10B Ampere GPU — sysfs load file at a platform-specific path.
+        # This is checked before the generic gpu.0 path because Orin does not expose
+        # /sys/devices/gpu.0/load; it uses a different device tree address.
+        if StatsCollector._find_orin_gpu_load_path() is not None:
+            return "orin"
         # Old Jetson sysfs path (pre-Orin boards: Nano, TX2, Xavier)
         if Path("/sys/devices/gpu.0/load").exists():
             return "jetson"
@@ -74,6 +84,31 @@ class StatsCollector(threading.Thread):
             if result.returncode == 0:
                 return "nvidia-smi"
         except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return None
+
+    @staticmethod
+    def _find_orin_gpu_load_path() -> Path | None:
+        """Locate the sysfs GPU load file for Jetson Orin (GA10B / Ampere).
+
+        Returns the first readable path, or None if not found.
+        The load value is on a 0–1000 scale (divide by 10 for percent).
+        """
+        # Well-known addresses for Orin Nano / Orin NX / AGX Orin (JetPack 5.x and 6.x)
+        candidates = [
+            "/sys/devices/platform/bus@0/17000000.ga10b/load",
+            "/sys/devices/platform/17000000.ga10b/load",
+        ]
+        for candidate in candidates:
+            p = Path(candidate)
+            if p.exists():
+                return p
+        # Dynamic search: any platform device named *ga10b* that exposes a load file
+        try:
+            for p in Path("/sys/devices/platform").glob("**/load"):
+                if "ga10b" in str(p):
+                    return p
+        except (PermissionError, OSError):
             pass
         return None
 
@@ -162,6 +197,8 @@ class StatsCollector(threading.Thread):
         """Return GPU stats dict.  Keys present only if data is available."""
         if self._gpu_platform == "tegrastats":
             return self._read_gpu_tegrastats()
+        elif self._gpu_platform == "orin":
+            return self._read_gpu_orin_sysfs(self._orin_gpu_load_path)
         elif self._gpu_platform == "jetson":
             return self._read_gpu_jetson()
         elif self._gpu_platform == "nvidia-smi":
@@ -213,6 +250,29 @@ class StatsCollector(threading.Thread):
         m = re.search(r"\bGPU@([\d.]+)C\b", line)
         if m:
             stats["gpu_temp_c"] = float(m.group(1))
+
+        return stats
+
+    @staticmethod
+    def _read_gpu_orin_sysfs(load_path: Path | None) -> dict:
+        """Read Jetson Orin GPU stats from sysfs (no tegrastats required).
+
+        Used when nvidia-l4t-tools is not installed in the container but the
+        container has access to /sys (which it does via the NVIDIA runtime).
+        load_path is the cached result of _find_orin_gpu_load_path() from init.
+        """
+        stats: dict = {"gpu_available": True}
+
+        if load_path:
+            try:
+                raw = int(load_path.read_text().strip())
+                stats["gpu_usage_pct"] = round(raw / 10.0, 1)  # 0–1000 → 0–100%
+            except Exception:
+                logger.debug("Failed to read Orin GPU load from %s", load_path, exc_info=True)
+
+        gpu_temp = StatsCollector._read_thermal("gpu")
+        if gpu_temp is not None:
+            stats["gpu_temp_c"] = gpu_temp
 
         return stats
 
