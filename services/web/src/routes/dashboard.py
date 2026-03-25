@@ -7,11 +7,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config_store
 import db
-
-log = logging.getLogger(__name__)
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
