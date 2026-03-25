@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -54,8 +56,11 @@ class StatsCollector(threading.Thread):
 
     @staticmethod
     def _detect_gpu_platform() -> str | None:
-        """Return 'jetson', 'nvidia-smi', or None."""
-        # Jetson: check for the GPU load sysfs node
+        """Return 'tegrastats', 'jetson', 'nvidia-smi', or None."""
+        # tegrastats: official Jetson tool, covers all JetPack platforms incl. Orin
+        if shutil.which("tegrastats"):
+            return "tegrastats"
+        # Old Jetson sysfs path (pre-Orin boards: Nano, TX2, Xavier)
         if Path("/sys/devices/gpu.0/load").exists():
             return "jetson"
         # x86/generic: check for nvidia-smi binary
@@ -155,11 +160,61 @@ class StatsCollector(threading.Thread):
 
     def _read_gpu_stats(self) -> dict:
         """Return GPU stats dict.  Keys present only if data is available."""
-        if self._gpu_platform == "jetson":
+        if self._gpu_platform == "tegrastats":
+            return self._read_gpu_tegrastats()
+        elif self._gpu_platform == "jetson":
             return self._read_gpu_jetson()
         elif self._gpu_platform == "nvidia-smi":
             return self._read_gpu_nvidia_smi()
         return {}
+
+    def _read_gpu_tegrastats(self) -> dict:
+        """Read GPU stats via tegrastats (all Jetson platforms including Orin).
+
+        Spawns tegrastats, reads one output line, then terminates it.
+        Parses GR3D_FREQ for GPU load % and GPU@XXC for temperature.
+        """
+        try:
+            proc = subprocess.Popen(
+                ["tegrastats", "--interval", "100"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            line = ""
+            try:
+                if proc.stdout is None:
+                    return {}
+                line = proc.stdout.readline()
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+        except (FileNotFoundError, OSError):
+            return {}
+        except Exception:
+            logger.debug("tegrastats read failed", exc_info=True)
+            return {}
+
+        if not line:
+            return {}
+
+        stats: dict = {"gpu_available": True}
+
+        # GPU load: "GR3D_FREQ 45%@612" or "GR3D_FREQ 45%"
+        m = re.search(r"GR3D_FREQ\s+(\d+)%", line)
+        if m:
+            stats["gpu_usage_pct"] = float(m.group(1))
+
+        # GPU temp: "GPU@51C" or "GPU@50.5C"
+        m = re.search(r"\bGPU@([\d.]+)C\b", line)
+        if m:
+            stats["gpu_temp_c"] = float(m.group(1))
+
+        return stats
 
     @staticmethod
     def _read_gpu_jetson() -> dict:

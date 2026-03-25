@@ -22,8 +22,7 @@
 
 ## Known Issues / Buggy
 
- - **Performance Stats:** Does not include GPU usage (tegrastats)
- - **Config:** Performace Polling not UI configurable
+None currently identified.
 
 ## Not Yet Built
 

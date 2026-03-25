@@ -3,11 +3,14 @@
 FROM dustynv/l4t-pytorch:r36.4.0
 
 # GStreamer + OpenGL deps required by OpenCV RTSP support on L4T
+# nvidia-l4t-tools provides tegrastats for Jetson GPU stats (aarch64 only)
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer1.0-0 \
     libgstreamer-plugins-base1.0-0 \
     libgl1 \
     libglib2.0-0 \
+ && if [ "$TARGETARCH" = "arm64" ]; then apt-get install -y --no-install-recommends nvidia-l4t-tools; fi \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
