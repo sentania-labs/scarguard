@@ -169,10 +169,12 @@ function readForm() {
   const targetClasses = document.getElementById("target-classes").value
     .split(",").map(s => s.trim()).filter(Boolean);
 
+  const schedEnabled = document.getElementById("sched-enabled").checked;
   const useSolar = document.getElementById("sched-use-solar").checked;
   const schedLat = parseFloat(document.getElementById("sched-lat").value);
   const schedLon = parseFloat(document.getElementById("sched-lon").value);
   const schedule = {
+    enabled: schedEnabled,
     arm_time: document.getElementById("sched-arm-time").value.trim(),
     disarm_time: document.getElementById("sched-disarm-time").value.trim(),
     use_solar: useSolar,
@@ -255,13 +257,15 @@ function validate(data) {
     errors.push("SSL: Key path is required when SSL is enabled");
 
   const sched = data.system.schedule;
-  const timeRe = /^\d{2}:\d{2}$/;
-  if (sched.arm_time && !timeRe.test(sched.arm_time))
-    errors.push("Schedule: arm_time must be in HH:MM format");
-  if (sched.disarm_time && !timeRe.test(sched.disarm_time))
-    errors.push("Schedule: disarm_time must be in HH:MM format");
-  if (sched.use_solar && (sched.latitude === null || sched.longitude === null))
-    errors.push("Schedule: latitude and longitude are required for solar mode");
+  if (sched.enabled) {
+    const timeRe = /^\d{2}:\d{2}$/;
+    if (sched.arm_time && !timeRe.test(sched.arm_time))
+      errors.push("Schedule: arm_time must be in HH:MM format");
+    if (sched.disarm_time && !timeRe.test(sched.disarm_time))
+      errors.push("Schedule: disarm_time must be in HH:MM format");
+    if (sched.use_solar && (sched.latitude === null || sched.longitude === null))
+      errors.push("Schedule: latitude and longitude are required for solar mode");
+  }
 
   return errors;
 }

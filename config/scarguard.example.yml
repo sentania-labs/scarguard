@@ -35,6 +35,7 @@ system:
   # Requires latitude and longitude of your location.
   #
   # schedule:
+  #   enabled: false              # toggle scheduling on/off without clearing times
   #   arm_time: "06:00"          # arm at 6:00 AM local time
   #   disarm_time: "20:00"       # disarm at 8:00 PM local time
   #

@@ -10,6 +10,7 @@ system:
   snapshot_retention_days: 30   # days; 0 = keep forever
   stats_interval: 5             # seconds between system stats collection (1-60)
   # schedule:                        # optional — omit entirely for manual-only control
+  #   enabled: false                 # toggle scheduling on/off without clearing times
   #   arm_time: "06:00"              # arm at 6 AM local time (HH:MM, 24-hour)
   #   disarm_time: "20:00"           # disarm at 8 PM local time
   #   use_solar: false               # true = arm at sunrise, disarm at sunset
@@ -127,9 +128,9 @@ ScarGuard supports three operating modes controlled by `system.armed` and the op
 
 - **Always armed (default):** Set `armed: true` and omit the `schedule` section. The system monitors continuously. Use the dashboard button to toggle manually at any time.
 - **Always off:** Set `armed: false` and omit the `schedule` section. Camera threads still run but detections are not processed. Toggle via the dashboard when needed.
-- **Scheduled:** Include a `schedule` section with `arm_time`/`disarm_time` (or `use_solar: true` with latitude/longitude). The system arms and disarms automatically at the configured times. Manual toggles from the dashboard override the schedule until the next scheduled transition.
+- **Scheduled:** Include a `schedule` section with `enabled: true` and `arm_time`/`disarm_time` (or `use_solar: true` with latitude/longitude). The system arms and disarms automatically at the configured times. Manual toggles from the dashboard override the schedule until the next scheduled transition. Set `enabled: false` to temporarily disable the schedule without clearing your configured times.
 
-The schedule is entirely optional. If the `schedule` key is missing or both time fields are empty, no automatic transitions occur and the armed state is under manual control only.
+The schedule is entirely optional. If the `schedule` key is missing, `enabled` is false, or both time fields are empty, no automatic transitions occur and the armed state is under manual control only.
 
 ## Service Communication
 

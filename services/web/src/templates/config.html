@@ -232,6 +232,14 @@
     </div>
     <div class="config-section-body">
       <div class="card">
+        <div class="field-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="sched-enabled"
+                   {% if cfg.system.schedule.enabled %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            Enable schedule
+          </label>
+        </div>
         <p class="hint">
           Automatically arm at dawn and disarm at dusk. Uses 24-hour format (e.g. <code>06:00</code>).
           Manual arm/disarm overrides the schedule until the next scheduled transition.
