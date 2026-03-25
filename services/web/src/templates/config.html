@@ -284,6 +284,58 @@
     </div>
   </div>
 
+  {# ── Auth ─────────────────────────────────────────────────────────────── #}
+  <div class="config-section collapsed" id="section-auth">
+    <div class="config-section-header" onclick="toggleSection('section-auth')">
+      <span class="config-section-label">Authentication</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <p class="hint">
+          Gates all web UI routes behind a login page.
+          Pair with SSL/TLS when accessible beyond your LAN.
+          When disabled, anyone on the network can access the dashboard and admin tools.
+        </p>
+        <div class="field-row">
+          <div class="field-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="auth-enabled" {% if cfg.system.auth.enabled %}checked{% endif %}>
+              <span class="toggle-track"></span>
+              Enable authentication
+            </label>
+          </div>
+          <div class="field-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="auth-require-api" {% if cfg.system.auth.require_api_auth %}checked{% endif %}>
+              <span class="toggle-track"></span>
+              Require Bearer token on API / SSE endpoints
+            </label>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Session timeout (hours)</label>
+            <input type="number" id="auth-session-timeout" value="{{ cfg.system.auth.session_timeout_hours }}"
+                   min="1" max="8760">
+          </div>
+          <div class="field-group">
+            <label>Max login attempts before lockout</label>
+            <input type="number" id="auth-max-attempts" value="{{ cfg.system.auth.max_login_attempts }}"
+                   min="1" max="100">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Lockout duration (minutes)</label>
+            <input type="number" id="auth-lockout-minutes" value="{{ cfg.system.auth.lockout_duration_minutes }}"
+                   min="1" max="1440">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   {# ── SSL / TLS ──────────────────────────────────────────────────────────── #}
   <div class="config-section collapsed" id="section-ssl">
     <div class="config-section-header" onclick="toggleSection('section-ssl')">

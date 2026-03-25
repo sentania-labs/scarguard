@@ -170,25 +170,33 @@ Automatically arm and disarm the detection system on a daily schedule. Primary u
 
 ---
 
-## Feature 9: App Security & User Accounts
+## ~~Feature 9: App Security & User Accounts~~ ✓ Complete (v0.6)
 
 Add authentication to the web UI. Currently anyone on the network can access the dashboard, config, and admin tools.
 
 **Acceptance criteria:**
-- Login page gates all web UI routes — no unauthenticated access to dashboard, config, admin, or API endpoints
-- At least one admin user created during `setup.sh` (prompted for username/password)
-- Passwords hashed (bcrypt or argon2), stored in SQLite — never plaintext
-- Session-based auth with configurable timeout (default: 24h)
-- User management in admin UI: add/remove users, change passwords
-- API endpoints (webhook callbacks, SSE feeds) support token-based auth as alternative to session cookies
-- Rate-limit or lockout after N failed login attempts (default: 5 attempts, 15 min lockout)
-- Works over both HTTP and HTTPS (log a warning on startup if auth is enabled without TLS)
+- ✓ Login page gates all web UI routes — no unauthenticated access to dashboard, config, admin, or API endpoints
+- ✓ At least one admin user created during `setup.sh` (prompted for username/password)
+- ✓ Passwords hashed (bcrypt), stored in separate `auth.db` — never plaintext
+- ✓ Session-based auth with configurable timeout (default: 24h)
+- ✓ User management in admin UI: add/remove/disable users, change passwords
+- ✓ API endpoints (webhook callbacks, SSE feeds) support token-based auth as alternative to session cookies
+- ✓ Rate-limit or lockout after N failed login attempts (default: 5 attempts, 15 min lockout)
+- ✓ Works over both HTTP and HTTPS (log a warning on startup if auth is enabled without TLS)
 
 **Upgrade path for existing installations:**
-- If no users exist in the database on startup (i.e. pre-auth install upgraded via `docker pull`), the app starts in a **first-run setup mode**: web UI redirects to a one-time account creation page before anything else is accessible
-- No default/hardcoded credentials — the user must set their own on first launch
-- Existing API integrations (webhooks, SSE) continue to work unauthenticated until the user explicitly enables API token auth via config (`system.require_api_auth: true`, default `false`)
-- Migration is non-destructive: pulling the new image and restarting is all that's needed
+- ✓ If no users exist in auth.db on startup, web UI redirects to a one-time account creation page before anything else is accessible
+- ✓ No default/hardcoded credentials — the user must set their own on first launch
+- ✓ Existing API integrations continue to work unauthenticated until `system.auth.require_api_auth: true`
+- ✓ Migration is non-destructive: pulling the new image and restarting is all that's needed
+
+**Implementation notes:**
+- Separate `auth.db` at `/data/auth.db` — web service is the sole writer (keeps single-writer discipline per file)
+- Server-side sessions stored as SHA-256(token) in `sessions` table; raw token sent as `HttpOnly; SameSite=Strict` cookie
+- API tokens similarly hashed; shown to user exactly once (rendered directly, never in URL)
+- `setup.sh` adds a step to create the initial admin via `docker run ... python src/auth.py create-admin`
+- Startup warning in `start.py` if auth enabled without SSL
+- Auth config widget in the Config UI (Authentication section, collapsed by default)
 
 ---
 

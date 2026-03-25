@@ -150,11 +150,12 @@ async def save_structured_config(request: Request) -> JSONResponse:
     if not isinstance(existing_system, dict):
         existing_system = {}
     system_dump = payload.system.model_dump(exclude_unset=True)
-    if "schedule" in system_dump:
-        existing_schedule = existing_system.get("schedule", {})
-        if not isinstance(existing_schedule, dict):
-            existing_schedule = {}
-        system_dump["schedule"] = {**existing_schedule, **system_dump["schedule"]}
+    for nested_key in ("schedule", "auth"):
+        if nested_key in system_dump:
+            existing_nested = existing_system.get(nested_key, {})
+            if not isinstance(existing_nested, dict):
+                existing_nested = {}
+            system_dump[nested_key] = {**existing_nested, **system_dump[nested_key]}
     existing["system"] = {**existing_system, **system_dump}
 
     # Merge cameras: start from the existing entry (preserves exclusion_zones and

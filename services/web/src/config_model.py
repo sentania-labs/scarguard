@@ -28,6 +28,35 @@ class ScheduleConfig(BaseModel):
         return f"{h:02d}:{m:02d}"
 
 
+class AuthConfig(BaseModel):
+    enabled: bool = True
+    session_timeout_hours: int = 24
+    max_login_attempts: int = 5
+    lockout_duration_minutes: int = 15
+    require_api_auth: bool = False
+
+    @field_validator("session_timeout_hours")
+    @classmethod
+    def session_timeout_range(cls, v: int) -> int:
+        if not 1 <= v <= 8760:
+            raise ValueError("session_timeout_hours must be between 1 and 8760")
+        return v
+
+    @field_validator("max_login_attempts")
+    @classmethod
+    def max_attempts_range(cls, v: int) -> int:
+        if not 1 <= v <= 100:
+            raise ValueError("max_login_attempts must be between 1 and 100")
+        return v
+
+    @field_validator("lockout_duration_minutes")
+    @classmethod
+    def lockout_range(cls, v: int) -> int:
+        if not 1 <= v <= 1440:
+            raise ValueError("lockout_duration_minutes must be between 1 and 1440")
+        return v
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
@@ -35,6 +64,7 @@ class SystemConfig(BaseModel):
     snapshot_retention_days: int = 30
     stats_interval: int = 5
     schedule: ScheduleConfig = ScheduleConfig()
+    auth: AuthConfig = AuthConfig()
 
     @field_validator("timezone")
     @classmethod

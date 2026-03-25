@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Users — ScarGuard{% endblock %}
+{% block content %}
+<h1>Users &amp; API Tokens</h1>
+
+{% if new_token %}
+<div class="alert alert-ok" style="word-break:break-all;">
+  <strong>API token created.</strong> Copy it now — it will not be shown again.<br>
+  <code style="display:block;margin-top:0.4rem;font-size:0.85rem;color:var(--ok);">{{ new_token }}</code>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-err">{{ error }}</div>
+{% endif %}
+
+{# ── User list ─────────────────────────────────────────────────────────── #}
+<section class="card">
+  <h2>Users</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Role</th>
+        <th>Created</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><strong>{{ u.username }}</strong></td>
+        <td>{{ "Admin" if u.is_admin else "User" }}</td>
+        <td class="muted" style="font-size:0.8rem;">{{ u.created_at[:10] }}</td>
+        <td>
+          {% if u.disabled %}
+            <span class="badge badge-disarmed">Disabled</span>
+          {% else %}
+            <span class="badge badge-armed">Active</span>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline;">
+            <button type="submit" class="btn-secondary" style="font-size:0.78rem;padding:0.2em 0.6em;">
+              {{ "Enable" if u.disabled else "Disable" }}
+            </button>
+          </form>
+          <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;"
+                onsubmit="return confirm('Delete user {{ u.username }}?');">
+            <button type="submit" class="btn-remove" style="font-size:0.78rem;">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {# Change password inline #}
+      <tr>
+        <td colspan="5">
+          <form method="post" action="/admin/users/{{ u.id }}/password"
+                style="display:flex;gap:0.5rem;align-items:center;padding:0.2rem 0;">
+            <input type="password" name="new_password" placeholder="New password (min 8 chars)"
+                   minlength="8" style="max-width:220px;">
+            <button type="submit" class="btn-secondary" style="font-size:0.78rem;white-space:nowrap;">
+              Change password
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No users found.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{# ── Add user ──────────────────────────────────────────────────────────── #}
+<section class="card">
+  <h2>Add User</h2>
+  <form method="post" action="/admin/users" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end;">
+    <div class="field-group" style="flex:1;min-width:160px;">
+      <label for="new-username">Username</label>
+      <input type="text" id="new-username" name="username" required>
+    </div>
+    <div class="field-group" style="flex:1;min-width:160px;">
+      <label for="new-password">Password (min 8 chars)</label>
+      <input type="password" id="new-password" name="password" minlength="8" required>
+    </div>
+    <div class="field-group" style="flex:0;">
+      <label class="toggle-label" style="margin-top:1.5rem;">
+        <input type="checkbox" name="is_admin" value="on">
+        <span class="toggle-track"></span>
+        Admin
+      </label>
+    </div>
+    <div style="align-self:flex-end;">
+      <button type="submit">Add User</button>
+    </div>
+  </form>
+</section>
+
+{# ── API Tokens ────────────────────────────────────────────────────────── #}
+<section class="card">
+  <h2>API Tokens</h2>
+  <p class="hint">
+    Long-lived tokens for use with external integrations (Home Assistant, cURL, etc.).
+    Send as <code>Authorization: Bearer &lt;token&gt;</code>.
+    Tokens are shown only once when created — store them securely.
+  </p>
+  {% if tokens %}
+  <table style="margin-bottom:1rem;">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Owner</th>
+        <th>Created</th>
+        <th>Last used</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in tokens %}
+      <tr>
+        <td>{{ t.name }}</td>
+        <td class="muted">{{ t.username }}</td>
+        <td class="muted" style="font-size:0.8rem;">{{ t.created_at[:10] }}</td>
+        <td class="muted" style="font-size:0.8rem;">{{ t.last_used_at[:10] if t.last_used_at else "—" }}</td>
+        <td>
+          {% if t.disabled %}
+            <span class="badge badge-disarmed">Revoked</span>
+          {% else %}
+            <span class="badge badge-armed">Active</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if not t.disabled %}
+          <form method="post" action="/admin/users/api-tokens/{{ t.id }}/revoke" style="display:inline;">
+            <button type="submit" class="btn-remove" style="font-size:0.78rem;">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted" style="margin-bottom:1rem;">No API tokens yet.</p>
+  {% endif %}
+
+  <form method="post" action="/admin/users/api-tokens"
+        style="display:flex;gap:0.75rem;align-items:flex-end;">
+    <div class="field-group" style="flex:1;max-width:300px;">
+      <label for="token-name">Token name / description</label>
+      <input type="text" id="token-name" name="name" placeholder="e.g. home-assistant" required>
+    </div>
+    <div style="align-self:flex-end;">
+      <button type="submit">Generate Token</button>
+    </div>
+  </form>
+</section>
+
+{% endblock %}

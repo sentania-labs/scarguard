@@ -63,11 +63,12 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
       DB_PATH: /data/scarguard.db
+      AUTH_DB_PATH: /data/auth.db
     volumes:
       - ${DATA_DIR}/config:/config      # rw — config editor writes scarguard.yml
       - ${DATA_DIR}/config/certs:/certs:ro  # SSL certificates (cert.pem + key.pem)
       - ${DATA_DIR}/models:/models      # rw — model upload endpoint writes here
-      - ${DATA_DIR}/data:/data:ro       # ro — reads SQLite + serves snapshot images
+      - ${DATA_DIR}/data:/data          # rw — reads SQLite + serves snapshots + writes auth.db
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Admin logs tab
     depends_on:
       redis:

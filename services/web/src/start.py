@@ -37,16 +37,20 @@ log = logging.getLogger("start")
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
 
 
-def _load_ssl_cfg() -> dict:
+def _load_cfg() -> dict:
     try:
         with open(CONFIG_PATH) as f:
             cfg = yaml.safe_load(f) or {}
-        return cfg.get("ssl", {}) if isinstance(cfg, dict) else {}
+        return cfg if isinstance(cfg, dict) else {}
     except FileNotFoundError:
         return {}
     except Exception as exc:
-        log.warning("Could not read %s: %s — SSL disabled", CONFIG_PATH, exc)
+        log.warning("Could not read %s: %s", CONFIG_PATH, exc)
         return {}
+
+
+def _load_ssl_cfg() -> dict:
+    return _load_cfg().get("ssl", {})
 
 
 def _normalize_ssl_cfg(ssl_cfg: dict) -> dict:
@@ -104,8 +108,23 @@ def _uvicorn_cfg(**extra: Any) -> dict[str, Any]:
     }
 
 
+def _check_auth_warning(ssl_cfg: dict) -> None:
+    """Warn if auth is enabled but SSL is not — credentials would transit in plaintext."""
+    cfg = _load_cfg()
+    auth_cfg = cfg.get("system", {}).get("auth", {})
+    auth_enabled = bool(auth_cfg.get("enabled", True))
+    ssl_enabled = bool(ssl_cfg.get("enabled", False))
+    if auth_enabled and not ssl_enabled:
+        log.warning(
+            "Authentication is enabled but SSL/TLS is not. "
+            "User credentials will be sent in plaintext over HTTP. "
+            "Enable ssl.enabled: true in scarguard.yml for secure operation."
+        )
+
+
 def main() -> None:
     ssl_cfg = _load_ssl_cfg()
+    _check_auth_warning(ssl_cfg)
 
     # Watch for SSL config changes and restart if needed.
     watcher = threading.Thread(

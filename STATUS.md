@@ -18,14 +18,17 @@
 - **Enhanced event log:** Filter by camera, class, date range. `actions_triggered` column shows which channels were notified.
 - **Scheduled arm/disarm:** Fixed-time schedule (HH:MM) or solar mode (sunrise/sunset) via `astral`; manual dashboard overrides respected until next transition.
 - **Live feed:** Detection-triggered annotated snapshot feed with SSE, offline indicator, and exponential-backoff auto-reconnect.
+- **App auth:** Session-based login gates all web UI routes. First-run setup page, user management admin UI, API bearer tokens, bcrypt passwords, per-user lockout after N failed attempts.
 
 ## Known Issues / Buggy
+
+ - **Performance Stats:** Does not include GPU usage (tegrastats)
+ - **Config:** Performace Polling not UI configurable
 
 ## Not Yet Built
 
 - Custom-trained heron model (currently using generic COCO bird class)
 - Valve actuation (ESP32 hardware not wired yet)
-- App security / user accounts (admin logs endpoint exposes Docker socket — must be gated before external exposure)
 
 ## Completed Work
 
@@ -53,3 +56,4 @@
 | v0.4 | Named notification channels & webhook support (multi-instance, named, backward-compat) | ✅ Complete |
 | v0.4 | Scheduled arm/disarm (fixed-time + solar mode, manual override, hot-reload) | ✅ Complete |
 | v0.5 | GPU/CPU load stats view (live system resource metrics, per-camera inference FPS/latency, mini-charts) | ✅ Complete |
+| v0.6 | App security & user accounts (session auth, first-run setup, user management, API tokens, lockout) | ✅ Complete |

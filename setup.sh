@@ -356,6 +356,49 @@ else
     fi
 fi
 
+# ── Step 10: Create initial admin account ─────────────────────────────────────
+echo
+step "Creating initial admin account"
+echo "  If you skip this, visit the web UI on first launch to create an account."
+echo
+
+WEB_IMAGE=$(docker compose config --format json 2>/dev/null | \
+    python3 -c "import sys,json; d=json.load(sys.stdin); print(d['services']['web']['image'])" 2>/dev/null || echo "")
+
+if [[ -z "$WEB_IMAGE" ]]; then
+    warn "Could not determine web image name. Skipping admin account creation."
+    warn "Create your admin account via the web UI on first launch."
+else
+    if [[ -t 0 ]] && confirm "Create admin account now?" "y"; then
+        read -rp "  Admin username: " ADMIN_USER
+        while [[ -z "$ADMIN_USER" ]]; do
+            warn "Username cannot be empty."
+            read -rp "  Admin username: " ADMIN_USER
+        done
+        while true; do
+            read -rsp "  Admin password (min 8 characters): " ADMIN_PASS
+            echo
+            if [[ ${#ADMIN_PASS} -ge 8 ]]; then
+                break
+            fi
+            warn "Password must be at least 8 characters."
+        done
+
+        mkdir -p "${DATA_DIR}/data"
+        if docker run --rm \
+                -e AUTH_DB_PATH=/data/auth.db \
+                -v "${DATA_DIR}/data:/data" \
+                "$WEB_IMAGE" \
+                python /app/src/auth.py create-admin "$ADMIN_USER" "$ADMIN_PASS"; then
+            info "Admin account '${ADMIN_USER}' created."
+        else
+            warn "Account creation failed. Create it via the web UI on first launch."
+        fi
+    else
+        info "Skipped. Create your admin account via the web UI on first launch."
+    fi
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo
 echo "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════╗${RESET}"
