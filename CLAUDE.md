@@ -39,6 +39,7 @@ A containerized wildlife detection and deterrent system running on an NVIDIA Jet
 - **Error handling:** RTSP reconnect with backoff. Never crash on a dropped stream.
 - **Testing:** pytest. Focus on detection logic and event pipeline. Don't over-test for MVP.
 - **No over-engineering:** This is a pond guardian, not a distributed platform. Keep it simple.
+- **Config Item UI:** All implemented config items should be configurable via UI. 
 - **Documentation is not an afterthought:** Update the readme and supporting documents (STATUS, ROADMAP, INFRASTRUCTURE, CONFIG_REFERENCE) with updates and progress.
 
 ## Code Review Protocol
