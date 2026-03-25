@@ -41,9 +41,9 @@ async def users_list(request: Request) -> HTMLResponse:
         db.close()
 
     return templates.TemplateResponse(
+        request,
         "users.html",
         {
-            "request": request,
             "users": users,
             "tokens": tokens,
             "new_token": None,
@@ -179,9 +179,9 @@ async def create_api_token(
     # Render the page directly (not a redirect) so the raw token is never in a URL,
     # browser history, or server access logs.
     return templates.TemplateResponse(
+        request,
         "users.html",
         {
-            "request": request,
             "users": users,
             "tokens": tokens,
             "new_token": raw_token,

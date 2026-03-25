@@ -42,8 +42,9 @@ async def login_get(request: Request, next: str = "/") -> HTMLResponse:
     if getattr(request.state, "user", None) is not None:
         return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "next": _safe_next(next), "error": None},
+        {"next": _safe_next(next), "error": None},
     )
 
 
@@ -66,9 +67,9 @@ async def login_post(
         # Check lockout before doing anything
         if auth_module.check_lockout(db, username, client_ip, max_attempts, lockout_minutes):
             return templates.TemplateResponse(
+                request,
                 "login.html",
                 {
-                    "request": request,
                     "next": next,
                     "error": (
                         f"Account locked after too many failed attempts. "
@@ -99,12 +100,14 @@ async def login_post(
             if remaining <= 2:
                 error_msg += f" {remaining} attempt(s) remaining before lockout."
             return templates.TemplateResponse(
+                request,
                 "login.html",
-                {"request": request, "next": next, "error": error_msg},
+                {"next": next, "error": error_msg},
                 status_code=401,
             )
 
-        # Create session
+        # Create session (valid=True guarantees user is not None)
+        assert user is not None
         raw_token = auth_module.create_session(db, user["id"], timeout_hours=session_hours)
         auth_module.purge_expired_sessions(db)
     finally:
@@ -149,8 +152,9 @@ async def setup_get(request: Request) -> HTMLResponse:
     if auth_module.users_exist(AUTH_DB_PATH):
         return RedirectResponse("/login", status_code=302)  # type: ignore[return-value]
     return templates.TemplateResponse(
+        request,
         "setup.html",
-        {"request": request, "error": None},
+        {"error": None},
     )
 
 
@@ -168,20 +172,23 @@ async def setup_post(
     # Validate input
     if not username.strip():
         return templates.TemplateResponse(
+            request,
             "setup.html",
-            {"request": request, "error": "Username must not be empty."},
+            {"error": "Username must not be empty."},
             status_code=400,
         )
     if len(password) < 8:
         return templates.TemplateResponse(
+            request,
             "setup.html",
-            {"request": request, "error": "Password must be at least 8 characters."},
+            {"error": "Password must be at least 8 characters."},
             status_code=400,
         )
     if password != confirm_password:
         return templates.TemplateResponse(
+            request,
             "setup.html",
-            {"request": request, "error": "Passwords do not match."},
+            {"error": "Passwords do not match."},
             status_code=400,
         )
 

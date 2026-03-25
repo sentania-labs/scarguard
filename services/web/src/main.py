@@ -54,7 +54,7 @@ def _wants_html(request: Request) -> bool:
 
 
 @app.middleware("http")
-async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
+async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # Default: no authenticated user. Always set so templates can safely read it.
