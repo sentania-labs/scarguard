@@ -1,3 +1,4 @@
+import logging
 from datetime import date as dt_date
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
@@ -6,6 +7,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config_store
 import db
+
+log = logging.getLogger(__name__)
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -39,8 +42,12 @@ def _get_schedule_info(cfg: dict) -> dict:
     arm_str = sched_cfg.get("arm_time") or ""
     disarm_str = sched_cfg.get("disarm_time") or ""
     use_solar = bool(sched_cfg.get("use_solar", False))
+    lat = sched_cfg.get("latitude")
+    lon = sched_cfg.get("longitude")
 
-    enabled = bool((arm_str and disarm_str) or use_solar)
+    enabled = bool(
+        (arm_str and disarm_str) or (use_solar and lat is not None and lon is not None)
+    )
     if not enabled:
         return {"enabled": False}
 
@@ -49,12 +56,28 @@ def _get_schedule_info(cfg: dict) -> dict:
 
     now_utc = datetime.now(timezone.utc)
 
+    def _solar(d: dt_date, kind: str) -> datetime | None:
+        try:
+            from astral import LocationInfo
+            from astral.sun import sun as astral_sun
+            loc = LocationInfo(latitude=float(lat), longitude=float(lon))  # type: ignore[arg-type]
+            s = astral_sun(loc.observer, date=d, tzinfo=timezone.utc)
+            result: datetime = s[kind]
+            return result
+        except Exception as exc:
+            log.warning("Failed to compute solar %s for %s: %s", kind, d, exc)
+            return None
+
     def get_arm(d: dt_date) -> datetime | None:
+        if use_solar:
+            return _solar(d, "sunrise")
         if arm_t:
             return _localtime_to_utc(d, arm_t, tz_name)
         return None
 
     def get_disarm(d: dt_date) -> datetime | None:
+        if use_solar:
+            return _solar(d, "sunset")
         if disarm_t:
             return _localtime_to_utc(d, disarm_t, tz_name)
         return None

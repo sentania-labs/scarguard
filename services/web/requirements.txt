@@ -8,3 +8,4 @@ redis[asyncio]
 aiofiles
 tzdata
 docker
+astral

@@ -2,8 +2,19 @@
 
 import os
 import sqlite3
+from datetime import date, timedelta
 
 DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
+
+
+def _date_to_exclusive(date_str: str) -> str:
+    """Shift a YYYY-MM-DD end-date forward one day for an exclusive upper bound.
+
+    Stored timestamps include a time component (e.g. 2026-03-25T14:10:00+00:00),
+    so comparing ``timestamp < '2026-03-25'`` excludes all events on that day.
+    Advancing to the next day makes the filter inclusive of the selected end date.
+    """
+    return (date.fromisoformat(date_str) + timedelta(days=1)).isoformat()
 
 
 def _connect() -> sqlite3.Connection:
@@ -36,7 +47,7 @@ def get_events(
         params.append(date_from)
     if date_to:
         where.append("timestamp < ?")
-        params.append(date_to)
+        params.append(_date_to_exclusive(date_to))
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     params += [limit, offset]
@@ -83,7 +94,7 @@ def count_events(
         params.append(date_from)
     if date_to:
         where.append("timestamp < ?")
-        params.append(date_to)
+        params.append(_date_to_exclusive(date_to))
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     with _connect() as conn:

@@ -419,7 +419,8 @@ function readChannels() {
       } else if (el.tagName === "TEXTAREA") {
         ch[field] = el.value.split("\n").map(s => s.trim()).filter(Boolean);
       } else if (el.type === "number") {
-        ch[field] = parseInt(el.value, 10) || 0;
+        const n = parseInt(el.value, 10);
+        if (!isNaN(n)) ch[field] = n;
       } else {
         ch[field] = el.value.trim();
       }
