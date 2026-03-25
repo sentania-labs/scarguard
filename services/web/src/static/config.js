@@ -257,15 +257,13 @@ function validate(data) {
     errors.push("SSL: Key path is required when SSL is enabled");
 
   const sched = data.system.schedule;
-  if (sched.enabled) {
-    const timeRe = /^\d{2}:\d{2}$/;
-    if (sched.arm_time && !timeRe.test(sched.arm_time))
-      errors.push("Schedule: arm_time must be in HH:MM format");
-    if (sched.disarm_time && !timeRe.test(sched.disarm_time))
-      errors.push("Schedule: disarm_time must be in HH:MM format");
-    if (sched.use_solar && (sched.latitude === null || sched.longitude === null))
-      errors.push("Schedule: latitude and longitude are required for solar mode");
-  }
+  const timeRe = /^\d{2}:\d{2}$/;
+  if (sched.arm_time && !timeRe.test(sched.arm_time))
+    errors.push("Schedule: arm_time must be in HH:MM format");
+  if (sched.disarm_time && !timeRe.test(sched.disarm_time))
+    errors.push("Schedule: disarm_time must be in HH:MM format");
+  if (sched.enabled && sched.use_solar && (sched.latitude === null || sched.longitude === null))
+    errors.push("Schedule: latitude and longitude are required for solar mode");
 
   return errors;
 }
