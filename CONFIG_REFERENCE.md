@@ -9,6 +9,12 @@ system:
   timezone: "UTC"
   snapshot_retention_days: 30   # days; 0 = keep forever
   stats_interval: 5             # seconds between system stats collection (1-60)
+  # schedule:                        # optional — omit entirely for manual-only control
+  #   arm_time: "06:00"              # arm at 6 AM local time (HH:MM, 24-hour)
+  #   disarm_time: "20:00"           # disarm at 8 PM local time
+  #   use_solar: false               # true = arm at sunrise, disarm at sunset
+  #   latitude: null                 # required when use_solar is true
+  #   longitude: null                # required when use_solar is true
 
 # SSL is off by default. Run setup.sh to generate a self-signed cert.
 # cert_path / key_path are container-internal paths; docker-compose mounts
@@ -114,6 +120,16 @@ redis:
 - Use 720p substream for inference — 4K wastes GPU cycles
 - OpenCV `VideoCapture` handles RTSP natively; set `cv2.CAP_PROP_BUFFERSIZE` to 1 to reduce frame lag
 - Camera models: G3 Flex and G5 Flex (G3 may be replaced with another G5)
+
+## Arm/Disarm Modes
+
+ScarGuard supports three operating modes controlled by `system.armed` and the optional `system.schedule` section:
+
+- **Always armed (default):** Set `armed: true` and omit the `schedule` section. The system monitors continuously. Use the dashboard button to toggle manually at any time.
+- **Always off:** Set `armed: false` and omit the `schedule` section. Camera threads still run but detections are not processed. Toggle via the dashboard when needed.
+- **Scheduled:** Include a `schedule` section with `arm_time`/`disarm_time` (or `use_solar: true` with latitude/longitude). The system arms and disarms automatically at the configured times. Manual toggles from the dashboard override the schedule until the next scheduled transition.
+
+The schedule is entirely optional. If the `schedule` key is missing or both time fields are empty, no automatic transitions occur and the armed state is under manual control only.
 
 ## Service Communication
 

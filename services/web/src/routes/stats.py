@@ -36,7 +36,7 @@ async def stats_stream(request: Request) -> StreamingResponse:
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
-    interval = cfg.get("system", {}).get("stats_interval", 5)
+    interval = max(1, int(cfg.get("system", {}).get("stats_interval", 5)))
 
     async def generator():
         client = aioredis.Redis(host=host, port=port, decode_responses=True)

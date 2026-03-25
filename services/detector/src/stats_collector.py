@@ -10,7 +10,6 @@ import json
 import logging
 import subprocess
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -214,7 +213,10 @@ class StatsCollector(threading.Thread):
             if result.returncode != 0:
                 return {}
 
-            parts = result.stdout.strip().split(",")
+            lines = result.stdout.strip().splitlines()
+            if not lines:
+                return {}
+            parts = lines[0].split(",")  # first GPU only
             if len(parts) < 4:
                 return {}
 

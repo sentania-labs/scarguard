@@ -308,6 +308,8 @@ def main() -> None:
         t, cam_stop, _, __ = active_cameras.pop(name)
         cam_stop.set()
         t.join(timeout=5)
+        with camera_stats_lock:
+            camera_stats.pop(name, None)
         logger.info("[%s] Camera thread stopped", name)
 
     for camera_cfg in cameras:
