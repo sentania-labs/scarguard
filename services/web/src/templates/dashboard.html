@@ -21,6 +21,11 @@
     {% if schedule.use_solar %}(solar){% endif %}
     &mdash; next: <strong>{{ schedule.next_action }}</strong> at {{ schedule.next_time }}
   </p>
+  {% else %}
+  <p class="hint" style="margin-top:0.5rem;">
+    Schedule: <strong>manual mode</strong> &mdash; arm/disarm via dashboard only.
+    <a href="/config">Configure a schedule</a>
+  </p>
   {% endif %}
 </section>
 

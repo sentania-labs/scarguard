@@ -52,3 +52,4 @@
 | v0.4 | Live feed improvements (offline indicator, exponential-backoff auto-reconnect, XSS-safe SSE) | ✅ Complete |
 | v0.4 | Named notification channels & webhook support (multi-instance, named, backward-compat) | ✅ Complete |
 | v0.4 | Scheduled arm/disarm (fixed-time + solar mode, manual override, hot-reload) | ✅ Complete |
+| v0.5 | GPU/CPU load stats view (live system resource metrics, per-camera inference FPS/latency, mini-charts) | ✅ Complete |

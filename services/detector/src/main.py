@@ -13,6 +13,7 @@ import os
 import signal
 import sys
 import threading
+import time
 
 import yaml
 from cleanup import SnapshotCleaner
@@ -21,6 +22,7 @@ from detector import YOLODetector
 from events import EventProcessor
 from publisher import RedisPublisher
 from scheduler import ArmScheduler
+from stats_collector import StatsCollector
 from stream import RTSPStream
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,8 @@ def run_camera(
     exclusion_zones_ref: list[list[dict]],
     action_rules_ref: list[list[dict]],
     stop_event: threading.Event,
+    camera_stats: dict[str, dict] | None = None,
+    camera_stats_lock: threading.Lock | None = None,
 ) -> None:
     """Per-camera detection loop — runs in its own thread.
 
@@ -110,6 +114,11 @@ def run_camera(
     )
 
     frame_count = 0
+    # Per-camera inference tracking for stats
+    _infer_count = 0
+    _infer_total_ms = 0.0
+    _infer_window_start = time.monotonic()
+
     while not stop_event.is_set():
         ret, frame = stream.read()
         if not ret:
@@ -126,7 +135,26 @@ def run_camera(
         if not armed_ref[0]:
             continue
 
+        t0 = time.monotonic()
         detections = detector.predict(frame)
+        infer_ms = (time.monotonic() - t0) * 1000.0
+        _infer_count += 1
+        _infer_total_ms += infer_ms
+
+        # Update shared camera stats; reset window every 30s for recent-only metrics
+        if camera_stats is not None and camera_stats_lock is not None:
+            elapsed = time.monotonic() - _infer_window_start
+            fps = _infer_count / elapsed if elapsed > 0 else 0.0
+            avg_ms = _infer_total_ms / _infer_count if _infer_count > 0 else 0.0
+            with camera_stats_lock:
+                camera_stats[name] = {
+                    "fps": round(fps, 1),
+                    "avg_inference_ms": round(avg_ms, 1),
+                }
+            if elapsed > 30.0:
+                _infer_count = 0
+                _infer_total_ms = 0.0
+                _infer_window_start = time.monotonic()
         if detections:
             # Exclusion zones are applied BEFORE cooldown dedup intentionally:
             # an object permanently in an excluded region should not consume the
@@ -244,6 +272,8 @@ def main() -> None:
     # ---- Per-camera thread management -----------------------------------------
     # Maps camera name → (thread, per-camera stop event, exclusion_zones_ref, action_rules_ref).
     active_cameras: dict[str, tuple[threading.Thread, threading.Event, list[list[dict]], list[list[dict]]]] = {}
+    camera_stats: dict[str, dict] = {}
+    camera_stats_lock = threading.Lock()
 
     def _start_camera(camera_cfg: dict) -> None:
         name = camera_cfg["name"]
@@ -262,6 +292,8 @@ def main() -> None:
                 zones_ref,
                 rules_ref,
                 cam_stop,
+                camera_stats,
+                camera_stats_lock,
             ),
             name=f"camera-{name}",
             daemon=True,
@@ -276,6 +308,8 @@ def main() -> None:
         t, cam_stop, _, __ = active_cameras.pop(name)
         cam_stop.set()
         t.join(timeout=5)
+        with camera_stats_lock:
+            camera_stats.pop(name, None)
         logger.info("[%s] Camera thread stopped", name)
 
     for camera_cfg in cameras:
@@ -288,6 +322,17 @@ def main() -> None:
         armed_ref[0],
         det_cfg.get("cooldown_seconds", 30),
     )
+
+    # ---- Stats collector -------------------------------------------------------
+    stats_interval = int(sys_cfg.get("stats_interval", 5))
+    stats_collector = StatsCollector(
+        redis_cfg=redis_cfg,
+        interval_seconds=stats_interval,
+        camera_stats=camera_stats,
+        camera_stats_lock=camera_stats_lock,
+        stop_event=global_stop,
+    )
+    stats_collector.start()
 
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:

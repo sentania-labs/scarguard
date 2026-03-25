@@ -63,3 +63,4 @@ class YOLODetector:
                 detections.append(Detection(class_name, confidence, (x1, y1, x2, y2)))
 
         return detections
+

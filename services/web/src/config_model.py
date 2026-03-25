@@ -32,6 +32,7 @@ class SystemConfig(BaseModel):
     log_level: str = "info"
     timezone: str = "UTC"
     snapshot_retention_days: int = 30
+    stats_interval: int = 5
     schedule: ScheduleConfig = ScheduleConfig()
 
     @field_validator("timezone")
@@ -41,6 +42,13 @@ class SystemConfig(BaseModel):
             ZoneInfo(v)
         except (ZoneInfoNotFoundError, KeyError):
             raise ValueError(f"Unknown timezone: {v!r}")
+        return v
+
+    @field_validator("stats_interval")
+    @classmethod
+    def stats_interval_range(cls, v: int) -> int:
+        if not 1 <= v <= 60:
+            raise ValueError("stats_interval must be between 1 and 60 seconds")
         return v
 
 
