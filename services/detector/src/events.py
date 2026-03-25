@@ -1,5 +1,7 @@
 """Detection event processing: cooldown dedup, snapshot capture, SQLite logging."""
 
+from __future__ import annotations
+
 import json
 import logging
 import sqlite3

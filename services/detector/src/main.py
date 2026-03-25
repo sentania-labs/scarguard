@@ -8,6 +8,8 @@ are shared across threads; both are internally thread-safe.  Each camera thread
 owns its own RTSPStream and RedisPublisher connection.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import signal

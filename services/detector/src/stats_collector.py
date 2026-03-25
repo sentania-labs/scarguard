@@ -6,6 +6,8 @@ dict.  Writes a JSON snapshot to a Redis key on each cycle so the web service
 can poll it.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import subprocess
