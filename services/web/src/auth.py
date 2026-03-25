@@ -7,6 +7,7 @@ This module has no FastAPI dependencies so it can be imported standalone
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 import sqlite3
@@ -15,7 +16,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
-import logging
 
 _log = logging.getLogger(__name__)
 
@@ -111,7 +111,11 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(_prehash(password), password_hash.encode("utf-8"))
+        hash_bytes = password_hash.encode("utf-8")
+        if bcrypt.checkpw(_prehash(password), hash_bytes):
+            return True
+        # Fall back to raw password check for legacy passlib-created hashes
+        return bcrypt.checkpw(password.encode("utf-8"), hash_bytes)
     except Exception as exc:
         _log.warning("verify_password failed: %s", exc)
         return False
