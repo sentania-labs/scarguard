@@ -26,6 +26,26 @@ system:
   # Set to 0 to disable automatic cleanup.
   snapshot_retention_days: 30
 
+  # ── Authentication ────────────────────────────────────────────────────────
+  # Gate all web UI routes behind a login page.
+  # On first launch (no users in auth.db), the web UI redirects to a one-time
+  # account creation page. Use setup.sh to create the initial admin account
+  # during installation.
+  #
+  # Disable auth only on fully private networks. Re-enable before any external
+  # access. Always pair with ssl.enabled: true when accessible beyond LAN.
+  #
+  # When require_api_auth is false (default), SSE feeds and webhook callbacks
+  # remain open so existing integrations (Home Assistant, etc.) keep working.
+  # Set to true only after updating all integrations to send a Bearer token.
+  #
+  auth:
+    enabled: true
+    session_timeout_hours: 24      # How long a login session lasts
+    max_login_attempts: 5          # Failed attempts before lockout
+    lockout_duration_minutes: 15   # How long the lockout lasts
+    require_api_auth: false        # Set to true to require Bearer token on API/SSE endpoints
+
   # ── Automatic arm/disarm schedule ─────────────────────────────────────────
   # Arm and disarm automatically at fixed times each day (24-hour format).
   # Manual arm/disarm from the dashboard overrides the schedule until the

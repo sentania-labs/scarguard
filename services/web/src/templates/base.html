@@ -18,6 +18,15 @@
     <a href="/about">About</a>
     <a href="/admin/logs">Logs</a>
     <a href="/admin/stats">Stats</a>
+    {% if request.state.user %}
+      {% if request.state.user.is_admin %}
+    <a href="/admin/users">Users</a>
+      {% endif %}
+    <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ request.state.user.username }}</span>
+    <form method="post" action="/logout" style="margin:0;">
+      <button type="submit" style="background:none;border:1px solid var(--border);color:var(--muted);padding:0.25em 0.7em;font-size:0.8rem;">Logout</button>
+    </form>
+    {% endif %}
   </nav>
   <main>
     {% block content %}{% endblock %}

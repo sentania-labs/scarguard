@@ -189,6 +189,13 @@ function readForm() {
       timezone: document.getElementById("sys-timezone").value.trim(),
       snapshot_retention_days: (v => isNaN(v) ? 30 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
       schedule,
+      auth: {
+        enabled: document.getElementById("auth-enabled").checked,
+        session_timeout_hours: parseInt(document.getElementById("auth-session-timeout").value, 10) || 24,
+        max_login_attempts: parseInt(document.getElementById("auth-max-attempts").value, 10) || 5,
+        lockout_duration_minutes: parseInt(document.getElementById("auth-lockout-minutes").value, 10) || 15,
+        require_api_auth: document.getElementById("auth-require-api").checked,
+      },
     },
     cameras: readCameras(),
     detection: {

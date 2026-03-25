@@ -9,3 +9,4 @@ aiofiles
 tzdata
 docker
 astral
+passlib[bcrypt]

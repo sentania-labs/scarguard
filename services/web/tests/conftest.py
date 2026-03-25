@@ -14,6 +14,7 @@ os.environ["CONFIG_PATH"] = "/tmp/sg-test.yml"
 os.environ["DB_PATH"] = "/tmp/sg-test.db"
 os.environ["SNAPSHOT_DIR"] = "/tmp/sg-test-snapshots"
 os.environ["MODELS_DIR"] = "/tmp/sg-test-models"
+os.environ["AUTH_DB_PATH"] = "/tmp/sg-test-auth.db"
 
 Path("/tmp/sg-test-snapshots").mkdir(exist_ok=True)
 Path("/tmp/sg-test-models").mkdir(exist_ok=True)
@@ -21,7 +22,7 @@ Path("/tmp/sg-test-models").mkdir(exist_ok=True)
 import pytest  # noqa: E402
 
 MOCK_CONFIG = {
-    "system": {"armed": True, "log_level": "info"},
+    "system": {"armed": True, "log_level": "info", "auth": {"enabled": False}},
     "cameras": [
         {
             "name": "pond-north",
@@ -46,6 +47,7 @@ MOCK_CONFIG = {
 def client(monkeypatch):
     """FastAPI TestClient with all external I/O mocked out."""
     monkeypatch.setattr("config_store.load", lambda: MOCK_CONFIG)
+    monkeypatch.setattr("config_store.load_cached", lambda **_kw: MOCK_CONFIG)
     monkeypatch.setattr("config_store.save", lambda _cfg: None)
     monkeypatch.setattr("config_store.set_armed", lambda _armed: None)
     monkeypatch.setattr("db.get_latest_event", lambda: None)
