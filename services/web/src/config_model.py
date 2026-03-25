@@ -6,6 +6,7 @@ from pydantic import BaseModel, field_validator
 
 
 class ScheduleConfig(BaseModel):
+    enabled: bool = False
     arm_time: str = ""
     disarm_time: str = ""
     use_solar: bool = False

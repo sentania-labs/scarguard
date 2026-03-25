@@ -45,7 +45,8 @@ def _get_schedule_info(cfg: dict) -> dict:
     lat = sched_cfg.get("latitude")
     lon = sched_cfg.get("longitude")
 
-    enabled = bool(
+    cfg_enabled = bool(sched_cfg.get("enabled", False))
+    enabled = cfg_enabled and bool(
         (arm_str and disarm_str) or (use_solar and lat is not None and lon is not None)
     )
     if not enabled:

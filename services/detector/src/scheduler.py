@@ -67,10 +67,11 @@ class ArmScheduler:
         arm_t = _parse_time(arm_str)
         disarm_t = _parse_time(disarm_str)
 
+        cfg_enabled = bool(schedule_cfg.get("enabled", False))
         if use_solar:
-            enabled = lat is not None and lon is not None
+            enabled = cfg_enabled and lat is not None and lon is not None
         else:
-            enabled = bool(arm_t and disarm_t)
+            enabled = cfg_enabled and bool(arm_t and disarm_t)
 
         with self._cfg_lock:
             self._tz_name = tz_name
@@ -90,7 +91,10 @@ class ArmScheduler:
                 tz_name,
             )
         else:
-            logger.info("Schedule disabled (no valid arm_time/disarm_time configured)")
+            if not cfg_enabled:
+                logger.info("Schedule disabled (enabled=false in config)")
+            else:
+                logger.info("Schedule disabled (no valid arm_time/disarm_time configured)")
 
     def get_next_transition(self) -> tuple[datetime, bool] | None:
         """Return (utc_time, target_armed) for the next scheduled transition, or None."""
