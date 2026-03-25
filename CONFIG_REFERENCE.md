@@ -8,6 +8,7 @@ system:
   log_level: info
   timezone: "UTC"
   snapshot_retention_days: 30   # days; 0 = keep forever
+  stats_interval: 5             # seconds between system stats collection (1-60)
 
 # SSL is off by default. Run setup.sh to generate a self-signed cert.
 # cert_path / key_path are container-internal paths; docker-compose mounts

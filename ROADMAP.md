@@ -244,7 +244,7 @@ cameras:
 
 ---
 
-## Feature 11: GPU/CPU Load Stats View
+## ~~Feature 11: GPU/CPU Load Stats View~~ ✓ Complete (v0.5)
 
 System health panel in the web UI showing resource utilization of the host. Useful for tuning inference intervals, monitoring thermal throttling on the Orin, and knowing when hardware limits are hit.
 
@@ -255,6 +255,13 @@ System health panel in the web UI showing resource utilization of the host. Usef
 - Graceful degradation: if no NVIDIA GPU detected, show CPU-only stats without errors
 - Per-camera inference FPS and average inference latency displayed alongside resource stats
 - Historical mini-chart (last 5–10 minutes) for GPU/CPU usage so user can spot trends and throttling
+
+**Implementation notes:**
+- Detector service runs a `StatsCollector` daemon thread that reads CPU/RAM from `/proc`, temperatures from `/sys/class/thermal`, and GPU stats from Jetson sysfs or `nvidia-smi` (auto-detected)
+- Stats written to Redis key `scarguard:stats` with TTL; web service polls the key via SSE at `/admin/stats/stream`
+- Per-camera inference FPS and latency tracked in the detector main loop and included in the stats snapshot
+- Mini-charts rendered with inline Canvas JS (no external charting library); rolling 10-minute buffer in the browser
+- Config: `system.stats_interval` (1–60 seconds, default 5)
 
 ---
 

@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+{% block title %}System Stats — ScarGuard{% endblock %}
+{% block content %}
+<h1>System Stats</h1>
+<p class="hint">Live resource utilization from the detector host. Updates every {{ interval }}s.</p>
+
+<div id="stats-status" class="feed-status feed-status--connecting">
+  <span class="feed-status__dot"></span>
+  <span id="stats-status-text">Connecting...</span>
+</div>
+
+<!-- System Resources -->
+<section class="card" id="system-card">
+  <h2>System Resources</h2>
+  <div class="stats-grid">
+    <div class="stat-item">
+      <span class="stat-label">CPU</span>
+      <div class="stat-bar"><div class="stat-bar-fill" id="cpu-bar" style="width:0%"></div></div>
+      <span class="stat-value" id="cpu-val">—</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">RAM</span>
+      <div class="stat-bar"><div class="stat-bar-fill stat-bar-fill--ram" id="ram-bar" style="width:0%"></div></div>
+      <span class="stat-value" id="ram-val">—</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">CPU Temp</span>
+      <span class="stat-value stat-temp" id="cpu-temp">—</span>
+    </div>
+  </div>
+</section>
+
+<!-- GPU (hidden until data arrives with gpu_available=true) -->
+<section class="card" id="gpu-card" style="display:none;">
+  <h2>GPU</h2>
+  <div class="stats-grid">
+    <div class="stat-item">
+      <span class="stat-label">GPU Usage</span>
+      <div class="stat-bar"><div class="stat-bar-fill stat-bar-fill--gpu" id="gpu-bar" style="width:0%"></div></div>
+      <span class="stat-value" id="gpu-val">—</span>
+    </div>
+    <div class="stat-item" id="gpu-mem-item" style="display:none;">
+      <span class="stat-label">GPU Memory</span>
+      <div class="stat-bar"><div class="stat-bar-fill stat-bar-fill--gpu" id="gpu-mem-bar" style="width:0%"></div></div>
+      <span class="stat-value" id="gpu-mem-val">—</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label">GPU Temp</span>
+      <span class="stat-value stat-temp" id="gpu-temp">—</span>
+    </div>
+  </div>
+</section>
+
+<!-- Usage History Charts -->
+<section class="card">
+  <h2>Usage History <span class="muted" style="font-weight:400;font-size:0.85rem;">(last 10 min)</span></h2>
+  <div class="chart-row">
+    <div class="chart-container">
+      <span class="chart-label">CPU %</span>
+      <canvas id="cpu-chart" width="440" height="120"></canvas>
+    </div>
+    <div class="chart-container" id="gpu-chart-container" style="display:none;">
+      <span class="chart-label">GPU %</span>
+      <canvas id="gpu-chart" width="440" height="120"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- Per-camera Inference Performance -->
+<section class="card">
+  <h2>Inference Performance</h2>
+  <table id="inference-table">
+    <thead><tr><th>Camera</th><th>FPS</th><th>Avg Latency</th></tr></thead>
+    <tbody id="inference-tbody">
+      <tr><td colspan="3" class="muted">Waiting for data...</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<style>
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  align-items: center;
+}
+@media (max-width: 640px) { .stats-grid { grid-template-columns: 1fr; } }
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  min-width: 5.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.stat-bar {
+  flex: 1;
+  height: 10px;
+  background: var(--bg);
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.stat-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 5px;
+  transition: width 0.5s ease, background 0.3s ease;
+}
+.stat-bar-fill--ram { background: var(--ok); }
+.stat-bar-fill--gpu { background: var(--ok); }
+
+.stat-value {
+  font-size: 0.85rem;
+  font-family: var(--mono);
+  min-width: 6rem;
+  text-align: right;
+}
+
+.stat-temp { font-weight: 600; }
+.temp-ok { color: var(--ok); }
+.temp-warn { color: var(--warn); }
+.temp-danger { color: var(--danger); }
+
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+@media (max-width: 640px) { .chart-row { grid-template-columns: 1fr; } }
+
+.chart-container { position: relative; }
+.chart-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.35rem;
+  display: block;
+}
+canvas {
+  width: 100%;
+  height: 120px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+</style>
+
+<script>
+const INTERVAL = {{ interval }} * 1000;
+const MAX_POINTS = Math.ceil(600 / {{ interval }});  // 10 minutes of history
+const cpuHistory = [];
+const gpuHistory = [];
+let es = null;
+let backoff = 1000;
+
+function connect() {
+  setStatus("Connecting...", "connecting");
+  es = new EventSource("/admin/stats/stream");
+
+  es.addEventListener("stats", (e) => {
+    backoff = 1000;
+    let d;
+    try { d = JSON.parse(e.data); } catch { return; }
+    if (d.error) {
+      setStatus(d.error, "offline");
+      return;
+    }
+    setStatus("Live", "live");
+    updateGauges(d);
+    updateCharts(d);
+    updateInferenceTable(d.cameras || {});
+  });
+
+  es.onopen = () => { backoff = 1000; };
+
+  es.onerror = () => {
+    setStatus("Connection lost — retrying...", "reconnecting");
+    es.close();
+    setTimeout(connect, Math.min(backoff, 30000));
+    backoff *= 2;
+  };
+}
+
+function setStatus(text, state) {
+  const el = document.getElementById("stats-status");
+  const txt = document.getElementById("stats-status-text");
+  txt.textContent = text;
+  el.className = "feed-status feed-status--" + state;
+}
+
+function updateGauges(d) {
+  // CPU
+  const cpu = d.cpu_usage_pct || 0;
+  document.getElementById("cpu-bar").style.width = cpu + "%";
+  document.getElementById("cpu-val").textContent = cpu.toFixed(1) + "%";
+  colorBar("cpu-bar", cpu);
+
+  // RAM
+  const ramUsed = d.ram_used_mb || 0;
+  const ramTotal = d.ram_total_mb || 1;
+  const ramPct = (ramUsed / ramTotal) * 100;
+  document.getElementById("ram-bar").style.width = ramPct.toFixed(1) + "%";
+  document.getElementById("ram-val").textContent = ramUsed + " / " + ramTotal + " MB";
+  colorBar("ram-bar", ramPct);
+
+  // CPU Temp
+  setTemp("cpu-temp", d.cpu_temp_c);
+
+  // GPU
+  if (d.gpu_available) {
+    document.getElementById("gpu-card").style.display = "";
+    document.getElementById("gpu-chart-container").style.display = "";
+
+    if (d.gpu_usage_pct != null) {
+      const gpu = d.gpu_usage_pct;
+      document.getElementById("gpu-bar").style.width = gpu + "%";
+      document.getElementById("gpu-val").textContent = gpu.toFixed(1) + "%";
+      colorBar("gpu-bar", gpu);
+    }
+
+    if (d.gpu_mem_used_mb != null && d.gpu_mem_total_mb != null) {
+      document.getElementById("gpu-mem-item").style.display = "";
+      const memPct = (d.gpu_mem_used_mb / d.gpu_mem_total_mb) * 100;
+      document.getElementById("gpu-mem-bar").style.width = memPct.toFixed(1) + "%";
+      document.getElementById("gpu-mem-val").textContent = d.gpu_mem_used_mb + " / " + d.gpu_mem_total_mb + " MB";
+      colorBar("gpu-mem-bar", memPct);
+    }
+
+    setTemp("gpu-temp", d.gpu_temp_c);
+  }
+}
+
+function colorBar(id, pct) {
+  const el = document.getElementById(id);
+  if (pct > 90) el.style.background = "var(--danger)";
+  else if (pct > 70) el.style.background = "var(--warn)";
+  else el.style.background = "";
+}
+
+function setTemp(id, val) {
+  const el = document.getElementById(id);
+  if (val == null) { el.textContent = "—"; el.className = "stat-value stat-temp"; return; }
+  el.textContent = val.toFixed(1) + "\u00b0C";
+  if (val >= 80) el.className = "stat-value stat-temp temp-danger";
+  else if (val >= 60) el.className = "stat-value stat-temp temp-warn";
+  else el.className = "stat-value stat-temp temp-ok";
+}
+
+function updateCharts(d) {
+  cpuHistory.push(d.cpu_usage_pct || 0);
+  if (cpuHistory.length > MAX_POINTS) cpuHistory.shift();
+  drawChart("cpu-chart", cpuHistory, "rgba(78,159,255,0.8)", "rgba(78,159,255,0.1)");
+
+  if (d.gpu_available && d.gpu_usage_pct != null) {
+    gpuHistory.push(d.gpu_usage_pct);
+    if (gpuHistory.length > MAX_POINTS) gpuHistory.shift();
+    drawChart("gpu-chart", gpuHistory, "rgba(62,207,142,0.8)", "rgba(62,207,142,0.1)");
+  }
+}
+
+function drawChart(canvasId, data, strokeColor, fillColor) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  // Match canvas resolution to its CSS display size for crisp rendering
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width;
+  const h = rect.height;
+  const pad = { top: 5, bottom: 5, left: 0, right: 0 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid lines at 25%, 50%, 75%
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach(pct => {
+    const y = pad.top + ch * (1 - pct);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(w - pad.right, y);
+    ctx.stroke();
+  });
+
+  // Grid labels
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "right";
+  [25, 50, 75, 100].forEach(v => {
+    const y = pad.top + ch * (1 - v / 100);
+    ctx.fillText(v + "%", w - 2, y + 3);
+  });
+
+  if (data.length < 2) return;
+
+  const step = cw / (MAX_POINTS - 1);
+
+  // Draw filled area + line
+  ctx.beginPath();
+  const startX = pad.left + (MAX_POINTS - data.length) * step;
+  ctx.moveTo(startX, pad.top + ch - (data[0] / 100) * ch);
+  for (let i = 1; i < data.length; i++) {
+    ctx.lineTo(startX + i * step, pad.top + ch - (data[i] / 100) * ch);
+  }
+  // Stroke the line
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Fill below
+  ctx.lineTo(startX + (data.length - 1) * step, pad.top + ch);
+  ctx.lineTo(startX, pad.top + ch);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+}
+
+function updateInferenceTable(cameras) {
+  const tbody = document.getElementById("inference-tbody");
+  const names = Object.keys(cameras).sort();
+  tbody.innerHTML = "";
+  if (names.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3; td.className = "muted"; td.textContent = "No camera data yet";
+    tr.appendChild(td); tbody.appendChild(tr);
+    return;
+  }
+  for (const name of names) {
+    const c = cameras[name];
+    const tr = document.createElement("tr");
+    const tdName = document.createElement("td");
+    tdName.textContent = name;
+    const tdFps = document.createElement("td");
+    tdFps.textContent = (c.fps != null) ? c.fps.toFixed(1) : "—";
+    const tdLat = document.createElement("td");
+    tdLat.textContent = (c.avg_inference_ms != null) ? c.avg_inference_ms.toFixed(1) + " ms" : "—";
+    tr.append(tdName, tdFps, tdLat);
+    tbody.appendChild(tr);
+  }
+}
+
+connect();
+</script>
+{% endblock %}
