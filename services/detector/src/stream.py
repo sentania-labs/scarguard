@@ -1,5 +1,7 @@
 """RTSP stream reader with automatic reconnect and exponential backoff."""
 
+from __future__ import annotations
+
 import logging
 import os
 import threading
