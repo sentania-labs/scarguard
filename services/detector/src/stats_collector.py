@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -94,10 +95,14 @@ class StatsCollector(threading.Thread):
         Returns the first readable path, or None if not found.
         The load value is on a 0–1000 scale (divide by 10 for percent).
         """
-        # Well-known addresses for Orin Nano / Orin NX / AGX Orin (JetPack 5.x and 6.x)
+        # Well-known addresses for Orin Nano / Orin NX / AGX Orin (JetPack 5.x and 6.x).
+        # JetPack 6.x exposes the GPU under /sys/class/devfreq/17000000.gpu/device/load;
+        # earlier releases used the ga10b device tree name under /sys/devices/platform/.
         candidates = [
             "/sys/devices/platform/bus@0/17000000.ga10b/load",
             "/sys/devices/platform/17000000.ga10b/load",
+            "/sys/class/devfreq/17000000.gpu/device/load",
+            "/sys/class/devfreq/17000000.ga10b/device/load",
         ]
         for candidate in candidates:
             p = Path(candidate)
@@ -108,6 +113,16 @@ class StatsCollector(threading.Thread):
             for p in Path("/sys/devices/platform").glob("**/load"):
                 if "ga10b" in str(p):
                     return p
+        except (PermissionError, OSError):
+            pass
+        # Dynamic search: any devfreq entry whose name contains "gpu" or "ga10b"
+        try:
+            for entry in Path("/sys/class/devfreq").iterdir():
+                name = entry.name.lower()
+                if "gpu" in name or "ga10b" in name:
+                    load = entry / "device" / "load"
+                    if load.exists():
+                        return load
         except (PermissionError, OSError):
             pass
         return None
@@ -315,7 +330,13 @@ class StatsCollector(threading.Thread):
 
     @staticmethod
     def _read_gpu_nvidia_smi() -> dict:
-        """Read GPU stats via nvidia-smi (x86 or JetPack with nvidia-smi)."""
+        """Read GPU stats via nvidia-smi (x86 or JetPack with nvidia-smi).
+
+        On Tegra/nvgpu (Jetson Orin), nvidia-smi detects the GPU but returns
+        "[N/A]" for utilization, memory, and temperature queries.  Each field
+        is parsed individually so partial results are still returned and the
+        GPU card is shown in the UI even when some metrics are unavailable.
+        """
         try:
             result = subprocess.run(
                 [
@@ -336,19 +357,34 @@ class StatsCollector(threading.Thread):
             parts = lines[0].split(",")  # first GPU only
             if len(parts) < 4:
                 return {}
-
-            return {
-                "gpu_available": True,
-                "gpu_usage_pct": round(float(parts[0].strip()), 1),
-                "gpu_mem_used_mb": int(parts[1].strip()),
-                "gpu_mem_total_mb": int(parts[2].strip()),
-                "gpu_temp_c": round(float(parts[3].strip()), 1),
-            }
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return {}
         except Exception:
             logger.debug("Failed to read nvidia-smi", exc_info=True)
             return {}
+
+        stats: dict = {"gpu_available": True}
+        fields: list[tuple[str, str, Callable[[str], float | int]]] = [
+            ("gpu_usage_pct",    parts[0], lambda v: round(float(v), 1)),
+            ("gpu_mem_used_mb",  parts[1], lambda v: int(float(v))),
+            ("gpu_mem_total_mb", parts[2], lambda v: int(float(v))),
+            ("gpu_temp_c",       parts[3], lambda v: round(float(v), 1)),
+        ]
+        for key, raw, parser in fields:
+            val = raw.strip().strip("[]")
+            if val.upper() != "N/A":
+                try:
+                    stats[key] = parser(val)
+                except ValueError:
+                    pass
+
+        # Tegra: nvidia-smi reports N/A for temperature — fall back to thermal zone
+        if "gpu_temp_c" not in stats:
+            t = StatsCollector._read_thermal("gpu")
+            if t is not None:
+                stats["gpu_temp_c"] = t
+
+        return stats
 
     # ── Collect all stats ─────────────────────────────────────────────────
 
