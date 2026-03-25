@@ -7,6 +7,7 @@ This module has no FastAPI dependencies so it can be imported standalone
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import secrets
 import sqlite3
@@ -14,9 +15,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from passlib.context import CryptContext
+import bcrypt
 
-_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_log = logging.getLogger(__name__)
 
 AUTH_DB_PATH: str = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
 
@@ -99,12 +100,25 @@ def users_exist(db_path: str = AUTH_DB_PATH) -> bool:
 
 # ── Passwords ───────────────────────────────────────────────────────────────
 
+def _prehash(password: str) -> bytes:
+    """SHA-256 pre-hash so bcrypt's 72-byte limit never truncates passwords."""
+    return hashlib.sha256(password.encode("utf-8")).digest()
+
+
 def hash_password(password: str) -> str:
-    return _pwd_ctx.hash(password)
+    return bcrypt.hashpw(_prehash(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return _pwd_ctx.verify(password, password_hash)
+    try:
+        hash_bytes = password_hash.encode("utf-8")
+        if bcrypt.checkpw(_prehash(password), hash_bytes):
+            return True
+        # Fall back to raw password check for legacy passlib-created hashes
+        return bcrypt.checkpw(password.encode("utf-8"), hash_bytes)
+    except Exception as exc:
+        _log.warning("verify_password failed: %s", exc)
+        return False
 
 
 # ── Users ───────────────────────────────────────────────────────────────────
