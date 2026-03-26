@@ -347,7 +347,7 @@ def main() -> None:
 
         # Resolve per-camera model (None → global default via pool).
         cam_model_path: str | None = camera_cfg.get("model_path") or None
-        effective_model = cam_model_path or det_cfg["model_path"]
+        effective_model = cam_model_path or model_pool._default_model_path
 
         # Validate model exists on disk.
         if not ModelPool.validate_model_exists(effective_model):
@@ -403,7 +403,7 @@ def main() -> None:
             stop_event=cam_stop,
             zones_ref=zones_ref,
             rules_ref=rules_ref,
-            model_path=cam_model_path,
+            model_path=effective_model,
             target_classes=cam_classes,
             detector=cam_detector,
         )
@@ -476,7 +476,7 @@ def main() -> None:
         new_global_classes = new_det.get("target_classes", [])
         old_global_classes = model_pool._default_classes  # snapshot before update
         model_pool.update_defaults(
-            new_det.get("model_path", det_cfg["model_path"]),
+            new_det.get("model_path", model_pool._default_model_path),
             new_det.get("confidence_threshold", 0.25),
             new_global_classes,
         )
@@ -519,13 +519,14 @@ def main() -> None:
                 state = active_cameras[cam_name]
 
                 # Resolve new per-camera model/classes.
-                new_model = cam_cfg.get("model_path") or None
+                new_model_raw = cam_cfg.get("model_path") or None
+                new_effective_model = new_model_raw or model_pool._default_model_path
                 new_classes_raw = cam_cfg.get("detect_classes")
                 new_classes = set(new_classes_raw) if new_classes_raw is not None else None
 
                 # If model or classes changed, restart the camera thread so it
                 # picks up the new detector / class filter.
-                if new_model != state.model_path or new_classes != state.target_classes:
+                if new_effective_model != state.model_path or new_classes != state.target_classes:
                     _stop_camera(cam_name)
                     if _start_camera(cam_cfg):
                         changes.append(f"model/classes updated: {cam_name}")
