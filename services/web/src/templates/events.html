@@ -26,8 +26,16 @@
       To
       <input type="date" name="date_to" value="{{ filter_date_to }}">
     </label>
+    <label>
+      Feedback
+      <select name="feedback">
+        <option value="">All</option>
+        <option value="unreviewed" {% if filter_feedback == "unreviewed" %}selected{% endif %}>Unreviewed</option>
+        <option value="reviewed" {% if filter_feedback == "reviewed" %}selected{% endif %}>Reviewed</option>
+      </select>
+    </label>
     <button type="submit">Filter</button>
-    {% if filter_camera or filter_class or filter_date_from or filter_date_to %}
+    {% if filter_camera or filter_class or filter_date_from or filter_date_to or filter_feedback %}
     <a href="/events" class="btn-secondary">Clear</a>
     {% endif %}
   </div>
@@ -59,24 +67,30 @@
 {% if total_pages > 1 %}
 <nav class="pagination">
   {% if page > 1 %}
-  <a href="/events?page={{ page - 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}">&laquo; Newer</a>
+  <a href="/events?page={{ page - 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}&amp;feedback={{ filter_feedback | urlencode }}">&laquo; Newer</a>
   {% endif %}
   <span>Page {{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a href="/events?page={{ page + 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}">Older &raquo;</a>
+  <a href="/events?page={{ page + 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}&amp;feedback={{ filter_feedback | urlencode }}">Older &raquo;</a>
   {% endif %}
 </nav>
 {% endif %}
 
 <script src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js" defer></script>
 <script>
-// Snapshot overlay with bbox rendering
+var SCARGUARD_TARGET_CLASSES = {{ target_classes | tojson | safe }};
+
+// Snapshot overlay with bbox rendering and inline feedback
 document.addEventListener('click', function(e) {
   var link = e.target.closest('.snapshot-link');
   if (!link) return;
   e.preventDefault();
+
   var bbox = link.dataset.bbox ? JSON.parse(link.dataset.bbox) : null;
   var frameSize = link.dataset.frameSize ? JSON.parse(link.dataset.frameSize) : null;
+  var eventId = link.dataset.eventId ? parseInt(link.dataset.eventId) : null;
+  var initFeedback = link.dataset.feedback || '';
+  var initCorrected = link.dataset.correctedClass || '';
   var src = link.querySelector('img').src;
 
   var overlay = document.createElement('div');
@@ -84,6 +98,7 @@ document.addEventListener('click', function(e) {
 
   var inner = document.createElement('div');
   inner.className = 'snapshot-overlay__inner';
+
   var img = document.createElement('img');
   img.src = src;
   inner.appendChild(img);
@@ -94,7 +109,6 @@ document.addEventListener('click', function(e) {
       var scaleY = img.naturalHeight / frameSize[1];
       var x1 = bbox[0] * scaleX, y1 = bbox[1] * scaleY;
       var x2 = bbox[2] * scaleX, y2 = bbox[3] * scaleY;
-      // Convert to percentages relative to displayed image
       var pctL = (x1 / img.naturalWidth) * 100;
       var pctT = (y1 / img.naturalHeight) * 100;
       var pctW = ((x2 - x1) / img.naturalWidth) * 100;
@@ -109,9 +123,112 @@ document.addEventListener('click', function(e) {
     }
   };
 
+  if (eventId) {
+    var fbPanel = document.createElement('div');
+    fbPanel.className = 'overlay-feedback';
+    fbPanel.innerHTML = buildOverlayFeedbackHTML(initFeedback, initCorrected);
+    fbPanel.addEventListener('click', function(ev) { ev.stopPropagation(); });
+    wireOverlayFeedback(fbPanel, eventId, link);
+    inner.appendChild(fbPanel);
+  }
+
   overlay.appendChild(inner);
   overlay.addEventListener('click', function() { overlay.remove(); });
   document.body.appendChild(overlay);
 });
+
+function _escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildOverlayFeedbackHTML(feedback, correctedClass) {
+  var html = '<div class="overlay-feedback-label">Feedback</div>';
+  if (feedback) {
+    var bCls = feedback === 'correct' ? 'badge-correct' :
+               feedback === 'false_positive' ? 'badge-fp' : 'badge-wrong';
+    var bTxt = feedback === 'correct' ? 'Correct' :
+               feedback === 'false_positive' ? 'False Positive' :
+               'Wrong: ' + _escHtml((correctedClass || '?').replace(/_/g, ' '));
+    html += '<span class="badge ' + bCls + '">' + bTxt + '</span>';
+    html += '<button class="btn-edit-feedback js-overlay-edit">edit</button>';
+  }
+  html += '<div class="overlay-fb-btns"' + (feedback ? ' style="display:none"' : '') + '>';
+  html += '<button class="btn-fb btn-fb-correct js-fb" data-fb="correct" title="Correct detection">&#10003;</button>';
+  html += '<button class="btn-fb btn-fb-fp js-fb" data-fb="false_positive" title="False positive">&#10007;</button>';
+  html += '<button class="btn-fb btn-fb-wrong js-fb-wrong" title="Wrong class">?</button>';
+  html += '</div>';
+  html += '<div class="wrong-class-picker" style="display:none">';
+  html += '<select class="js-wrong-cls"><option value="">Select class\u2026</option>';
+  (SCARGUARD_TARGET_CLASSES || []).forEach(function(cls) {
+    var escaped = _escHtml(cls);
+    html += '<option value="' + escaped + '">' + escaped.replace(/_/g, ' ') + '</option>';
+  });
+  html += '</select>';
+  html += '<button class="btn-fb btn-fb-wrong js-wrong-set">Set</button>';
+  html += '</div>';
+  return html;
+}
+
+function wireOverlayFeedback(panel, eventId, sourceLink) {
+  var editBtn = panel.querySelector('.js-overlay-edit');
+  if (editBtn) {
+    editBtn.addEventListener('click', function() {
+      panel.querySelector('.overlay-fb-btns').style.display = 'flex';
+      this.style.display = 'none';
+      var badge = panel.querySelector('.badge');
+      if (badge) badge.style.display = 'none';
+    });
+  }
+
+  panel.querySelectorAll('.js-fb').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      doOverlayFeedback(panel, eventId, btn.dataset.fb, '', sourceLink);
+    });
+  });
+
+  var wrongBtn = panel.querySelector('.js-fb-wrong');
+  if (wrongBtn) {
+    wrongBtn.addEventListener('click', function() {
+      panel.querySelector('.wrong-class-picker').style.display = 'flex';
+    });
+  }
+
+  var setBtn = panel.querySelector('.js-wrong-set');
+  if (setBtn) {
+    setBtn.addEventListener('click', function() {
+      var cls = panel.querySelector('.js-wrong-cls').value;
+      if (cls) doOverlayFeedback(panel, eventId, 'wrong_class', cls, sourceLink);
+    });
+  }
+}
+
+function doOverlayFeedback(panel, eventId, feedback, correctedClass, sourceLink) {
+  var fd = new FormData();
+  fd.append('feedback', feedback);
+  if (correctedClass) fd.append('corrected_class', correctedClass);
+  fetch('/events/' + eventId + '/feedback', { method: 'POST', body: fd })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+      // Replace the table row with the updated version
+      var row = document.getElementById('event-row-' + eventId);
+      if (row) {
+        var tmp = document.createElement('tbody');
+        tmp.innerHTML = html;
+        var newRow = tmp.firstElementChild;
+        if (newRow) {
+          row.replaceWith(newRow);
+          htmx.process(newRow);
+        }
+      }
+      // Update source link data attributes so reopening the overlay reflects the new state
+      sourceLink.dataset.feedback = feedback;
+      sourceLink.dataset.correctedClass = correctedClass;
+      // Re-render the feedback panel in the overlay
+      panel.innerHTML = buildOverlayFeedbackHTML(feedback, correctedClass);
+      wireOverlayFeedback(panel, eventId, sourceLink);
+    })
+    .catch(function(err) { console.error('Feedback submit failed:', err); });
+}
 </script>
 {% endblock %}

@@ -1,5 +1,5 @@
 {% for e in events %}
-<tr class="{{ '' if e.feedback else 'event-unreviewed' }}">
+<tr id="event-row-{{ e.id }}" class="{{ '' if e.feedback else 'event-unreviewed' }}">
   <td>{{ e.display_timestamp }}</td>
   <td>{{ e.class_name.replace("_", " ").title() }}</td>
   <td>{{ "%.0f%%"|format(e.confidence * 100) }}</td>
@@ -13,6 +13,9 @@
     {% if e.snapshot_path %}
     {% set fname = e.snapshot_path.split("/")[-1] %}
     <a href="/snapshots/{{ fname }}" target="_blank" class="snapshot-link"
+       data-event-id="{{ e.id }}"
+       data-feedback="{{ e.feedback or '' }}"
+       data-corrected-class="{{ e.corrected_class or '' }}"
        {% if e.bbox and e.frame_size %}
        data-bbox="{{ e.bbox | tojson }}"
        data-frame-size="{{ e.frame_size | tojson }}"

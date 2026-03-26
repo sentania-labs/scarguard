@@ -3,6 +3,7 @@ from datetime import date as dt_date
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config_store
@@ -15,6 +16,66 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+_REARM_KEY = "scarguard:rearm_at"
+
+
+def _is_admin(request: Request) -> bool:
+    user = getattr(request.state, "user", None)
+    return bool(user and user.get("is_admin"))
+
+
+def _redis_client(cfg: dict) -> Any:
+    try:
+        import redis.asyncio as aioredis
+
+        rc = cfg.get("redis", {})
+        return aioredis.Redis(
+            host=rc.get("host", "redis"),
+            port=int(rc.get("port", 6379)),
+            decode_responses=True,
+        )
+    except Exception:
+        log.warning("Failed to create Redis client")
+        return None
+
+
+async def _get_rearm_at(cfg: dict) -> str | None:
+    r = _redis_client(cfg)
+    if r is None:
+        return None
+    try:
+        val: str | None = await r.get(_REARM_KEY)
+        return val
+    except Exception:
+        log.warning("Failed to read rearm_at from Redis")
+        return None
+    finally:
+        await r.aclose()
+
+
+async def _set_rearm_at(cfg: dict, ts: str) -> None:
+    r = _redis_client(cfg)
+    if r is None:
+        return
+    try:
+        await r.set(_REARM_KEY, ts)
+    except Exception:
+        log.warning("Failed to set rearm_at in Redis")
+    finally:
+        await r.aclose()
+
+
+async def _clear_rearm_at(cfg: dict) -> None:
+    r = _redis_client(cfg)
+    if r is None:
+        return
+    try:
+        await r.delete(_REARM_KEY)
+    except Exception:
+        log.warning("Failed to clear rearm_at in Redis")
+    finally:
+        await r.aclose()
 
 
 def _parse_time(s: str) -> dt_time | None:
@@ -144,11 +205,14 @@ async def dashboard(request: Request):
         latest_dict["display_timestamp"] = _to_local(
             latest_dict.get("timestamp", ""), tz_name
         )
+    rearm_at = await _get_rearm_at(cfg)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
             "armed": cfg.get("system", {}).get("armed", True),
+            "rearm_at": rearm_at,
+            "is_admin": _is_admin(request),
             "cameras": cameras,
             "total_events": total,
             "latest": latest_dict,
@@ -158,22 +222,64 @@ async def dashboard(request: Request):
     )
 
 
+@router.get("/arm-status", response_class=HTMLResponse)
+async def arm_status(request: Request):
+    """Return the arm badge fragment; used by HTMX polling."""
+    cfg = config_store.load()
+    armed = cfg.get("system", {}).get("armed", True)
+    rearm_at = await _get_rearm_at(cfg)
+    return await _arm_badge(request, armed=armed, rearm_at=rearm_at)
+
+
 @router.post("/arm", response_class=HTMLResponse)
 async def arm(request: Request):
+    cfg = config_store.load()
     config_store.set_armed(True)
-    return _arm_badge(request, armed=True)
+    await _clear_rearm_at(cfg)
+    return await _arm_badge(request, armed=True)
 
 
 @router.post("/disarm", response_class=HTMLResponse)
 async def disarm(request: Request):
+    cfg = config_store.load()
     config_store.set_armed(False)
-    return _arm_badge(request, armed=False)
+    rearm_at: str | None = None
+    if _is_admin(request):
+        await _clear_rearm_at(cfg)
+    else:
+        rearm_minutes = (
+            cfg.get("system", {}).get("auth", {}).get("nonadmin_rearm_minutes", 30)
+        )
+        if isinstance(rearm_minutes, int) and rearm_minutes > 0:
+            rearm_time = datetime.now(timezone.utc) + timedelta(minutes=rearm_minutes)
+            rearm_at = rearm_time.isoformat()
+            await _set_rearm_at(cfg, rearm_at)
+    return await _arm_badge(request, armed=False, rearm_at=rearm_at)
 
 
-def _arm_badge(request: Request, *, armed: bool) -> HTMLResponse:
+@router.post("/cancel-rearm", response_class=HTMLResponse)
+async def cancel_rearm(request: Request):
+    """Admin-only: cancel a pending non-admin auto-rearm."""
+    cfg = config_store.load()
+    armed = cfg.get("system", {}).get("armed", True)
+    if not _is_admin(request):
+        return await _arm_badge(request, armed=armed)
+    await _clear_rearm_at(cfg)
+    return await _arm_badge(request, armed=armed)
+
+
+async def _arm_badge(
+    request: Request,
+    *,
+    armed: bool,
+    rearm_at: str | None = None,
+    is_admin: bool | None = None,
+) -> HTMLResponse:
     """Return just the status badge fragment for HTMX swap."""
+    if is_admin is None:
+        is_admin = _is_admin(request)
     return templates.TemplateResponse(
         request,
         "partials/arm_badge.html",
-        {"armed": armed},
+        {"armed": armed, "rearm_at": rearm_at, "is_admin": is_admin},
     )

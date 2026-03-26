@@ -1,7 +1,19 @@
-{% if armed %}
-<span class="badge badge-armed">ARMED</span>
-<button hx-post="/disarm" hx-target="#arm-status" hx-swap="outerHTML">Disarm</button>
-{% else %}
-<span class="badge badge-disarmed">DISARMED</span>
-<button hx-post="/arm" hx-target="#arm-status" hx-swap="outerHTML">Arm</button>
-{% endif %}
+<div id="arm-status"
+     hx-get="/arm-status" hx-trigger="every 30s" hx-target="this" hx-swap="outerHTML">
+  {% if armed %}
+  <span class="badge badge-armed">ARMED</span>
+  <button hx-post="/disarm" hx-target="#arm-status" hx-swap="outerHTML">Disarm</button>
+  {% else %}
+  <span class="badge badge-disarmed">DISARMED</span>
+  <button hx-post="/arm" hx-target="#arm-status" hx-swap="outerHTML">Arm</button>
+  {% if rearm_at %}
+  <span class="rearm-countdown" data-rearm-at="{{ rearm_at }}">
+    Auto-rearming in <span class="rearm-timer">&hellip;</span>
+  </span>
+  {% if is_admin %}
+  <button hx-post="/cancel-rearm" hx-target="#arm-status" hx-swap="outerHTML"
+          class="btn-cancel-rearm">Cancel</button>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+</div>

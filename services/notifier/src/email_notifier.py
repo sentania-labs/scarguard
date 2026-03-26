@@ -10,6 +10,8 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from snapshot_utils import annotate_snapshot
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +69,7 @@ class EmailNotifier:
         msg.attach(MIMEText(body, "plain"))
 
         if self._include_snapshot and snapshot_path:
-            _attach_snapshot(msg, snapshot_path)
+            _attach_snapshot(msg, snapshot_path, event.get("bbox"), event.get("frame_size"))
 
         self._send_message(msg)
         logger.info("Email notification sent to %s", self._to_addresses)
@@ -95,17 +97,21 @@ class EmailNotifier:
                 server.sendmail(self._smtp_user, self._to_addresses, msg.as_string())
 
 
-def _attach_snapshot(msg: MIMEMultipart, path: str) -> None:
-    try:
-        data = Path(path).read_bytes()
-        part = MIMEBase("image", "jpeg")
-        part.set_payload(data)
-        encoders.encode_base64(part)
-        part.add_header(
-            "Content-Disposition",
-            "attachment",
-            filename=Path(path).name,
-        )
-        msg.attach(part)
-    except OSError:
-        logger.warning("Snapshot not found or unreadable for email: %s", path)
+def _attach_snapshot(
+    msg: MIMEMultipart,
+    path: str,
+    bbox: list[int] | None = None,
+    frame_size: list[int] | None = None,
+) -> None:
+    data = annotate_snapshot(path, bbox, frame_size)
+    if not data:
+        return
+    part = MIMEBase("image", "jpeg")
+    part.set_payload(data)
+    encoders.encode_base64(part)
+    part.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=Path(path).name,
+    )
+    msg.attach(part)

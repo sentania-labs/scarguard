@@ -80,4 +80,19 @@
 <p class="muted">No exportable events. Label detections as "Correct" on the <a href="/events">Events</a> page, and ensure events have bounding box data (post-migration only).</p>
 {% endif %}
 
+<h2>Training Workflow</h2>
+<div class="card">
+  <p class="hint" style="margin-bottom:0.75rem;">Model training runs offline via a command-line script. This page handles steps 1–2; steps 3–5 use the <a href="/admin/training/evaluate">Model Evaluation</a> page.</p>
+  <ol style="padding-left:1.25rem;line-height:2;">
+    <li><strong>Label detections</strong> — use the feedback controls on the <a href="/events">Events</a> page to mark each detection as Correct, False Positive, or Wrong Class.</li>
+    <li><strong>Export the dataset</strong> — click <em>Download Dataset</em> above to get a YOLO-format zip (images + annotation .txt files + data.yaml).</li>
+    <li><strong>Train a model</strong> — run <code>training/train.py</code> on a GPU machine (the Orin works, but a workstation GPU is faster for training):
+      <pre style="margin:0.4rem 0;padding:0.5rem 0.75rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-size:0.82rem;overflow-x:auto;">python train.py --data dataset/data.yaml --output heron-v2.pt --epochs 100</pre>
+      See <code>training/README.md</code> in the repo for the full CLI reference and Jetson tips.
+    </li>
+    <li><strong>Upload the model</strong> — drop the resulting <code>.pt</code> file into the <a href="/models">Models</a> page.</li>
+    <li><strong>Evaluate &amp; promote</strong> — compare the new model against the current one on the <a href="/admin/training/evaluate">Model Evaluation</a> page, then promote the winner. The detector hot-reloads the new model — no restart needed.</li>
+  </ol>
+</div>
+
 {% endblock %}

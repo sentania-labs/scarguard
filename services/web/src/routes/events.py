@@ -71,14 +71,16 @@ async def events_page(
     class_name: str = "",
     date_from: str = "",
     date_to: str = "",
+    feedback: str = "",
 ):
     offset = (page - 1) * PAGE_SIZE
     cam = camera or None
     cls = class_name or None
     dfrom = date_from or None
     dto = date_to or None
-    rows = db.get_events(limit=PAGE_SIZE, offset=offset, camera=cam, class_name=cls, date_from=dfrom, date_to=dto)
-    total = db.count_events(camera=cam, class_name=cls, date_from=dfrom, date_to=dto)
+    fb = feedback or None
+    rows = db.get_events(limit=PAGE_SIZE, offset=offset, camera=cam, class_name=cls, date_from=dfrom, date_to=dto, feedback=fb)
+    total = db.count_events(camera=cam, class_name=cls, date_from=dfrom, date_to=dto, feedback=fb)
     events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
         request,
@@ -93,6 +95,7 @@ async def events_page(
             "filter_class": class_name,
             "filter_date_from": date_from,
             "filter_date_to": date_to,
+            "filter_feedback": feedback,
             "target_classes": _get_target_classes(),
         },
     )

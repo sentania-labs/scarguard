@@ -13,16 +13,24 @@
     <a href="/">Dashboard</a>
     <a href="/events">Events</a>
     <a href="/feed">Live Feed</a>
-    <a href="/models">Models</a>
-    <a href="/config">Config</a>
+    {% if request.state.user and request.state.user.is_admin %}
+    <div class="nav-dropdown">
+      <span class="nav-dropdown__toggle">Admin &#9660;</span>
+      <div class="nav-dropdown__menu">
+        <a href="/config">Config</a>
+        <a href="/models">Models</a>
+        <div class="nav-dropdown__sep"></div>
+        <a href="/admin/stats">Stats</a>
+        <a href="/admin/logs">Logs</a>
+        <div class="nav-dropdown__sep"></div>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/training">Training Data</a>
+        <a href="/admin/training/evaluate">Model Evaluation</a>
+      </div>
+    </div>
+    {% endif %}
     <a href="/about">About</a>
-    <a href="/admin/logs">Logs</a>
-    <a href="/admin/stats">Stats</a>
     {% if request.state.user %}
-      {% if request.state.user.is_admin %}
-    <a href="/admin/users">Users</a>
-    <a href="/admin/training">Training</a>
-      {% endif %}
     <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ request.state.user.username }}</span>
     <form method="post" action="/logout" style="margin:0;">
       <button type="submit" style="background:none;border:1px solid var(--border);color:var(--muted);padding:0.25em 0.7em;font-size:0.8rem;">Logout</button>

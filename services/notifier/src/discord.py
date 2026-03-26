@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
+from snapshot_utils import annotate_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,8 @@ class DiscordNotifier:
 
         snapshot_bytes: bytes | None = None
         if self._include_snapshot and snapshot_path:
-            snapshot_bytes = _read_snapshot(snapshot_path)
+            data = annotate_snapshot(snapshot_path, event.get("bbox"), event.get("frame_size"))
+            snapshot_bytes = data if data else None
 
         if snapshot_bytes and snapshot_path:
             # Embed the image in a Discord embed so it renders inline.
@@ -75,11 +77,3 @@ class DiscordNotifier:
             )
             resp.raise_for_status()
             logger.info("Discord notification sent (no snapshot)")
-
-
-def _read_snapshot(path: str) -> bytes | None:
-    try:
-        return Path(path).read_bytes()
-    except OSError:
-        logger.warning("Snapshot not found or unreadable: %s", path)
-        return None

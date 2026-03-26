@@ -257,7 +257,16 @@ def main() -> None:
         _write_armed_to_config(armed)
         event_processor.log_system_event("armed" if armed else "disarmed")
 
-    scheduler = ArmScheduler(armed_ref, _on_scheduler_transition)
+    def _make_redis():  # type: ignore[return]
+        import redis
+
+        return redis.Redis(
+            host=redis_cfg.get("host", "redis"),
+            port=int(redis_cfg.get("port", 6379)),
+            decode_responses=True,
+        )
+
+    scheduler = ArmScheduler(armed_ref, _on_scheduler_transition, get_redis=_make_redis)
     sys_cfg = cfg.get("system", {})
     scheduler.configure(sys_cfg.get("schedule", {}), sys_cfg.get("timezone", "UTC"))
     scheduler.start()
