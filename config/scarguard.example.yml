@@ -81,6 +81,14 @@ cameras:
     enabled: true
     resolution: 720                               # Substream resolution hint (informational)
 
+  # ── Per-camera model & class overrides ──────────────────────────────────
+  # Optional: use a different YOLO model and/or detect different classes.
+  # If omitted, the camera inherits the global detection.model_path and
+  # detection.target_classes settings.
+  #
+  # model_path: /models/heron-v2.pt                # override global model
+  # detect_classes: [great_blue_heron, green_heron] # override global target_classes
+
   # ── Per-camera action rules ─────────────────────────────────────────────
   # Optional: route detections to specific notification channels.
   # Rules are evaluated in order; the first match wins.
@@ -97,6 +105,8 @@ cameras:
   #   rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN_2"
   #   enabled: true
   #   resolution: 720
+  #   model_path: /models/heron-v2.pt              # optional per-camera model
+  #   detect_classes: [person, great_blue_heron]    # optional per-camera classes
 
 
 # ── Detection ─────────────────────────────────────────────────────────────────
@@ -163,15 +173,15 @@ notifications:
 
 # ── SSL / TLS ─────────────────────────────────────────────────────────────────
 # Run setup.sh to generate a self-signed certificate automatically.
-# To use your own certificate, drop cert.pem and key.pem into the certs
-# directory (default: ${DATA_DIR}/config/certs/) and set enabled: true.
+# To use your own certificate, drop cert.pem and key.pem into the config
+# volume's certs/ subdirectory and set enabled: true.
 #
-# cert_path / key_path are paths inside the container (mapped from
-# ${DATA_DIR}/config/certs/ by docker-compose.yml).
+# cert_path / key_path are paths inside the container (the config volume
+# is mounted at /config, so certs live at /config/certs/).
 ssl:
   enabled: false                        # Set to true to enable HTTPS on port 8443
-  cert_path: /certs/cert.pem
-  key_path: /certs/key.pem
+  cert_path: /config/certs/cert.pem
+  key_path: /config/certs/key.pem
   https_only: false                     # Set to true to disable plain HTTP (port 8080)
   # keyfile_password: ""               # Uncomment if your private key is passphrase-protected
 

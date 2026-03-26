@@ -118,6 +118,8 @@ class CameraConfig(BaseModel):
     rtsp_url: str
     enabled: bool = True
     resolution: int = 720
+    model_path: str | None = None
+    detect_classes: list[str] | None = None
     exclusion_zones: list[ExclusionZoneConfig] = []
     action_rules: list[ActionRuleConfig] = []
 
@@ -183,8 +185,8 @@ class NotificationsConfig(BaseModel):
 
 class SSLConfig(BaseModel):
     enabled: bool = False
-    cert_path: str = "/certs/cert.pem"
-    key_path: str = "/certs/key.pem"
+    cert_path: str = "/config/certs/cert.pem"
+    key_path: str = "/config/certs/key.pem"
     https_only: bool = False
     keyfile_password: str = ""
 

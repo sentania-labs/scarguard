@@ -62,25 +62,29 @@ nav a:hover { color: var(--text); text-decoration: none; }
 .nav-dropdown__menu {
   display: none;
   position: absolute;
-  top: calc(100% + 0.75rem);
+  top: 100%;
   right: 0;
+  background: transparent;
+  padding-top: 0.75rem;
+  min-width: 11rem;
+  z-index: 200;
+}
+.nav-dropdown__menu-inner {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.35rem 0;
-  min-width: 11rem;
-  z-index: 200;
   box-shadow: 0 6px 18px rgba(0,0,0,0.45);
 }
 .nav-dropdown:hover .nav-dropdown__menu { display: block; }
-.nav-dropdown__menu a {
+.nav-dropdown__menu-inner a {
   display: block;
   padding: 0.4rem 1rem;
   color: var(--muted);
   font-size: 0.9rem;
   white-space: nowrap;
 }
-.nav-dropdown__menu a:hover {
+.nav-dropdown__menu-inner a:hover {
   color: var(--text);
   background: rgba(255,255,255,0.04);
   text-decoration: none;

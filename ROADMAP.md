@@ -38,7 +38,7 @@ Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert
 - `services/web/src/start.py` replaces direct `uvicorn` CMD; reads `ssl` section from `scarguard.yml` at boot
 - HTTP (8080) daemon thread + HTTPS (8443) main thread; `https_only: true` skips HTTP listener
 - `ssl.keyfile_password` supported for passphrase-protected private keys
-- Certs directory (`${DATA_DIR}/config/certs`) bind-mounted into web container as `/certs:ro`
+- Certs stored in `scarguard-config` named volume under `certs/` subdirectory (accessible at `/config/certs/` inside the web container)
 - HTTPS port `${WEB_HTTPS_PORT:-8443}:8443` bound in `docker-compose.yml` alongside HTTP
 - SSL settings widget in the web UI config editor (v0.3.1)
 - Config watcher thread in `start.py` detects SSL changes and triggers automatic web service restart (v0.3.1)
@@ -200,7 +200,7 @@ Add authentication to the web UI. Currently anyone on the network can access the
 
 ---
 
-## Feature 10: Per-Camera Detection Models, Classes & Action Routing
+## ~~Feature 10: Per-Camera Detection Models, Classes & Action Routing~~ ✓ Complete (v0.8)
 
 Allow each camera to use a different YOLO model, detect different object classes, and route detections to specific notification channels. This is the core of multi-camera/multi-model setups.
 
@@ -249,6 +249,13 @@ cameras:
 - Validate at startup that referenced model files exist; log a clear error and skip the camera if not
 - Web UI config editor surfaces per-camera model/class/action-rule editing with a usable UI (not raw YAML)
 - Detection events include which actions were triggered (or "log only") for traceability in the event log
+
+**Implementation notes:**
+- `ModelPool` class (`services/detector/src/model_pool.py`) manages ref-counted YOLO detectors keyed by model path
+- `YOLODetector.predict()` accepts optional `target_classes` override for per-camera class filtering
+- Per-camera `model_path` and `detect_classes` in `CameraConfig`; `None` = inherit global
+- Hot-reload: model/class changes restart the camera thread; zone/rule changes are atomic in-place
+- Web UI: per-camera model dropdown + detect_classes input in collapsible "Per-Camera Model & Classes" section
 
 ---
 
@@ -359,7 +366,7 @@ Before promoting a newly trained model, compare it against the current one using
 
 ---
 
-## Feature 16: CI/CD Pipeline Hardening
+## Feature 16: CI/CD Pipeline Hardening (Gate 2 partially complete — v0.8)
 
 Current CI builds images on merge to main and pushes on tag, but PRs have no image validation. Add a three-gate CI strategy: lint on push, build + test on PR, push on release.
 

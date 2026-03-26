@@ -25,6 +25,9 @@
 - **YOLO dataset export:** One-click zip download with clean images, normalized bbox annotations, and data.yaml. Includes correct and wrong-class (with corrected label) events.
 - **Custom model training:** Self-contained `training/train.py` CLI script for fine-tuning YOLO models on exported datasets.
 - **Model evaluation:** Admin page for side-by-side model comparison. Runs inference on labeled snapshots via detector's GPU, displays per-class precision/recall/F1, sample detections, and model promotion button.
+- **Per-camera detection models:** Each camera can use a different YOLO model and detect different classes. ModelPool manages ref-counted model instances. Falls back to global defaults when per-camera settings are omitted.
+- **Named Docker volumes:** All application data (config, models, data, notifier state) stored in named Docker volumes instead of bind mounts. Cleaner deployment, no host-path dependencies.
+- **PR image builds:** CI validates Docker image builds on pull requests (not just on merge to main).
 
 ## Known Issues / Buggy
 
@@ -66,3 +69,6 @@ None currently identified.
 | v0.7 | Training data dashboard & YOLO dataset export (admin page, bar charts, zip export) | ✅ Complete |
 | v0.7 | Custom model training script (training/train.py CLI, dataset validation, Jetson tips) | ✅ Complete |
 | v0.7 | Model evaluation in web UI (side-by-side comparison, SSE progress, model promotion) | ✅ Complete |
+| v0.8 | Per-camera detection models, classes & action routing (ModelPool, per-camera config, hot-reload) | ✅ Complete |
+| v0.8 | Named Docker volumes (replace bind mounts, migration script, setup.sh rewrite) | ✅ Complete |
+| v0.8 | CI: PR image build validation (build.yml triggers on pull_request) | ✅ Complete |

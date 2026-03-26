@@ -18,12 +18,12 @@ system:
   #   longitude: null                # required when use_solar is true
 
 # SSL is off by default. Run setup.sh to generate a self-signed cert.
-# cert_path / key_path are container-internal paths; docker-compose mounts
-# ${DATA_DIR}/config/certs/ to /certs/ inside the web container.
+# cert_path / key_path are container-internal paths; certs live inside the
+# config volume at /config/certs/.
 ssl:
   enabled: false
-  cert_path: /certs/cert.pem
-  key_path: /certs/key.pem
+  cert_path: /config/certs/cert.pem
+  key_path: /config/certs/key.pem
   https_only: false              # true = disable plain HTTP on port 8080
   # keyfile_password: ""        # only if private key is passphrase-protected
 
@@ -32,6 +32,8 @@ cameras:
     rtsp_url: "rtsp://172.16.0.1:7447/STREAM_TOKEN_1"
     enabled: true
     resolution: 720
+    # model_path: /models/heron-v2.pt         # optional — override global model
+    # detect_classes: [great_blue_heron]       # optional — override global target_classes
     exclusion_zones:
       - x: 320
         y: 180

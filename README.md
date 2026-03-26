@@ -32,17 +32,18 @@ bash setup.sh
 The script will:
 - Check that Docker and the NVIDIA container runtime are installed (and offer to install them via `infra/orin-setup.sh` if not)
 - Ask which port to use for the web UI (default: 8080)
-- Create `config/scarguard.yml` from the example template
-- Offer to generate a self-signed SSL certificate for HTTPS (stored in `${DATA_DIR}/config/certs/`)
+- Create `config/scarguard.yml` from the example template (stored in the `scarguard-config` named volume)
+- Offer to generate a self-signed SSL certificate for HTTPS (stored in the config volume's `certs/` directory)
 - Offer to download a starter YOLO model (detects generic birds — good for testing the pipeline)
 - Pull all pre-built images from GHCR
 - Prompt you to create the initial admin account
 
 ### 3. Edit your configuration
 
+Use the web UI config editor after starting the stack, or edit directly via a temporary container:
+
 ```bash
-# DATA_DIR is set in .env (default: /var/docker/scarguard)
-nano /var/docker/scarguard/config/scarguard.yml
+docker run --rm -it -v scarguard-config:/config alpine vi /config/scarguard.yml
 ```
 
 At minimum, set your camera RTSP URLs:
@@ -183,18 +184,23 @@ ScarGuard can serve the web UI over HTTPS on port 8443 alongside plain HTTP on 8
 `setup.sh` offers to generate a self-signed certificate automatically. If you skipped that step or want to do it manually:
 
 ```bash
-# Substitute your actual DATA_DIR path (from .env)
-DATA_DIR=/var/docker/scarguard
+# Generate a self-signed cert and copy it into the config volume:
+docker run --rm -v scarguard-config:/config alpine mkdir -p /config/certs
 
-mkdir -p "${DATA_DIR}/config/certs"
 openssl req -x509 -newkey rsa:4096 \
-    -keyout "${DATA_DIR}/config/certs/key.pem" \
-    -out    "${DATA_DIR}/config/certs/cert.pem" \
+    -keyout /tmp/key.pem -out /tmp/cert.pem \
     -days 3650 -nodes -subj "/CN=scarguard"
-chmod 600 "${DATA_DIR}/config/certs/key.pem"
+chmod 600 /tmp/key.pem
+
+docker run --rm \
+    -v scarguard-config:/config \
+    -v /tmp/cert.pem:/src/cert.pem:ro \
+    -v /tmp/key.pem:/src/key.pem:ro \
+    alpine sh -c 'cp /src/cert.pem /config/certs/cert.pem && cp /src/key.pem /config/certs/key.pem && chmod 600 /config/certs/key.pem'
+rm /tmp/cert.pem /tmp/key.pem
 ```
 
-To use your own certificate (e.g. from Let's Encrypt or an internal CA), drop `cert.pem` and `key.pem` into `${DATA_DIR}/config/certs/` and proceed to Step 2. No container rebuild is needed — the directory is bind-mounted into the web container.
+To use your own certificate (e.g. from Let's Encrypt or an internal CA), copy `cert.pem` and `key.pem` into the config volume's `certs/` directory and proceed to Step 2.
 
 #### Step 2 — Enable SSL
 
@@ -205,15 +211,15 @@ To use your own certificate (e.g. from Let's Encrypt or an internal CA), drop `c
 ```yaml
 ssl:
   enabled: true
-  cert_path: /certs/cert.pem   # container-internal path; do not change unless you
-  key_path: /certs/key.pem     # also change the volume mount in docker-compose.yml
-  https_only: false            # set true to disable plain HTTP on port 8080
+  cert_path: /config/certs/cert.pem   # container-internal path (inside config volume)
+  key_path: /config/certs/key.pem
+  https_only: false                    # set true to disable plain HTTP on port 8080
 ```
 
 The web service detects SSL config changes and restarts automatically. The startup log will confirm:
 
 ```
-INFO     start — Starting with SSL: cert=/certs/cert.pem key=/certs/key.pem https_only=False ...
+INFO     start — Starting with SSL: cert=/config/certs/cert.pem key=/config/certs/key.pem https_only=False ...
 ```
 
 #### Changing the HTTPS port
