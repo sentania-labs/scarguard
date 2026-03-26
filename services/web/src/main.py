@@ -9,7 +9,7 @@ import auth as auth_module
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from routes import about, admin, config, dashboard, events, feed, models, stats
+from routes import about, admin, config, dashboard, events, feed, models, stats, training
 from routes import auth as auth_routes
 from routes import users as users_routes
 
@@ -122,3 +122,4 @@ app.include_router(feed.router)
 app.include_router(about.router)
 app.include_router(admin.router)
 app.include_router(stats.router)
+app.include_router(training.router)

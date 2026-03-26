@@ -244,3 +244,60 @@ def get_feedback_stats(
         "date_min": date_min,
         "date_max": date_max,
     }
+
+
+# ── Export ──────────────────────────────────────────────────────────────────
+
+_EXPORTABLE_WHERE = (
+    "camera_name != '_system'"
+    " AND feedback IN ('correct', 'wrong_class')"
+    " AND bbox IS NOT NULL"
+    " AND snapshot_path IS NOT NULL"
+)
+
+
+def count_exportable_events(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> int:
+    """Count events eligible for YOLO dataset export."""
+    where = _EXPORTABLE_WHERE
+    params: list[object] = []
+    if date_from:
+        where += " AND timestamp >= ?"
+        params.append(date_from)
+    if date_to:
+        where += " AND timestamp < ?"
+        params.append(_date_to_exclusive(date_to))
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM detection_events WHERE {where}", params
+        ).fetchone()
+        return row[0] if row else 0
+
+
+def get_exportable_events(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[sqlite3.Row]:
+    """Return events eligible for YOLO dataset export."""
+    where = _EXPORTABLE_WHERE
+    params: list[object] = []
+    if date_from:
+        where += " AND timestamp >= ?"
+        params.append(date_from)
+    if date_to:
+        where += " AND timestamp < ?"
+        params.append(_date_to_exclusive(date_to))
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT id, class_name, confidence, camera_name,
+                   snapshot_path, bbox, frame_size,
+                   feedback, corrected_class
+            FROM detection_events
+            WHERE {where}
+            ORDER BY id
+            """,
+            params,
+        ).fetchall()

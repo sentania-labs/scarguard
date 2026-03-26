@@ -569,3 +569,77 @@ input[type="range"] {
   border-radius: 2px;
   white-space: nowrap;
 }
+
+/* ── Training dashboard ──────────────────────────────────────────────────── */
+.training-stats-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.training-stat-card {
+  flex: 1;
+  text-align: center;
+}
+.training-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.training-stat-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+}
+.class-chart { margin-bottom: 1.5rem; }
+.class-chart-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.class-chart-label {
+  min-width: 10rem;
+  font-size: 0.85rem;
+  text-align: right;
+  color: var(--text);
+}
+.class-chart-bars { flex: 1; }
+.class-chart-bar {
+  height: 22px;
+  line-height: 22px;
+  border-radius: 3px;
+  padding: 0 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  min-width: 2rem;
+  text-align: right;
+  color: #fff;
+}
+.bar-correct { background: var(--ok); }
+.class-chart-meta {
+  font-size: 0.75rem;
+  min-width: 5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+.badge-warn {
+  background: rgba(245,166,35,0.18);
+  color: var(--warn);
+  font-size: 0.65rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.btn-export {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.5em 1.2em;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  margin-top: 0.5rem;
+}
+.btn-export:hover { opacity: 0.88; text-decoration: none; }

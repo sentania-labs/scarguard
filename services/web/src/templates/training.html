@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Training Data — ScarGuard{% endblock %}
+{% block content %}
+<h1>Training Data</h1>
+
+<form method="get" action="/admin/training" class="filter-form">
+  <div class="filter-row">
+    <label>
+      From
+      <input type="date" name="date_from" value="{{ filter_date_from }}">
+    </label>
+    <label>
+      To
+      <input type="date" name="date_to" value="{{ filter_date_to }}">
+    </label>
+    <button type="submit">Filter</button>
+    {% if filter_date_from or filter_date_to %}
+    <a href="/admin/training" class="btn-secondary">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="training-stats-row">
+  <div class="card training-stat-card">
+    <div class="training-stat-value">{{ stats.total_labeled }}</div>
+    <div class="training-stat-label">Labeled</div>
+  </div>
+  <div class="card training-stat-card">
+    <div class="training-stat-value">{{ stats.total_unlabeled }}</div>
+    <div class="training-stat-label">Unlabeled</div>
+  </div>
+  <div class="card training-stat-card">
+    <div class="training-stat-value">{{ exportable }}</div>
+    <div class="training-stat-label">Exportable</div>
+  </div>
+</div>
+
+{% if stats.date_min and stats.date_max %}
+<p class="hint">Date range: {{ stats.date_min[:10] }} &mdash; {{ stats.date_max[:10] }}</p>
+{% endif %}
+
+<h2>Class Distribution</h2>
+
+{% if class_chart %}
+<div class="class-chart">
+  {% for cls in class_chart %}
+  <div class="class-chart-row">
+    <div class="class-chart-label">
+      {{ cls.name }}
+      {% if cls.low_data %}<span class="badge badge-warn" title="< 500 correct labels">&lt; 500</span>{% endif %}
+    </div>
+    <div class="class-chart-bars">
+      <div class="class-chart-bar bar-correct" style="width: {{ cls.bar_pct }}%" title="Correct: {{ cls.correct }}">
+        {{ cls.correct }}
+      </div>
+    </div>
+    <div class="class-chart-meta">
+      <span class="muted">FP: {{ cls.false_positive }}</span>
+      {% if cls.wrong_class > 0 %}
+      <span class="muted">WC: {{ cls.wrong_class }}</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">No labeled events yet. Use the feedback controls on the <a href="/events">Events</a> page to label detections.</p>
+{% endif %}
+
+<h2>Export</h2>
+
+{% if exportable > 0 %}
+<p>Export <strong>{{ exportable }}</strong> confirmed detections as a YOLO-format dataset (images + annotation .txt files + data.yaml).</p>
+<p class="hint">Only events with feedback (correct or wrong-class with corrected label) and stored bounding box data are included. Pre-migration events without bbox data are excluded.</p>
+<a href="/admin/training/export?date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}"
+   class="btn-export" download>
+  Download Dataset (.zip)
+</a>
+{% else %}
+<p class="muted">No exportable events. Label detections as "Correct" on the <a href="/events">Events</a> page, and ensure events have bounding box data (post-migration only).</p>
+{% endif %}
+
+{% endblock %}
