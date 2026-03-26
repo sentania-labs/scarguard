@@ -137,6 +137,11 @@ document.addEventListener('click', function(e) {
   document.body.appendChild(overlay);
 });
 
+function _escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function buildOverlayFeedbackHTML(feedback, correctedClass) {
   var html = '<div class="overlay-feedback-label">Feedback</div>';
   if (feedback) {
@@ -144,7 +149,7 @@ function buildOverlayFeedbackHTML(feedback, correctedClass) {
                feedback === 'false_positive' ? 'badge-fp' : 'badge-wrong';
     var bTxt = feedback === 'correct' ? 'Correct' :
                feedback === 'false_positive' ? 'False Positive' :
-               'Wrong: ' + (correctedClass || '?').replace(/_/g, ' ');
+               'Wrong: ' + _escHtml((correctedClass || '?').replace(/_/g, ' '));
     html += '<span class="badge ' + bCls + '">' + bTxt + '</span>';
     html += '<button class="btn-edit-feedback js-overlay-edit">edit</button>';
   }
@@ -156,7 +161,8 @@ function buildOverlayFeedbackHTML(feedback, correctedClass) {
   html += '<div class="wrong-class-picker" style="display:none">';
   html += '<select class="js-wrong-cls"><option value="">Select class\u2026</option>';
   (SCARGUARD_TARGET_CLASSES || []).forEach(function(cls) {
-    html += '<option value="' + cls + '">' + cls.replace(/_/g, ' ') + '</option>';
+    var escaped = _escHtml(cls);
+    html += '<option value="' + escaped + '">' + escaped.replace(/_/g, ' ') + '</option>';
   });
   html += '</select>';
   html += '<button class="btn-fb btn-fb-wrong js-wrong-set">Set</button>';
