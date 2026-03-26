@@ -57,6 +57,10 @@ class EventProcessor:
         now = time.monotonic()
         events: list[dict] = []
 
+        # Capture frame dimensions (h, w) for bbox normalization at export time.
+        frame_h, frame_w = frame.shape[:2]
+        frame_size = (frame_w, frame_h)
+
         for det in detections:
             key = f"{camera_name}:{det.class_name}"
             with self._cooldown_lock:
@@ -72,7 +76,10 @@ class EventProcessor:
             actions_triggered = (
                 (actions_by_class or {}).get(det.class_name) or []
             )
-            self._persist(timestamp, det, camera_name, snapshot_path, actions_triggered)
+            self._persist(
+                timestamp, det, camera_name, snapshot_path,
+                actions_triggered, frame_size,
+            )
 
             logger.info(
                 "[%s] %s detected (conf=%.2f)",
@@ -80,6 +87,7 @@ class EventProcessor:
                 det.class_name,
                 det.confidence,
             )
+            bbox_list = list(det.bbox) if det.bbox else None
             events.append(
                 {
                     "timestamp": timestamp.isoformat(),
@@ -88,6 +96,8 @@ class EventProcessor:
                     "camera_name": camera_name,
                     "snapshot_path": snapshot_path,
                     "actions_triggered": actions_triggered,
+                    "bbox": bbox_list,
+                    "frame_size": list(frame_size),
                 }
             )
 
@@ -133,28 +143,20 @@ class EventProcessor:
         camera_name: str,
         timestamp: datetime,
     ) -> str | None:
+        """Save a clean (unannotated) snapshot frame to disk.
+
+        BBox data is persisted separately in the database; the browser
+        renders the overlay using stored coordinates.
+        """
         try:
             # Import lazily so unit tests can run in environments without OpenCV system libs.
             import cv2
 
-            annotated = frame.copy()
-            x1, y1, x2, y2 = det.bbox
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
-            label = f"{det.class_name} {det.confidence:.2f}"
-            cv2.putText(
-                annotated,
-                label,
-                (x1, max(y1 - 8, 0)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 0, 255),
-                2,
-            )
             filename = (
                 f"{camera_name}_{det.class_name}_{timestamp.strftime('%Y%m%dT%H%M%SZ')}.jpg"
             )
             path = self._snapshot_dir / filename
-            cv2.imwrite(str(path), annotated)
+            cv2.imwrite(str(path), frame)
             logger.debug("Snapshot saved: %s", path)
             return str(path)
         except Exception:
@@ -178,17 +180,23 @@ class EventProcessor:
                 )
                 """
             )
-            # Migration: add actions_triggered column to existing databases
+            # Migrations: add columns to existing databases
             existing = {
                 row[1]
                 for row in self._conn.execute(
                     "PRAGMA table_info(detection_events)"
                 ).fetchall()
             }
-            if "actions_triggered" not in existing:
-                self._conn.execute(
-                    "ALTER TABLE detection_events ADD COLUMN actions_triggered TEXT"
-                )
+            migrations: dict[str, str] = {
+                "actions_triggered": "ALTER TABLE detection_events ADD COLUMN actions_triggered TEXT",
+                "bbox": "ALTER TABLE detection_events ADD COLUMN bbox TEXT",
+                "frame_size": "ALTER TABLE detection_events ADD COLUMN frame_size TEXT",
+                "feedback": "ALTER TABLE detection_events ADD COLUMN feedback TEXT",
+                "corrected_class": "ALTER TABLE detection_events ADD COLUMN corrected_class TEXT",
+            }
+            for col, ddl in migrations.items():
+                if col not in existing:
+                    self._conn.execute(ddl)
             self._conn.commit()
 
     def _persist(
@@ -198,10 +206,14 @@ class EventProcessor:
         camera_name: str,
         snapshot_path: str | None,
         actions_triggered: list[str],
+        frame_size: tuple[int, int] | None = None,
     ) -> None:
         with self._db_lock:
             try:
-                self._insert_event(timestamp, det, camera_name, snapshot_path, actions_triggered)
+                self._insert_event(
+                    timestamp, det, camera_name, snapshot_path,
+                    actions_triggered, frame_size,
+                )
                 self._conn.commit()
             except Exception:
                 logger.exception("Failed to persist detection event to database")
@@ -217,13 +229,17 @@ class EventProcessor:
         camera_name: str,
         snapshot_path: str | None,
         actions_triggered: list[str],
+        frame_size: tuple[int, int] | None = None,
     ) -> None:
         actions_json = json.dumps(actions_triggered) if actions_triggered else None
+        bbox_json = json.dumps(list(det.bbox)) if det.bbox else None
+        frame_size_json = json.dumps(list(frame_size)) if frame_size else None
         self._conn.execute(
             """
             INSERT INTO detection_events
-                (timestamp, class_name, confidence, camera_name, snapshot_path, actions_triggered)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (timestamp, class_name, confidence, camera_name, snapshot_path,
+                 actions_triggered, bbox, frame_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp.isoformat(),
@@ -232,6 +248,8 @@ class EventProcessor:
                 camera_name,
                 snapshot_path,
                 actions_json,
+                bbox_json,
+                frame_size_json,
             ),
         )
 

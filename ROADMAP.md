@@ -273,7 +273,7 @@ System health panel in the web UI showing resource utilization of the host. Usef
 
 ---
 
-## Feature 12: Detection Feedback & Dataset Collection
+## ~~Feature 12: Detection Feedback & Dataset Collection~~ ✓ Complete (v0.7)
 
 Add a feedback mechanism to each detection event so confirmed positives and false positives can be labeled in-app. This is the foundation of the model improvement pipeline (Features 13–15).
 
@@ -284,9 +284,15 @@ Add a feedback mechanism to each detection event so confirmed positives and fals
 - Unfeedback'd events are visually distinct from reviewed ones in the event log (e.g. badge or row highlight)
 - No feedback is required — the system continues to function normally without it; this is purely additive
 
+**Implementation notes:**
+- Schema migration adds `bbox`, `frame_size`, `feedback`, `corrected_class` columns to `detection_events` table
+- Snapshots saved as clean frames (no burned-in bbox); browser renders bbox overlay using stored coordinates
+- Web service writes feedback via UPDATE to `scarguard.db` (SQLite WAL handles concurrent access)
+- HTMX-powered inline feedback buttons on each event row with colored badges
+
 ---
 
-## Feature 13: Dataset Quality Dashboard & Export
+## ~~Feature 13: Dataset Quality Dashboard & Export~~ ✓ Complete (v0.7)
 
 Give visibility into the labeled dataset being built from feedback, and provide a one-click export for use in model training.
 
@@ -302,9 +308,15 @@ Give visibility into the labeled dataset being built from feedback, and provide 
 - Export only includes events with `feedback = correct` — false positives and wrong-class events are excluded from the positive set
 - Export is downloadable directly from the browser
 
+**Implementation notes:**
+- Admin page at `/admin/training` with per-class feedback breakdown, CSS bar charts, low-data warnings
+- YOLO export at `/admin/training/export` streams a zip with `images/train/`, `labels/train/`, `data.yaml`
+- Wrong-class events included using corrected label as ground truth
+- Events without stored bbox (pre-migration) are excluded from export
+
 ---
 
-## Feature 14: Custom Model Training
+## ~~Feature 14: Custom Model Training~~ ✓ Complete (v0.7)
 
 Replace the generic COCO bird model with a fine-tuned model that distinguishes heron species from pond camera imagery. Training is run manually via a committed script; this is not automated.
 
@@ -318,9 +330,14 @@ Replace the generic COCO bird model with a fine-tuned model that distinguishes h
 - Training notebook or equivalent committed under `training/` for reproducibility
 - **Model promotion is always manual** — the script produces a `.pt` file; the user places it in `models/` and selects it in config or the web UI. No automated deployment of trained models.
 
+**Implementation notes:**
+- Self-contained `training/train.py` CLI script with argparse, validates dataset structure
+- Warns if any class has < 500 images (`--force` to override)
+- `training/README.md` with usage, CLI reference, Jetson tips
+
 ---
 
-## Feature 15: Model Evaluation in Web UI
+## ~~Feature 15: Model Evaluation in Web UI~~ ✓ Complete (v0.7)
 
 Before promoting a newly trained model, compare it against the current one using stored snapshots. Prevents deploying a regression.
 
@@ -331,6 +348,14 @@ Before promoting a newly trained model, compare it against the current one using
 - Evaluation runs on-device (Jetson GPU); show a progress indicator for long runs
 - User can promote the candidate model directly from this page (updates `scarguard.yml` and triggers hot-reload per Feature 10)
 - Graceful handling of snapshots where the original annotated bounding box is unavailable (skip or flag)
+
+**Implementation notes:**
+- EvaluationRunner daemon thread in detector subscribes to Redis `scarguard:eval:request`
+- Models loaded sequentially to conserve Jetson GPU memory; GPU cache freed between runs
+- Web UI at `/admin/training/evaluate` with SSE progress bar, side-by-side metrics tables
+- Metrics: per-class precision/recall/F1 at IoU>=0.5 threshold
+- Model promotion from the page updates `scarguard.yml` and triggers hot-reload
+- Busy guard prevents concurrent evaluations; 10-minute SSE timeout
 
 ---
 

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import config_store
 import db
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -39,13 +39,14 @@ def _apply_display_timestamp(events: list[dict]) -> list[dict]:
     tz = _tz_name()
     for e in events:
         e["display_timestamp"] = _to_local(e.get("timestamp", ""), tz)
-        # Deserialize actions_triggered from its JSON string (stored in SQLite).
-        raw = e.get("actions_triggered")
-        if isinstance(raw, str):
-            try:
-                e["actions_triggered"] = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                e["actions_triggered"] = []
+        # Deserialize JSON strings stored in SQLite.
+        for key in ("actions_triggered", "bbox", "frame_size"):
+            raw = e.get(key)
+            if isinstance(raw, str):
+                try:
+                    e[key] = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    e[key] = [] if key == "actions_triggered" else None
     return events
 
 
@@ -92,6 +93,7 @@ async def events_page(
             "filter_class": class_name,
             "filter_date_from": date_from,
             "filter_date_to": date_to,
+            "target_classes": _get_target_classes(),
         },
     )
 
@@ -116,7 +118,38 @@ async def event_rows(
     return templates.TemplateResponse(
         request,
         "partials/event_rows.html",
-        {"events": events},
+        {"events": events, "target_classes": _get_target_classes()},
+    )
+
+
+def _get_target_classes() -> list[str]:
+    """Return target classes from config for the wrong-class dropdown."""
+    return config_store.load_cached().get("detection", {}).get("target_classes", [])
+
+
+@router.post("/{event_id}/feedback", response_class=HTMLResponse)
+async def submit_feedback(
+    request: Request,
+    event_id: int,
+    feedback: str = Form(...),
+    corrected_class: str = Form(""),
+):
+    """Set or update feedback on a detection event.  Returns the updated row."""
+    if feedback not in ("correct", "false_positive", "wrong_class"):
+        feedback = "correct"
+    corr = corrected_class.strip() or None
+    if feedback != "wrong_class":
+        corr = None
+    db.update_feedback(event_id, feedback, corr)
+    row = db.get_event(event_id)
+    if row is None:
+        return HTMLResponse("<tr><td colspan='7'>Event not found</td></tr>")
+    event = dict(row)
+    events = _apply_display_timestamp([event])
+    return templates.TemplateResponse(
+        request,
+        "partials/event_rows.html",
+        {"events": events, "target_classes": _get_target_classes()},
     )
 
 
@@ -154,25 +187,41 @@ async def event_stream(request: Request):
 
 def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
     snap = event.get("snapshot_path")
+    bbox = event.get("bbox")
+    frame_size = event.get("frame_size")
     snap_html = ""
     if snap:
         fname = Path(snap).name
-        snap_html = f'<a href="/snapshots/{fname}" target="_blank"><img src="/snapshots/{fname}" width="80"></a>'
+        data_attrs = ""
+        if bbox and frame_size:
+            data_attrs = (
+                f' data-bbox="{_html.escape(json.dumps(bbox))}"'
+                f' data-frame-size="{_html.escape(json.dumps(frame_size))}"'
+            )
+        snap_html = (
+            f'<a href="/snapshots/{fname}" target="_blank" class="snapshot-link"'
+            f'{data_attrs}>'
+            f'<img src="/snapshots/{fname}" width="80" loading="lazy">'
+            f'</a>'
+        )
     conf = event.get("confidence", 0)
     display_ts = _to_local(event.get("timestamp", ""), tz_name)
     actions: list[str] = event.get("actions_triggered") or []
     actions_html = (
         "".join(f'<span class="tag">{_html.escape(ch)}</span>' for ch in actions)
         if actions
-        else "—"
+        else "\u2014"
     )
+    # New events from SSE have no feedback yet
+    feedback_html = '<span class="muted">\u2014</span>'
     return (
-        f'<tr id="event-live">'
-        f'<td>{display_ts}</td>'
+        f'<tr id="event-live" class="event-unreviewed">'
+        f"<td>{display_ts}</td>"
         f'<td>{event.get("class_name", "").replace("_", " ").title()}</td>'
-        f'<td>{conf:.0%}</td>'
+        f"<td>{conf:.0%}</td>"
         f'<td>{event.get("camera_name", "")}</td>'
         f'<td class="actions-cell">{actions_html}</td>'
-        f'<td>{snap_html}</td>'
-        f'</tr>'
+        f"<td>{snap_html}</td>"
+        f'<td class="feedback-cell">{feedback_html}</td>'
+        f"</tr>"
     )

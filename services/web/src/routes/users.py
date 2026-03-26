@@ -7,7 +7,7 @@ import sqlite3
 
 import auth as auth_module
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 _src = os.path.dirname(os.path.dirname(__file__))
@@ -29,9 +29,9 @@ def _require_admin(request: Request) -> dict | None:
 # ── User list ─────────────────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
-async def users_list(request: Request) -> HTMLResponse:
+async def users_list(request: Request) -> Response:
     if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/", status_code=302)
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
@@ -163,9 +163,9 @@ async def delete_user(request: Request, user_id: int) -> RedirectResponse:
 async def create_api_token(
     request: Request,
     name: str = Form(...),
-) -> HTMLResponse:
+) -> Response:
     if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/", status_code=302)
 
     current_user = request.state.user
     db = auth_module.get_db(AUTH_DB_PATH)

@@ -98,6 +98,9 @@ async def feed_stream(request: Request):
                     "snapshot_filename": Path(snap).name if snap else None,
                     "class_name": event.get("class_name", ""),
                     "label": label,
+                    "bbox": event.get("bbox"),
+                    "frame_size": event.get("frame_size"),
+                    "confidence": event.get("confidence", 0),
                 })
                 yield f"event: detection\ndata: {payload}\n\n"
         finally:

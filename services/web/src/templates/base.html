@@ -21,6 +21,7 @@
     {% if request.state.user %}
       {% if request.state.user.is_admin %}
     <a href="/admin/users">Users</a>
+    <a href="/admin/training">Training</a>
       {% endif %}
     <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ request.state.user.username }}</span>
     <form method="post" action="/logout" style="margin:0;">

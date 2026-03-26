@@ -21,6 +21,7 @@ import yaml
 from cleanup import SnapshotCleaner
 from config_watcher import ConfigWatcher
 from detector import YOLODetector
+from evaluator import EvaluationRunner
 from events import EventProcessor
 from publisher import RedisPublisher
 from scheduler import ArmScheduler
@@ -336,6 +337,14 @@ def main() -> None:
     )
     stats_collector.start()
 
+    # ---- Model evaluation runner -----------------------------------------------
+    eval_runner = EvaluationRunner(
+        redis_cfg=redis_cfg,
+        db_path=DB_PATH,
+        snapshot_dir=SNAPSHOT_DIR,
+    )
+    eval_runner.start()
+
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:
         new_sys = new_cfg.get("system", {})
@@ -418,6 +427,7 @@ def main() -> None:
 
     watcher.stop()
     scheduler.stop()
+    eval_runner.stop()
     for name in list(active_cameras.keys()):
         _stop_camera(name)
     event_processor.close()

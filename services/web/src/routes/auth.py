@@ -7,7 +7,7 @@ import os
 import auth as auth_module
 from config_store import load_cached
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 _src = os.path.dirname(os.path.dirname(__file__))
@@ -37,10 +37,10 @@ def _safe_next(value: str) -> str:
 
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_get(request: Request, next: str = "/") -> HTMLResponse:
+async def login_get(request: Request, next: str = "/") -> Response:
     # Already authenticated? Go home.
     if getattr(request.state, "user", None) is not None:
-        return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/", status_code=302)
     return templates.TemplateResponse(
         request,
         "login.html",
@@ -54,7 +54,7 @@ async def login_post(
     username: str = Form(...),
     password: str = Form(...),
     next: str = Form("/"),
-) -> HTMLResponse:
+) -> Response:
     auth_cfg = _get_auth_cfg()
     max_attempts = auth_cfg.get("max_login_attempts", 5)
     lockout_minutes = auth_cfg.get("lockout_duration_minutes", 15)
@@ -124,7 +124,7 @@ async def login_post(
         secure=_is_https(request),
         max_age=session_hours * 3600,
     )
-    return response  # type: ignore[return-value]
+    return response
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────
@@ -147,10 +147,10 @@ async def logout(request: Request) -> RedirectResponse:
 # ── First-run setup ───────────────────────────────────────────────────────────
 
 @router.get("/setup", response_class=HTMLResponse)
-async def setup_get(request: Request) -> HTMLResponse:
+async def setup_get(request: Request) -> Response:
     # If users already exist, redirect to login
     if auth_module.users_exist(AUTH_DB_PATH):
-        return RedirectResponse("/login", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/login", status_code=302)
     return templates.TemplateResponse(
         request,
         "setup.html",
@@ -164,10 +164,10 @@ async def setup_post(
     username: str = Form(...),
     password: str = Form(...),
     confirm_password: str = Form(...),
-) -> HTMLResponse:
+) -> Response:
     # If users already exist, deny
     if auth_module.users_exist(AUTH_DB_PATH):
-        return RedirectResponse("/login", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/login", status_code=302)
 
     # Validate input
     if not username.strip():
@@ -211,4 +211,4 @@ async def setup_post(
         secure=_is_https(request),
         max_age=session_hours * 3600,
     )
-    return response  # type: ignore[return-value]
+    return response

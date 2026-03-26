@@ -19,6 +19,12 @@
 - **Scheduled arm/disarm:** Fixed-time schedule (HH:MM) or solar mode (sunrise/sunset) via `astral`; manual dashboard overrides respected until next transition.
 - **Live feed:** Detection-triggered annotated snapshot feed with SSE, offline indicator, and exponential-backoff auto-reconnect.
 - **App auth:** Session-based login gates all web UI routes. First-run setup page, user management admin UI, API bearer tokens, bcrypt passwords, per-user lockout after N failed attempts.
+- **Detection feedback:** Each event can be labeled as Correct, False Positive, or Wrong Class (with corrected class). HTMX-powered inline controls with colored badges. Unreviewed events visually distinct.
+- **BBox persistence:** Bounding box coordinates and frame dimensions stored in database per detection. Snapshots saved as clean frames; browser renders bbox overlay from stored data.
+- **Training data dashboard:** Admin page showing per-class feedback breakdown, CSS bar charts, exportable event count, date range filter.
+- **YOLO dataset export:** One-click zip download with clean images, normalized bbox annotations, and data.yaml. Includes correct and wrong-class (with corrected label) events.
+- **Custom model training:** Self-contained `training/train.py` CLI script for fine-tuning YOLO models on exported datasets.
+- **Model evaluation:** Admin page for side-by-side model comparison. Runs inference on labeled snapshots via detector's GPU, displays per-class precision/recall/F1, sample detections, and model promotion button.
 
 ## Known Issues / Buggy
 
@@ -26,7 +32,7 @@ None currently identified.
 
 ## Not Yet Built
 
-- Custom-trained heron model (currently using generic COCO bird class)
+- Custom-trained heron model (have the tooling now, need labeled data)
 - Valve actuation (ESP32 hardware not wired yet)
 
 ## Completed Work
@@ -56,3 +62,7 @@ None currently identified.
 | v0.4 | Scheduled arm/disarm (fixed-time + solar mode, manual override, hot-reload) | ✅ Complete |
 | v0.5 | GPU/CPU load stats view (live system resource metrics, per-camera inference FPS/latency, mini-charts) | ✅ Complete |
 | v0.6 | App security & user accounts (session auth, first-run setup, user management, API tokens, lockout) | ✅ Complete |
+| v0.7 | Detection feedback & bbox persistence (per-event labeling, clean snapshots, browser bbox overlay) | ✅ Complete |
+| v0.7 | Training data dashboard & YOLO dataset export (admin page, bar charts, zip export) | ✅ Complete |
+| v0.7 | Custom model training script (training/train.py CLI, dataset validation, Jetson tips) | ✅ Complete |
+| v0.7 | Model evaluation in web UI (side-by-side comparison, SSE progress, model promotion) | ✅ Complete |

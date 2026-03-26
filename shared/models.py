@@ -9,3 +9,7 @@ class DetectionEvent(BaseModel):
     confidence: float
     camera_name: str
     snapshot_path: str | None = None
+    bbox: list[int] | None = None
+    frame_size: list[int] | None = None
+    feedback: str | None = None
+    corrected_class: str | None = None
