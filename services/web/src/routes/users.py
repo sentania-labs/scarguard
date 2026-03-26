@@ -31,7 +31,7 @@ def _require_admin(request: Request) -> dict | None:
 @router.get("", response_class=HTMLResponse)
 async def users_list(request: Request) -> HTMLResponse:
     if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/", status_code=302)
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
@@ -165,7 +165,7 @@ async def create_api_token(
     name: str = Form(...),
 ) -> HTMLResponse:
     if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/", status_code=302)
 
     current_user = request.state.user
     db = auth_module.get_db(AUTH_DB_PATH)

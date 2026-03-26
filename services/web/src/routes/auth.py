@@ -40,7 +40,7 @@ def _safe_next(value: str) -> str:
 async def login_get(request: Request, next: str = "/") -> HTMLResponse:
     # Already authenticated? Go home.
     if getattr(request.state, "user", None) is not None:
-        return RedirectResponse("/", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/", status_code=302)
     return templates.TemplateResponse(
         request,
         "login.html",
@@ -124,7 +124,7 @@ async def login_post(
         secure=_is_https(request),
         max_age=session_hours * 3600,
     )
-    return response  # type: ignore[return-value]
+    return response
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ async def logout(request: Request) -> RedirectResponse:
 async def setup_get(request: Request) -> HTMLResponse:
     # If users already exist, redirect to login
     if auth_module.users_exist(AUTH_DB_PATH):
-        return RedirectResponse("/login", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/login", status_code=302)
     return templates.TemplateResponse(
         request,
         "setup.html",
@@ -167,7 +167,7 @@ async def setup_post(
 ) -> HTMLResponse:
     # If users already exist, deny
     if auth_module.users_exist(AUTH_DB_PATH):
-        return RedirectResponse("/login", status_code=302)  # type: ignore[return-value]
+        return RedirectResponse("/login", status_code=302)
 
     # Validate input
     if not username.strip():
@@ -211,4 +211,4 @@ async def setup_post(
         secure=_is_https(request),
         max_age=session_hours * 3600,
     )
-    return response  # type: ignore[return-value]
+    return response
