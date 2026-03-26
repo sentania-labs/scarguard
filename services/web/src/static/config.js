@@ -196,6 +196,7 @@ function readForm() {
         max_login_attempts: parseInt(document.getElementById("auth-max-attempts").value, 10) || 5,
         lockout_duration_minutes: parseInt(document.getElementById("auth-lockout-minutes").value, 10) || 15,
         require_api_auth: document.getElementById("auth-require-api").checked,
+        nonadmin_rearm_minutes: parseInt(document.getElementById("auth-rearm-minutes").value, 10) || 0,
       },
     },
     cameras: readCameras(),

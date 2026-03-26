@@ -41,8 +41,11 @@
         <div class="field-row">
           <div class="field-group">
             <label>Timezone (IANA name)</label>
-            <input type="text" id="sys-timezone" value="{{ cfg.system.timezone }}"
-                   placeholder="UTC, America/Los_Angeles, Europe/London…">
+            <input list="tz-list" id="sys-timezone" value="{{ cfg.system.timezone }}"
+                   placeholder="Start typing to search…" autocomplete="off">
+            <datalist id="tz-list">
+              {% for tz in timezones %}<option value="{{ tz }}">{% endfor %}
+            </datalist>
           </div>
           <div class="field-group">
             <label>Snapshot retention (days, 0 = keep forever)</label>
@@ -88,7 +91,18 @@
       <div class="card">
         <div class="field-group">
           <label>Model path (inside container)</label>
+          {% if available_models %}
+          <select id="det-model-path">
+            {% for m in available_models %}
+            <option value="{{ m }}" {% if m == cfg.detection.model_path %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+            {% if cfg.detection.model_path not in available_models %}
+            <option value="{{ cfg.detection.model_path }}" selected>{{ cfg.detection.model_path }} (current)</option>
+            {% endif %}
+          </select>
+          {% else %}
           <input type="text" id="det-model-path" value="{{ cfg.detection.model_path }}" placeholder="/models/yolov8n.pt">
+          {% endif %}
         </div>
         <div class="field-group">
           <label>Confidence threshold</label>
@@ -337,6 +351,11 @@
             <label>Lockout duration (minutes)</label>
             <input type="number" id="auth-lockout-minutes" value="{{ cfg.system.auth.lockout_duration_minutes }}"
                    min="1" max="1440">
+          </div>
+          <div class="field-group">
+            <label>Non-admin auto-rearm delay (minutes, 0 to disable)</label>
+            <input type="number" id="auth-rearm-minutes" value="{{ cfg.system.auth.nonadmin_rearm_minutes }}"
+                   min="0" max="1440">
           </div>
         </div>
       </div>

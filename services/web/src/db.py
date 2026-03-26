@@ -34,6 +34,7 @@ def get_events(
     class_name: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    feedback: str | None = None,
     include_system: bool = False,
 ) -> list[sqlite3.Row]:
     where: list[str] = []
@@ -52,6 +53,10 @@ def get_events(
     if date_to:
         where.append("timestamp < ?")
         params.append(_date_to_exclusive(date_to))
+    if feedback == "unreviewed":
+        where.append("feedback IS NULL")
+    elif feedback == "reviewed":
+        where.append("feedback IS NOT NULL")
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     params += [limit, offset]
@@ -82,6 +87,7 @@ def count_events(
     class_name: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    feedback: str | None = None,
     include_system: bool = False,
 ) -> int:
     where: list[str] = []
@@ -100,6 +106,10 @@ def count_events(
     if date_to:
         where.append("timestamp < ?")
         params.append(_date_to_exclusive(date_to))
+    if feedback == "unreviewed":
+        where.append("feedback IS NULL")
+    elif feedback == "reviewed":
+        where.append("feedback IS NOT NULL")
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     with _connect() as conn:

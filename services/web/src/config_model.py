@@ -34,6 +34,14 @@ class AuthConfig(BaseModel):
     max_login_attempts: int = 5
     lockout_duration_minutes: int = 15
     require_api_auth: bool = False
+    nonadmin_rearm_minutes: int = 30
+
+    @field_validator("nonadmin_rearm_minutes")
+    @classmethod
+    def rearm_minutes_range(cls, v: int) -> int:
+        if not 0 <= v <= 1440:
+            raise ValueError("nonadmin_rearm_minutes must be between 0 and 1440")
+        return v
 
     @field_validator("session_timeout_hours")
     @classmethod

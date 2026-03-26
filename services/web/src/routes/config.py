@@ -1,6 +1,8 @@
 import json
 import logging
+import os
 from pathlib import Path
+from zoneinfo import available_timezones
 
 import config_store
 import db
@@ -21,6 +23,22 @@ from pydantic import ValidationError
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config")
+
+_MODELS_DIR = Path(os.getenv("MODELS_DIR", "/models"))
+_MODEL_EXTENSIONS = {".pt", ".engine", ".onnx"}
+_TIMEZONES: list[str] = sorted(available_timezones())
+
+
+def _list_models() -> list[str]:
+    """Return sorted list of model paths available in MODELS_DIR."""
+    try:
+        return sorted(
+            str(_MODELS_DIR / f.name)
+            for f in _MODELS_DIR.iterdir()
+            if f.is_file() and f.suffix in _MODEL_EXTENSIONS
+        )
+    except OSError:
+        return []
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
@@ -110,6 +128,8 @@ async def config_page(request: Request):
             "cfg": cfg,
             "cameras_json": _cameras_json(cfg.cameras),
             "channels_json": _channels_json(raw_cfg),
+            "timezones": _TIMEZONES,
+            "available_models": _list_models(),
         },
     )
 
@@ -236,5 +256,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)):
             "cfg": cfg,
             "cameras_json": _cameras_json(cfg.cameras),
             "channels_json": _channels_json(raw_cfg),
+            "timezones": _TIMEZONES,
+            "available_models": _list_models(),
         },
     )

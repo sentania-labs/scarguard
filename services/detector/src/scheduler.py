@@ -17,6 +17,7 @@ from collections.abc import Callable
 from datetime import date as dt_date
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -31,9 +32,11 @@ class ArmScheduler:
         self,
         armed_ref: list[bool],
         on_transition: Callable[[bool], None],
+        get_redis: Callable[[], Any] | None = None,
     ) -> None:
         self._armed_ref = armed_ref
         self._on_transition = on_transition
+        self._get_redis = get_redis  # Optional factory: () -> redis.Redis
         # All mutable config fields are protected by _cfg_lock so that
         # configure() (config-watcher thread) and _tick() (scheduler thread)
         # can run concurrently without seeing a half-updated config.
@@ -142,24 +145,58 @@ class ArmScheduler:
             enabled = self._enabled
             get_arm = self._get_arm_time
             get_disarm = self._get_disarm_time
-        if not enabled:
+        if enabled:
+            now = datetime.now(timezone.utc)
+            last = self._last_tick
+            self._last_tick = now
+
+            for t_time, t_armed in transitions_between(last, now, get_arm, get_disarm):
+                logger.info(
+                    "Scheduled transition at %s: armed → %s",
+                    t_time.strftime("%Y-%m-%d %H:%M %Z"),
+                    t_armed,
+                )
+                self._armed_ref[0] = t_armed
+                try:
+                    self._on_transition(t_armed)
+                except Exception:
+                    logger.exception("Error in arm/disarm transition callback")
+        else:
+            self._last_tick = datetime.now(timezone.utc)
+
+        self._check_pending_rearm()
+
+    def _check_pending_rearm(self) -> None:
+        """Re-arm if a non-admin auto-rearm timestamp has been reached."""
+        if self._get_redis is None:
             return
-
-        now = datetime.now(timezone.utc)
-        last = self._last_tick
-        self._last_tick = now
-
-        for t_time, t_armed in transitions_between(last, now, get_arm, get_disarm):
-            logger.info(
-                "Scheduled transition at %s: armed → %s",
-                t_time.strftime("%Y-%m-%d %H:%M %Z"),
-                t_armed,
-            )
-            self._armed_ref[0] = t_armed
-            try:
-                self._on_transition(t_armed)
-            except Exception:
-                logger.exception("Error in arm/disarm transition callback")
+        r = None
+        try:
+            r = self._get_redis()
+            val: str | None = r.get("scarguard:rearm_at")
+            if val:
+                parsed = datetime.fromisoformat(val)
+                # Ensure timezone-aware; stored value should always be UTC ISO.
+                if parsed.tzinfo is None:
+                    rearm_time = parsed.replace(tzinfo=timezone.utc)
+                else:
+                    rearm_time = parsed.astimezone(timezone.utc)
+                if datetime.now(timezone.utc) >= rearm_time:
+                    logger.info("Non-admin auto-rearm triggered")
+                    self._armed_ref[0] = True
+                    r.delete("scarguard:rearm_at")
+                    try:
+                        self._on_transition(True)
+                    except Exception:
+                        logger.exception("Error in auto-rearm transition callback")
+        except Exception:
+            logger.debug("Failed to check pending rearm in Redis", exc_info=True)
+        finally:
+            if r is not None:
+                try:
+                    r.close()
+                except Exception:
+                    pass
 
     def _get_arm_time(self, d: dt_date) -> datetime | None:
         # Called with _cfg_lock held (or from within a locked context).

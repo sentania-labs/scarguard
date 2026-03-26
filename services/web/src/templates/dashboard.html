@@ -5,15 +5,7 @@
 
 <section class="card">
   <h2>System Status</h2>
-  <div id="arm-status">
-    {% if armed %}
-    <span class="badge badge-armed">ARMED</span>
-    <button hx-post="/disarm" hx-target="#arm-status" hx-swap="outerHTML">Disarm</button>
-    {% else %}
-    <span class="badge badge-disarmed">DISARMED</span>
-    <button hx-post="/arm" hx-target="#arm-status" hx-swap="outerHTML">Arm</button>
-    {% endif %}
-  </div>
+  {% include "partials/arm_badge.html" %}
   {% if schedule.enabled %}
   <p class="hint" style="margin-top:0.5rem;">
     Schedule: arm <strong>{{ schedule.arm_time or "sunrise" }}</strong> /
@@ -70,4 +62,19 @@
 </section>
 {% endif %}
 
+<script>
+function _updateRearmTimers() {
+  document.querySelectorAll('.rearm-countdown').forEach(function(el) {
+    var ms = new Date(el.dataset.rearmAt) - Date.now();
+    var t = el.querySelector('.rearm-timer');
+    if (!t) return;
+    if (ms <= 0) { t.textContent = 'now'; return; }
+    var m = Math.floor(ms / 60000);
+    var s = Math.floor((ms % 60000) / 1000);
+    t.textContent = m + ':' + String(s).padStart(2, '0');
+  });
+}
+setInterval(_updateRearmTimers, 1000);
+_updateRearmTimers();
+</script>
 {% endblock %}
