@@ -108,11 +108,42 @@ redis:
 3. Filter results by target classes and confidence threshold
 4. Apply cooldown dedup (don't fire 10 events for same heron standing there)
 5. On new detection event:
-   - Save to SQLite (timestamp, class, confidence, camera, snapshot path)
+   - Save to SQLite (timestamp, class, confidence, camera, snapshot path, bbox, frame_size)
    - Publish to Redis pub/sub channel `scarguard:detections`
-   - Save annotated snapshot frame to disk
+   - Save clean snapshot frame to disk (no bbox annotation burned in)
 6. Notifier picks up events from Redis and dispatches to configured channels
 7. Web UI subscribes to Redis for live event feed via SSE
+8. Web UI renders bbox overlay on snapshots using stored coordinates
+
+## Detection Feedback & Training Pipeline
+
+Events can be labeled via the web UI Events page:
+- **Correct**: Detection was accurate
+- **False Positive**: Detection was wrong (no animal present)
+- **Wrong Class**: Animal was present but misidentified (provide corrected class)
+
+Labeled events power the training pipeline:
+- **Training Data** admin page shows per-class feedback stats
+- **Export** generates YOLO-format dataset zip from confirmed detections
+- **Training script** (`training/train.py`) fine-tunes YOLO on exported data
+- **Model Evaluation** page compares two models side-by-side against labeled snapshots
+- **Model Promotion** updates config and triggers hot-reload
+
+### Database Columns (detection_events)
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `timestamp` | TEXT | ISO 8601 UTC |
+| `class_name` | TEXT | Detected class name |
+| `confidence` | REAL | Detection confidence (0-1) |
+| `camera_name` | TEXT | Camera name from config |
+| `snapshot_path` | TEXT | Path to clean snapshot JPEG |
+| `actions_triggered` | TEXT | JSON array of channel names |
+| `bbox` | TEXT | JSON `[x1, y1, x2, y2]` pixel coords |
+| `frame_size` | TEXT | JSON `[width, height]` of original frame |
+| `feedback` | TEXT | `correct`, `false_positive`, `wrong_class`, or NULL |
+| `corrected_class` | TEXT | Class name when feedback is `wrong_class` |
 
 ## RTSP Notes
 
