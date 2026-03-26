@@ -1,4 +1,8 @@
-"""Read-only SQLite access for detection events."""
+"""SQLite access for detection events.
+
+The detector service is the primary writer (INSERTs).  The web service writes
+only to the ``feedback`` and ``corrected_class`` columns via UPDATE.
+"""
 
 import os
 import sqlite3
@@ -18,7 +22,7 @@ def _date_to_exclusive(date_str: str) -> str:
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -55,7 +59,8 @@ def get_events(
         return conn.execute(
             f"""
             SELECT id, timestamp, class_name, confidence, camera_name,
-                   snapshot_path, actions_triggered
+                   snapshot_path, actions_triggered, bbox, frame_size,
+                   feedback, corrected_class
             FROM detection_events
             {clause}
             ORDER BY id DESC
@@ -141,3 +146,101 @@ def count_events_today() -> int:
             """
         ).fetchone()
         return row[0] if row else 0
+
+
+# ── Feedback ────────────────────────────────────────────────────────────────
+
+def update_feedback(
+    event_id: int,
+    feedback: str,
+    corrected_class: str | None = None,
+) -> bool:
+    """Set feedback on a detection event.  Returns True on success."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE detection_events
+            SET feedback = ?, corrected_class = ?
+            WHERE id = ?
+            """,
+            (feedback, corrected_class, event_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_feedback_stats(
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
+    """Aggregate feedback counts by class and feedback type.
+
+    Returns::
+
+        {
+            "total_labeled": int,
+            "total_unlabeled": int,
+            "by_class": {
+                "<class_name>": {"correct": N, "false_positive": N, "wrong_class": N}
+            },
+            "date_min": str | None,
+            "date_max": str | None,
+        }
+    """
+    where: list[str] = ["camera_name != '_system'"]
+    params: list[object] = []
+    if date_from:
+        where.append("timestamp >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("timestamp < ?")
+        params.append(_date_to_exclusive(date_to))
+
+    clause = "WHERE " + " AND ".join(where)
+
+    with _connect() as conn:
+        # Per-class feedback counts
+        rows = conn.execute(
+            f"""
+            SELECT class_name, feedback, COUNT(*) AS cnt
+            FROM detection_events
+            {clause} AND feedback IS NOT NULL
+            GROUP BY class_name, feedback
+            """,
+            params,
+        ).fetchall()
+
+        by_class: dict[str, dict[str, int]] = {}
+        total_labeled = 0
+        for r in rows:
+            cls = r["class_name"]
+            fb = r["feedback"]
+            cnt = r["cnt"]
+            total_labeled += cnt
+            if cls not in by_class:
+                by_class[cls] = {"correct": 0, "false_positive": 0, "wrong_class": 0}
+            if fb in by_class[cls]:
+                by_class[cls][fb] = cnt
+
+        # Total unlabeled
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM detection_events {clause} AND feedback IS NULL",
+            params,
+        ).fetchone()
+        total_unlabeled = row[0] if row else 0
+
+        # Date range coverage
+        row = conn.execute(
+            f"SELECT MIN(timestamp), MAX(timestamp) FROM detection_events {clause} AND feedback IS NOT NULL",
+            params,
+        ).fetchone()
+        date_min = row[0] if row else None
+        date_max = row[1] if row else None
+
+    return {
+        "total_labeled": total_labeled,
+        "total_unlabeled": total_unlabeled,
+        "by_class": by_class,
+        "date_min": date_min,
+        "date_max": date_max,
+    }

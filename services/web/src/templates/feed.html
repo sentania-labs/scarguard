@@ -4,8 +4,8 @@
 <h1>Live Feed</h1>
 
 <p class="hint">
-  Displays the latest annotated snapshot each time a detection fires.
-  Bounding boxes are drawn on the detected object.
+  Displays the latest snapshot each time a detection fires.
+  Bounding boxes are overlaid on the detected object.
 </p>
 
 <div id="feed-status" class="feed-status feed-status--connecting">
@@ -23,14 +23,15 @@
     Waiting for first detection…
     {% endif %}
   </div>
-  <div id="feed-frame" style="margin-top:0.75rem;">
+  <div id="feed-frame" style="margin-top:0.75rem;position:relative;display:inline-block;">
     {% if latest and latest.snapshot_path %}
     {% set fname = latest.snapshot_path.split("/")[-1] %}
     <img id="live-snapshot" src="/snapshots/{{ fname }}"
-         style="max-width:100%;border-radius:4px;">
+         style="max-width:100%;border-radius:4px;display:block;">
     {% else %}
     <p id="live-snapshot" class="muted">No snapshot yet.</p>
     {% endif %}
+    <div id="bbox-overlay"></div>
   </div>
 </section>
 
@@ -70,11 +71,41 @@
         if (!img || img.tagName !== "IMG") {
           img = document.createElement("img");
           img.id = "live-snapshot";
-          img.style.cssText = "max-width:100%;border-radius:4px;";
+          img.style.cssText = "max-width:100%;border-radius:4px;display:block;";
+          // Keep bbox-overlay div
+          var overlay = document.getElementById("bbox-overlay");
           frame.replaceChildren(img);
+          if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.id = "bbox-overlay";
+          }
+          frame.appendChild(overlay);
         }
         img.src = "/snapshots/" + data.snapshot_filename;
         img.alt = data.class_name + " detected";
+        // Render bbox overlay
+        var bboxDiv = document.getElementById("bbox-overlay");
+        bboxDiv.innerHTML = "";
+        if (data.bbox && data.frame_size && data.frame_size[0] > 0 && data.frame_size[1] > 0) {
+          img.onload = function() {
+            bboxDiv.innerHTML = "";
+            var pctL = (data.bbox[0] / data.frame_size[0]) * 100;
+            var pctT = (data.bbox[1] / data.frame_size[1]) * 100;
+            var pctW = ((data.bbox[2] - data.bbox[0]) / data.frame_size[0]) * 100;
+            var pctH = ((data.bbox[3] - data.bbox[1]) / data.frame_size[1]) * 100;
+            var box = document.createElement("div");
+            box.className = "snapshot-overlay__bbox";
+            box.style.left = pctL + "%";
+            box.style.top = pctT + "%";
+            box.style.width = pctW + "%";
+            box.style.height = pctH + "%";
+            var label = document.createElement("div");
+            label.className = "snapshot-overlay__label";
+            label.textContent = data.class_name.replace(/_/g," ") + " " + Math.round((data.confidence||0)*100) + "%";
+            box.appendChild(label);
+            bboxDiv.appendChild(box);
+          };
+        }
       }
       document.getElementById("feed-label").textContent = data.label;
     });

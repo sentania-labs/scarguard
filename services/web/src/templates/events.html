@@ -44,6 +44,7 @@
       <th>Camera</th>
       <th>Actions</th>
       <th>Snapshot</th>
+      <th>Feedback</th>
     </tr>
   </thead>
   <tbody id="event-table-body"
@@ -67,8 +68,50 @@
 </nav>
 {% endif %}
 
-<script>
-  // HTMX SSE extension needs to be loaded separately
-</script>
 <script src="https://unpkg.com/htmx-ext-sse@2.2.1/sse.js" defer></script>
+<script>
+// Snapshot overlay with bbox rendering
+document.addEventListener('click', function(e) {
+  var link = e.target.closest('.snapshot-link');
+  if (!link) return;
+  e.preventDefault();
+  var bbox = link.dataset.bbox ? JSON.parse(link.dataset.bbox) : null;
+  var frameSize = link.dataset.frameSize ? JSON.parse(link.dataset.frameSize) : null;
+  var src = link.querySelector('img').src;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'snapshot-overlay';
+
+  var inner = document.createElement('div');
+  inner.className = 'snapshot-overlay__inner';
+  var img = document.createElement('img');
+  img.src = src;
+  inner.appendChild(img);
+
+  img.onload = function() {
+    if (bbox && frameSize && frameSize[0] > 0 && frameSize[1] > 0) {
+      var scaleX = img.naturalWidth / frameSize[0];
+      var scaleY = img.naturalHeight / frameSize[1];
+      var x1 = bbox[0] * scaleX, y1 = bbox[1] * scaleY;
+      var x2 = bbox[2] * scaleX, y2 = bbox[3] * scaleY;
+      // Convert to percentages relative to displayed image
+      var pctL = (x1 / img.naturalWidth) * 100;
+      var pctT = (y1 / img.naturalHeight) * 100;
+      var pctW = ((x2 - x1) / img.naturalWidth) * 100;
+      var pctH = ((y2 - y1) / img.naturalHeight) * 100;
+      var box = document.createElement('div');
+      box.className = 'snapshot-overlay__bbox';
+      box.style.left = pctL + '%';
+      box.style.top = pctT + '%';
+      box.style.width = pctW + '%';
+      box.style.height = pctH + '%';
+      inner.appendChild(box);
+    }
+  };
+
+  overlay.appendChild(inner);
+  overlay.addEventListener('click', function() { overlay.remove(); });
+  document.body.appendChild(overlay);
+});
+</script>
 {% endblock %}

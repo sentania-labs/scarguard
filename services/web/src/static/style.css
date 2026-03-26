@@ -482,3 +482,90 @@ input[type="range"] {
   max-height: 0;
   opacity: 0;
 }
+
+/* ── Feedback badges ─────────────────────────────────────────────────────── */
+.badge-correct { background: rgba(62,207,142,0.18); color: var(--ok); }
+.badge-fp      { background: rgba(224,92,92,0.18);  color: var(--danger); }
+.badge-wrong   { background: rgba(245,166,35,0.18); color: var(--warn); }
+
+.event-unreviewed td:first-child {
+  border-left: 3px solid var(--border);
+}
+
+.feedback-cell { min-width: 7rem; white-space: nowrap; }
+
+.feedback-btns { display: flex; gap: 3px; }
+
+.btn-fb {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 0.8rem;
+  line-height: 26px;
+  text-align: center;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.btn-fb:hover { opacity: 1; }
+.btn-fb-correct:hover { color: var(--ok);     border-color: var(--ok); }
+.btn-fb-fp:hover      { color: var(--danger); border-color: var(--danger); }
+.btn-fb-wrong:hover   { color: var(--warn);   border-color: var(--warn); }
+
+.btn-edit-feedback {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0 0.3em;
+  text-decoration: underline;
+}
+
+.wrong-class-picker { margin-top: 4px; }
+.wrong-class-picker select {
+  width: auto;
+  min-width: 6rem;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.4rem;
+}
+
+/* ── Snapshot bbox overlay ───────────────────────────────────────────────── */
+.snapshot-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.snapshot-overlay__inner {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+.snapshot-overlay__inner img {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: block;
+  border-radius: 4px;
+}
+.snapshot-overlay__bbox {
+  position: absolute;
+  border: 2px solid #ff3333;
+  pointer-events: none;
+}
+.snapshot-overlay__label {
+  position: absolute;
+  top: -20px; left: 0;
+  background: #ff3333;
+  color: #fff;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}

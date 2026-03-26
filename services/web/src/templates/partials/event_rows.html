@@ -1,5 +1,5 @@
 {% for e in events %}
-<tr>
+<tr class="{{ '' if e.feedback else 'event-unreviewed' }}">
   <td>{{ e.display_timestamp }}</td>
   <td>{{ e.class_name.replace("_", " ").title() }}</td>
   <td>{{ "%.0f%%"|format(e.confidence * 100) }}</td>
@@ -7,17 +7,71 @@
   <td class="actions-cell">
     {% if e.actions_triggered %}
     {% for ch in e.actions_triggered %}<span class="tag">{{ ch }}</span>{% endfor %}
-    {% else %}—{% endif %}
+    {% else %}&mdash;{% endif %}
   </td>
   <td>
     {% if e.snapshot_path %}
     {% set fname = e.snapshot_path.split("/")[-1] %}
-    <a href="/snapshots/{{ fname }}" target="_blank">
+    <a href="/snapshots/{{ fname }}" target="_blank" class="snapshot-link"
+       {% if e.bbox and e.frame_size %}
+       data-bbox="{{ e.bbox | tojson }}"
+       data-frame-size="{{ e.frame_size | tojson }}"
+       {% endif %}>
       <img src="/snapshots/{{ fname }}" width="80" loading="lazy">
     </a>
-    {% else %}—{% endif %}
+    {% else %}&mdash;{% endif %}
+  </td>
+  <td class="feedback-cell">
+    {% if e.feedback == 'correct' %}
+      <span class="badge badge-correct">Correct</span>
+      <button class="btn-edit-feedback"
+              onclick="this.closest('td').querySelector('.feedback-form').style.display='block';this.style.display='none';this.previousElementSibling.style.display='none'">edit</button>
+    {% elif e.feedback == 'false_positive' %}
+      <span class="badge badge-fp">False Positive</span>
+      <button class="btn-edit-feedback"
+              onclick="this.closest('td').querySelector('.feedback-form').style.display='block';this.style.display='none';this.previousElementSibling.style.display='none'">edit</button>
+    {% elif e.feedback == 'wrong_class' %}
+      <span class="badge badge-wrong">Wrong: {{ (e.corrected_class or '?').replace("_"," ").title() }}</span>
+      <button class="btn-edit-feedback"
+              onclick="this.closest('td').querySelector('.feedback-form').style.display='block';this.style.display='none';this.previousElementSibling.style.display='none'">edit</button>
+    {% endif %}
+    <div class="feedback-form" {% if e.feedback %}style="display:none"{% endif %}>
+      <div class="feedback-btns">
+        <form method="post" style="display:inline"
+              hx-post="/events/{{ e.id }}/feedback"
+              hx-target="closest tr"
+              hx-swap="outerHTML">
+          <input type="hidden" name="feedback" value="correct">
+          <button type="submit" class="btn-fb btn-fb-correct" title="Correct detection">&#10003;</button>
+        </form>
+        <form method="post" style="display:inline"
+              hx-post="/events/{{ e.id }}/feedback"
+              hx-target="closest tr"
+              hx-swap="outerHTML">
+          <input type="hidden" name="feedback" value="false_positive">
+          <button type="submit" class="btn-fb btn-fb-fp" title="False positive">&#10007;</button>
+        </form>
+        <button type="button" class="btn-fb btn-fb-wrong" title="Wrong class"
+                onclick="this.closest('.feedback-form').querySelector('.wrong-class-picker').style.display='block'">?</button>
+      </div>
+      <div class="wrong-class-picker" style="display:none">
+        <form method="post"
+              hx-post="/events/{{ e.id }}/feedback"
+              hx-target="closest tr"
+              hx-swap="outerHTML">
+          <input type="hidden" name="feedback" value="wrong_class">
+          <select name="corrected_class" required>
+            <option value="">Select class&hellip;</option>
+            {% for cls in target_classes|default([]) %}
+            <option value="{{ cls }}">{{ cls.replace("_"," ").title() }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn-fb btn-fb-wrong">Set</button>
+        </form>
+      </div>
+    </div>
   </td>
 </tr>
 {% else %}
-<tr><td colspan="6" class="muted">No events yet.</td></tr>
+<tr><td colspan="7" class="muted">No events yet.</td></tr>
 {% endfor %}
