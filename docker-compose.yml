@@ -41,9 +41,9 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
     volumes:
-      - ${DATA_DIR}/config:/config:ro
-      - ${DATA_DIR}/models:/models:ro
-      - ${DATA_DIR}/data:/data
+      - scarguard-config:/config:ro
+      - scarguard-models:/models:ro
+      - scarguard-data:/data
     depends_on:
       redis:
         condition: service_healthy
@@ -65,10 +65,9 @@ services:
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
     volumes:
-      - ${DATA_DIR}/config:/config      # rw — config editor writes scarguard.yml
-      - ${DATA_DIR}/config/certs:/certs:ro  # SSL certificates (cert.pem + key.pem)
-      - ${DATA_DIR}/models:/models      # rw — model upload endpoint writes here
-      - ${DATA_DIR}/data:/data          # rw — reads SQLite + serves snapshots + writes auth.db
+      - scarguard-config:/config        # rw — config editor writes scarguard.yml
+      - scarguard-models:/models        # rw — model upload endpoint writes here
+      - scarguard-data:/data            # rw — reads SQLite + serves snapshots + writes auth.db
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Admin logs tab
     depends_on:
       redis:
@@ -85,9 +84,9 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       NOTIFIER_STATE_DIR: /var/lib/scarguard
     volumes:
-      - ${DATA_DIR}/config:/config:ro
-      - ${DATA_DIR}/data:/data:ro       # ro — reads snapshot files for Discord/email attachments
-      - ${DATA_DIR}/notifier:/var/lib/scarguard
+      - scarguard-config:/config:ro
+      - scarguard-data:/data:ro         # ro — reads snapshot files for Discord/email attachments
+      - scarguard-notifier:/var/lib/scarguard
     depends_on:
       redis:
         condition: service_healthy
@@ -95,3 +94,7 @@ services:
 
 volumes:
   redis-data:
+  scarguard-config:
+  scarguard-models:
+  scarguard-data:
+  scarguard-notifier:

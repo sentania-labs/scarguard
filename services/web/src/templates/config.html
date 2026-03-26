@@ -75,6 +75,7 @@
         <script id="cameras-data" type="application/json">
           {{ cameras_json | safe }}
         </script>
+        <script>window._availableModels = {{ available_models | tojson }};</script>
         <div id="cameras-list"></div>
         <button type="button" class="btn-add" onclick="addCamera()">+ Add Camera</button>
       </div>
@@ -393,12 +394,12 @@
           <div class="field-group">
             <label>Certificate path (inside container)</label>
             <input type="text" id="ssl-cert-path" value="{{ cfg.ssl.cert_path }}"
-                   placeholder="/certs/cert.pem">
+                   placeholder="/config/certs/cert.pem">
           </div>
           <div class="field-group">
             <label>Key path (inside container)</label>
             <input type="text" id="ssl-key-path" value="{{ cfg.ssl.key_path }}"
-                   placeholder="/certs/key.pem">
+                   placeholder="/config/certs/key.pem">
           </div>
         </div>
         <div class="field-group">

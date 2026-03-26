@@ -8,8 +8,8 @@ uvicorn accordingly:
   - ssl.enabled = true, https_only = true  → HTTPS only on 8443
 
 If SSL is enabled but the cert/key files are missing, falls back to HTTP with a
-warning.  Requires the cert/key to be mounted into the container at the paths
-configured in scarguard.yml (default: /certs/cert.pem, /certs/key.pem).
+warning.  Requires the cert/key to exist inside the config volume at the paths
+configured in scarguard.yml (default: /config/certs/cert.pem, /config/certs/key.pem).
 
 Optional: set ssl.keyfile_password in scarguard.yml if the private key is
 passphrase-protected.  Leave unset (or empty) for unencrypted keys.
@@ -57,8 +57,8 @@ def _normalize_ssl_cfg(ssl_cfg: dict) -> dict:
     """Return a canonical dict for comparison (strip empty password, sort keys)."""
     canonical = {
         "enabled": bool(ssl_cfg.get("enabled", False)),
-        "cert_path": ssl_cfg.get("cert_path", "/certs/cert.pem"),
-        "key_path": ssl_cfg.get("key_path", "/certs/key.pem"),
+        "cert_path": ssl_cfg.get("cert_path", "/config/certs/cert.pem"),
+        "key_path": ssl_cfg.get("key_path", "/config/certs/key.pem"),
         "https_only": bool(ssl_cfg.get("https_only", False)),
     }
     kp = ssl_cfg.get("keyfile_password")
@@ -136,8 +136,8 @@ def main() -> None:
     watcher.start()
 
     ssl_enabled: bool = bool(ssl_cfg.get("enabled", False))
-    cert_path: str = ssl_cfg.get("cert_path", "/certs/cert.pem")
-    key_path: str = ssl_cfg.get("key_path", "/certs/key.pem")
+    cert_path: str = ssl_cfg.get("cert_path", "/config/certs/cert.pem")
+    key_path: str = ssl_cfg.get("key_path", "/config/certs/key.pem")
     https_only: bool = bool(ssl_cfg.get("https_only", False))
     # Absent or empty string → None (uvicorn treats None as "no password").
     # Uses explicit string check rather than truthiness to avoid coercing

@@ -87,17 +87,29 @@ scarguard/
 - **detector:** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`runtime: nvidia` in Compose).
 - **web and notifier:** `python:3.11-slim` — no GPU needed.
 
-## Notable Volume Mounts
+## Named Volumes
 
-| Volume | Service | Purpose |
-|--------|---------|---------|
-| `${DATA_DIR}/config:/config:ro` | all | Shared `scarguard.yml` config |
-| `${DATA_DIR}/data:/data` | detector, web | SQLite DB + snapshots |
-| `${DATA_DIR}/models:/models:ro` | detector, web | YOLO model files |
-| `${DATA_DIR}/config/certs:/certs:ro` | web | TLS cert and key for HTTPS (Feature 2) |
-| `/var/run/docker.sock:/var/run/docker.sock:ro` | web | Docker log streaming for Admin Logs tab (Feature 1) |
+All application data is stored in Docker named volumes (not bind mounts). This simplifies deployment and makes the project consumable without host-path dependencies.
 
-> **Security note:** Mounting `/var/run/docker.sock` gives the web container host-root equivalent access to the Docker daemon. The Admin Logs endpoint is currently unprotected. This must be gated behind authentication (Feature 9) before the web UI is exposed beyond the local network.
+| Volume | Service(s) | Access | Purpose |
+|--------|-----------|--------|---------|
+| `scarguard-config` | all | rw (web), ro (detector, notifier) | `scarguard.yml` config + SSL certs (`certs/` subdirectory) |
+| `scarguard-data` | detector, web, notifier | rw (detector, web), ro (notifier) | SQLite DB (`scarguard.db`, `auth.db`) + snapshots |
+| `scarguard-models` | detector, web | rw (web — model upload), ro (detector) | YOLO model files (`.pt`, `.engine`) |
+| `scarguard-notifier` | notifier | rw | Notifier retry queue state |
+| `redis-data` | redis | rw | Redis persistence |
+
+Additionally, the Docker socket is bind-mounted into the web container for Admin Logs:
+
+| Bind mount | Service | Purpose |
+|------------|---------|---------|
+| `/var/run/docker.sock:/var/run/docker.sock:ro` | web | Docker log streaming for Admin Logs tab |
+
+> **Security note:** Mounting `/var/run/docker.sock` gives the web container host-root equivalent access to the Docker daemon. This is gated behind authentication (Feature 9).
+
+### Migrating from bind mounts (v0.7 and earlier)
+
+Installations that used `DATA_DIR` bind mounts can migrate to named volumes using the one-time `migrate-to-volumes.sh` script (not tracked in git — generate or download it for the upgrade).
 
 ## Container Registry
 

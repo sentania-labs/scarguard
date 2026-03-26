@@ -3,9 +3,12 @@
 Reads frames from one or more RTSP streams concurrently, runs YOLO inference,
 applies cooldown deduplication, persists events to SQLite, and publishes to Redis.
 
-Each enabled camera runs in its own thread.  The YOLODetector and EventProcessor
-are shared across threads; both are internally thread-safe.  Each camera thread
-owns its own RTSPStream and RedisPublisher connection.
+Each enabled camera runs in its own thread.  Cameras that share the same model
+share a single YOLODetector instance (managed by ModelPool), while cameras with
+different models can run inference concurrently on separate GPU locks.
+
+The EventProcessor is shared across threads and is internally thread-safe.
+Each camera thread owns its own RTSPStream and RedisPublisher connection.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import signal
 import sys
 import threading
 import time
+from dataclasses import dataclass
 
 import yaml
 from cleanup import SnapshotCleaner
@@ -23,6 +27,7 @@ from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from evaluator import EvaluationRunner
 from events import EventProcessor
+from model_pool import ModelPool
 from publisher import RedisPublisher
 from scheduler import ArmScheduler
 from stats_collector import StatsCollector
@@ -33,6 +38,19 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
 SNAPSHOT_DIR = os.environ.get("SNAPSHOT_DIR", "/data/snapshots")
 DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
+
+
+@dataclass
+class CameraState:
+    """Bookkeeping for a running camera thread."""
+
+    thread: threading.Thread
+    stop_event: threading.Event
+    zones_ref: list[list[dict]]
+    rules_ref: list[list[dict]]
+    model_path: str | None
+    target_classes: set[str] | None
+    detector: YOLODetector
 
 
 def load_config() -> dict:
@@ -83,9 +101,41 @@ def _in_exclusion_zone(
     return False
 
 
+def _resolve_known_channels(cfg: dict) -> set[str]:
+    """Collect all defined notification channel names from config."""
+    channels: set[str] = set()
+    notif = cfg.get("notifications", {})
+    for ch in notif.get("channels", []):
+        if isinstance(ch, dict) and ch.get("name"):
+            channels.add(ch["name"])
+    # Legacy flat sections count as implicit channels.
+    if notif.get("discord", {}).get("enabled"):
+        channels.add("discord")
+    if notif.get("email", {}).get("enabled"):
+        channels.add("email")
+    return channels
+
+
+def _validate_action_rules(
+    camera_name: str,
+    rules: list[dict],
+    known_channels: set[str],
+) -> None:
+    """Log warnings for action rules that reference undefined channels."""
+    for rule in rules:
+        for ch_name in rule.get("channels", []):
+            if ch_name not in known_channels:
+                logger.warning(
+                    "[%s] action_rules references unknown channel: %s",
+                    camera_name,
+                    ch_name,
+                )
+
+
 def run_camera(
     camera_cfg: dict,
     detector: YOLODetector,
+    target_classes: set[str] | None,
     event_processor: EventProcessor,
     redis_cfg: dict,
     frame_skip_ref: list[int],
@@ -111,9 +161,11 @@ def run_camera(
     stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"], stop_event=stop_event)
 
     logger.info(
-        "[%s] Camera thread starting | frame_skip=%d",
+        "[%s] Camera thread starting | frame_skip=%d | model=%s | classes=%s",
         name,
         frame_skip_ref[0],
+        detector.model_path,
+        sorted(target_classes) if target_classes else "(global)",
     )
 
     frame_count = 0
@@ -139,7 +191,7 @@ def run_camera(
             continue
 
         t0 = time.monotonic()
-        detections = detector.predict(frame)
+        detections = detector.predict(frame, target_classes=target_classes)
         infer_ms = (time.monotonic() - t0) * 1000.0
         _infer_count += 1
         _infer_total_ms += infer_ms
@@ -213,11 +265,11 @@ def main() -> None:
     armed_ref: list[bool] = [cfg.get("system", {}).get("armed", True)]
     frame_skip_ref: list[int] = [det_cfg.get("frame_skip", 2)]
 
-    # ---- Shared components -----------------------------------------------------
-    detector = YOLODetector(
-        model_path=det_cfg["model_path"],
-        confidence_threshold=det_cfg.get("confidence_threshold", 0.25),
-        target_classes=det_cfg.get("target_classes", []),
+    # ---- Model pool ------------------------------------------------------------
+    model_pool = ModelPool(
+        default_model_path=det_cfg["model_path"],
+        default_confidence=det_cfg.get("confidence_threshold", 0.25),
+        default_classes=det_cfg.get("target_classes", []),
     )
 
     event_processor = EventProcessor(
@@ -281,14 +333,48 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
+    # ---- Channel validation at startup ----------------------------------------
+    known_channels = _resolve_known_channels(cfg)
+
     # ---- Per-camera thread management -----------------------------------------
-    # Maps camera name → (thread, per-camera stop event, exclusion_zones_ref, action_rules_ref).
-    active_cameras: dict[str, tuple[threading.Thread, threading.Event, list[list[dict]], list[list[dict]]]] = {}
+    active_cameras: dict[str, CameraState] = {}
     camera_stats: dict[str, dict] = {}
     camera_stats_lock = threading.Lock()
 
-    def _start_camera(camera_cfg: dict) -> None:
+    def _start_camera(camera_cfg: dict) -> bool:
+        """Start a camera thread. Returns False if the camera was skipped."""
         name = camera_cfg["name"]
+
+        # Resolve per-camera model (None → global default via pool).
+        cam_model_path: str | None = camera_cfg.get("model_path") or None
+        effective_model = cam_model_path or det_cfg["model_path"]
+
+        # Validate model exists on disk.
+        if not ModelPool.validate_model_exists(effective_model):
+            logger.error(
+                "[%s] Model %s not found — skipping camera",
+                name,
+                effective_model,
+            )
+            return False
+
+        # Validate action rule channel references.
+        _validate_action_rules(
+            name,
+            camera_cfg.get("action_rules", []),
+            known_channels,
+        )
+
+        # Resolve per-camera target classes (None → use model/global default).
+        cam_classes_raw: list[str] | None = camera_cfg.get("detect_classes")
+        cam_classes: set[str] | None = set(cam_classes_raw) if cam_classes_raw is not None else None
+
+        try:
+            cam_detector = model_pool.get_detector(cam_model_path)
+        except Exception:
+            logger.error("[%s] Failed to load model %s — skipping camera", name, effective_model)
+            return False
+
         cam_stop = threading.Event()
         zones_ref: list[list[dict]] = [list(camera_cfg.get("exclusion_zones", []))]
         rules_ref: list[list[dict]] = [list(camera_cfg.get("action_rules", []))]
@@ -296,7 +382,8 @@ def main() -> None:
             target=run_camera,
             args=(
                 camera_cfg,
-                detector,
+                cam_detector,
+                cam_classes,
                 event_processor,
                 redis_cfg,
                 frame_skip_ref,
@@ -311,15 +398,25 @@ def main() -> None:
             daemon=True,
         )
         t.start()
-        active_cameras[name] = (t, cam_stop, zones_ref, rules_ref)
+        active_cameras[name] = CameraState(
+            thread=t,
+            stop_event=cam_stop,
+            zones_ref=zones_ref,
+            rules_ref=rules_ref,
+            model_path=cam_model_path,
+            target_classes=cam_classes,
+            detector=cam_detector,
+        )
         logger.info("[%s] Camera thread started", name)
+        return True
 
     def _stop_camera(name: str) -> None:
         if name not in active_cameras:
             return
-        t, cam_stop, _, __ = active_cameras.pop(name)
-        cam_stop.set()
-        t.join(timeout=5)
+        state = active_cameras.pop(name)
+        state.stop_event.set()
+        state.thread.join(timeout=5)
+        model_pool.release(state.model_path)
         with camera_stats_lock:
             camera_stats.pop(name, None)
         logger.info("[%s] Camera thread stopped", name)
@@ -327,10 +424,11 @@ def main() -> None:
     for camera_cfg in cameras:
         _start_camera(camera_cfg)
 
+    started = list(active_cameras.keys())
     logger.info(
         "Monitoring %d camera(s): %s | armed=%s | cooldown=%ds",
-        len(cameras),
-        ", ".join(c["name"] for c in cameras),
+        len(started),
+        ", ".join(started),
         armed_ref[0],
         det_cfg.get("cooldown_seconds", 30),
     )
@@ -356,6 +454,7 @@ def main() -> None:
 
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:
+        nonlocal known_channels
         new_sys = new_cfg.get("system", {})
         new_det = new_cfg.get("detection", {})
         new_cameras_list: list[dict] = [
@@ -372,16 +471,28 @@ def main() -> None:
             armed_ref[0] = new_armed
             changes.append(f"armed={new_armed}")
 
-        # detection params (read by camera threads on each inference call)
-        new_conf = new_det.get("confidence_threshold", 0.25)
-        if new_conf != detector.confidence_threshold:
-            detector.confidence_threshold = new_conf
-            changes.append(f"confidence_threshold={new_conf}")
+        # Update global defaults in the model pool (confidence and target_classes
+        # propagate to all loaded detectors for immediate effect).
+        new_global_classes = new_det.get("target_classes", [])
+        old_global_classes = model_pool._default_classes  # snapshot before update
+        model_pool.update_defaults(
+            new_det.get("model_path", det_cfg["model_path"]),
+            new_det.get("confidence_threshold", 0.25),
+            new_global_classes,
+        )
 
-        new_classes = set(new_det.get("target_classes", []))
-        if new_classes != detector.target_classes:
-            detector.target_classes = new_classes
-            changes.append(f"target_classes={sorted(new_classes)}")
+        # If global classes changed, restart cameras that rely on the global
+        # default (target_classes is None) so they pick up the new filter.
+        if set(new_global_classes) != set(old_global_classes):
+            for cam_name, state in list(active_cameras.items()):
+                if state.target_classes is None and cam_name in new_camera_names:
+                    cam_cfg_match = next(
+                        (c for c in new_cameras_list if c["name"] == cam_name), None
+                    )
+                    if cam_cfg_match:
+                        _stop_camera(cam_name)
+                        if _start_camera(cam_cfg_match):
+                            changes.append(f"global classes updated: {cam_name}")
 
         new_cooldown = new_det.get("cooldown_seconds", 30)
         if new_cooldown != event_processor.cooldown_seconds:
@@ -393,25 +504,46 @@ def main() -> None:
             frame_skip_ref[0] = new_frame_skip
             changes.append(f"frame_skip={new_frame_skip}")
 
-        # cameras added / exclusion zones updated
+        # Refresh known channels for validation.
+        known_channels = _resolve_known_channels(new_cfg)
+
+        # cameras added / updated
         for cam_cfg in new_cameras_list:
             cam_name = cam_cfg["name"]
             if cam_name not in old_camera_names:
-                _start_camera(cam_cfg)
-                changes.append(f"camera added: {cam_name}")
+                if _start_camera(cam_cfg):
+                    changes.append(f"camera added: {cam_name}")
+                else:
+                    changes.append(f"camera skipped (bad model): {cam_name}")
             else:
-                # Hot-reload exclusion zones and action rules for running cameras.
-                # list-item assignment is atomic under CPython's GIL (same pattern
-                # as armed_ref and frame_skip_ref).
-                _, _, zones_ref, rules_ref = active_cameras[cam_name]
-                new_zones = list(cam_cfg.get("exclusion_zones", []))
-                if new_zones != zones_ref[0]:
-                    zones_ref[0] = new_zones
-                    changes.append(f"exclusion_zones updated: {cam_name}")
-                new_rules = list(cam_cfg.get("action_rules", []))
-                if new_rules != rules_ref[0]:
-                    rules_ref[0] = new_rules
-                    changes.append(f"action_rules updated: {cam_name}")
+                state = active_cameras[cam_name]
+
+                # Resolve new per-camera model/classes.
+                new_model = cam_cfg.get("model_path") or None
+                new_classes_raw = cam_cfg.get("detect_classes")
+                new_classes = set(new_classes_raw) if new_classes_raw is not None else None
+
+                # If model or classes changed, restart the camera thread so it
+                # picks up the new detector / class filter.
+                if new_model != state.model_path or new_classes != state.target_classes:
+                    _stop_camera(cam_name)
+                    if _start_camera(cam_cfg):
+                        changes.append(f"model/classes updated: {cam_name}")
+                    else:
+                        changes.append(f"camera skipped after update (bad model): {cam_name}")
+                else:
+                    # Hot-reload exclusion zones and action rules for running cameras.
+                    # list-item assignment is atomic under CPython's GIL (same pattern
+                    # as armed_ref and frame_skip_ref).
+                    new_zones = list(cam_cfg.get("exclusion_zones", []))
+                    if new_zones != state.zones_ref[0]:
+                        state.zones_ref[0] = new_zones
+                        changes.append(f"exclusion_zones updated: {cam_name}")
+                    new_rules = list(cam_cfg.get("action_rules", []))
+                    if new_rules != state.rules_ref[0]:
+                        _validate_action_rules(cam_name, new_rules, known_channels)
+                        state.rules_ref[0] = new_rules
+                        changes.append(f"action_rules updated: {cam_name}")
 
         # cameras removed or disabled
         for name in old_camera_names - new_camera_names:

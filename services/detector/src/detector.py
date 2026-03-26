@@ -39,11 +39,18 @@ class YOLODetector:
         self._model = YOLO(self.model_path)
         logger.info("Model ready (classes: %s)", sorted(self.target_classes))
 
-    def predict(self, frame: np.ndarray) -> list[Detection]:
+    def predict(
+        self,
+        frame: np.ndarray,
+        target_classes: set[str] | None = None,
+    ) -> list[Detection]:
         """Run inference and return detections that pass class + confidence filters.
 
         Thread-safe: acquires a lock so multiple camera threads share one GPU
         without concurrent model calls.
+
+        If *target_classes* is provided it overrides the instance-level filter,
+        allowing cameras that share a model to detect different class subsets.
         """
         with self._lock:
             results = self._model.predict(
@@ -52,11 +59,12 @@ class YOLODetector:
                 verbose=False,
             )
 
+        classes = target_classes if target_classes is not None else self.target_classes
         detections: list[Detection] = []
         for result in results:
             for box in result.boxes:
                 class_name: str = result.names[int(box.cls)]
-                if self.target_classes and class_name not in self.target_classes:
+                if classes and class_name not in classes:
                     continue
                 confidence = float(box.conf)
                 x1, y1, x2, y2 = (int(v) for v in box.xyxy[0])

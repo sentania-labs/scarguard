@@ -210,8 +210,8 @@ async def save_structured_config(request: Request) -> JSONResponse:
     def _normalize(raw: dict) -> dict:
         return {
             "enabled": bool(raw.get("enabled", False)),
-            "cert_path": raw.get("cert_path", "/certs/cert.pem"),
-            "key_path": raw.get("key_path", "/certs/key.pem"),
+            "cert_path": raw.get("cert_path", "/config/certs/cert.pem"),
+            "key_path": raw.get("key_path", "/config/certs/key.pem"),
             "https_only": bool(raw.get("https_only", False)),
             "keyfile_password": raw.get("keyfile_password", ""),
         }

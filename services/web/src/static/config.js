@@ -63,6 +63,22 @@ function readActionRules(card) {
   }));
 }
 
+function _buildModelSelect(currentPath) {
+  const models = window._availableModels || [];
+  if (!models.length) {
+    return `<input type="text" class="cam-model-path" value="${_esc(currentPath || "")}" placeholder="(Use global model)">`;
+  }
+  const opts = ['<option value="">(Use global model)</option>']
+    .concat(models.map(m =>
+      `<option value="${_esc(m)}" ${currentPath === m ? "selected" : ""}>${_esc(m)}</option>`
+    ));
+  // If the current value is set but not in the model list, add it as an option
+  if (currentPath && !models.includes(currentPath)) {
+    opts.push(`<option value="${_esc(currentPath)}" selected>${_esc(currentPath)} (missing)</option>`);
+  }
+  return `<select class="cam-model-path">${opts.join("")}</select>`;
+}
+
 function buildCameraCard(cam) {
   const idx = cameraIndex++;
   const enabled = cam.enabled !== false;
@@ -92,6 +108,25 @@ function buildCameraCard(cam) {
       <label>RTSP URL</label>
       <input type="text" class="cam-rtsp" value="${_esc(cam.rtsp_url || "")}" placeholder="rtsp:// or rtsps://192.168.1.1:7447/TOKEN">
     </div>
+    <details style="margin-top:0.75rem;">
+      <summary style="cursor:pointer;font-weight:500;">Per-Camera Model & Classes</summary>
+      <div style="margin-top:0.5rem;">
+        <p class="hint">
+          Override the global detection model and/or target classes for this camera.
+          Leave blank to use the global settings from the Detection section.
+        </p>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Model (blank = global)</label>
+            ${_buildModelSelect(cam.model_path)}
+          </div>
+          <div class="field-group">
+            <label>Detect classes (comma-separated, blank = global)</label>
+            <input type="text" class="cam-detect-classes" value="${_esc((cam.detect_classes || []).join(", "))}" placeholder="e.g. great_blue_heron, green_heron">
+          </div>
+        </div>
+      </div>
+    </details>
     <label class="toggle-label">
       <input type="checkbox" class="cam-enabled" ${enabled ? "checked" : ""}>
       <span class="toggle-track"></span>
@@ -144,14 +179,24 @@ function removeCamera(btn) {
 }
 
 function readCameras() {
-  return Array.from(document.querySelectorAll("#cameras-list .camera-card")).map(card => ({
-    name: card.querySelector(".cam-name").value.trim(),
-    rtsp_url: card.querySelector(".cam-rtsp").value.trim(),
-    enabled: card.querySelector(".cam-enabled").checked,
-    resolution: parseInt(card.querySelector(".cam-resolution").value, 10) || 720,
-    exclusion_zones: readZones(card),
-    action_rules: readActionRules(card),
-  }));
+  return Array.from(document.querySelectorAll("#cameras-list .camera-card")).map(card => {
+    const modelPath = card.querySelector(".cam-model-path").value.trim() || null;
+    const detectClassesRaw = card.querySelector(".cam-detect-classes").value.trim();
+    const detectClasses = detectClassesRaw
+      ? detectClassesRaw.split(",").map(s => s.trim()).filter(Boolean)
+      : null;
+    const cam = {
+      name: card.querySelector(".cam-name").value.trim(),
+      rtsp_url: card.querySelector(".cam-rtsp").value.trim(),
+      enabled: card.querySelector(".cam-enabled").checked,
+      resolution: parseInt(card.querySelector(".cam-resolution").value, 10) || 720,
+      exclusion_zones: readZones(card),
+      action_rules: readActionRules(card),
+    };
+    if (modelPath) cam.model_path = modelPath;
+    if (detectClasses) cam.detect_classes = detectClasses;
+    return cam;
+  });
 }
 
 function readZones(card) {

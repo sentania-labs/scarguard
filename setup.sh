@@ -135,26 +135,11 @@ step "Setting up environment (.env)"
 
 if [[ -f ".env" ]]; then
     info ".env already exists — loading."
-    # Source it to pick up any previously set values.
     set -a
     # shellcheck disable=SC1091
     source .env
     set +a
-    if [[ -z "${DATA_DIR:-}" ]]; then
-        error "DATA_DIR is not set in .env. Delete .env and re-run setup.sh."
-        exit 1
-    fi
-    info "DATA_DIR=${DATA_DIR}"
 else
-    # Prompt for DATA_DIR
-    echo
-    echo "  ScarGuard stores config, models, snapshots, and the database outside"
-    echo "  the repo so that git pull never clobbers your settings."
-    echo
-    ask "Data directory? (Enter for default /var/docker/scarguard): "
-    read -r DATA_DIR_INPUT </dev/tty
-    DATA_DIR="${DATA_DIR_INPUT:-/var/docker/scarguard}"
-
     # Prompt for web port
     ask "Web UI port? (press Enter for default 8080): "
     read -r WEB_PORT_INPUT </dev/tty
@@ -169,100 +154,109 @@ else
     fi
 
     cp .env.example .env
-    sed -i "s|^DATA_DIR=.*|DATA_DIR=${DATA_DIR}|" .env
     if [[ "$WEB_PORT_VALUE" != "8080" ]]; then
         sed -i "s/^WEB_PORT=.*/WEB_PORT=${WEB_PORT_VALUE}/" .env
     fi
 
-    info "Created .env (DATA_DIR=${DATA_DIR}, WEB_PORT=${WEB_PORT_VALUE})"
+    info "Created .env (WEB_PORT=${WEB_PORT_VALUE})"
 fi
 
 # Read WEB_PORT for use in the final message
 WEB_PORT_FINAL=$(grep -E '^WEB_PORT=' .env | cut -d= -f2 || echo "8080")
 
-# ── Step 5: Create config/scarguard.yml ───────────────────────────────────────
-step "Setting up configuration"
+# ── Step 5: Initialize config volume ─────────────────────────────────────────
+step "Setting up configuration (named volume: scarguard-config)"
 
-mkdir -p "${DATA_DIR}/config"
+CONFIG_IS_NEW=false
 
-if [[ -f "${DATA_DIR}/config/scarguard.yml" ]]; then
-    info "${DATA_DIR}/config/scarguard.yml already exists — skipping."
-    CONFIG_IS_NEW=false
+# Check whether scarguard.yml already exists in the config volume.
+if docker run --rm -v scarguard-config:/config alpine:3.20 test -f /config/scarguard.yml 2>/dev/null; then
+    info "scarguard.yml already exists in config volume — skipping."
 else
-    cp config/scarguard.example.yml "${DATA_DIR}/config/scarguard.yml"
-    info "Created ${DATA_DIR}/config/scarguard.yml from example."
+    docker run --rm \
+        -v scarguard-config:/config \
+        -v "${REPO_ROOT}/config:/src:ro" \
+        alpine:3.20 sh -c 'cp /src/scarguard.example.yml /config/scarguard.yml && mkdir -p /config/certs'
+    info "Created scarguard.yml in config volume from example."
     CONFIG_IS_NEW=true
 fi
 
-# ── Step 6: Create data and models directories ────────────────────────────────
-step "Creating directories"
+# Ensure certs subdirectory exists in the config volume.
+docker run --rm -v scarguard-config:/config alpine:3.20 mkdir -p /config/certs 2>/dev/null || true
 
-mkdir -p "${DATA_DIR}/data/snapshots"
-info "${DATA_DIR}/data/snapshots/ ready"
+# ── Step 6: Ensure data volume directories ───────────────────────────────────
+step "Preparing data volume (named volume: scarguard-data)"
 
-mkdir -p "${DATA_DIR}/models"
-info "${DATA_DIR}/models/ ready"
+docker run --rm -v scarguard-data:/data alpine:3.20 mkdir -p /data/snapshots
+info "scarguard-data volume ready (snapshots directory created)"
 
 # ── Step 7: SSL certificate setup ────────────────────────────────────────────
 step "Setting up SSL certificate"
 
-CERT_DIR="${DATA_DIR}/config/certs"
-CERT_FILE="${CERT_DIR}/cert.pem"
-KEY_FILE="${CERT_DIR}/key.pem"
+# Check if cert already exists in config volume.
+CERT_EXISTS=false
+if docker run --rm -v scarguard-config:/config alpine:3.20 \
+    test -f /config/certs/cert.pem -a -f /config/certs/key.pem 2>/dev/null; then
+    CERT_EXISTS=true
+fi
 
-mkdir -p "${CERT_DIR}"
-
-if [[ -f "${CERT_FILE}" && -f "${KEY_FILE}" ]]; then
-    info "SSL certificate already exists — skipping generation."
-    info "  cert: ${CERT_FILE}"
-    info "  key:  ${KEY_FILE}"
+if [[ "$CERT_EXISTS" == "true" ]]; then
+    info "SSL certificate already exists in config volume — skipping generation."
 elif command -v openssl &>/dev/null; then
     echo "  ScarGuard can serve the web UI over HTTPS (port 8443)."
     echo "  A self-signed certificate will be generated now.  You can replace it"
-    echo "  with your own cert/key at any time by dropping cert.pem and key.pem into:"
-    echo "    ${CERT_DIR}/"
-    echo "  Then set ssl.enabled: true in scarguard.yml and restart the stack."
+    echo "  with your own cert/key at any time by uploading via the web UI or"
+    echo "  copying files into the config volume's certs/ directory."
+    echo "  Then set ssl.enabled: true in the web UI config editor and the"
+    echo "  web service will restart automatically."
     echo
     if confirm "Generate a self-signed SSL certificate?" "y"; then
+        # Generate cert locally then copy into the config volume.
+        _tmp_dir=$(mktemp -d)
         _ssl_log=$(mktemp)
         if openssl req -x509 -newkey rsa:4096 \
-            -keyout "${KEY_FILE}" \
-            -out "${CERT_FILE}" \
+            -keyout "${_tmp_dir}/key.pem" \
+            -out "${_tmp_dir}/cert.pem" \
             -days 3650 -nodes \
             -subj "/CN=scarguard" 2>"${_ssl_log}"; then
             rm -f "${_ssl_log}"
-            chmod 600 "${KEY_FILE}"
-            info "Self-signed certificate generated (valid 10 years)."
-            info "  cert: ${CERT_FILE}"
-            info "  key:  ${KEY_FILE}"
-            warn "To enable HTTPS: set ssl.enabled: true in scarguard.yml (or use the web UI Settings page)."
+            chmod 600 "${_tmp_dir}/key.pem"
+            docker run --rm \
+                -v scarguard-config:/config \
+                -v "${_tmp_dir}:/src:ro" \
+                alpine:3.20 sh -c 'cp /src/cert.pem /config/certs/cert.pem && cp /src/key.pem /config/certs/key.pem && chmod 600 /config/certs/key.pem'
+            rm -rf "${_tmp_dir}"
+            info "Self-signed certificate generated (valid 10 years) and stored in config volume."
+            warn "To enable HTTPS: set ssl.enabled: true in the web UI config editor."
             warn "The web service restarts automatically when SSL settings change."
         else
             error "Certificate generation failed. openssl output:"
             cat "${_ssl_log}" >&2
-            rm -f "${_ssl_log}"
+            rm -f "${_ssl_log}" && rm -rf "${_tmp_dir}"
         fi
     else
         warn "Skipping SSL certificate generation."
-        warn "To generate later:  openssl req -x509 -newkey rsa:4096 -keyout ${KEY_FILE} -out ${CERT_FILE} -days 3650 -nodes -subj '/CN=scarguard'"
+        warn "Generate later or upload via the web UI."
     fi
 else
     warn "openssl not found — skipping SSL certificate generation."
-    warn "Install openssl and re-run setup.sh, or provide your own cert/key."
+    warn "Install openssl and re-run setup.sh, or upload certs via the web UI."
 fi
 
 # ── Step 8: Model check / starter model download ──────────────────────────────
 step "Checking for YOLO model"
 
-MODEL_FILES=$(find "${DATA_DIR}/models/" -maxdepth 1 \( -name "*.pt" -o -name "*.engine" \) 2>/dev/null | head -5)
+# Check for model files in the models volume.
+MODEL_FILES=$(docker run --rm -v scarguard-models:/models alpine:3.20 sh -c \
+    'ls /models/*.pt /models/*.engine 2>/dev/null || true')
 
 if [[ -n "$MODEL_FILES" ]]; then
-    info "Model file(s) found in models/:"
+    info "Model file(s) found in models volume:"
     while IFS= read -r f; do
         info "  $(basename "$f")"
     done <<< "$MODEL_FILES"
 else
-    warn "No model file found in models/."
+    warn "No model file found in models volume."
     echo
     echo "  ScarGuard needs a YOLO model to detect wildlife."
     echo
@@ -273,53 +267,47 @@ else
     echo "    Good for verifying the pipeline works before training a custom model."
     echo
     echo "  Option B — Custom model:"
-    echo "    Train your own YOLO model on heron/wildlife images and place the"
-    echo "    .pt or .engine file in the models/ directory, then update"
-    echo "    config/scarguard.yml → detection.model_path."
-    echo "    See: https://docs.ultralytics.com/modes/train/"
+    echo "    Upload your own YOLO model via the web UI Models page after setup."
     echo
+
 
     if confirm "Download the starter model (yolov8n.pt) now?" "y"; then
         STARTER_URL="https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt"
-        STARTER_PATH="${DATA_DIR}/models/yolov8n.pt"
+        STARTER_DOWNLOADED=false
 
+        _tmp_model=$(mktemp)
         if command -v curl &>/dev/null; then
             echo "  Downloading yolov8n.pt..."
-            if curl -fL --progress-bar "$STARTER_URL" -o "$STARTER_PATH"; then
-                info "Downloaded: models/yolov8n.pt"
+            if curl -fL --progress-bar "$STARTER_URL" -o "$_tmp_model"; then
                 STARTER_DOWNLOADED=true
-            else
-                error "Download failed. Check your internet connection and try again."
-                warn "You can download manually:"
-                warn "  curl -L $STARTER_URL -o models/yolov8n.pt"
-                STARTER_DOWNLOADED=false
             fi
         elif command -v wget &>/dev/null; then
             echo "  Downloading yolov8n.pt..."
-            if wget -q --show-progress "$STARTER_URL" -O "$STARTER_PATH"; then
-                info "Downloaded: models/yolov8n.pt"
+            if wget -q --show-progress "$STARTER_URL" -O "$_tmp_model"; then
                 STARTER_DOWNLOADED=true
-            else
-                error "Download failed. Check your internet connection and try again."
-                warn "You can download manually:"
-                warn "  wget $STARTER_URL -O models/yolov8n.pt"
-                STARTER_DOWNLOADED=false
             fi
         else
-            error "Neither curl nor wget is available. Download the starter model manually:"
-            warn "  curl -L $STARTER_URL -o models/yolov8n.pt"
-            STARTER_DOWNLOADED=false
+            error "Neither curl nor wget is available. Download the starter model manually"
+            error "and upload it via the web UI Models page."
         fi
 
-        # If the config was just created and the starter model downloaded,
-        # update the model_path and target_classes to match yolov8n.
-        if [[ "$STARTER_DOWNLOADED" == "true" && "$CONFIG_IS_NEW" == "true" ]]; then
-            # The example config already uses yolov8n.pt and [bird] — no changes needed.
-            info "config/scarguard.yml is pre-configured for the starter model."
+        if [[ "$STARTER_DOWNLOADED" == "true" ]]; then
+            docker run --rm \
+                -v scarguard-models:/models \
+                -v "${_tmp_model}:/src/yolov8n.pt:ro" \
+                alpine:3.20 cp /src/yolov8n.pt /models/yolov8n.pt
+            info "Downloaded: yolov8n.pt (stored in models volume)"
+            if [[ "$CONFIG_IS_NEW" == "true" ]]; then
+                info "config/scarguard.yml is pre-configured for the starter model."
+            fi
+        else
+            warn "Download failed. Check your internet connection."
+            warn "You can upload a model via the web UI Models page after setup."
         fi
+        rm -f "$_tmp_model"
     else
         warn "Skipping starter model download."
-        warn "Add your model to models/ and update config/scarguard.yml before starting."
+        warn "Upload your model via the web UI Models page before starting."
     fi
 fi
 
@@ -384,10 +372,9 @@ else
             warn "Password must be at least 8 characters."
         done
 
-        mkdir -p "${DATA_DIR}/data"
         if docker run --rm \
                 -e AUTH_DB_PATH=/data/auth.db \
-                -v "${DATA_DIR}/data:/data" \
+                -v scarguard-data:/data \
                 "$WEB_IMAGE" \
                 python /app/src/auth.py create-admin "$ADMIN_USER" "$ADMIN_PASS"; then
             info "Admin account '${ADMIN_USER}' created."
@@ -408,20 +395,15 @@ echo
 
 echo "${BOLD}Next steps:${RESET}"
 echo
-echo "  1. ${BOLD}Edit your configuration:${RESET}"
-echo "       nano ${DATA_DIR}/config/scarguard.yml"
-echo
-echo "     Key settings to update:"
-echo "       - cameras[*].rtsp_url   → Your UniFi Protect RTSP stream URLs"
-echo "       - notifications.discord → Enable and add your webhook URL"
-echo "       - detection.model_path  → Path to your model (already set if you"
-echo "                                 downloaded the starter model)"
+echo "  1. ${BOLD}Configure your cameras:${RESET}"
+echo "       Start the stack and use the web UI config editor to set your RTSP URLs."
+echo "       Or edit the config directly via a temporary container:"
+echo "         docker run --rm -it -v scarguard-config:/config alpine:3.20 vi /config/scarguard.yml"
 echo
 
 if [[ -z "$MODEL_FILES" ]]; then
     echo "  2. ${BOLD}Add a YOLO model${RESET} (if you skipped the starter download):"
-    echo "       Copy your .pt or .engine file to ${DATA_DIR}/models/"
-    echo "       Then update detection.model_path in ${DATA_DIR}/config/scarguard.yml"
+    echo "       Upload via the web UI Models page after starting the stack."
     echo
     echo "  3. ${BOLD}Start ScarGuard:${RESET}"
 else
@@ -430,6 +412,7 @@ fi
 
 echo "       docker compose up -d"
 echo
+
 echo "  $([[ -z "$MODEL_FILES" ]] && echo 4 || echo 3). ${BOLD}Open the web UI:${RESET}"
 
 # Determine likely IP for the Orin
@@ -445,7 +428,7 @@ if [[ "$NVIDIA_OK" == "false" ]]; then
 fi
 
 if [[ "$CONFIG_IS_NEW" == "true" ]]; then
-    echo "${YELLOW}Important:${RESET} ${DATA_DIR}/config/scarguard.yml was created from the example."
+    echo "${YELLOW}Important:${RESET} scarguard.yml was created from the example in the config volume."
     echo "  Update your RTSP camera URLs before starting — the system will not"
     echo "  detect anything until real camera streams are configured."
     echo
