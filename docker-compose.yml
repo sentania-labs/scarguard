@@ -94,7 +94,12 @@ services:
 
 volumes:
   redis-data:
+    name: scarguard-redis-data
   scarguard-config:
+    name: scarguard-config
   scarguard-models:
+    name: scarguard-models
   scarguard-data:
+    name: scarguard-data
   scarguard-notifier:
+    name: scarguard-notifier
