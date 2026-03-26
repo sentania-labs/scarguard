@@ -233,7 +233,7 @@ async def start_evaluation(
     try:
         await client.publish(EVAL_REQUEST_CHANNEL, json.dumps(eval_request))
     finally:
-        await client.aclose()  # type: ignore[attr-defined]
+        await client.aclose()  # type: ignore[attr-defined,unused-ignore]
 
     return HTMLResponse(
         '<div class="alert alert-ok">Evaluation started. Results will appear below.</div>'
