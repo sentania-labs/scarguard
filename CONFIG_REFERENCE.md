@@ -87,7 +87,7 @@ notifications:
     to_addresses: []
     include_snapshot: true
   webhooks:
-    - name: valve-controller
+    - name: deterrent-webhook          # points to a downstream system (e.g. Scar's Revenge)
       enabled: false
       url: "http://192.168.1.x/api/fire"
       method: POST
@@ -149,11 +149,13 @@ Labeled events power the training pipeline:
 
 ## RTSP Notes
 
+ScarGuard works with any camera that provides an RTSP stream. The notes below reflect the reference setup (UniFi cameras on a UDM).
+
 - UniFi Protect RTSP must be enabled per-camera in Protect UI on the UDM
-- RTSP URL format: `rtsp://172.16.0.1:7447/<stream_token>`
-- Use 720p substream for inference — 4K wastes GPU cycles
+- RTSP URL format varies by vendor — UniFi example: `rtsp://172.16.0.1:7447/<stream_token>`
+- Use a 720p substream for inference where available — 4K wastes GPU cycles
 - OpenCV `VideoCapture` handles RTSP natively; set `cv2.CAP_PROP_BUFFERSIZE` to 1 to reduce frame lag
-- Camera models: G3 Flex and G5 Flex (G3 may be replaced with another G5)
+- Reference cameras: UniFi G3 Flex and G5 Flex
 
 ## Arm/Disarm Modes
 

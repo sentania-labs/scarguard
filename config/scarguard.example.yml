@@ -7,7 +7,7 @@
 
 # ── System ────────────────────────────────────────────────────────────────────
 system:
-  # When armed, detections trigger notifications (and future valve actuation).
+  # When armed, detections trigger notifications.
   # Toggle this from the web UI dashboard without restarting services.
   armed: true
 
@@ -227,13 +227,8 @@ redis:
   #     # auth_token: "Bearer …"   # optional
 
 
-# ── Future: Valve Actuation ────────────────────────────────────────────────────
-# Uncomment and configure after setting up the ESP32 valve controller.
-# valves:
-#   mqtt_broker: "192.168.1.x"
-#   mqtt_topic_prefix: "scarguard/valve"
-#   spray_duration_min_sec: 3
-#   spray_duration_max_sec: 8
-#   valve_count: 4
-#   randomize: true
-#   cooldown_seconds: 60
+# ── Future: Physical Deterrence ───────────────────────────────────────────────
+# Physical deterrence (valve actuation, relays) is planned as a separate
+# companion project: "Scar's Revenge". It will receive webhook notifications
+# from ScarGuard and control the hardware. Configure a webhook channel above
+# to send detection events to the Scar's Revenge API endpoint.

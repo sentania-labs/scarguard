@@ -35,7 +35,7 @@ python train.py \
     --batch 8 \
     --patience 30 \
     --device 0 \
-    --output /var/docker/scarguard/models/heron_v1.pt
+    --output heron_v1.pt
 
 # Force training even with < 500 images per class
 python train.py --data my_dataset/dataset/data.yaml --force --output heron_v1.pt
@@ -85,7 +85,7 @@ dataset/
 
 Training produces a `.pt` file. To use it:
 
-1. Copy the `.pt` file to your ScarGuard models directory (e.g., `/var/docker/scarguard/models/`)
+1. Upload the `.pt` file via the web UI Models page, or copy it into the `scarguard-models` Docker volume
 2. Update `detection.model_path` in `scarguard.yml` to point to the new model, or select it via the web UI Config page
 3. The detector service will hot-reload the new model without a restart
 
