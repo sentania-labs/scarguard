@@ -63,12 +63,13 @@
               hx-target="closest tr"
               hx-swap="outerHTML">
           <input type="hidden" name="feedback" value="wrong_class">
-          <select name="corrected_class" required>
-            <option value="">Select class&hellip;</option>
+          <input type="text" name="corrected_class" list="class-options-{{ e.id }}"
+                 placeholder="Select or type class&hellip;" required pattern="\S.*">
+          <datalist id="class-options-{{ e.id }}">
             {% for cls in target_classes|default([]) %}
             <option value="{{ cls }}">{{ cls.replace("_"," ").title() }}</option>
             {% endfor %}
-          </select>
+          </datalist>
           <button type="submit" class="btn-fb btn-fb-wrong">Set</button>
         </form>
       </div>
