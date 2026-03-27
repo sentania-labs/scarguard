@@ -1,5 +1,8 @@
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
 
 from detector import Detection
 from events import EventProcessor
@@ -19,9 +22,9 @@ def test_persist_multiple_sequential_inserts(tmp_path):
     )
     det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
 
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None)
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None)
-    processor._persist(datetime.now(timezone.utc), det, "cam-b", None)
+    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    processor._persist(datetime.now(timezone.utc), det, "cam-b", None, None)
     processor.close()
 
     assert _count_rows(str(db_path)) == 3
@@ -39,16 +42,16 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
     original_insert = processor._insert_event
     state = {"fail_once": True}
 
-    def flaky_insert(timestamp, det_arg, camera_name, snapshot_path):
+    def flaky_insert(timestamp, det_arg, camera_name, snapshot_path, actions_triggered, frame_size=None):
         if state["fail_once"]:
             state["fail_once"] = False
             raise sqlite3.OperationalError("simulated insert failure")
-        return original_insert(timestamp, det_arg, camera_name, snapshot_path)
+        return original_insert(timestamp, det_arg, camera_name, snapshot_path, actions_triggered, frame_size)
 
     monkeypatch.setattr(processor, "_insert_event", flaky_insert)
 
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None)
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None)
+    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
     processor.close()
 
     # First insert fails and triggers a connection reset; second insert succeeds.
@@ -74,5 +77,82 @@ def test_persist_swallows_reset_connection_errors(monkeypatch, tmp_path):
     monkeypatch.setattr(processor, "_reset_connection_locked", fail_reset)
 
     # _persist should never raise, even if recovery fails.
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None)
+    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
     processor.close()
+
+
+# ------------------------------------------------------------------
+# Action rule filtering tests
+# ------------------------------------------------------------------
+
+def _make_processor(tmp_path: Path) -> EventProcessor:
+    return EventProcessor(
+        cooldown_seconds=0,
+        snapshot_dir=str(tmp_path / "snapshots"),
+        db_path=str(tmp_path / "events.db"),
+    )
+
+
+def _dummy_frame() -> np.ndarray:
+    return np.zeros((100, 100, 3), dtype=np.uint8)
+
+
+def test_process_no_rules_notifies_all(tmp_path):
+    """actions_by_class=None (no rules) → events published with actions_triggered=[]."""
+    processor = _make_processor(tmp_path)
+    det = Detection(class_name="heron", confidence=0.9, bbox=(10, 10, 50, 50))
+    events = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    assert len(events) == 1
+    assert events[0]["actions_triggered"] == []
+    processor.close()
+
+
+def test_process_matching_rule_notifies_named_channels(tmp_path):
+    """Matching action rule → events published with specific channel names."""
+    processor = _make_processor(tmp_path)
+    det = Detection(class_name="bird", confidence=0.9, bbox=(10, 10, 50, 50))
+    actions_by_class = {"bird": ["bird-alerts-email"]}
+    events = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=actions_by_class)
+    assert len(events) == 1
+    assert events[0]["actions_triggered"] == ["bird-alerts-email"]
+    processor.close()
+
+
+def test_process_non_matching_rule_suppresses_event(tmp_path):
+    """Non-matching class with action rules → persisted but not published."""
+    processor = _make_processor(tmp_path)
+    det = Detection(class_name="bench", confidence=0.5, bbox=(10, 10, 50, 50))
+    # Rules only match "bird"; "bench" should be suppressed.
+    actions_by_class = {"bench": None}
+    events = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=actions_by_class)
+    assert len(events) == 0
+    # But the detection should still be persisted to DB.
+    assert _count_rows(str(tmp_path / "events.db")) == 1
+    processor.close()
+
+
+def _match_action_rules(class_name: str, rules: list[dict]) -> list[str] | None:
+    """Local copy of detector _match_action_rules for testing without cv2."""
+    for rule in rules:
+        rule_class = rule.get("class_name", "*")
+        if rule_class == "*" or rule_class == class_name:
+            return list(rule.get("channels", []))
+    return None
+
+
+def test_match_action_rules_returns_none_for_no_match():
+    """_match_action_rules returns None when no rule matches the class."""
+    rules = [{"class_name": "bird", "channels": ["bird-alerts"]}]
+    assert _match_action_rules("bench", rules) is None
+
+
+def test_match_action_rules_returns_channels_for_match():
+    """_match_action_rules returns channel list for matching rule."""
+    rules = [{"class_name": "bird", "channels": ["bird-alerts-email", "bird-alerts-discord"]}]
+    assert _match_action_rules("bird", rules) == ["bird-alerts-email", "bird-alerts-discord"]
+
+
+def test_match_action_rules_wildcard_matches_any():
+    """Wildcard rule matches any class."""
+    rules = [{"class_name": "*", "channels": ["all-alerts"]}]
+    assert _match_action_rules("anything", rules) == ["all-alerts"]

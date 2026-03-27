@@ -117,9 +117,20 @@ def dispatch(
     else:
         current = list(notifiers)
 
-    # If the event specifies which channels to notify, filter to those only.
-    # An absent or empty actions_triggered means "notify all channels".
-    actions_triggered: list[str] = event.get("actions_triggered") or []
+    # actions_triggered semantics:
+    #   absent → legacy event or no action rules; notify all channels
+    #   None   → action rules exist but no rule matched; suppress entirely
+    #   []     → no action rules configured; notify all channels
+    #   [...]  → notify only the named channels
+    _MISSING = object()
+    actions_raw = event.get("actions_triggered", _MISSING)
+    if actions_raw is _MISSING:
+        actions_triggered: list[str] = []
+    elif actions_raw is None:
+        logger.debug("Event suppressed by action_rules — no notifications")
+        return
+    else:
+        actions_triggered = actions_raw
     if actions_triggered:
         current = [n for n in current if getattr(n, "name", None) in actions_triggered]
         if not current:
