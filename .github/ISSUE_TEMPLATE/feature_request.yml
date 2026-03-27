@@ -1,0 +1,49 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for ScarGuard? We'd love to hear it. Check [ROADMAP.md](https://github.com/sentania-labs/scarguard/blob/main/ROADMAP.md) first to see if it's already planned.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or pain point.
+      placeholder: "I want to be able to ... because ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work? Config examples, UI mockups, or just a description are all fine.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Have you tried a workaround or considered other approaches?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Detection / Inference
+        - Notifications
+        - Web UI
+        - Configuration
+        - Deployment / Docker
+        - CI/CD
+        - Training Pipeline
+        - Other
+    validations:
+      required: true

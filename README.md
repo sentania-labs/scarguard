@@ -80,7 +80,7 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 | Compute | NVIDIA Jetson Orin Nano, JetPack 6.2.1 | Any Docker host with NVIDIA GPU (Jetson or x86 CUDA) |
 | Cameras | 2x UniFi (G3 Flex + G5 Flex) via UniFi Protect RTSP | Any camera with RTSP output |
 | Deterrence (future) | Companion project "Scar's Revenge" — ESP32 + solenoid valves receiving ScarGuard webhooks | — |
-| Network | UniFi Dream Machine, internal domain `int.sentania.net` | Any network where cameras and host can communicate |
+| Network | Any network with layer 2 connectivity between host and cameras | Host must reach camera RTSP streams directly |
 
 > **Note:** The detector container currently ships as an ARM64 image built on L4T (Linux for Tegra) for Jetson. An x86/CUDA detector image is a planned future addition. CPU-only inference is technically possible via ultralytics but not yet supported as a deployment target.
 
@@ -147,7 +147,7 @@ At minimum, set your camera RTSP URLs:
 ```yaml
 cameras:
   - name: pond-north
-    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN"
+    rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN"
     enabled: true
 ```
 
@@ -158,7 +158,7 @@ For a more complete initial setup, see the examples below or jump to [Feature Gu
 ```yaml
 cameras:
   - name: pond-north
-    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN"
+    rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN"
     enabled: true
     exclusion_zones:
       - x: 0.72   # normalized 0–1 from left

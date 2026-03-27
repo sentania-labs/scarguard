@@ -9,7 +9,7 @@ A containerized wildlife detection and notification system. Watches RTSP camera 
 ## Tech Stack (Reference Setup)
 
 - **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7) — any NVIDIA GPU host works
-- **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP from UDM Protect — any RTSP camera works
+- **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP — any RTSP camera works
 - **Services:** Docker Compose with 4 containers: Redis, Detector, Web (FastAPI + Jinja), Notifier
 - **Detection:** YOLO model on GPU, OpenCV RTSP ingestion
 - **IPC:** Redis pub/sub as internal message bus

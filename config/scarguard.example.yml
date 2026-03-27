@@ -68,16 +68,16 @@ system:
 # ── Cameras ───────────────────────────────────────────────────────────────────
 # List one or more UniFi Protect cameras by their RTSP stream URL.
 #
-# To find your RTSP URL:
-#   1. Open UniFi Protect in a browser
-#   2. Settings → Cameras → select a camera → RTSP
-#   3. Enable the "High" or "Medium" quality stream and copy the URL
-#   4. The URL format is:  rtsp://<UDM-IP>:7447/<stream-token>
+# Set the RTSP URL for each camera. The URL format depends on your camera
+# vendor — consult your camera's documentation. Examples:
+#   UniFi Protect:  rtsp://<CAMERA-IP>:7447/<stream-token>
+#   Hikvision:      rtsp://<CAMERA-IP>:554/Streaming/Channels/102
+#   Reolink:        rtsp://<CAMERA-IP>:554/h264Preview_01_sub
 #
-# Use the 720p substream (medium quality) — 4K wastes GPU cycles.
+# Use a 720p substream where available — 4K wastes GPU cycles.
 cameras:
   - name: pond-north                              # REQUIRED — display name
-    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN_1"  # REQUIRED
+    rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN_1"  # REQUIRED
     enabled: true
     resolution: 720                               # Substream resolution hint (informational)
 
@@ -102,7 +102,7 @@ cameras:
 
   # Add a second camera by uncommenting and editing:
   # - name: pond-south
-  #   rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN_2"
+  #   rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN_2"
   #   enabled: true
   #   resolution: 720
   #   model_path: /models/heron-v2.pt              # optional per-camera model
