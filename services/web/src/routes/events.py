@@ -143,6 +143,17 @@ async def submit_feedback(
     corr = corrected_class.strip() or None
     if feedback != "wrong_class":
         corr = None
+    if feedback == "wrong_class" and corr is None:
+        # Refuse to store wrong_class without an actual corrected class
+        row = db.get_event(event_id)
+        if row is None:
+            return HTMLResponse("<tr><td colspan='7'>Event not found</td></tr>")
+        events = _apply_display_timestamp([dict(row)])
+        return templates.TemplateResponse(
+            request,
+            "partials/event_rows.html",
+            {"events": events, "target_classes": _get_target_classes()},
+        )
     db.update_feedback(event_id, feedback, corr)
     row = db.get_event(event_id)
     if row is None:

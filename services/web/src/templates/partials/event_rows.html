@@ -64,7 +64,7 @@
               hx-swap="outerHTML">
           <input type="hidden" name="feedback" value="wrong_class">
           <input type="text" name="corrected_class" list="class-options-{{ e.id }}"
-                 placeholder="Select or type class&hellip;" required>
+                 placeholder="Select or type class&hellip;" required pattern="\S.*">
           <datalist id="class-options-{{ e.id }}">
             {% for cls in target_classes|default([]) %}
             <option value="{{ cls }}">{{ cls.replace("_"," ").title() }}</option>
