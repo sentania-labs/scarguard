@@ -75,7 +75,7 @@ async def events_page(
 ):
     offset = (page - 1) * PAGE_SIZE
     cam = camera or None
-    cls = class_name or None
+    cls = None if (not class_name or class_name.strip() == "*") else class_name
     dfrom = date_from or None
     dto = date_to or None
     fb = feedback or None

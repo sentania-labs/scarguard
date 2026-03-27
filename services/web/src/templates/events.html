@@ -159,12 +159,14 @@ function buildOverlayFeedbackHTML(feedback, correctedClass) {
   html += '<button class="btn-fb btn-fb-wrong js-fb-wrong" title="Wrong class">?</button>';
   html += '</div>';
   html += '<div class="wrong-class-picker" style="display:none">';
-  html += '<select class="js-wrong-cls"><option value="">Select class\u2026</option>';
+  var dlId = 'overlay-class-options-' + Math.random().toString(36).slice(2, 8);
+  html += '<input type="text" class="js-wrong-cls" list="' + dlId + '" placeholder="Select or type class\u2026">';
+  html += '<datalist id="' + dlId + '">';
   (SCARGUARD_TARGET_CLASSES || []).forEach(function(cls) {
     var escaped = _escHtml(cls);
     html += '<option value="' + escaped + '">' + escaped.replace(/_/g, ' ') + '</option>';
   });
-  html += '</select>';
+  html += '</datalist>';
   html += '<button class="btn-fb btn-fb-wrong js-wrong-set">Set</button>';
   html += '</div>';
   return html;
@@ -197,7 +199,7 @@ function wireOverlayFeedback(panel, eventId, sourceLink) {
   var setBtn = panel.querySelector('.js-wrong-set');
   if (setBtn) {
     setBtn.addEventListener('click', function() {
-      var cls = panel.querySelector('.js-wrong-cls').value;
+      var cls = panel.querySelector('.js-wrong-cls').value.trim();
       if (cls) doOverlayFeedback(panel, eventId, 'wrong_class', cls, sourceLink);
     });
   }
