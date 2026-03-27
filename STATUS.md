@@ -36,7 +36,9 @@ None currently identified.
 ## Not Yet Built
 
 - Custom-trained heron model (have the tooling now, need labeled data)
-- Valve actuation (ESP32 hardware not wired yet)
+- Physical deterrence — planned as companion project "Scar's Revenge" (ESP32 valve controller receiving ScarGuard webhooks)
+
+See [ROADMAP.md](ROADMAP.md) for upcoming features (17–26) and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history.
 
 ## Completed Work
 

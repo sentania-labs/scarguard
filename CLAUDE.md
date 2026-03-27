@@ -1,15 +1,15 @@
-# ScarGuard — AI-Powered Pond Wildlife Deterrent
+# ScarGuard — AI-Powered Pond Wildlife Detection & Notification
 
 Named after Scar (aka Kroger), a survivor fish badly injured by a heron who lived to tell the tale.
 
 ## What This Is
 
-A containerized wildlife detection and deterrent system running on an NVIDIA Jetson Orin Nano. Watches RTSP camera feeds for target species (herons, ducks, raccoons) and triggers randomized deterrent actions (sprinkler valves, notifications) to protect a backyard koi pond.
+A containerized wildlife detection and notification system. Watches RTSP camera feeds for target species (herons, ducks, raccoons) and sends real-time notifications (Discord, email, webhooks) enabling downstream response to protect a backyard koi pond. ScarGuard is detection and notification only — physical deterrence is handled by downstream systems (future companion project: Scar's Revenge). Works with any RTSP camera and any Docker host with an NVIDIA GPU.
 
-## Tech Stack
+## Tech Stack (Reference Setup)
 
-- **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7)
-- **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP from UDM Protect
+- **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7) — any NVIDIA GPU host works
+- **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP — any RTSP camera works
 - **Services:** Docker Compose with 4 containers: Redis, Detector, Web (FastAPI + Jinja), Notifier
 - **Detection:** YOLO model on GPU, OpenCV RTSP ingestion
 - **IPC:** Redis pub/sub as internal message bus
@@ -91,6 +91,7 @@ Read these as needed — don't load them all for every task.
 | Document | When to read |
 |---|---|
 | `ROADMAP.md` | Before starting new work, planning, or prioritizing |
+| `ROADMAP_ARCHIVE.md` | When referencing implementation details of completed features (1–15) |
 | `STATUS.md` | When debugging, assessing what's done, or checking known issues |
 | `CONFIG_REFERENCE.md` | When touching config parsing, detection logic, RTSP, or `scarguard.yml` |
 | `INFRASTRUCTURE.md` | When working on CI/CD, Docker, runners, deployment, or host setup |

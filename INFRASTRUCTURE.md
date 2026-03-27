@@ -115,12 +115,16 @@ Installations that used `DATA_DIR` bind mounts can migrate to named volumes usin
 
 All application images pushed to **GitHub Container Registry (ghcr.io)**. Orin pulls from GHCR for production.
 
-## Hardware
+## Hardware (Reference Setup)
+
+ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. The reference deployment uses:
 
 - **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7), hardwired into UniFi fabric
-- **Cameras:** 2x UniFi cameras (G3 Flex + G5 Flex) streaming RTSP via UniFi Protect on UDM
-- **Valves (future):** 4x Orbit DC solenoid valves (~6VDC, from Yard Enforcer), controlled by ESP32 + MOSFETs
-- **Network:** All devices on same LAN behind UDM. Internal domain: `int.sentania.net`
+- **Cameras:** 2x UniFi cameras (G3 Flex + G5 Flex) streaming RTSP — any RTSP camera works
+- **Deterrence (future):** Physical deterrence hardware (solenoid valves, relays) will be managed by companion project "Scar's Revenge," which receives webhook notifications from ScarGuard
+- **Network:** Host and cameras on the same LAN with layer 2 connectivity to RTSP sources
+
+> **Portability:** The detector image is currently ARM64/L4T only. Web and notifier images are multi-arch. An x86/CUDA detector image is planned.
 
 ## CI/CD Strategy
 

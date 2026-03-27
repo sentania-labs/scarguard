@@ -1,20 +1,116 @@
 # ScarGuard
 
-An AI-powered pond wildlife deterrent system running on an NVIDIA Jetson Orin Nano. ScarGuard watches RTSP camera feeds for target species — primarily great blue herons — and triggers deterrent actions to protect a backyard koi pond.
+An AI-powered wildlife detection and notification system. ScarGuard watches RTSP camera feeds for target species — primarily great blue herons — and sends real-time notifications so you (or downstream automation) can respond to protect a backyard koi pond.
+
+The reference deployment runs on an NVIDIA Jetson Orin Nano with UniFi cameras, but ScarGuard works with any RTSP-capable camera and any system that can run Docker with an NVIDIA GPU.
 
 Named after Scar (aka Kroger), a koi who survived a heron attack and lived to tell the tale.
 
 ---
 
-## Deploy on Jetson Orin Nano
+## The Problem
+
+Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents — plastic owls, reflective tape — lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a response that varies in timing and pattern, triggered only when a bird is actually present.
+
+ScarGuard is the detection and notification layer. It watches the pond around the clock, identifies threats with a YOLO vision model, and sends targeted notifications — to you, to Discord, to webhooks, to any system listening. What happens next is up to you or your automation. A future companion project, **Scar's Revenge**, will serve as the receiving endpoint to control physical deterrent hardware (sprinkler valves, relays) based on ScarGuard's notifications.
+
+---
+
+## Goals
+
+- **Accurate, low-latency detection** — identify herons, ducks, and raccoons from live camera feeds with enough confidence to act, fast enough to matter
+- **Flexible notification routing** — route detections to the right channels (Discord, email, webhooks) based on species, camera, and time of day; downstream systems decide what action to take
+- **Minimal false positives** — don't fire notifications every time a leaf blows past; confidence thresholds, cooldown windows, and exclusion zones keep the system from crying wolf
+- **Always-on, self-healing** — RTSP streams drop; cameras reboot; the system must reconnect gracefully and resume without human intervention
+- **Observable** — a web UI shows live status, recent detections with annotated snapshots, and configuration; Discord, email, and webhook notifications keep the owner in the loop
+- **Maintainable** — the whole stack runs in Docker Compose; deploying a new model or changing config requires no SSH access
+
+---
+
+## Capabilities
+
+### Detection
+- Real-time inference on live RTSP streams using a YOLO model on GPU (TensorRT-optimized on Jetson; CUDA on x86)
+- Multi-camera support — each camera runs in its own thread with independent cooldown tracking
+- Target species configurable via `detection.target_classes` (extensible via model swap)
+- Per-camera exclusion zones to suppress detections from static false-positive sources
+- Action rules for per-class, per-camera routing to specific notification channels
+- Configurable confidence threshold, cooldown window, and frame skip
+- Clean snapshots saved per detection with bounding box coordinates stored separately (rendered in browser)
+
+### Notifications
+- **Discord** — webhook messages with optional snapshot attachment and role mention
+- **Email** — SMTP with optional snapshot attachment, multiple recipients
+- **Webhooks** — generic HTTP/HTTPS POST or GET to any URL, with custom headers
+- Named, multi-instance channels — run two Discord webhooks, two email addresses, multiple webhooks side-by-side
+- Action-rule routing — route heron detections to a deterrent webhook, raccoon detections to email only, etc.
+- Retry with exponential backoff on transient failures
+
+### Web UI
+- **Dashboard** — arm/disarm toggle, latest detection, today's count, schedule status
+- **Events** — paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
+- **Live Feed** — SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
+- **Settings** — full config editor (form-based and raw YAML), cameras, detection, notifications, channels, action rules, schedule, authentication, SSL
+- **System Stats** — real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
+- **Logs** — live service log tail with level filtering and pause/resume
+- **Training Data** — per-class feedback breakdown, dataset quality warnings, YOLO export
+- **Model Evaluation** — side-by-side model comparison on labeled snapshots, SSE progress, promotion button
+- **Models** — upload, list, and manage YOLO model files
+- **Users** — add/disable/delete users, change passwords, manage API tokens
+- **About** — version, build date, component health, active model
+
+### Operations
+- Docker Compose stack — `docker compose up` is the full deployment
+- All config in a single `scarguard.yml` — hot-reloaded by all services without restart
+- CI/CD via GitHub Actions — x86 runners for web/notifier; self-hosted Orin runner for ARM64 detector
+- Images published to GitHub Container Registry (ghcr.io)
+- HTTPS support — self-signed or custom cert, HTTP+HTTPS dual-listener, HTTPS-only option
+- Session-based authentication — bcrypt passwords, configurable session timeout, login lockout
+- Scheduled arm/disarm — fixed time or solar (sunrise/sunset via `astral`)
+- Snapshot retention policy — configurable retention days, daily pruning
+
+---
+
+## Hardware
+
+ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA GPU. The table below is the **reference setup** — not a requirements list.
+
+| Component | Reference Setup | Minimum Requirement |
+|-----------|----------------|---------------------|
+| Compute | NVIDIA Jetson Orin Nano, JetPack 6.2.1 | Any Docker host with NVIDIA GPU (Jetson or x86 CUDA) |
+| Cameras | 2x UniFi (G3 Flex + G5 Flex) via UniFi Protect RTSP | Any camera with RTSP output |
+| Deterrence (future) | Companion project "Scar's Revenge" — ESP32 + solenoid valves receiving ScarGuard webhooks | — |
+| Network | Any network with layer 2 connectivity between host and cameras | Host must reach camera RTSP streams directly |
+
+> **Note:** The detector container currently ships as an ARM64 image built on L4T (Linux for Tegra) for Jetson. An x86/CUDA detector image is a planned future addition. CPU-only inference is technically possible via ultralytics but not yet supported as a deployment target.
+
+---
+
+## Stack
+
+| Service | Role | Base Image |
+|---------|------|-----------|
+| `detector` | RTSP ingestion, YOLO inference, event publishing | `dustynv/l4t-pytorch:r36.4.0` (CUDA + TensorRT) |
+| `web` | FastAPI + Jinja UI, REST API, SQLite access | `python:3.11-slim` |
+| `notifier` | Redis subscriber, Discord + email + webhook dispatch | `python:3.11-slim` |
+| `redis` | Internal message bus | `redis:alpine` |
+
+Services communicate over Redis pub/sub. All configuration lives in a single `scarguard.yml` file mounted into each container.
+
+---
+
+## Deploy
 
 > **You don't need to build anything.** Pre-built images are published to GitHub Container Registry automatically. Just clone, configure, and run.
 
+The instructions below target the reference setup (Jetson Orin Nano + UniFi cameras). Adapt as needed for your hardware.
+
 ### Prerequisites
 
-- Jetson Orin Nano running JetPack 6.x (L4T 36.x)
+- NVIDIA Jetson (Orin Nano or similar) running JetPack 6.x, or an x86 host with NVIDIA GPU and Docker (x86 detector image coming soon)
+- NVIDIA Container Runtime installed (`nvidia-ctk` / `nvidia-docker2`)
 - Internet connection (to pull images from ghcr.io)
-- RTSP streams enabled in UniFi Protect for your cameras
+- One or more cameras with RTSP streaming enabled
 
 ### 1. Clone the repo
 
@@ -51,7 +147,7 @@ At minimum, set your camera RTSP URLs:
 ```yaml
 cameras:
   - name: pond-north
-    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN"
+    rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN"
     enabled: true
 ```
 
@@ -62,7 +158,7 @@ For a more complete initial setup, see the examples below or jump to [Feature Gu
 ```yaml
 cameras:
   - name: pond-north
-    rtsp_url: "rtsp://YOUR_UDM_IP:7447/YOUR_STREAM_TOKEN"
+    rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN"
     enabled: true
     exclusion_zones:
       - x: 0.72   # normalized 0–1 from left
@@ -93,7 +189,7 @@ notifications:
       to_addresses: [you@gmail.com]
       include_snapshot: true
 
-    - name: sprinkler-valve
+    - name: deterrent-webhook       # downstream system (e.g. Scar's Revenge)
       type: webhook
       enabled: true
       url: "http://192.168.1.50/api/spray"
@@ -289,8 +385,8 @@ notifications:
         - partner@gmail.com
       include_snapshot: true
 
-    # Generic HTTP webhook — trigger a sprinkler valve
-    - name: sprinkler-valve
+    # Generic HTTP webhook — notify a downstream system (e.g. Scar's Revenge deterrent controller)
+    - name: deterrent-webhook
       type: webhook
       enabled: true
       url: "http://192.168.1.50/api/spray"
@@ -315,21 +411,21 @@ All channels can be added, edited, and enabled/disabled from the **Settings → 
 
 ### Action Rules
 
-Action rules control which notification channels fire for which detections. Without any rules defined, every detection triggers all enabled channels. With rules, you can route heron detections to the sprinkler valve while routing raccoon detections to Discord only.
+Action rules control which notification channels fire for which detections. Without any rules defined, every detection triggers all enabled channels. With rules, you can route heron detections to a deterrent webhook while routing raccoon detections to Discord only.
 
 Rules are defined at the top level of `scarguard.yml` and matched top-down — the first matching rule wins:
 
 ```yaml
 action_rules:
-  # Herons: notify Discord AND trigger the sprinkler valve
+  # Herons: notify Discord AND send to deterrent webhook
   - class: great_blue_heron
-    actions: [pond-discord, sprinkler-valve]
+    actions: [pond-discord, deterrent-webhook]
 
-  # Green herons: Discord only (no valve — too small to warrant it)
+  # Green herons: Discord only
   - class: green_heron
     actions: [pond-discord]
 
-  # Raccoons: alert the owner but don't spray
+  # Raccoons: alert the owner, no deterrent notification
   - class: raccoon
     actions: [pond-discord, owner-email]
 
@@ -573,7 +669,16 @@ curl -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   http://your-orin:8080/events
 ```
 
-This works for all REST endpoints including the SSE streams, the config API, and the arm/disarm endpoints.
+**Key endpoints available with Bearer auth:**
+- `/events` — detection event log (filterable by camera, class, date)
+- `/config` — read or update system configuration
+- `/about` — version, build date, component health
+- `/feed/stream` — SSE stream of live annotated detection snapshots
+- `/events/stream` — SSE stream of live detection events
+- `/admin/stats/stream` — SSE stream of system resource metrics
+- `/admin/logs/stream` — SSE stream of service logs
+
+FastAPI's built-in Swagger UI is also available at `/docs` after login, providing an interactive API reference.
 
 **Revoking a token:**
 
@@ -614,93 +719,6 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 
 ---
 
-## The Problem
-
-Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents — plastic owls, reflective tape — lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a deterrent that fires at random times, in random patterns, triggered only when a bird is actually present.
-
-ScarGuard is that deterrent. It watches the pond around the clock, identifies threats with a YOLO vision model, and responds with randomized actions that keep wildlife guessing.
-
----
-
-## Goals
-
-- **Accurate, low-latency detection** — identify herons, ducks, and raccoons from live camera feeds with enough confidence to act, fast enough to matter
-- **Randomized deterrence** — vary the response (which sprinkler valve fires, for how long, with what delay) so wildlife cannot pattern-match around it
-- **Minimal false positives** — don't spray the yard every time a leaf blows past; confidence thresholds, cooldown windows, and exclusion zones keep the system from crying wolf
-- **Always-on, self-healing** — RTSP streams drop; cameras reboot; the system must reconnect gracefully and resume without human intervention
-- **Observable** — a web UI shows live status, recent detections with annotated snapshots, and configuration; Discord, email, and webhook notifications keep the owner in the loop
-- **Maintainable** — the whole stack runs in Docker Compose on the Jetson; deploying a new model or changing config requires no SSH access
-
----
-
-## Capabilities
-
-### Detection
-- Real-time inference on live RTSP streams using a YOLO model on the Jetson GPU (TensorRT-optimized)
-- Multi-camera support — each camera runs in its own thread with independent cooldown tracking
-- Target species configurable via `detection.target_classes` (extensible via model swap)
-- Per-camera exclusion zones to suppress detections from static false-positive sources
-- Action rules for per-class, per-camera routing to specific notification channels
-- Configurable confidence threshold, cooldown window, and frame skip
-- Clean snapshots saved per detection with bounding box coordinates stored separately (rendered in browser)
-
-### Notifications
-- **Discord** — webhook messages with optional snapshot attachment and role mention
-- **Email** — SMTP with optional snapshot attachment, multiple recipients
-- **Webhooks** — generic HTTP/HTTPS POST or GET to any URL, with custom headers
-- Named, multi-instance channels — run two Discord webhooks, two email addresses, multiple webhooks side-by-side
-- Action-rule routing — route heron detections to the sprinkler valve, raccoon detections to email only, etc.
-- Retry with exponential backoff on transient failures
-
-### Web UI
-- **Dashboard** — arm/disarm toggle, latest detection, today's count, schedule status
-- **Events** — paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
-- **Live Feed** — SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
-- **Settings** — full config editor (form-based and raw YAML), cameras, detection, notifications, channels, action rules, schedule, authentication, SSL
-- **System Stats** — real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
-- **Logs** — live service log tail with level filtering and pause/resume
-- **Training Data** — per-class feedback breakdown, dataset quality warnings, YOLO export
-- **Model Evaluation** — side-by-side model comparison on labeled snapshots, SSE progress, promotion button
-- **Models** — upload, list, and manage YOLO model files
-- **Users** — add/disable/delete users, change passwords, manage API tokens
-- **About** — version, build date, component health, active model
-
-### Operations
-- Docker Compose stack — `docker compose up` is the full deployment
-- All config in a single `scarguard.yml` — hot-reloaded by all services without restart
-- CI/CD via GitHub Actions — x86 runners for web/notifier; self-hosted Orin runner for ARM64 detector
-- Images published to GitHub Container Registry (ghcr.io)
-- HTTPS support — self-signed or custom cert, HTTP+HTTPS dual-listener, HTTPS-only option
-- Session-based authentication — bcrypt passwords, configurable session timeout, login lockout
-- Scheduled arm/disarm — fixed time or solar (sunrise/sunset via `astral`)
-- Snapshot retention policy — configurable retention days, daily pruning
-
----
-
-## Hardware
-
-| Component | Details |
-|-----------|---------|
-| Compute | NVIDIA Jetson Orin Nano, JetPack 6.2.1 |
-| Cameras | 2x UniFi cameras (G3 Flex + G5 Flex) via UniFi Protect RTSP |
-| Valves | 4x Orbit DC solenoid valves, ESP32 + MOSFETs (planned) |
-| Network | UniFi Dream Machine, internal domain `int.sentania.net` |
-
----
-
-## Stack
-
-| Service | Role | Base Image |
-|---------|------|-----------|
-| `detector` | RTSP ingestion, YOLO inference, event publishing | `dustynv/l4t-pytorch:r36.4.0` (CUDA + TensorRT) |
-| `web` | FastAPI + Jinja UI, REST API, SQLite access | `python:3.11-slim` |
-| `notifier` | Redis subscriber, Discord + email + webhook dispatch | `python:3.11-slim` |
-| `redis` | Internal message bus | `redis:alpine` |
-
-Services communicate over Redis pub/sub. All configuration lives in a single `scarguard.yml` file mounted into each container.
-
----
-
 ## Development Status
 
 | Version | Description | Status |
@@ -712,5 +730,6 @@ Services communicate over Redis pub/sub. All configuration lives in a single `sc
 | v0.5 | GPU/CPU stats view (live metrics, per-camera FPS, rolling charts) | Complete |
 | v0.6 | App security — session auth, first-run setup, user management, API tokens, lockout | Complete |
 | v0.7 | Detection feedback, training data dashboard, YOLO export, training script, model evaluation | Complete |
+| v0.8 | Per-camera models, named Docker volumes, CI PR build validation | Complete |
 
 See [ROADMAP.md](ROADMAP.md) for planned features and [STATUS.md](STATUS.md) for a detailed breakdown of what's working.
