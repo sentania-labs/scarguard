@@ -467,14 +467,19 @@ def get_metrics(
     ).isoformat()
     try:
         with _connect() as conn:
+            # Sub-select newest rows first, then re-order ascending for charts.
+            # Without this, LIMIT would keep the oldest rows and drop the most
+            # recent data once a range exceeds the cap.
             return conn.execute(
                 """
-                SELECT timestamp, cpu_pct, gpu_pct, gpu_temp,
-                       ram_used_mb, ram_total_mb, camera_data
-                FROM system_metrics
-                WHERE timestamp >= ?
-                ORDER BY timestamp ASC
-                LIMIT ?
+                SELECT * FROM (
+                    SELECT timestamp, cpu_pct, gpu_pct, gpu_temp,
+                           ram_used_mb, ram_total_mb, camera_data
+                    FROM system_metrics
+                    WHERE timestamp >= ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ) ORDER BY timestamp ASC
                 """,
                 (cutoff, limit),
             ).fetchall()
