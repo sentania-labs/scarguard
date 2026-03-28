@@ -73,9 +73,13 @@ class EventProcessor:
                 self._last_event[key] = now
             timestamp = datetime.now(timezone.utc)
             snapshot_path = self._save_snapshot(frame, det, camera_name, timestamp)
-            actions_triggered = (
-                (actions_by_class or {}).get(det.class_name) or []
-            )
+            # None  → action rules exist but no rule matched (suppress)
+            # []    → no action rules configured (notify all channels)
+            # [...]→ matched rule with specific channels
+            if actions_by_class is None:
+                actions_triggered: list[str] | None = []
+            else:
+                actions_triggered = actions_by_class.get(det.class_name)
             self._persist(
                 timestamp, det, camera_name, snapshot_path,
                 actions_triggered, frame_size,
@@ -87,6 +91,15 @@ class EventProcessor:
                 det.class_name,
                 det.confidence,
             )
+
+            # Suppress publishing when action rules exist but none matched.
+            if actions_triggered is None:
+                logger.debug(
+                    "[%s] %s suppressed by action_rules — no matching rule",
+                    camera_name, det.class_name,
+                )
+                continue
+
             bbox_list = list(det.bbox) if det.bbox else None
             events.append(
                 {
@@ -261,7 +274,7 @@ class EventProcessor:
         det: Detection,
         camera_name: str,
         snapshot_path: str | None,
-        actions_triggered: list[str],
+        actions_triggered: list[str] | None,
         frame_size: tuple[int, int] | None = None,
     ) -> None:
         with self._db_lock:
@@ -284,10 +297,10 @@ class EventProcessor:
         det: Detection,
         camera_name: str,
         snapshot_path: str | None,
-        actions_triggered: list[str],
+        actions_triggered: list[str] | None,
         frame_size: tuple[int, int] | None = None,
     ) -> None:
-        actions_json = json.dumps(actions_triggered) if actions_triggered else None
+        actions_json = json.dumps(actions_triggered) if actions_triggered is not None else None
         bbox_json = json.dumps(list(det.bbox)) if det.bbox else None
         frame_size_json = json.dumps(list(frame_size)) if frame_size else None
         self._conn.execute(

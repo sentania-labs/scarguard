@@ -40,11 +40,31 @@ class VisitTracker:
     def record_detection(self, camera_name: str, class_name: str, timestamp: datetime) -> None:
         """Record a detection.  Either extends an active visit or starts a new one."""
         key = f"{camera_name}:{class_name}"
+        to_persist: dict | None = None
         with self._lock:
             visit = self._active.get(key)
             if visit is not None:
-                visit.last_detection_time = timestamp
-                visit.detection_count += 1
+                elapsed = (timestamp - visit.last_detection_time).total_seconds()
+                if elapsed >= self._timeout:
+                    # Gap exceeded timeout — close old visit, start new one
+                    duration = (visit.last_detection_time - visit.start_time).total_seconds()
+                    to_persist = {
+                        "camera_name": visit.camera_name,
+                        "class_name": visit.class_name,
+                        "start_time": visit.start_time.isoformat(),
+                        "end_time": visit.last_detection_time.isoformat(),
+                        "duration_secs": round(duration, 1),
+                        "detection_count": visit.detection_count,
+                    }
+                    self._active[key] = _ActiveVisit(
+                        camera_name=camera_name,
+                        class_name=class_name,
+                        start_time=timestamp,
+                        last_detection_time=timestamp,
+                    )
+                else:
+                    visit.last_detection_time = timestamp
+                    visit.detection_count += 1
             else:
                 self._active[key] = _ActiveVisit(
                     camera_name=camera_name,
@@ -52,6 +72,9 @@ class VisitTracker:
                     start_time=timestamp,
                     last_detection_time=timestamp,
                 )
+        # Persist outside the lock
+        if to_persist is not None:
+            self._persist(to_persist)
 
     def flush_expired(self) -> list[dict]:
         """Close and persist visits where the gap has exceeded the timeout.

@@ -321,3 +321,38 @@ class TestNtfyNotifier:
         }
         notifiers = build_notifiers(cfg)
         assert len(notifiers) == 0
+
+
+class TestDispatchFiltering:
+    def test_dispatch_suppresses_when_actions_triggered_none(self):
+        """actions_triggered=None means action rules exist but no match — send nothing."""
+        from main import dispatch
+
+        event = {**SAMPLE_EVENT, "actions_triggered": None}
+        n1, n2 = MagicMock(), MagicMock()
+        dispatch(event, [n1, n2])
+        n1.send.assert_not_called()
+        n2.send.assert_not_called()
+
+    def test_dispatch_notifies_all_when_actions_triggered_empty(self):
+        """actions_triggered=[] means no rules configured — notify all channels."""
+        from main import dispatch
+
+        event = {**SAMPLE_EVENT, "actions_triggered": []}
+        n1, n2 = MagicMock(), MagicMock()
+        dispatch(event, [n1, n2])
+        n1.send.assert_called_once()
+        n2.send.assert_called_once()
+
+    def test_dispatch_filters_to_named_channels(self):
+        """actions_triggered with channel names filters to matching notifiers only."""
+        from main import dispatch
+
+        event = {**SAMPLE_EVENT, "actions_triggered": ["bird-alerts-email"]}
+        email = MagicMock()
+        email.name = "bird-alerts-email"
+        discord = MagicMock()
+        discord.name = "bird-alerts-discord"
+        dispatch(event, [email, discord])
+        email.send.assert_called_once()
+        discord.send.assert_not_called()

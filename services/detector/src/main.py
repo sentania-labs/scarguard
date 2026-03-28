@@ -71,17 +71,18 @@ def setup_logging(log_level: str) -> None:
     )
 
 
-def _match_action_rules(class_name: str, rules: list[dict]) -> list[str]:
+def _match_action_rules(class_name: str, rules: list[dict]) -> list[str] | None:
     """Return channel names for the first matching action rule.
 
     Rules are evaluated in order; the first rule whose class_name matches
-    (or is the wildcard "*") wins.  An empty list means "notify all channels".
+    (or is the wildcard "*") wins.  Returns ``None`` when no rule matches,
+    signalling that notifications should be suppressed for this class.
     """
     for rule in rules:
         rule_class = rule.get("class_name", "*")
         if rule_class == "*" or rule_class == class_name:
             return list(rule.get("channels", []))
-    return []
+    return None
 
 
 def _in_exclusion_zone(

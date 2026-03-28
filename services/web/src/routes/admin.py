@@ -7,10 +7,17 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 log = logging.getLogger(__name__)
+
+
+def _require_admin(request: Request) -> bool:
+    """Return True if the current user is an admin."""
+    user = getattr(request.state, "user", None)
+    return bool(user and user.get("is_admin"))
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -181,8 +188,10 @@ async def logs_stream(
 
 
 @router.get("/backups", response_class=HTMLResponse)
-async def backups_page(request: Request) -> HTMLResponse:
+async def backups_page(request: Request) -> Response:
     """List all config backups."""
+    if not _require_admin(request):
+        return RedirectResponse("/", status_code=302)
     from main import backup_manager
 
     backups = backup_manager.list_backups() if backup_manager else []
@@ -192,6 +201,8 @@ async def backups_page(request: Request) -> HTMLResponse:
 @router.get("/backups/{name}/diff")
 async def backup_diff(request: Request, name: str) -> JSONResponse:
     """Return a unified diff between a backup and the current config."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from main import backup_manager
 
     if not backup_manager:
@@ -209,6 +220,8 @@ async def backup_diff(request: Request, name: str) -> JSONResponse:
 @router.post("/backups/{name}/restore")
 async def backup_restore(request: Request, name: str) -> JSONResponse:
     """Restore a backup to the active config."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from main import backup_manager
 
     if not backup_manager:
@@ -226,6 +239,8 @@ async def backup_restore(request: Request, name: str) -> JSONResponse:
 @router.post("/backups/create")
 async def backup_create(request: Request) -> JSONResponse:
     """Create a manual config backup."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
     from main import backup_manager
 
     if not backup_manager:
