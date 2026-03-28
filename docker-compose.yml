@@ -42,6 +42,7 @@ services:
       - scarguard-config:/config:ro       # reads scarguard.yml + manual certs
     environment:
       CONFIG_PATH: /config/scarguard.yml
+      HTTPS_PORT: ${HTTPS_PORT:-${WEB_HTTPS_PORT:-443}}
     depends_on:
       - web
     restart: unless-stopped

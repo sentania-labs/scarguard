@@ -22,7 +22,7 @@ CADDYFILE="/etc/caddy/Caddyfile"
 
 generate_caddyfile() {
     python3 - "$CONFIG_PATH" "$CADDYFILE" <<'PYEOF'
-import sys, yaml, pathlib
+import os, sys, yaml, pathlib
 
 config_path = sys.argv[1]
 caddyfile_path = sys.argv[2]
@@ -54,6 +54,7 @@ mode = str(tls_cfg.get("mode", "off")).lower()
 domain = str(tls_cfg.get("domain", "")).strip()
 cert_path = str(tls_cfg.get("cert_path", "/config/certs/cert.pem"))
 key_path = str(tls_cfg.get("key_path", "/config/certs/key.pem"))
+https_port = os.environ.get("HTTPS_PORT", "443").strip()
 
 # Common snippet: security headers + reverse proxy
 snippet = """(scarguard) {
@@ -86,7 +87,7 @@ elif mode == "manual":
 }}
 
 :80 {{
-    redir https://{{host}}{{uri}} permanent
+    redir https://{{host}}{f":{https_port}" if https_port != "443" else ""}{{uri}} permanent
 }}
 """
     else:
