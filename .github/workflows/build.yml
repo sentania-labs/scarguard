@@ -88,7 +88,7 @@ jobs:
             -v ${{ github.workspace }}/services/web/tests:/app/tests \
             -v ${{ github.workspace }}/shared:/app/shared \
             scarguard-web:test \
-            sh -c "pip install --quiet pytest httpx && pytest /app/tests/ -v"
+            sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short 2>&1"
 
       - name: Build notifier (amd64, load for test)
         uses: docker/build-push-action@v5
@@ -108,7 +108,7 @@ jobs:
             -v ${{ github.workspace }}/services/notifier/tests:/app/tests \
             -v ${{ github.workspace }}/shared:/app/shared \
             scarguard-notifier:test \
-            sh -c "pip install --quiet pytest && pytest /app/tests/ -v"
+            sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short 2>&1"
 
       - name: Trivy scan — web
         uses: aquasecurity/trivy-action@master
