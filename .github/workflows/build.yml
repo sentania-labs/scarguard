@@ -84,11 +84,13 @@ jobs:
 
       - name: Test web in container
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/services/web/tests:/app/tests \
-            -v ${{ github.workspace }}/shared:/app/shared \
-            scarguard-web:test \
-            sh -c "pip install --quiet pytest httpx && ls -la /app/tests/ && python3 -m pytest /app/tests/ -v --tb=short -p no:cacheprovider 2>&1 || (echo '--- COLLECTION ERRORS ---' && python3 -m pytest /app/tests/ --collect-only 2>&1; exit 1)"
+          cid=$(docker create scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
+          docker cp ${{ github.workspace }}/services/web/tests/. "$cid:/app/tests/"
+          docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
 
       - name: Build notifier (amd64, load for test)
         uses: docker/build-push-action@v5
@@ -104,11 +106,13 @@ jobs:
 
       - name: Test notifier in container
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/services/notifier/tests:/app/tests \
-            -v ${{ github.workspace }}/shared:/app/shared \
-            scarguard-notifier:test \
-            sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short 2>&1"
+          cid=$(docker create scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
+          docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
 
       - name: Trivy scan — web
         uses: aquasecurity/trivy-action@master
