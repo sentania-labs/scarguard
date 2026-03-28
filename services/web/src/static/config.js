@@ -270,12 +270,11 @@ function readForm() {
       },
       channels: readChannels(),
     },
-    ssl: {
-      enabled: document.getElementById("ssl-enabled").checked,
-      cert_path: document.getElementById("ssl-cert-path").value.trim(),
-      key_path: document.getElementById("ssl-key-path").value.trim(),
-      https_only: document.getElementById("ssl-https-only").checked,
-      keyfile_password: document.getElementById("ssl-key-password").value,
+    tls: {
+      mode: document.getElementById("tls-mode").value,
+      domain: document.getElementById("tls-domain").value.trim(),
+      cert_path: document.getElementById("tls-cert-path").value.trim(),
+      key_path: document.getElementById("tls-key-path").value.trim(),
     },
   };
 }
@@ -304,11 +303,13 @@ function validate(data) {
   if (ep.smtp_port < 1 || ep.smtp_port > 65535)
     errors.push("Email: SMTP port must be between 1 and 65535");
 
-  const ssl = data.ssl;
-  if (ssl.enabled && !ssl.cert_path)
-    errors.push("SSL: Certificate path is required when SSL is enabled");
-  if (ssl.enabled && !ssl.key_path)
-    errors.push("SSL: Key path is required when SSL is enabled");
+  const tls = data.tls;
+  if (tls.mode === "auto" && !tls.domain)
+    errors.push("TLS: Domain name is required for automatic (Let's Encrypt) mode");
+  if (tls.mode === "manual" && !tls.cert_path)
+    errors.push("TLS: Certificate path is required for manual mode");
+  if (tls.mode === "manual" && !tls.key_path)
+    errors.push("TLS: Key path is required for manual mode");
 
   const sched = data.system.schedule;
   const timeRe = /^\d{2}:\d{2}$/;
@@ -344,14 +345,14 @@ async function saveConfig() {
   try {
     const resp = await fetch("/config/structured", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() },
       body: JSON.stringify(data),
     });
     const result = await resp.json();
     if (result.ok) {
       banner.className = "alert alert-ok";
-      if (result.ssl_changed) {
-        banner.textContent = "Config saved. SSL settings changed — the web service will restart automatically. This page may briefly disconnect.";
+      if (result.tls_changed) {
+        banner.textContent = "Config saved. TLS settings changed — Caddy will reload within a few seconds.";
       } else {
         banner.textContent = "Config saved. Changes take effect within ~10 seconds.";
       }

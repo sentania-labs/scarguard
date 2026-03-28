@@ -44,6 +44,7 @@
               hx-post="/events/{{ e.id }}/feedback"
               hx-target="closest tr"
               hx-swap="outerHTML">
+          <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
           <input type="hidden" name="feedback" value="correct">
           <button type="submit" class="btn-fb btn-fb-correct" title="Correct detection">&#10003;</button>
         </form>
@@ -51,6 +52,7 @@
               hx-post="/events/{{ e.id }}/feedback"
               hx-target="closest tr"
               hx-swap="outerHTML">
+          <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
           <input type="hidden" name="feedback" value="false_positive">
           <button type="submit" class="btn-fb btn-fb-fp" title="False positive">&#10007;</button>
         </form>
@@ -62,6 +64,7 @@
               hx-post="/events/{{ e.id }}/feedback"
               hx-target="closest tr"
               hx-swap="outerHTML">
+          <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
           <input type="hidden" name="feedback" value="wrong_class">
           <input type="text" name="corrected_class" list="class-options-{{ e.id }}"
                  placeholder="Select or type class&hellip;" required pattern="\S.*">

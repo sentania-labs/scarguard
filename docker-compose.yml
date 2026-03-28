@@ -9,7 +9,7 @@ name: scarguard
 # To build locally:   docker compose build
 # To pull from GHCR:  docker compose pull
 # To run:             docker compose up -d
-# To enable SSL:      set ssl.enabled: true in scarguard.yml (web service restarts automatically)
+# TLS is handled by the Caddy reverse proxy — see tls section in scarguard.yml
 
 services:
 
@@ -24,6 +24,26 @@ services:
       retries: 10
     volumes:
       - redis-data:/data
+
+  # ── Caddy reverse proxy ───────────────────────────────────────────────────
+  # Front door for all HTTP(S) traffic.  Reads tls config from scarguard.yml
+  # and generates a Caddyfile at startup (and on config changes via mtime poll).
+  caddy:
+    build:
+      context: .
+      dockerfile: services/caddy/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-caddy:${IMAGE_TAG:-latest}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - scarguard-caddy-data:/data        # Let's Encrypt cert storage
+      - scarguard-config:/config:ro       # reads scarguard.yml + manual certs
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+    depends_on:
+      - web
+    restart: unless-stopped
 
   # ── Detector ──────────────────────────────────────────────────────────────
   # Requires NVIDIA Container Runtime on the host (see infra/orin-setup.sh).
@@ -55,9 +75,9 @@ services:
       context: .
       dockerfile: services/web/Dockerfile
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-web:${IMAGE_TAG:-latest}
-    ports:
-      - "${WEB_PORT:-8080}:8080"
-      - "${WEB_HTTPS_PORT:-8443}:8443"
+    # No host ports — Caddy reverse proxy handles all external traffic.
+    # To access the web UI directly (debugging), uncomment:
+    #   ports: ["${WEB_PORT:-8080}:8080"]
     environment:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
@@ -93,6 +113,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  scarguard-caddy-data:
+    name: scarguard-caddy-data
   redis-data:
     name: scarguard-redis-data
   scarguard-config:

@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
-SERVICES = ["detector", "notifier", "web"]
+SERVICES = ["detector", "notifier", "web", "caddy"]
 # Must match `name:` in docker-compose.yml. If the project is renamed or run
 # with `docker compose -p <name>`, this constant must be updated to match or
 # the container lookup will silently return nothing.

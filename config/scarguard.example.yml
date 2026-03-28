@@ -171,19 +171,20 @@ notifications:
     include_snapshot: true
 
 
-# ── SSL / TLS ─────────────────────────────────────────────────────────────────
-# Run setup.sh to generate a self-signed certificate automatically.
-# To use your own certificate, drop cert.pem and key.pem into the config
-# volume's certs/ subdirectory and set enabled: true.
+# ── TLS ───────────────────────────────────────────────────────────────────────
+# TLS is handled by the Caddy reverse proxy container.
+# Three modes:
+#   off     — HTTP only (default, for LAN use)
+#   auto    — Automatic HTTPS via Let's Encrypt (set domain to your public hostname)
+#   manual  — Your own cert/key files in the config volume's certs/ directory
 #
-# cert_path / key_path are paths inside the container (the config volume
-# is mounted at /config, so certs live at /config/certs/).
-ssl:
-  enabled: false                        # Set to true to enable HTTPS on port 8443
-  cert_path: /config/certs/cert.pem
-  key_path: /config/certs/key.pem
-  https_only: false                     # Set to true to disable plain HTTP (port 8080)
-  # keyfile_password: ""               # Uncomment if your private key is passphrase-protected
+# Changes are picked up by Caddy within a few seconds (no restart needed).
+# You can also configure this in the web UI under Settings > TLS.
+tls:
+  mode: "off"                           # off | auto | manual
+  domain: ""                            # Required for auto mode (e.g. scarguard.example.com)
+  cert_path: /config/certs/cert.pem     # Used in manual mode
+  key_path: /config/certs/key.pem       # Used in manual mode
 
 
 # ── Redis (internal message bus) ──────────────────────────────────────────────
