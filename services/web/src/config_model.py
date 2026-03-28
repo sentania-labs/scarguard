@@ -1,5 +1,6 @@
 """Pydantic models for structured config validation (form-based editor)."""
 
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, field_validator
@@ -183,12 +184,13 @@ class NotificationsConfig(BaseModel):
     channels: list[dict] = []
 
 
-class SSLConfig(BaseModel):
-    enabled: bool = False
+class TLSConfig(BaseModel):
+    """TLS settings for the Caddy reverse proxy."""
+
+    mode: Literal["off", "auto", "manual"] = "off"
+    domain: str = ""
     cert_path: str = "/config/certs/cert.pem"
     key_path: str = "/config/certs/key.pem"
-    https_only: bool = False
-    keyfile_password: str = ""
 
 
 class StructuredConfigPayload(BaseModel):
@@ -202,4 +204,4 @@ class StructuredConfigPayload(BaseModel):
     cameras: list[CameraConfig] = []
     detection: DetectionConfig = DetectionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
-    ssl: SSLConfig = SSLConfig()
+    tls: TLSConfig = TLSConfig()

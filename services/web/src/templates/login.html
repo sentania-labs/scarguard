@@ -23,6 +23,7 @@
 
     <div class="card">
       <form method="post" action="/login">
+        <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
         <input type="hidden" name="next" value="{{ next }}">
 
         <div class="field-group">

@@ -28,6 +28,7 @@
       </p>
 
       <form method="post" action="/setup">
+        <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
         <div class="field-group">
           <label for="username">Username</label>
           <input type="text" id="username" name="username" autocomplete="username"

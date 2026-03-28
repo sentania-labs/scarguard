@@ -140,29 +140,29 @@ if [[ -f ".env" ]]; then
     source .env
     set +a
 else
-    # Prompt for web port
-    ask "Web UI port? (press Enter for default 8080): "
-    read -r WEB_PORT_INPUT </dev/tty
-    WEB_PORT_VALUE="${WEB_PORT_INPUT:-8080}"
+    # Prompt for HTTP port
+    ask "HTTP port? (press Enter for default 80): "
+    read -r HTTP_PORT_INPUT </dev/tty
+    HTTP_PORT_VALUE="${HTTP_PORT_INPUT:-80}"
 
     # Validate it's a number in a reasonable range
-    if ! [[ "$WEB_PORT_VALUE" =~ ^[0-9]+$ ]] || \
-       [[ "$WEB_PORT_VALUE" -lt 1 ]] || \
-       [[ "$WEB_PORT_VALUE" -gt 65535 ]]; then
-        warn "Invalid port '$WEB_PORT_VALUE' — using 8080."
-        WEB_PORT_VALUE=8080
+    if ! [[ "$HTTP_PORT_VALUE" =~ ^[0-9]+$ ]] || \
+       [[ "$HTTP_PORT_VALUE" -lt 1 ]] || \
+       [[ "$HTTP_PORT_VALUE" -gt 65535 ]]; then
+        warn "Invalid port '$HTTP_PORT_VALUE' — using 80."
+        HTTP_PORT_VALUE=80
     fi
 
     cp .env.example .env
-    if [[ "$WEB_PORT_VALUE" != "8080" ]]; then
-        sed -i "s/^WEB_PORT=.*/WEB_PORT=${WEB_PORT_VALUE}/" .env
+    if [[ "$HTTP_PORT_VALUE" != "80" ]]; then
+        sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT_VALUE}/" .env
     fi
 
-    info "Created .env (WEB_PORT=${WEB_PORT_VALUE})"
+    info "Created .env (HTTP_PORT=${HTTP_PORT_VALUE})"
 fi
 
-# Read WEB_PORT for use in the final message
-WEB_PORT_FINAL=$(grep -E '^WEB_PORT=' .env | cut -d= -f2 || echo "8080")
+# Read HTTP_PORT for use in the final message
+HTTP_PORT_FINAL=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo "80")
 
 # ── Step 5: Initialize config volume ─────────────────────────────────────────
 step "Setting up configuration (named volume: scarguard-config)"
@@ -190,58 +190,44 @@ step "Preparing data volume (named volume: scarguard-data)"
 docker run --rm -v scarguard-data:/data alpine:3.20 mkdir -p /data/snapshots
 info "scarguard-data volume ready (snapshots directory created)"
 
-# ── Step 7: SSL certificate setup ────────────────────────────────────────────
-step "Setting up SSL certificate"
+# ── Step 7: TLS setup ───────────────────────────────────────────────────────
+step "TLS configuration"
 
-# Check if cert already exists in config volume.
-CERT_EXISTS=false
-if docker run --rm -v scarguard-config:/config alpine:3.20 \
-    test -f /config/certs/cert.pem -a -f /config/certs/key.pem 2>/dev/null; then
-    CERT_EXISTS=true
-fi
+echo "  How will you access ScarGuard?"
+echo "    1) LAN only (HTTP, no TLS — default)"
+echo "    2) Internet with automatic HTTPS (Let's Encrypt)"
+echo "    3) Own certificates (manual TLS)"
+echo
+ask "Choice [1]: "
+read -r TLS_CHOICE </dev/tty
+TLS_CHOICE="${TLS_CHOICE:-1}"
 
-if [[ "$CERT_EXISTS" == "true" ]]; then
-    info "SSL certificate already exists in config volume — skipping generation."
-elif command -v openssl &>/dev/null; then
-    echo "  ScarGuard can serve the web UI over HTTPS (port 8443)."
-    echo "  A self-signed certificate will be generated now.  You can replace it"
-    echo "  with your own cert/key at any time by uploading via the web UI or"
-    echo "  copying files into the config volume's certs/ directory."
-    echo "  Then set ssl.enabled: true in the web UI config editor and the"
-    echo "  web service will restart automatically."
-    echo
-    if confirm "Generate a self-signed SSL certificate?" "y"; then
-        # Generate cert locally then copy into the config volume.
-        _tmp_dir=$(mktemp -d)
-        _ssl_log=$(mktemp)
-        if openssl req -x509 -newkey rsa:4096 \
-            -keyout "${_tmp_dir}/key.pem" \
-            -out "${_tmp_dir}/cert.pem" \
-            -days 3650 -nodes \
-            -subj "/CN=scarguard" 2>"${_ssl_log}"; then
-            rm -f "${_ssl_log}"
-            chmod 600 "${_tmp_dir}/key.pem"
-            docker run --rm \
-                -v scarguard-config:/config \
-                -v "${_tmp_dir}:/src:ro" \
-                alpine:3.20 sh -c 'cp /src/cert.pem /config/certs/cert.pem && cp /src/key.pem /config/certs/key.pem && chmod 600 /config/certs/key.pem'
-            rm -rf "${_tmp_dir}"
-            info "Self-signed certificate generated (valid 10 years) and stored in config volume."
-            warn "To enable HTTPS: set ssl.enabled: true in the web UI config editor."
-            warn "The web service restarts automatically when SSL settings change."
+case "$TLS_CHOICE" in
+    2)
+        ask "Domain name (e.g. scarguard.example.com): "
+        read -r TLS_DOMAIN </dev/tty
+        if [[ -n "$TLS_DOMAIN" ]]; then
+            # Update tls section in config volume
+            docker run --rm -v scarguard-config:/config alpine:3.20 \
+                sh -c "sed -i 's/mode: \"off\"/mode: \"auto\"/' /config/scarguard.yml && \
+                       sed -i 's/domain: \"\"/domain: \"${TLS_DOMAIN}\"/' /config/scarguard.yml"
+            info "TLS mode set to auto (Let's Encrypt) with domain: ${TLS_DOMAIN}"
+            warn "Ports 80 and 443 must be reachable from the internet for ACME challenges."
         else
-            error "Certificate generation failed. openssl output:"
-            cat "${_ssl_log}" >&2
-            rm -f "${_ssl_log}" && rm -rf "${_tmp_dir}"
+            warn "No domain provided — keeping TLS off. Change in Settings > TLS later."
         fi
-    else
-        warn "Skipping SSL certificate generation."
-        warn "Generate later or upload via the web UI."
-    fi
-else
-    warn "openssl not found — skipping SSL certificate generation."
-    warn "Install openssl and re-run setup.sh, or upload certs via the web UI."
-fi
+        ;;
+    3)
+        info "TLS mode: manual. Place cert.pem and key.pem in the config volume's certs/ directory."
+        docker run --rm -v scarguard-config:/config alpine:3.20 \
+            sh -c "sed -i 's/mode: \"off\"/mode: \"manual\"/' /config/scarguard.yml"
+        info "Set TLS mode to manual in scarguard.yml."
+        warn "HTTPS will activate once cert and key files are present at the configured paths."
+        ;;
+    *)
+        info "TLS disabled (HTTP only). You can enable it later in Settings > TLS."
+        ;;
+esac
 
 # ── Step 8: Model check / starter model download ──────────────────────────────
 step "Checking for YOLO model"
@@ -417,7 +403,11 @@ echo "  $([[ -z "$MODEL_FILES" ]] && echo 4 || echo 3). ${BOLD}Open the web UI:$
 
 # Determine likely IP for the Orin
 ORIN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || echo "YOUR_ORIN_IP")
-echo "       http://${ORIN_IP}:${WEB_PORT_FINAL}"
+if [[ "$HTTP_PORT_FINAL" == "80" ]]; then
+    echo "       http://${ORIN_IP}"
+else
+    echo "       http://${ORIN_IP}:${HTTP_PORT_FINAL}"
+fi
 echo
 
 if [[ "$NVIDIA_OK" == "false" ]]; then
