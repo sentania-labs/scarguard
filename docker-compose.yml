@@ -34,8 +34,9 @@ services:
       dockerfile: services/caddy/Dockerfile
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-caddy:${IMAGE_TAG:-latest}
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
+      # Falls back to legacy WEB_PORT / WEB_HTTPS_PORT for in-place upgrades.
+      - "${HTTP_PORT:-${WEB_PORT:-80}}:80"
+      - "${HTTPS_PORT:-${WEB_HTTPS_PORT:-443}}:443"
     volumes:
       - scarguard-caddy-data:/data        # Let's Encrypt cert storage
       - scarguard-config:/config:ro       # reads scarguard.yml + manual certs

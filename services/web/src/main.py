@@ -198,16 +198,13 @@ async def csrf_middleware(request: Request, call_next):
         csrf_cookie = _generate_csrf_token()
 
     # Validate on mutating requests.
-    # The token must appear in the X-CSRF-Token header.  For form posts,
-    # the hidden _csrf_token field is submitted as a regular field (not read
-    # in middleware to avoid consuming the request body — route handlers can
-    # still access it).  The cookie's SameSite=Strict attribute prevents
-    # cross-site requests from including it at all, so verifying the cookie
-    # is valid (signed by us) is the primary defense.  The header/field
-    # check is defense-in-depth.
+    # The token must be submitted via X-CSRF-Token header (htmx/fetch) or
+    # _csrf_token form field (plain HTML forms), AND must match the cookie.
+    # The cookie's SameSite=Strict attribute prevents cross-site requests
+    # from including it at all.  Requiring a matching submitted token on top
+    # of the signed cookie provides defense-in-depth.
     if request.method not in _CSRF_SAFE_METHODS:
         submitted_cookie = request.cookies.get(_CSRF_COOKIE)
-        header_token = request.headers.get("x-csrf-token")
 
         # Require a valid CSRF cookie (SameSite=Strict blocks cross-site)
         if not submitted_cookie or not _verify_csrf_token(submitted_cookie):
@@ -217,8 +214,23 @@ async def csrf_middleware(request: Request, call_next):
                 )
             return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
 
-        # For requests with X-CSRF-Token header, verify it matches the cookie
-        if header_token is not None and not hmac.compare_digest(header_token, submitted_cookie):
+        # Require token via header or form field, and verify it matches cookie
+        # Token can come from X-CSRF-Token header (htmx/fetch) or
+        # _csrf_token form field (plain HTML forms).  The form body is
+        # cached by Starlette, so route handlers can still read it.
+        submitted_token: str | None = request.headers.get("x-csrf-token")
+        if submitted_token is None:
+            content_type = request.headers.get("content-type", "")
+            if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+                form = await request.form()
+                raw = form.get("_csrf_token")
+                submitted_token = raw if isinstance(raw, str) else None
+
+        if submitted_token is None or not hmac.compare_digest(submitted_token, submitted_cookie):
+            if _wants_html(request):
+                return RedirectResponse(
+                    f"/login?next={request.url.path}", status_code=302
+                )
             return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
 
     # Inject token into request state so templates can access it
