@@ -1,7 +1,13 @@
 name: Build
 
-# Validates that all Docker images build successfully on every merge to main.
+# Validates that all Docker images build successfully on every PR and merge.
 # Catches Dockerfile / dependency issues before they block a release.
+#
+# Pipeline:
+#   1. Multi-arch build (amd64 + arm64) — validates Dockerfiles
+#   2. Single-arch load (amd64) — loads images for testing and scanning
+#   3. Container pytest — runs tests inside built images to catch import/dep issues
+#   4. Trivy scan — fails on CRITICAL/HIGH CVEs with known fixes
 #
 # Images are built but NOT pushed — this is a build-only validation.
 # Versioned releases and GHCR pushes are handled by release.yml.
@@ -82,6 +88,10 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
 
+      # Uses docker create + cp instead of bind mounts (-v) because the
+      # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
+      # the outer host filesystem, not the runner container's filesystem,
+      # causing empty mount directories inside the test container.
       - name: Test web in container
         run: |
           cid=$(docker create scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")

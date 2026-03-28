@@ -4,3 +4,4 @@ pydantic>=2.0
 requests
 tzdata
 Pillow
+jaraco.context>=6.1.0
