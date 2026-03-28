@@ -73,22 +73,18 @@ jobs:
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
 
-      # No cache-from here: GHA cache written by the multi-arch step above
-      # isn't visible to later steps within the same run, so we'd read stale
-      # layers from a previous run.  Single-platform builds are fast enough.
+      # Single-platform build loaded into local Docker for testing and Trivy
+      # scanning.  Uses the default docker driver (not buildx) to avoid
+      # BuildKit's persistent layer cache on self-hosted runners, which can
+      # serve stale layers even after Dockerfile changes.
       - name: Build web (amd64, load for test)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/web/Dockerfile
-          platforms: linux/amd64
-          load: true
-          push: false
-          provenance: false
-          tags: scarguard-web:test
-          build-args: |
-            GIT_COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+        run: |
+          docker build \
+            --tag scarguard-web:test \
+            --file services/web/Dockerfile \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
+            .
 
       # Uses docker create + cp instead of bind mounts (-v) because the
       # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
@@ -105,15 +101,11 @@ jobs:
           exit $rc
 
       - name: Build notifier (amd64, load for test)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/notifier/Dockerfile
-          platforms: linux/amd64
-          load: true
-          push: false
-          provenance: false
-          tags: scarguard-notifier:test
+        run: |
+          docker build \
+            --tag scarguard-notifier:test \
+            --file services/notifier/Dockerfile \
+            .
 
       - name: Test notifier in container
         run: |
