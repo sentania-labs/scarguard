@@ -28,6 +28,14 @@
 - **Per-camera detection models:** Each camera can use a different YOLO model and detect different classes. ModelPool manages ref-counted model instances. Falls back to global defaults when per-camera settings are omitted.
 - **Named Docker volumes:** All application data (config, models, data, notifier state) stored in named Docker volumes instead of bind mounts. Cleaner deployment, no host-path dependencies.
 - **PR image builds:** CI validates Docker image builds on pull requests (not just on merge to main).
+- **Ntfy push notifications:** Lightweight push notification channel via ntfy.sh or self-hosted ntfy server. Supports Bearer/Basic auth, configurable priority, snapshot attachment.
+- **Visit duration tracking:** Consecutive detections of the same species on the same camera grouped into visit sessions. Visits page with filtering and pagination.
+- **Camera health monitoring:** Per-camera online/offline tracking with dashboard indicators and notification alerts when cameras stay offline beyond threshold.
+- **Metrics persistence & trending:** System metrics (CPU, GPU, RAM, per-camera FPS) stored in SQLite with historical Chart.js charts, time-range selector, and CSV export.
+- **Training data nudge:** Dashboard banner when enough labeled events exist since last dataset export, with per-class breakdown.
+- **Config backup & rollback:** Auto-backup on config change with admin UI for listing, diffing, and restoring backups.
+- **On-demand camera snapshot:** Dashboard button to grab a live frame from any camera via Redis request/response pattern, even when disarmed.
+- **CI/CD hardening:** Container-based pytest, Trivy security scanning, VERSION consistency checks, categorized release notes.
 
 ## Known Issues / Buggy
 
@@ -38,7 +46,7 @@ None currently identified.
 - Custom-trained heron model (have the tooling now, need labeled data)
 - Physical deterrence — planned as companion project "Scar's Revenge" (ESP32 valve controller receiving ScarGuard webhooks)
 
-See [ROADMAP.md](ROADMAP.md) for upcoming features (17–26) and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history.
+See [ROADMAP.md](ROADMAP.md) for upcoming features (17, 23, 26) and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history.
 
 ## Completed Work
 
@@ -74,3 +82,11 @@ See [ROADMAP.md](ROADMAP.md) for upcoming features (17–26) and [ROADMAP_ARCHIV
 | v0.8 | Per-camera detection models, classes & action routing (ModelPool, per-camera config, hot-reload) | ✅ Complete |
 | v0.8 | Named Docker volumes (replace bind mounts, migration script, setup.sh rewrite) | ✅ Complete |
 | v0.8 | CI: PR image build validation (build.yml triggers on pull_request) | ✅ Complete |
+| v0.9 | Ntfy push notifications (new channel type, Bearer/Basic auth, priority, snapshot) | ✅ Complete |
+| v0.9 | Visit duration tracking (session grouping, SQLite persistence, Visits page) | ✅ Complete |
+| v0.9 | Camera health monitoring & alerts (online/offline tracking, dashboard indicators, notifications) | ✅ Complete |
+| v0.9 | Metrics persistence & historical trending (SQLite, Chart.js, CSV export) | ✅ Complete |
+| v0.9 | Training data readiness nudge (dashboard banner, app_state table) | ✅ Complete |
+| v0.9 | Config backup & rollback (auto-backup, admin UI, diff/restore) | ✅ Complete |
+| v0.9 | On-demand camera snapshot (Redis request/response, dashboard button) | ✅ Complete |
+| v0.9 | CI/CD hardening (container pytest, Trivy scanning, VERSION checks, release notes) | ✅ Complete |

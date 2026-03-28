@@ -199,6 +199,62 @@ class EventProcessor:
                     self._conn.execute(ddl)
             self._conn.commit()
 
+            # Visit sessions table
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS visit_sessions (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    camera_name     TEXT    NOT NULL,
+                    class_name      TEXT    NOT NULL,
+                    start_time      TEXT    NOT NULL,
+                    end_time        TEXT    NOT NULL,
+                    duration_secs   REAL    NOT NULL,
+                    detection_count INTEGER NOT NULL
+                )
+                """
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_visits_camera_class "
+                "ON visit_sessions(camera_name, class_name)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_visits_start "
+                "ON visit_sessions(start_time)"
+            )
+            self._conn.commit()
+
+            # App state table (key-value store for application state)
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_state (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+            self._conn.commit()
+
+            # System metrics table
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS system_metrics (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp       TEXT    NOT NULL,
+                    cpu_pct         REAL,
+                    gpu_pct         REAL,
+                    gpu_temp        REAL,
+                    ram_used_mb     INTEGER,
+                    ram_total_mb    INTEGER,
+                    camera_data     TEXT
+                )
+                """
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_metrics_timestamp "
+                "ON system_metrics(timestamp)"
+            )
+            self._conn.commit()
+
     def _persist(
         self,
         timestamp: datetime,

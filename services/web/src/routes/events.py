@@ -239,3 +239,54 @@ def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
         f'<td class="feedback-cell">{feedback_html}</td>'
         f"</tr>"
     )
+
+
+@router.get("/visits", response_class=HTMLResponse)
+async def visits_page(
+    request: Request,
+    page: int = 1,
+    camera: str = "",
+    class_name: str = "",
+    date_from: str = "",
+    date_to: str = "",
+) -> HTMLResponse:
+    offset = (page - 1) * PAGE_SIZE
+    cam = camera or None
+    cls = class_name or None
+    dfrom = date_from or None
+    dto = date_to or None
+    rows = db.get_visits(
+        limit=PAGE_SIZE, offset=offset, camera=cam,
+        class_name=cls, date_from=dfrom, date_to=dto,
+    )
+    total = db.count_visits(camera=cam, class_name=cls, date_from=dfrom, date_to=dto)
+    tz = _tz_name()
+    visits: list[dict] = []
+    for row in rows:
+        v = dict(row)
+        v["display_start"] = _to_local(v.get("start_time", ""), tz)
+        v["display_end"] = _to_local(v.get("end_time", ""), tz)
+        # Format duration
+        secs = v.get("duration_secs", 0)
+        if secs >= 3600:
+            v["display_duration"] = f"{secs / 3600:.1f}h"
+        elif secs >= 60:
+            v["display_duration"] = f"{secs / 60:.1f}m"
+        else:
+            v["display_duration"] = f"{secs:.0f}s"
+        visits.append(v)
+    return templates.TemplateResponse(
+        request,
+        "visits.html",
+        {
+            "visits": visits,
+            "page": page,
+            "total_pages": max(1, -(-total // PAGE_SIZE)),
+            "total": total,
+            "camera_names": _get_camera_names(),
+            "filter_camera": camera,
+            "filter_class": class_name,
+            "filter_date_from": date_from,
+            "filter_date_to": date_to,
+        },
+    )

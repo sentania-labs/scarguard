@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Visit Sessions — ScarGuard{% endblock %}
+{% block content %}
+<h1>Visit Sessions <span class="muted">({{ total }} total)</span></h1>
+<p class="hint">A visit session groups consecutive detections of the same species on the same camera (gap &lt; 5 min).</p>
+
+<form method="get" action="/events/visits" class="filter-form">
+  <div class="filter-row">
+    <label>
+      Camera
+      <select name="camera">
+        <option value="">All</option>
+        {% for cam in camera_names %}
+        <option value="{{ cam }}" {% if filter_camera == cam %}selected{% endif %}>{{ cam }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Class
+      <input type="text" name="class_name" value="{{ filter_class }}" placeholder="e.g. great_blue_heron">
+    </label>
+    <label>
+      From
+      <input type="date" name="date_from" value="{{ filter_date_from }}">
+    </label>
+    <label>
+      To
+      <input type="date" name="date_to" value="{{ filter_date_to }}">
+    </label>
+    <button type="submit">Filter</button>
+    {% if filter_camera or filter_class or filter_date_from or filter_date_to %}
+    <a href="/events/visits" class="btn-secondary">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>Start</th>
+      <th>End</th>
+      <th>Species</th>
+      <th>Camera</th>
+      <th>Duration</th>
+      <th>Detections</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for v in visits %}
+    <tr>
+      <td>{{ v.display_start }}</td>
+      <td>{{ v.display_end }}</td>
+      <td>{{ v.class_name.replace("_", " ").title() }}</td>
+      <td>{{ v.camera_name }}</td>
+      <td>{{ v.display_duration }}</td>
+      <td>{{ v.detection_count }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">No visit sessions recorded yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+  <a href="/events/visits?page={{ page - 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}">&laquo; Newer</a>
+  {% endif %}
+  <span>Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="/events/visits?page={{ page + 1 }}&amp;camera={{ filter_camera | urlencode }}&amp;class_name={{ filter_class | urlencode }}&amp;date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}">Older &raquo;</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

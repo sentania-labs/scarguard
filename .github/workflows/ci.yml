@@ -109,3 +109,23 @@ jobs:
         env:
           PYTHONPATH: services/notifier/src:shared
         run: pytest services/notifier/tests/ -v
+
+  # ── Version check ─────────────────────────────────────────────────────────
+  version-check:
+    name: VERSION file check
+    runs-on: [self-hosted, linux, generic]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate VERSION file
+        run: |
+          if [ ! -f VERSION ]; then
+            echo "ERROR: VERSION file not found"
+            exit 1
+          fi
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: VERSION file is empty"
+            exit 1
+          fi
+          echo "VERSION: $VERSION"

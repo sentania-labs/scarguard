@@ -9,6 +9,15 @@ system:
   timezone: "UTC"
   snapshot_retention_days: 30   # days; 0 = keep forever
   stats_interval: 5             # seconds between system stats collection (1-60)
+  visit_timeout_seconds: 300    # gap before a visit session is closed (60-3600)
+  metrics_retention_days: 90    # days to keep historical metrics (1-365)
+  training_nudge_threshold: 100 # labeled events before showing training nudge banner (10-10000)
+  camera_health:
+    alert_threshold_minutes: 10 # minutes offline before alerting (1-1440)
+    debounce_seconds: 30        # ignore brief RTSP hiccups shorter than this (5-300)
+  backup:
+    max_backups: 50             # maximum number of config backups to keep (5-500)
+    debounce_seconds: 180       # wait this long after config change before backup (30-600)
   # schedule:                        # optional — omit entirely for manual-only control
   #   enabled: false                 # toggle scheduling on/off without clearing times
   #   arm_time: "06:00"              # arm at 6 AM local time (HH:MM, 24-hour)
@@ -17,15 +26,11 @@ system:
   #   latitude: null                 # required when use_solar is true
   #   longitude: null                # required when use_solar is true
 
-# SSL is off by default. Run setup.sh to generate a self-signed cert.
-# cert_path / key_path are container-internal paths; certs live inside the
-# config volume at /config/certs/.
-ssl:
-  enabled: false
-  cert_path: /config/certs/cert.pem
-  key_path: /config/certs/key.pem
-  https_only: false              # true = disable plain HTTP on port 8080
-  # keyfile_password: ""        # only if private key is passphrase-protected
+tls:
+  mode: "off"                  # "off", "auto" (Let's Encrypt), or "manual" (own certs)
+  domain: ""                   # required for auto mode
+  cert_path: /config/certs/cert.pem   # for manual mode
+  key_path: /config/certs/key.pem     # for manual mode
 
 cameras:
   - name: pond-north
@@ -86,18 +91,28 @@ notifications:
     smtp_pass: ""
     to_addresses: []
     include_snapshot: true
-  webhooks:
+  channels:
+    - name: phone-alerts
+      type: ntfy
+      server: "https://ntfy.sh"       # or self-hosted ntfy URL
+      topic: "scarguard-alerts"
+      token: ""                        # optional Bearer token for authenticated topics
+      # username: ""                   # alternative: Basic auth
+      # password: ""
+      priority: 3                      # 1 (min) to 5 (max/urgent)
+      include_snapshot: true
+      enabled: true
     - name: deterrent-webhook          # points to a downstream system (e.g. Scar's Revenge)
-      enabled: false
+      type: webhook
       url: "http://192.168.1.x/api/fire"
       method: POST
-      headers:
-        Authorization: "Bearer YOUR_TOKEN"
-      include_snapshot_url: true
-    - name: home-assistant
+      auth_token: "YOUR_TOKEN"         # optional Bearer token
       enabled: false
+    - name: home-assistant
+      type: webhook
       url: "http://homeassistant.local:8123/api/webhook/scarguard"
       method: POST
+      enabled: false
 redis:
   host: redis
   port: 6379
@@ -146,6 +161,38 @@ Labeled events power the training pipeline:
 | `frame_size` | TEXT | JSON `[width, height]` of original frame |
 | `feedback` | TEXT | `correct`, `false_positive`, `wrong_class`, or NULL |
 | `corrected_class` | TEXT | Class name when feedback is `wrong_class` |
+
+### Database Tables: visit_sessions
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `camera_name` | TEXT | Camera that recorded the visit |
+| `class_name` | TEXT | Detected species |
+| `start_time` | TEXT | ISO 8601 UTC — first detection |
+| `end_time` | TEXT | ISO 8601 UTC — last detection |
+| `duration_secs` | REAL | Visit length in seconds |
+| `detection_count` | INTEGER | Number of detections in the session |
+
+### Database Tables: system_metrics
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | INTEGER | Primary key |
+| `timestamp` | TEXT | ISO 8601 UTC |
+| `cpu_pct` | REAL | CPU usage percentage (0-100) |
+| `gpu_pct` | REAL | GPU usage percentage (0-100), NULL if no GPU |
+| `gpu_temp` | REAL | GPU temperature in °C, NULL if unavailable |
+| `ram_used_mb` | INTEGER | RAM used in MB |
+| `ram_total_mb` | INTEGER | Total RAM in MB |
+| `camera_data` | TEXT | JSON per-camera FPS/latency |
+
+### Database Tables: app_state
+
+| Column | Type | Description |
+|---|---|---|
+| `key` | TEXT | Primary key — state key name |
+| `value` | TEXT | State value |
 
 ## RTSP Notes
 

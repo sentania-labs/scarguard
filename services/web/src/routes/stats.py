@@ -1,13 +1,17 @@
 """Admin stats page — live system resource and inference performance metrics."""
 
 import asyncio
+import csv
+import io
+import json
 import logging
 from pathlib import Path
 
 import config_store
+import db
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -62,4 +66,79 @@ async def stats_stream(request: Request) -> StreamingResponse:
         generator(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Historical metrics ───────────────────────────────────────────────────
+
+
+def _parse_range(range_str: str) -> int:
+    """Parse range string like '1h', '24h', '7d', '30d' to hours."""
+    s = range_str.strip().lower()
+    try:
+        if s.endswith("d"):
+            return int(s[:-1]) * 24
+        if s.endswith("h"):
+            return int(s[:-1])
+    except (ValueError, IndexError):
+        pass
+    return 24
+
+
+@router.get("/stats/history")
+async def stats_history(
+    request: Request,  # noqa: ARG001
+    range: str = "24h",
+) -> JSONResponse:
+    """Return historical metrics as JSON for Chart.js."""
+    hours = _parse_range(range)
+    rows = db.get_metrics(range_hours=hours)
+    data: list[dict] = []
+    for r in rows:
+        entry: dict = {
+            "timestamp": r["timestamp"],
+            "cpu_pct": r["cpu_pct"],
+            "gpu_pct": r["gpu_pct"],
+            "gpu_temp": r["gpu_temp"],
+            "ram_used_mb": r["ram_used_mb"],
+            "ram_total_mb": r["ram_total_mb"],
+        }
+        cam_data = r["camera_data"]
+        if cam_data:
+            try:
+                entry["cameras"] = json.loads(cam_data)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        data.append(entry)
+    return JSONResponse(data)
+
+
+@router.get("/stats/export")
+async def stats_export(
+    request: Request,  # noqa: ARG001
+    range: str = "7d",
+    format: str = "csv",  # noqa: A002
+) -> StreamingResponse:
+    """Export metrics as CSV."""
+    hours = _parse_range(range)
+    rows = db.get_metrics(range_hours=hours, limit=100_000)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "timestamp", "cpu_pct", "gpu_pct", "gpu_temp",
+        "ram_used_mb", "ram_total_mb", "camera_data",
+    ])
+    for r in rows:
+        writer.writerow([
+            r["timestamp"], r["cpu_pct"], r["gpu_pct"], r["gpu_temp"],
+            r["ram_used_mb"], r["ram_total_mb"], r["camera_data"],
+        ])
+
+    buf.seek(0)
+    filename = f"scarguard_metrics_{range}.{format}"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )

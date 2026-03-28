@@ -9,14 +9,17 @@ import secrets
 from pathlib import Path
 
 import auth as auth_module
+from config_backup import ConfigBackupManager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from routes import about, admin, config, dashboard, events, feed, models, stats, training
+from routes import about, admin, config, dashboard, events, feed, models, snapshot, stats, training
 from routes import auth as auth_routes
 from routes import users as users_routes
 
 app = FastAPI(title="ScarGuard")
+
+backup_manager: ConfigBackupManager | None = None
 
 # ── Static assets ──────────────────────────────────────────────────────────────
 _src = Path(__file__).parent
@@ -37,9 +40,12 @@ app.mount("/model-files", StaticFiles(directory=MODELS_DIR), name="model-files")
 
 @app.on_event("startup")
 async def _startup() -> None:
+    global backup_manager
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _migrate_ssl_to_tls()
+    backup_manager = ConfigBackupManager()
+    backup_manager.start()
 
 
 def _migrate_ssl_to_tls() -> None:
@@ -264,3 +270,4 @@ app.include_router(about.router)
 app.include_router(admin.router)
 app.include_router(stats.router)
 app.include_router(training.router)
+app.include_router(snapshot.router)

@@ -20,18 +20,23 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 import yaml
+from camera_health import CameraHealthTracker
 from cleanup import SnapshotCleaner
 from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from evaluator import EvaluationRunner
 from events import EventProcessor
+from metrics_store import MetricsStore
 from model_pool import ModelPool
 from publisher import RedisPublisher
 from scheduler import ArmScheduler
+from snapshot_grabber import SnapshotGrabber
 from stats_collector import StatsCollector
 from stream import RTSPStream
+from visit_tracker import VisitTracker
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +150,8 @@ def run_camera(
     stop_event: threading.Event,
     camera_stats: dict[str, dict] | None = None,
     camera_stats_lock: threading.Lock | None = None,
+    health_tracker: CameraHealthTracker | None = None,
+    visit_tracker: VisitTracker | None = None,
 ) -> None:
     """Per-camera detection loop — runs in its own thread.
 
@@ -177,11 +184,16 @@ def run_camera(
     while not stop_event.is_set():
         ret, frame = stream.read()
         if not ret:
+            if health_tracker is not None:
+                health_tracker.record_failure(name)
             # RTSPStream handles its own backoff; wait briefly so we don't
             # spin-check stop_event too aggressively, but wake up immediately
             # on shutdown rather than blocking for a full second.
             stop_event.wait(1.0)
             continue
+
+        if health_tracker is not None:
+            health_tracker.record_frame(name)
 
         frame_count += 1
         if frame_count % frame_skip_ref[0] != 0:
@@ -242,6 +254,13 @@ def run_camera(
                 )
                 for event in events:
                     publisher.publish(event)
+                if visit_tracker is not None:
+                    for event in events:
+                        visit_tracker.record_detection(
+                            camera_name=name,
+                            class_name=event["class_name"],
+                            timestamp=datetime.fromisoformat(event["timestamp"]),
+                        )
 
     stream.release()
     logger.info("[%s] Camera thread stopped", name)
@@ -286,6 +305,13 @@ def main() -> None:
     )
     cleaner.start()
 
+    # ---- Camera health tracking ---------------------------------------------------
+    health_cfg = cfg.get("system", {}).get("camera_health", {})
+    health_tracker = CameraHealthTracker(
+        alert_threshold_seconds=int(health_cfg.get("alert_threshold_minutes", 10)) * 60,
+        debounce_seconds=int(health_cfg.get("debounce_seconds", 30)),
+    )
+
     # ---- Arm/disarm scheduler --------------------------------------------------
     _config_write_lock = threading.Lock()
 
@@ -322,6 +348,14 @@ def main() -> None:
     sys_cfg = cfg.get("system", {})
     scheduler.configure(sys_cfg.get("schedule", {}), sys_cfg.get("timezone", "UTC"))
     scheduler.start()
+
+    # ---- Metrics store -----------------------------------------------------------
+    metrics_retention = int(sys_cfg.get("metrics_retention_days", 90))
+    metrics_store = MetricsStore(db_path=DB_PATH, retention_days=metrics_retention)
+
+    # ---- Visit tracker -----------------------------------------------------------
+    visit_timeout = int(sys_cfg.get("visit_timeout_seconds", 300))
+    visit_tracker = VisitTracker(db_path=DB_PATH, timeout_seconds=visit_timeout)
 
     # ---- Signal handling -------------------------------------------------------
     global_stop = threading.Event()
@@ -393,6 +427,8 @@ def main() -> None:
                 cam_stop,
                 camera_stats,
                 camera_stats_lock,
+                health_tracker,
+                visit_tracker,
             ),
             name=f"camera-{name}",
             daemon=True,
@@ -417,6 +453,7 @@ def main() -> None:
         state.stop_event.set()
         state.thread.join(timeout=5)
         model_pool.release(state.model_path)
+        health_tracker.remove_camera(name)
         with camera_stats_lock:
             camera_stats.pop(name, None)
         logger.info("[%s] Camera thread stopped", name)
@@ -441,8 +478,38 @@ def main() -> None:
         camera_stats=camera_stats,
         camera_stats_lock=camera_stats_lock,
         stop_event=global_stop,
+        health_tracker=health_tracker,
+        metrics_store=metrics_store,
     )
     stats_collector.start()
+
+    # ---- Visit flush thread -------------------------------------------------------
+    def _visit_flush_loop() -> None:
+        while not global_stop.wait(60):
+            try:
+                visit_tracker.flush_expired()
+            except Exception:
+                logger.exception("Visit flush error")
+
+    visit_flush_thread = threading.Thread(
+        target=_visit_flush_loop, name="visit-flush", daemon=True
+    )
+    visit_flush_thread.start()
+
+    # ---- Metrics prune thread ----------------------------------------------------
+    def _metrics_prune_loop() -> None:
+        while not global_stop.wait(3600):
+            try:
+                deleted = metrics_store.prune()
+                if deleted:
+                    logger.info("Pruned %d old metric samples", deleted)
+            except Exception:
+                logger.exception("Metrics prune error")
+
+    metrics_prune_thread = threading.Thread(
+        target=_metrics_prune_loop, name="metrics-prune", daemon=True
+    )
+    metrics_prune_thread.start()
 
     # ---- Model evaluation runner -----------------------------------------------
     eval_runner = EvaluationRunner(
@@ -451,6 +518,14 @@ def main() -> None:
         snapshot_dir=SNAPSHOT_DIR,
     )
     eval_runner.start()
+
+    # ---- Snapshot grabber -------------------------------------------------------
+    snapshot_grabber = SnapshotGrabber(
+        redis_cfg=redis_cfg,
+        cameras_cfg=cameras,
+        stop_event=global_stop,
+    )
+    snapshot_grabber.start()
 
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:
@@ -506,6 +581,9 @@ def main() -> None:
 
         # Refresh known channels for validation.
         known_channels = _resolve_known_channels(new_cfg)
+
+        # Update snapshot grabber camera list
+        snapshot_grabber.update_cameras(new_cameras_list)
 
         # cameras added / updated
         for cam_cfg in new_cameras_list:
@@ -572,6 +650,8 @@ def main() -> None:
     eval_runner.stop()
     for name in list(active_cameras.keys()):
         _stop_camera(name)
+    # snapshot_grabber stops via global_stop event (daemon thread)
+    visit_tracker.flush_all()
     event_processor.close()
     cleaner.stop()
 

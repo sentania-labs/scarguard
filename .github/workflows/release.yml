@@ -25,6 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate tag matches VERSION
+        run: |
+          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
+          TAG_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($TAG_VERSION)"
+            echo "Update VERSION to $TAG_VERSION before tagging."
+            exit 1
+          fi
+          echo "VERSION $FILE_VERSION matches tag $TAG_VERSION"
+
       - name: Write version from tag
         # Strip the leading 'v' so VERSION contains e.g. "1.2.3" not "v1.2.3"
         run: echo "${{ github.ref_name }}" | sed 's/^v//' > VERSION

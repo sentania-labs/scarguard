@@ -17,8 +17,13 @@ import threading
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import redis as redis_lib
+
+if TYPE_CHECKING:
+    from camera_health import CameraHealthTracker
+    from metrics_store import MetricsStore
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,8 @@ class StatsCollector(threading.Thread):
         camera_stats: dict[str, dict],
         camera_stats_lock: threading.Lock,
         stop_event: threading.Event,
+        health_tracker: CameraHealthTracker | None = None,
+        metrics_store: MetricsStore | None = None,
     ) -> None:
         super().__init__(name="stats-collector", daemon=True)
         self._redis_cfg = redis_cfg
@@ -42,6 +49,8 @@ class StatsCollector(threading.Thread):
         self._camera_stats = camera_stats
         self._camera_stats_lock = camera_stats_lock
         self._stop = stop_event
+        self._health_tracker = health_tracker
+        self._metrics_store = metrics_store
 
         # Previous /proc/stat sample for CPU delta calculation
         self._prev_cpu: tuple[float, float] | None = None
@@ -411,6 +420,10 @@ class StatsCollector(threading.Thread):
         with self._camera_stats_lock:
             snapshot["cameras"] = {k: dict(v) for k, v in self._camera_stats.items()}
 
+        # Camera health status
+        if self._health_tracker is not None:
+            snapshot["camera_health"] = self._health_tracker.get_all_status()
+
         return snapshot
 
     # ── Thread run loop ───────────────────────────────────────────────────
@@ -442,6 +455,17 @@ class StatsCollector(threading.Thread):
                     json.dumps(snapshot, default=str),
                     ex=self._interval * 3,
                 )
+                # Persist metrics to SQLite
+                if self._metrics_store is not None:
+                    try:
+                        self._metrics_store.store(snapshot)
+                    except Exception:
+                        logger.warning("Failed to persist metrics", exc_info=True)
+                # Check for camera health alerts
+                if self._health_tracker is not None:
+                    alerts = self._health_tracker.check_alerts()
+                    for alert in alerts:
+                        client.publish("scarguard:health", json.dumps(alert, default=str))
             except redis_lib.RedisError:
                 logger.warning("StatsCollector failed to write to Redis", exc_info=True)
             except Exception:

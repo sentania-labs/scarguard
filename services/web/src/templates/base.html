@@ -17,6 +17,7 @@
     <a href="/" class="brand">ScarGuard 🐟</a>
     <a href="/">Dashboard</a>
     <a href="/events">Events</a>
+    <a href="/events/visits">Visits</a>
     <a href="/feed">Live Feed</a>
     {% if request.state.user and request.state.user.is_admin %}
     <div class="nav-dropdown">
@@ -32,6 +33,7 @@
           <a href="/admin/users">Users</a>
           <a href="/admin/training">Training Data</a>
           <a href="/admin/training/evaluate">Model Evaluation</a>
+          <a href="/admin/backups">Config Backups</a>
         </div>
       </div>
     </div>

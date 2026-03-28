@@ -77,6 +77,30 @@
   </table>
 </section>
 
+<!-- Historical Metrics -->
+<section class="card">
+  <h2>Historical Metrics</h2>
+  <div style="display:flex;gap:0.5rem;margin-bottom:1rem;align-items:center;">
+    <span class="stat-label" style="min-width:auto;">Range:</span>
+    <button class="range-btn active" data-range="1h" onclick="loadHistory('1h',this)">1h</button>
+    <button class="range-btn" data-range="24h" onclick="loadHistory('24h',this)">24h</button>
+    <button class="range-btn" data-range="7d" onclick="loadHistory('7d',this)">7d</button>
+    <button class="range-btn" data-range="30d" onclick="loadHistory('30d',this)">30d</button>
+    <a id="export-link" href="/admin/stats/export?range=1h&format=csv" style="margin-left:auto;font-size:0.85rem;">Export CSV</a>
+  </div>
+  <div class="chart-row">
+    <div class="chart-container">
+      <span class="chart-label">CPU & RAM %</span>
+      <canvas id="hist-cpu-chart"></canvas>
+    </div>
+    <div class="chart-container">
+      <span class="chart-label">GPU % & Temp</span>
+      <canvas id="hist-gpu-chart"></canvas>
+    </div>
+  </div>
+  <div id="hist-status" class="hint" style="margin-top:0.5rem;">Loading...</div>
+</section>
+
 <style>
 .stats-grid {
   display: grid;
@@ -151,6 +175,20 @@ canvas {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 5px;
+}
+.range-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 0.3em 0.8em;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.range-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 </style>
 
@@ -354,5 +392,96 @@ function updateInferenceTable(cameras) {
 }
 
 connect();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+let histCpuChart = null;
+let histGpuChart = null;
+let currentRange = '1h';
+
+function loadHistory(range, btn) {
+  currentRange = range;
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('export-link').href = '/admin/stats/export?range=' + range + '&format=csv';
+  document.getElementById('hist-status').textContent = 'Loading...';
+
+  fetch('/admin/stats/history?range=' + range)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.length) {
+        document.getElementById('hist-status').textContent = 'No historical data for this range.';
+        return;
+      }
+      document.getElementById('hist-status').textContent = data.length + ' samples loaded.';
+      renderHistCharts(data);
+    })
+    .catch(() => {
+      document.getElementById('hist-status').textContent = 'Failed to load historical data.';
+    });
+}
+
+function renderHistCharts(data) {
+  const labels = data.map(d => {
+    const dt = new Date(d.timestamp);
+    return dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  });
+  const cpuVals = data.map(d => d.cpu_pct);
+  const ramVals = data.map(d => {
+    if (d.ram_used_mb && d.ram_total_mb && d.ram_total_mb > 0)
+      return Math.round((d.ram_used_mb / d.ram_total_mb) * 100 * 10) / 10;
+    return null;
+  });
+  const gpuVals = data.map(d => d.gpu_pct);
+  const gpuTempVals = data.map(d => d.gpu_temp);
+
+  if (histCpuChart) histCpuChart.destroy();
+  if (histGpuChart) histGpuChart.destroy();
+
+  const cpuCtx = document.getElementById('hist-cpu-chart').getContext('2d');
+  histCpuChart = new Chart(cpuCtx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {label: 'CPU %', data: cpuVals, borderColor: 'rgba(78,159,255,0.9)', backgroundColor: 'rgba(78,159,255,0.1)', fill: true, tension: 0.3, pointRadius: 0},
+        {label: 'RAM %', data: ramVals, borderColor: 'rgba(62,207,142,0.9)', backgroundColor: 'rgba(62,207,142,0.1)', fill: true, tension: 0.3, pointRadius: 0},
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {display: true, ticks: {maxTicksLimit: 10, color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y: {min: 0, max: 100, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+      },
+      plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
+    },
+  });
+
+  const gpuCtx = document.getElementById('hist-gpu-chart').getContext('2d');
+  histGpuChart = new Chart(gpuCtx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {label: 'GPU %', data: gpuVals, borderColor: 'rgba(62,207,142,0.9)', backgroundColor: 'rgba(62,207,142,0.1)', fill: true, tension: 0.3, pointRadius: 0, yAxisID: 'y'},
+        {label: 'GPU Temp', data: gpuTempVals, borderColor: 'rgba(255,159,67,0.9)', backgroundColor: 'rgba(255,159,67,0.1)', fill: false, tension: 0.3, pointRadius: 0, yAxisID: 'y1'},
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {display: true, ticks: {maxTicksLimit: 10, color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y: {position: 'left', min: 0, max: 100, title: {display: true, text: '%', color: 'rgba(255,255,255,0.4)'}, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y1: {position: 'right', min: 20, max: 100, title: {display: true, text: '\u00b0C', color: 'rgba(255,255,255,0.4)'}, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {drawOnChartArea: false}},
+      },
+      plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
+    },
+  });
+}
+
+loadHistory('1h', document.querySelector('.range-btn[data-range="1h"]'));
 </script>
 {% endblock %}

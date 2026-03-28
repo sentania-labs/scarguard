@@ -13,3 +13,12 @@ class DetectionEvent(BaseModel):
     frame_size: list[int] | None = None
     feedback: str | None = None
     corrected_class: str | None = None
+
+
+class VisitSession(BaseModel):
+    camera_name: str
+    class_name: str
+    start_time: datetime
+    end_time: datetime
+    duration_secs: float
+    detection_count: int

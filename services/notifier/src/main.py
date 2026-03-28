@@ -7,6 +7,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Optional
 
 import redis as redis_lib
@@ -15,12 +16,14 @@ from config_watcher import ConfigWatcher
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
 from notification_queue import WORKER_INTERVAL, NotificationQueue
+from ntfy import NtfyNotifier
 from webhook import WebhookNotifier
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
 CHANNEL = "scarguard:detections"
+HEALTH_CHANNEL = "scarguard:health"
 
 # How long to wait before retrying a failed Redis connection (seconds).
 _REDIS_RECONNECT_DELAY = 5
@@ -40,7 +43,7 @@ def setup_logging(log_level: str) -> None:
     )
 
 
-def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifier | EmailNotifier | WebhookNotifier]:
+def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier]:
     """Build the list of active notifiers from config.
 
     Supports two config formats:
@@ -50,7 +53,7 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
     If `channels` is present, it takes precedence.  Legacy keys are used as
     a fallback for backward compatibility so existing configs keep working.
     """
-    notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier] = []
+    notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier] = []
 
     channels: list[dict] = notif_cfg.get("channels") or []
 
@@ -79,6 +82,10 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
                     # Log URL but not auth_token
                     logger.info("Webhook channel [%s] enabled → %s", ch_name, ch["url"])
                     seen_names.add(ch_name)
+                elif ch_type == "ntfy" and ch.get("topic"):
+                    notifiers.append(NtfyNotifier(ch, tz_name))
+                    logger.info("Ntfy channel [%s] enabled → %s", ch_name, ch.get("server", "https://ntfy.sh"))
+                    seen_names.add(ch_name)
                 elif ch_type:
                     logger.warning("Unknown channel type %r for [%s], skipping", ch_type, ch_name)
             except Exception as exc:
@@ -101,7 +108,7 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
 
 def dispatch(
     event: dict,
-    notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier],
+    notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier],
     notifiers_lock: Optional[threading.Lock] = None,
     queue: Optional[NotificationQueue] = None,
 ) -> None:
@@ -183,8 +190,8 @@ def subscribe_loop(
         try:
             client = redis_lib.Redis(host=host, port=port, decode_responses=True)
             pubsub = client.pubsub()
-            pubsub.subscribe(CHANNEL)
-            logger.info("Subscribed to Redis channel: %s", CHANNEL)
+            pubsub.subscribe(CHANNEL, HEALTH_CHANNEL)
+            logger.info("Subscribed to Redis channels: %s, %s", CHANNEL, HEALTH_CHANNEL)
             delay = _REDIS_RECONNECT_DELAY  # reset backoff on successful connect
 
             for message in pubsub.listen():
@@ -196,6 +203,23 @@ def subscribe_loop(
                     event = json.loads(message["data"])
                 except json.JSONDecodeError:
                     logger.warning("Received malformed message: %s", message["data"])
+                    continue
+
+                # Health alerts get formatted as notification events
+                if message["channel"] == HEALTH_CHANNEL:
+                    alert_event = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "class_name": "camera_offline",
+                        "confidence": 1.0,
+                        "camera_name": event.get("camera_name", "unknown"),
+                        "snapshot_path": None,
+                    }
+                    logger.warning(
+                        "Camera health alert: %s offline for %ss",
+                        event.get("camera_name"),
+                        event.get("offline_seconds"),
+                    )
+                    dispatch(alert_event, notifiers, notifiers_lock, queue)
                     continue
 
                 logger.info(
