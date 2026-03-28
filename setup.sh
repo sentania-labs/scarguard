@@ -207,10 +207,10 @@ case "$TLS_CHOICE" in
         ask "Domain name (e.g. scarguard.example.com): "
         read -r TLS_DOMAIN </dev/tty
         if [[ -n "$TLS_DOMAIN" ]]; then
-            # Update tls section in config volume
+            # Update tls section in config volume (idempotent — works regardless of current value)
             docker run --rm -v scarguard-config:/config alpine:3.20 \
-                sh -c "sed -i 's/mode: \"off\"/mode: \"auto\"/' /config/scarguard.yml && \
-                       sed -i 's/domain: \"\"/domain: \"${TLS_DOMAIN}\"/' /config/scarguard.yml"
+                sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"auto\"/' /config/scarguard.yml && \
+                       sed -i 's/domain: \"[^\"]*\"/domain: \"${TLS_DOMAIN}\"/' /config/scarguard.yml"
             info "TLS mode set to auto (Let's Encrypt) with domain: ${TLS_DOMAIN}"
             warn "Ports 80 and 443 must be reachable from the internet for ACME challenges."
         else
@@ -220,7 +220,7 @@ case "$TLS_CHOICE" in
     3)
         info "TLS mode: manual. Place cert.pem and key.pem in the config volume's certs/ directory."
         docker run --rm -v scarguard-config:/config alpine:3.20 \
-            sh -c "sed -i 's/mode: \"off\"/mode: \"manual\"/' /config/scarguard.yml"
+            sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"manual\"/' /config/scarguard.yml"
         info "Set TLS mode to manual in scarguard.yml."
         warn "HTTPS will activate once cert and key files are present at the configured paths."
         ;;

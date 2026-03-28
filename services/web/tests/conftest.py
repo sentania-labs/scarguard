@@ -58,4 +58,10 @@ def client(monkeypatch):
     from fastapi.testclient import TestClient
     from main import app
 
-    return TestClient(app)
+    c = TestClient(app)
+    # Prime CSRF cookie via a GET request, then set the header on the client
+    # so all subsequent requests include the token automatically.
+    c.get("/")
+    csrf_token = c.cookies.get("csrf_token", "")
+    c.headers["X-CSRF-Token"] = csrf_token
+    return c
