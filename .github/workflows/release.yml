@@ -71,6 +71,20 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
+      - name: Build and push — caddy
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/caddy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/scarguard-caddy:latest
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,scope=caddy,mode=max
+
       - name: Prune Docker images and build cache
         if: always()
         run: |
@@ -187,3 +201,4 @@ jobs:
             | detector | `ghcr.io/${{ github.repository_owner }}/scarguard-detector:${{ github.ref_name }}` |
             | web | `ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}` |
             | notifier | `ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}` |
+            | caddy | `ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}` |
