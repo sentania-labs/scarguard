@@ -4,8 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ScarGuard{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
+  <script>
+    function getCsrfToken(){var m=document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);return m?decodeURIComponent(m[1]):"";}
+    document.addEventListener("htmx:configRequest",function(e){e.detail.headers["X-CSRF-Token"]=getCsrfToken();});
+  </script>
 </head>
 <body>
   <nav>
@@ -35,6 +40,7 @@
     {% if request.state.user %}
     <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ request.state.user.username }}</span>
     <form method="post" action="/logout" style="margin:0;">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
       <button type="submit" style="background:none;border:1px solid var(--border);color:var(--muted);padding:0.25em 0.7em;font-size:0.8rem;">Logout</button>
     </form>
     {% endif %}

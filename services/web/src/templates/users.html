@@ -42,12 +42,14 @@
         </td>
         <td>
           <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
             <button type="submit" class="btn-secondary" style="font-size:0.78rem;padding:0.2em 0.6em;">
               {{ "Enable" if u.disabled else "Disable" }}
             </button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;"
                 onsubmit="return confirm('Delete user {{ u.username }}?');">
+            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
             <button type="submit" class="btn-remove" style="font-size:0.78rem;">Delete</button>
           </form>
         </td>
@@ -57,6 +59,7 @@
         <td colspan="5">
           <form method="post" action="/admin/users/{{ u.id }}/password"
                 style="display:flex;gap:0.5rem;align-items:center;padding:0.2rem 0;">
+            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
             <input type="password" name="new_password" placeholder="New password (min 8 chars)"
                    minlength="8" style="max-width:220px;">
             <button type="submit" class="btn-secondary" style="font-size:0.78rem;white-space:nowrap;">
@@ -76,6 +79,7 @@
 <section class="card">
   <h2>Add User</h2>
   <form method="post" action="/admin/users" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:flex-end;">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <div class="field-group" style="flex:1;min-width:160px;">
       <label for="new-username">Username</label>
       <input type="text" id="new-username" name="username" required>
@@ -134,6 +138,7 @@
         <td>
           {% if not t.disabled %}
           <form method="post" action="/admin/users/api-tokens/{{ t.id }}/revoke" style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
             <button type="submit" class="btn-remove" style="font-size:0.78rem;">Revoke</button>
           </form>
           {% endif %}
@@ -148,6 +153,7 @@
 
   <form method="post" action="/admin/users/api-tokens"
         style="display:flex;gap:0.75rem;align-items:flex-end;">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <div class="field-group" style="flex:1;max-width:300px;">
       <label for="token-name">Token name / description</label>
       <input type="text" id="token-name" name="name" placeholder="e.g. home-assistant" required>

@@ -17,6 +17,7 @@
         hx-post="/admin/training/evaluate"
         hx-target="#eval-status"
         hx-swap="innerHTML">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <div class="field-row">
       <div class="field-group">
         <label>Model A (baseline)</label>
@@ -79,6 +80,7 @@
 
   <div id="promote-section" style="display:none;">
     <form method="post" action="/admin/training/promote" id="promote-form">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
       <input type="hidden" name="model_path" id="promote-model-path">
       <button type="submit" class="btn-export" id="promote-btn">Promote Model B</button>
     </form>
@@ -206,6 +208,7 @@ document.getElementById('promote-form').addEventListener('submit', function(e) {
   fetch(form.action, {
     method: 'POST',
     body: new FormData(form),
+    headers: {'X-CSRF-Token': getCsrfToken()},
   }).then(function(r) { return r.text(); })
     .then(function(html) { document.getElementById('promote-result').innerHTML = html; });
 });

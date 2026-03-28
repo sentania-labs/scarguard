@@ -50,7 +50,7 @@ ScarGuard is the detection and notification layer. It watches the pond around th
 - **Dashboard** — arm/disarm toggle, latest detection, today's count, schedule status
 - **Events** — paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
 - **Live Feed** — SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
-- **Settings** — full config editor (form-based and raw YAML), cameras, detection, notifications, channels, action rules, schedule, authentication, SSL
+- **Settings** — full config editor (form-based and raw YAML), cameras, detection, notifications, channels, action rules, schedule, authentication, TLS
 - **System Stats** — real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
 - **Logs** — live service log tail with level filtering and pause/resume
 - **Training Data** — per-class feedback breakdown, dataset quality warnings, YOLO export
@@ -64,7 +64,7 @@ ScarGuard is the detection and notification layer. It watches the pond around th
 - All config in a single `scarguard.yml` — hot-reloaded by all services without restart
 - CI/CD via GitHub Actions — x86 runners for web/notifier; self-hosted Orin runner for ARM64 detector
 - Images published to GitHub Container Registry (ghcr.io)
-- HTTPS support — self-signed or custom cert, HTTP+HTTPS dual-listener, HTTPS-only option
+- HTTPS support — Caddy reverse proxy with automatic Let's Encrypt, manual certs, or HTTP-only mode
 - Session-based authentication — bcrypt passwords, configurable session timeout, login lockout
 - Scheduled arm/disarm — fixed time or solar (sunrise/sunset via `astral`)
 - Snapshot retention policy — configurable retention days, daily pruning
@@ -127,9 +127,9 @@ bash setup.sh
 
 The script will:
 - Check that Docker and the NVIDIA container runtime are installed (and offer to install them via `infra/orin-setup.sh` if not)
-- Ask which port to use for the web UI (default: 8080)
+- Ask which HTTP port to use (default: 80)
 - Create `config/scarguard.yml` from the example template (stored in the `scarguard-config` named volume)
-- Offer to generate a self-signed SSL certificate for HTTPS (stored in the config volume's `certs/` directory)
+- Ask how you'll access ScarGuard (LAN only / internet with Let's Encrypt / own certificates)
 - Offer to download a starter YOLO model (detects generic birds — good for testing the pipeline)
 - Pull all pre-built images from GHCR
 - Prompt you to create the initial admin account
@@ -231,10 +231,14 @@ docker compose up -d
 ### 6. Open the web UI
 
 ```
-http://<your-orin-ip>:8080
+http://<your-orin-ip>
 ```
 
 You'll be redirected to the login page. Use the admin account created during setup.
+
+> **Note:** The Caddy reverse proxy listens on port 80 (HTTP) by default.
+> To enable HTTPS, go to Settings > TLS in the web UI and choose Automatic
+> (Let's Encrypt) or Manual (your own certificates).
 
 ---
 
@@ -273,71 +277,61 @@ docker compose up -d
 
 ### Enabling HTTPS
 
-ScarGuard can serve the web UI over HTTPS on port 8443 alongside plain HTTP on 8080 (or HTTPS-only if you prefer).
+ScarGuard uses a Caddy reverse proxy for TLS termination. Three modes are available, configurable via the web UI (Settings > TLS) or `scarguard.yml`:
 
-#### Step 1 — Generate or provide a certificate
+#### Mode 1 — Off (default)
 
-`setup.sh` offers to generate a self-signed certificate automatically. If you skipped that step or want to do it manually:
+HTTP only. No TLS configuration needed. This is the right choice for LAN-only access.
+
+#### Mode 2 — Automatic (Let's Encrypt)
+
+Caddy obtains and renews a certificate from Let's Encrypt automatically. Requires a public domain name pointing to your server's IP.
+
+**Web UI:** Settings > TLS > Mode: Automatic > enter your domain > Save.
+
+**Or edit `scarguard.yml`:**
+
+```yaml
+tls:
+  mode: auto
+  domain: scarguard.example.com
+```
+
+Caddy picks up the change within a few seconds. Port 443 must be reachable from the internet for the ACME challenge.
+
+#### Mode 3 — Manual (your own certificates)
+
+Use certificates from an internal CA or another provider. Place `cert.pem` and `key.pem` in the config volume's `certs/` directory:
 
 ```bash
-# Generate a self-signed cert and copy it into the config volume:
 docker run --rm -v scarguard-config:/config alpine mkdir -p /config/certs
-
-openssl req -x509 -newkey rsa:4096 \
-    -keyout /tmp/key.pem -out /tmp/cert.pem \
-    -days 3650 -nodes -subj "/CN=scarguard"
-chmod 600 /tmp/key.pem
-
+# Copy your cert and key into the volume:
 docker run --rm \
     -v scarguard-config:/config \
-    -v /tmp/cert.pem:/src/cert.pem:ro \
-    -v /tmp/key.pem:/src/key.pem:ro \
+    -v /path/to/cert.pem:/src/cert.pem:ro \
+    -v /path/to/key.pem:/src/key.pem:ro \
     alpine sh -c 'cp /src/cert.pem /config/certs/cert.pem && cp /src/key.pem /config/certs/key.pem && chmod 600 /config/certs/key.pem'
-rm /tmp/cert.pem /tmp/key.pem
 ```
 
-To use your own certificate (e.g. from Let's Encrypt or an internal CA), copy `cert.pem` and `key.pem` into the config volume's `certs/` directory and proceed to Step 2.
-
-#### Step 2 — Enable SSL
-
-**Option A — Web UI:** Open the Settings page, expand the **SSL / TLS** section, check **Enable HTTPS**, and click Save. The web service restarts automatically.
-
-**Option B — Edit `scarguard.yml` directly:**
+Then set TLS mode to Manual in the web UI, or in `scarguard.yml`:
 
 ```yaml
-ssl:
-  enabled: true
-  cert_path: /config/certs/cert.pem   # container-internal path (inside config volume)
+tls:
+  mode: manual
+  cert_path: /config/certs/cert.pem
   key_path: /config/certs/key.pem
-  https_only: false                    # set true to disable plain HTTP on port 8080
 ```
 
-The web service detects SSL config changes and restarts automatically. The startup log will confirm:
+#### Changing the external ports
 
-```
-INFO     start — Starting with SSL: cert=/config/certs/cert.pem key=/config/certs/key.pem https_only=False ...
-```
-
-#### Changing the HTTPS port
-
-The default HTTPS port is 8443. To use a different port, add to `.env`:
+The default ports are 80 (HTTP) and 443 (HTTPS). To use different ports, edit `.env`:
 
 ```bash
-echo "WEB_HTTPS_PORT=9443" >> .env
-docker compose up -d web
+HTTP_PORT=8080
+HTTPS_PORT=8443
 ```
 
-#### Passphrase-protected private keys
-
-If your private key has a passphrase, add to `scarguard.yml`:
-
-```yaml
-ssl:
-  enabled: true
-  keyfile_password: "your-passphrase"
-```
-
-> **Note:** Browsers will show a security warning for self-signed certificates. You can dismiss it, add a permanent exception, or install the cert into your OS/browser trust store for a clean experience on your local network.
+Then restart: `docker compose up -d caddy`
 
 ---
 

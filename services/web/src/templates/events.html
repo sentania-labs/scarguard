@@ -209,7 +209,7 @@ function doOverlayFeedback(panel, eventId, feedback, correctedClass, sourceLink)
   var fd = new FormData();
   fd.append('feedback', feedback);
   if (correctedClass) fd.append('corrected_class', correctedClass);
-  fetch('/events/' + eventId + '/feedback', { method: 'POST', body: fd })
+  fetch('/events/' + eventId + '/feedback', { method: 'POST', body: fd, headers: {'X-CSRF-Token': getCsrfToken()} })
     .then(function(r) { return r.text(); })
     .then(function(html) {
       // Replace the table row with the updated version

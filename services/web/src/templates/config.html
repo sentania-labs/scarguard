@@ -316,7 +316,7 @@
       <div class="card">
         <p class="hint">
           Gates all web UI routes behind a login page.
-          Pair with SSL/TLS when accessible beyond your LAN.
+          Pair with TLS when accessible beyond your LAN.
           When disabled, anyone on the network can access the dashboard and admin tools.
         </p>
         <div class="field-row">
@@ -363,52 +363,59 @@
     </div>
   </div>
 
-  {# ── SSL / TLS ──────────────────────────────────────────────────────────── #}
-  <div class="config-section collapsed" id="section-ssl">
-    <div class="config-section-header" onclick="toggleSection('section-ssl')">
-      <span class="config-section-label">SSL / TLS</span>
+  {# ── TLS ────────────────────────────────────────────────────────────────── #}
+  <div class="config-section collapsed" id="section-tls">
+    <div class="config-section-header" onclick="toggleSection('section-tls')">
+      <span class="config-section-label">TLS</span>
       <span class="config-section-chevron">▾</span>
     </div>
     <div class="config-section-body">
       <div class="card">
         <p class="hint">
-          HTTPS for the web UI. Run <code>setup.sh</code> to generate a self-signed certificate,
-          or drop your own <code>cert.pem</code> and <code>key.pem</code> into the certs directory.
-          Changes to SSL settings require a web service restart (applied automatically on save).
+          HTTPS for the web UI, handled by the Caddy reverse proxy.
+          Changes take effect within a few seconds (no restart required).
         </p>
         <div class="field-group">
-          <label class="toggle-label">
-            <input type="checkbox" id="ssl-enabled" {% if cfg.ssl.enabled %}checked{% endif %}>
-            <span class="toggle-track"></span>
-            Enable HTTPS (port 8443)
-          </label>
+          <label>TLS Mode</label>
+          <select id="tls-mode" onchange="toggleTlsFields()">
+            <option value="off" {% if cfg.tls.mode == 'off' %}selected{% endif %}>Off (HTTP only &mdash; LAN use)</option>
+            <option value="auto" {% if cfg.tls.mode == 'auto' %}selected{% endif %}>Automatic (Let's Encrypt)</option>
+            <option value="manual" {% if cfg.tls.mode == 'manual' %}selected{% endif %}>Manual (own certificates)</option>
+          </select>
         </div>
-        <div class="field-group">
-          <label class="toggle-label">
-            <input type="checkbox" id="ssl-https-only" {% if cfg.ssl.https_only %}checked{% endif %}>
-            <span class="toggle-track"></span>
-            HTTPS only (disable plain HTTP on port 8080)
-          </label>
-        </div>
-        <div class="field-row">
+        <div id="tls-auto-fields" style="display:none;">
           <div class="field-group">
-            <label>Certificate path (inside container)</label>
-            <input type="text" id="ssl-cert-path" value="{{ cfg.ssl.cert_path }}"
-                   placeholder="/config/certs/cert.pem">
-          </div>
-          <div class="field-group">
-            <label>Key path (inside container)</label>
-            <input type="text" id="ssl-key-path" value="{{ cfg.ssl.key_path }}"
-                   placeholder="/config/certs/key.pem">
+            <label>Domain name</label>
+            <input type="text" id="tls-domain" value="{{ cfg.tls.domain }}"
+                   placeholder="scarguard.example.com">
+            <span class="hint">Must point to this server's public IP. Caddy will obtain a certificate automatically.</span>
           </div>
         </div>
-        <div class="field-group">
-          <label>Key password (leave blank if key is not passphrase-protected)</label>
-          <input type="password" id="ssl-key-password" value="{{ cfg.ssl.keyfile_password }}">
+        <div id="tls-manual-fields" style="display:none;">
+          <div class="field-row">
+            <div class="field-group">
+              <label>Certificate path</label>
+              <input type="text" id="tls-cert-path" value="{{ cfg.tls.cert_path }}"
+                     placeholder="/config/certs/cert.pem">
+            </div>
+            <div class="field-group">
+              <label>Key path</label>
+              <input type="text" id="tls-key-path" value="{{ cfg.tls.key_path }}"
+                     placeholder="/config/certs/key.pem">
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
+  <script>
+    function toggleTlsFields() {
+      var mode = document.getElementById('tls-mode').value;
+      document.getElementById('tls-auto-fields').style.display = mode === 'auto' ? '' : 'none';
+      document.getElementById('tls-manual-fields').style.display = mode === 'manual' ? '' : 'none';
+    }
+    toggleTlsFields();
+  </script>
 
   <button id="save-btn" type="button" onclick="saveConfig()">Save</button>
 
@@ -430,6 +437,7 @@
   </p>
 
   <form method="post" action="/config">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <textarea name="raw_yaml" rows="40" style="width:100%;font-family:monospace;font-size:0.85rem;">{{ raw_yaml }}</textarea>
     <div style="margin-top:0.5rem;">
       <button type="submit">Save</button>

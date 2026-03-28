@@ -55,6 +55,17 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
+      - name: Build caddy (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/caddy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,scope=caddy,mode=max
+
   # ── Build detector (Orin runner, ARM64) ───────────────────────────────────────
   build-detector:
     name: Build detector image

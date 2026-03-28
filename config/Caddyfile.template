@@ -1,0 +1,47 @@
+# ScarGuard — Caddy reverse proxy configuration
+#
+# This file is a template. The caddy-entrypoint.sh script reads the tls
+# section from scarguard.yml and generates the active Caddyfile from this
+# template at container startup (and on config changes).
+#
+# Three TLS modes are supported:
+#   off     — HTTP only (default, for LAN use)
+#   auto    — Automatic HTTPS via Let's Encrypt (requires a public domain)
+#   manual  — User-provided certificate and key files
+
+# ── Common snippet: security headers + reverse proxy ───────────────────────
+(scarguard) {
+    header {
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
+        -Server
+    }
+    reverse_proxy web:8080
+}
+
+# ── Mode: off ──────────────────────────────────────────────────────────────
+# Uncomment for plain HTTP (LAN only, no TLS):
+#
+# :80 {
+#     import scarguard
+# }
+
+# ── Mode: auto ─────────────────────────────────────────────────────────────
+# Uncomment and set your domain for automatic Let's Encrypt HTTPS:
+#
+# example.com {
+#     import scarguard
+# }
+
+# ── Mode: manual ───────────────────────────────────────────────────────────
+# Uncomment for user-provided certificates:
+#
+# :443 {
+#     tls /config/certs/cert.pem /config/certs/key.pem
+#     import scarguard
+# }
+# :80 {
+#     redir https://{host}{uri} permanent
+# }
