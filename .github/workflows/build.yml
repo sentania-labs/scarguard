@@ -73,6 +73,9 @@ jobs:
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
 
+      # No cache-from here: GHA cache written by the multi-arch step above
+      # isn't visible to later steps within the same run, so we'd read stale
+      # layers from a previous run.  Single-platform builds are fast enough.
       - name: Build web (amd64, load for test)
         uses: docker/build-push-action@v5
         with:
@@ -86,7 +89,6 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha,scope=web
 
       # Uses docker create + cp instead of bind mounts (-v) because the
       # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
@@ -112,7 +114,6 @@ jobs:
           push: false
           provenance: false
           tags: scarguard-notifier:test
-          cache-from: type=gha,scope=notifier
 
       - name: Test notifier in container
         run: |
