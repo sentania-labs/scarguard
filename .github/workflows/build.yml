@@ -88,7 +88,7 @@ jobs:
             -v ${{ github.workspace }}/services/web/tests:/app/tests \
             -v ${{ github.workspace }}/shared:/app/shared \
             scarguard-web:test \
-            sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short 2>&1"
+            sh -c "pip install --quiet pytest httpx && ls -la /app/tests/ && python3 -m pytest /app/tests/ -v --tb=short -p no:cacheprovider 2>&1 || (echo '--- COLLECTION ERRORS ---' && python3 -m pytest /app/tests/ --collect-only 2>&1; exit 1)"
 
       - name: Build notifier (amd64, load for test)
         uses: docker/build-push-action@v5
