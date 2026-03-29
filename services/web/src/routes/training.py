@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import zipfile
+from datetime import datetime
+from datetime import timezone as _tz
 from pathlib import Path
 
 import config_store
@@ -139,6 +141,9 @@ async def export_dataset(
             height = (y2 - y1) / fh
             annotation = f"{class_idx} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n"
             zf.writestr(f"dataset/labels/train/{event_id}.txt", annotation)
+
+    # Record export date for training nudge
+    db.set_app_state("last_export_date", datetime.now(_tz.utc).isoformat())
 
     buf.seek(0)
     return StreamingResponse(

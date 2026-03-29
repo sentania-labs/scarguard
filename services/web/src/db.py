@@ -6,7 +6,7 @@ only to the ``feedback`` and ``corrected_class`` columns via UPDATE.
 
 import os
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
 
@@ -311,3 +311,177 @@ def get_exportable_events(
             """,
             params,
         ).fetchall()
+
+
+# ── Training nudge ─────────────────────────────────────────────────────────
+
+
+def count_labeled_since(since_date: str | None) -> dict:
+    """Count labeled events since a given date, grouped by class.
+
+    Returns {"total": int, "by_class": {"class_name": count, ...}}
+    """
+    where = ["camera_name != '_system'", "feedback IS NOT NULL"]
+    params: list[object] = []
+    if since_date:
+        where.append("timestamp >= ?")
+        params.append(since_date)
+    clause = "WHERE " + " AND ".join(where)
+
+    try:
+        with _connect() as conn:
+            # Total count
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM detection_events {clause}", params
+            ).fetchone()
+            total = row[0] if row else 0
+
+            # By class
+            rows = conn.execute(
+                f"""
+                SELECT class_name, COUNT(*) as cnt
+                FROM detection_events
+                {clause}
+                GROUP BY class_name
+                ORDER BY cnt DESC
+                """,
+                params,
+            ).fetchall()
+            by_class = {r["class_name"]: r["cnt"] for r in rows}
+
+            return {"total": total, "by_class": by_class}
+    except Exception:
+        return {"total": 0, "by_class": {}}
+
+
+def get_app_state(key: str) -> str | None:
+    """Get a value from the app_state table."""
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM app_state WHERE key = ?", (key,)
+            ).fetchone()
+            return row["value"] if row else None
+    except Exception:
+        return None
+
+
+def set_app_state(key: str, value: str) -> None:
+    """Set a value in the app_state table."""
+    try:
+        with _connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO app_state (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+            conn.commit()
+    except Exception:
+        pass
+
+
+# ── Visits ──────────────────────────────────────────────────────────────────
+
+def get_visits(
+    limit: int = 100,
+    offset: int = 0,
+    camera: str | None = None,
+    class_name: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[sqlite3.Row]:
+    """Return visit sessions with optional filtering."""
+    where: list[str] = []
+    params: list[object] = []
+    if camera:
+        where.append("camera_name = ?")
+        params.append(camera)
+    if class_name:
+        where.append("class_name = ?")
+        params.append(class_name)
+    if date_from:
+        where.append("start_time >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("end_time < ?")
+        params.append(_date_to_exclusive(date_to))
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    params += [limit, offset]
+    try:
+        with _connect() as conn:
+            return conn.execute(
+                f"""
+                SELECT id, camera_name, class_name, start_time, end_time,
+                       duration_secs, detection_count
+                FROM visit_sessions
+                {clause}
+                ORDER BY id DESC
+                LIMIT ? OFFSET ?
+                """,
+                params,
+            ).fetchall()
+    except Exception:
+        return []
+
+
+def count_visits(
+    camera: str | None = None,
+    class_name: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> int:
+    where: list[str] = []
+    params: list[object] = []
+    if camera:
+        where.append("camera_name = ?")
+        params.append(camera)
+    if class_name:
+        where.append("class_name = ?")
+        params.append(class_name)
+    if date_from:
+        where.append("start_time >= ?")
+        params.append(date_from)
+    if date_to:
+        where.append("end_time < ?")
+        params.append(_date_to_exclusive(date_to))
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM visit_sessions {clause}", params
+            ).fetchone()
+            return row[0] if row else 0
+    except Exception:
+        return 0
+
+
+# ── Metrics ────────────────────────────────────────────────────────────────
+
+
+def get_metrics(
+    range_hours: int = 24,
+    limit: int = 5000,
+) -> list[sqlite3.Row]:
+    """Return system metrics samples from the last *range_hours* hours."""
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=range_hours)
+    ).isoformat()
+    try:
+        with _connect() as conn:
+            # Sub-select newest rows first, then re-order ascending for charts.
+            # Without this, LIMIT would keep the oldest rows and drop the most
+            # recent data once a range exceeds the cap.
+            return conn.execute(
+                """
+                SELECT * FROM (
+                    SELECT timestamp, cpu_pct, gpu_pct, gpu_temp,
+                           ram_used_mb, ram_total_mb, camera_data
+                    FROM system_metrics
+                    WHERE timestamp >= ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ) ORDER BY timestamp ASC
+                """,
+                (cutoff, limit),
+            ).fetchall()
+    except Exception:
+        return []

@@ -1,0 +1,23 @@
+changelog:
+  categories:
+    - title: "🚀 Features"
+      labels:
+        - enhancement
+        - feature
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - fix
+    - title: "🔧 CI/CD"
+      labels:
+        - ci
+        - infrastructure
+    - title: "📝 Documentation"
+      labels:
+        - documentation
+    - title: "🔒 Security"
+      labels:
+        - security
+    - title: "Other Changes"
+      labels:
+        - "*"

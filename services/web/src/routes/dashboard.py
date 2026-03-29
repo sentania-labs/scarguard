@@ -54,6 +54,26 @@ async def _get_rearm_at(cfg: dict) -> str | None:
         await r.aclose()
 
 
+async def _get_camera_health(cfg: dict) -> dict:
+    """Read camera health status from the stats Redis key."""
+    r = _redis_client(cfg)
+    if r is None:
+        return {}
+    try:
+        import json
+
+        data = await r.get("scarguard:stats")
+        if data:
+            stats = json.loads(data)
+            return stats.get("camera_health", {})
+        return {}
+    except Exception:
+        log.warning("Failed to read camera health from Redis")
+        return {}
+    finally:
+        await r.aclose()
+
+
 async def _set_rearm_at(cfg: dict, ts: str) -> None:
     r = _redis_client(cfg)
     if r is None:
@@ -206,6 +226,20 @@ async def dashboard(request: Request):
             latest_dict.get("timestamp", ""), tz_name
         )
     rearm_at = await _get_rearm_at(cfg)
+    camera_health = await _get_camera_health(cfg)
+
+    # Training data nudge
+    training_nudge = None
+    nudge_threshold = cfg.get("system", {}).get("training_nudge_threshold", 100)
+    last_export = db.get_app_state("last_export_date")
+    labeled = db.count_labeled_since(last_export)
+    if labeled["total"] >= nudge_threshold:
+        training_nudge = {
+            "total": labeled["total"],
+            "by_class": labeled["by_class"],
+            "last_export": last_export,
+        }
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -214,10 +248,12 @@ async def dashboard(request: Request):
             "rearm_at": rearm_at,
             "is_admin": _is_admin(request),
             "cameras": cameras,
+            "camera_health": camera_health,
             "total_events": total,
             "latest": latest_dict,
             "model_path": cfg.get("detection", {}).get("model_path", "—"),
             "schedule": _get_schedule_info(cfg),
+            "training_nudge": training_nudge,
         },
     )
 

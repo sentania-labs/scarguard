@@ -55,9 +55,39 @@
         </div>
         <div class="field-row">
           <div class="field-group">
-            <label>Stats polling interval (seconds, 1–60)</label>
+            <label>Stats polling interval (seconds, 1-60)</label>
             <input type="number" id="sys-stats-interval" value="{{ cfg.system.stats_interval }}"
                    min="1" max="60">
+          </div>
+          <div class="field-group">
+            <label>Visit timeout (seconds)</label>
+            <input type="number" id="visit_timeout_seconds" min="60" max="3600"
+                   value="{{ cfg.system.visit_timeout_seconds | default(300) }}">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Training Nudge Threshold</label>
+            <input type="number" id="training_nudge_threshold" value="{{ cfg.system.training_nudge_threshold | default(100) }}" min="10" max="10000">
+            <p class="hint">Show training data banner on dashboard when this many labeled events exist since last export</p>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Metrics retention (days)</label>
+            <input type="number" id="metrics_retention_days" min="1" max="365"
+                   value="{{ cfg.system.metrics_retention_days | default(90) }}">
+            <p class="hint">How long to keep historical metrics data (1-365 days)</p>
+          </div>
+          <div class="field-group">
+            <label>Camera offline alert threshold (minutes)</label>
+            <input type="number" id="camera_health_alert_threshold_minutes" min="1" max="1440"
+                   value="{{ cfg.system.camera_health.alert_threshold_minutes | default(10) }}">
+          </div>
+          <div class="field-group">
+            <label>Camera health debounce (seconds)</label>
+            <input type="number" id="camera_health_debounce_seconds" min="5" max="300"
+                   value="{{ cfg.system.camera_health.debounce_seconds | default(30) }}">
           </div>
         </div>
       </div>
@@ -241,6 +271,7 @@
           <button type="button" class="btn-add" onclick="addChannel('discord')">+ Discord</button>
           <button type="button" class="btn-add" onclick="addChannel('email')">+ Email</button>
           <button type="button" class="btn-add" onclick="addChannel('webhook')">+ Webhook</button>
+          <button type="button" class="btn-add" onclick="addChannel('ntfy')">+ Ntfy</button>
         </div>
       </div>
     </div>

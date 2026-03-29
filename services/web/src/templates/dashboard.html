@@ -3,6 +3,28 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+{% if training_nudge %}
+<div id="training-nudge" class="card" style="border-left:3px solid var(--accent);margin-bottom:1rem;">
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <strong>Training data ready!</strong>
+      <span class="hint">{{ training_nudge.total }} labeled events since {{ training_nudge.last_export or "first detection" }}</span>
+    </div>
+    <div style="display:flex;gap:0.5rem;align-items:center;">
+      <a href="/admin/training" style="font-size:0.85rem;">View Training Data</a>
+      <button onclick="this.closest('#training-nudge').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.2rem;" title="Dismiss">&#10005;</button>
+    </div>
+  </div>
+  {% if training_nudge.by_class %}
+  <div style="margin-top:0.5rem;display:flex;gap:1rem;flex-wrap:wrap;">
+    {% for cls, count in training_nudge.by_class.items() %}
+    <span class="hint"><strong>{{ cls.replace("_", " ").title() }}</strong>: {{ count }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <section class="card">
   <h2>System Status</h2>
   {% include "partials/arm_badge.html" %}
@@ -30,19 +52,37 @@
   </dl>
   {% if cameras %}
   <table>
-    <thead><tr><th>Name</th><th>Enabled</th><th>Resolution</th></tr></thead>
+    <thead><tr><th>Name</th><th>Enabled</th><th>Resolution</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for cam in cameras %}
     <tr>
       <td>{{ cam.name }}</td>
       <td>{{ "Yes" if cam.enabled else "No" }}</td>
       <td>{{ cam.resolution }}p</td>
+      <td>
+        <span class="health-dot health-dot--{{ camera_health.get(cam.name, {}).get('state', 'unknown') }}"
+              title="{{ camera_health.get(cam.name, {}).get('state', 'unknown') }}"></span>
+        {{ camera_health.get(cam.name, {}).get('state', 'unknown') }}
+      </td>
+      <td>
+        <button class="btn-snapshot" onclick="grabSnapshot('{{ cam.name }}')" title="Grab live snapshot">Snapshot</button>
+      </td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
   {% endif %}
 </section>
+
+<!-- Snapshot modal -->
+<div id="snapshot-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:var(--card-bg, #1a1a2e);padding:1.5rem;border-radius:8px;max-width:90%;max-height:90%;overflow:auto;position:relative;">
+    <button onclick="closeSnapshotModal()" style="position:absolute;top:0.5rem;right:0.5rem;background:none;border:none;color:var(--fg);font-size:1.5rem;cursor:pointer;">&times;</button>
+    <h3 id="snapshot-title" style="margin-top:0;">Snapshot</h3>
+    <div id="snapshot-status" class="hint">Requesting snapshot...</div>
+    <img id="snapshot-img" style="display:none;max-width:100%;border-radius:4px;margin-top:0.5rem;">
+  </div>
+</div>
 
 {% if latest %}
 <section class="card">
@@ -62,6 +102,24 @@
 </section>
 {% endif %}
 
+<style>
+.health-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.4em; vertical-align: middle; }
+.health-dot--online { background: var(--ok, #3ecf8e); }
+.health-dot--degraded { background: var(--warn, #f5a623); }
+.health-dot--offline { background: var(--danger, #e74c3c); }
+.health-dot--unknown { background: var(--muted, #666); }
+.btn-snapshot {
+  padding: 0.2em 0.6em;
+  font-size: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.btn-snapshot:hover { border-color: var(--accent); }
+</style>
+
 <script>
 function _updateRearmTimers() {
   document.querySelectorAll('.rearm-countdown').forEach(function(el) {
@@ -76,5 +134,32 @@ function _updateRearmTimers() {
 }
 setInterval(_updateRearmTimers, 1000);
 _updateRearmTimers();
+
+async function grabSnapshot(cameraName) {
+  var modal = document.getElementById('snapshot-modal');
+  modal.style.display = 'flex';
+  document.getElementById('snapshot-title').textContent = 'Snapshot: ' + cameraName;
+  document.getElementById('snapshot-status').textContent = 'Requesting snapshot...';
+  document.getElementById('snapshot-img').style.display = 'none';
+
+  try {
+    var resp = await fetch('/snapshot/' + encodeURIComponent(cameraName));
+    var data = await resp.json();
+    if (data.ok) {
+      document.getElementById('snapshot-status').textContent = '';
+      var img = document.getElementById('snapshot-img');
+      img.src = data.snapshot_url + '?t=' + Date.now();
+      img.style.display = 'block';
+    } else {
+      document.getElementById('snapshot-status').textContent = 'Error: ' + (data.error || 'Unknown error');
+    }
+  } catch (e) {
+    document.getElementById('snapshot-status').textContent = 'Network error: ' + e.message;
+  }
+}
+
+function closeSnapshotModal() {
+  document.getElementById('snapshot-modal').style.display = 'none';
+}
 </script>
 {% endblock %}

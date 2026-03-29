@@ -5,7 +5,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY services/notifier/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 COPY services/notifier/src/ ./src/
 COPY shared/ ./shared/

@@ -1,6 +1,40 @@
 # ScarGuard — Completed Features Archive
 
-Features 1–15 are fully implemented. Feature 16 is partially complete. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+Features 1–15, 18–22, and 24–25 are fully implemented. Feature 16 is mostly complete. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+
+---
+
+## Feature 25: On-Demand Camera Snapshot — ✓ Complete (v0.9)
+
+Dashboard snapshot button to grab a live frame from any camera, even when disarmed. Uses Redis request/response pattern: web publishes snapshot request, detector's SnapshotGrabber opens one-shot RTSP connection, writes JPEG, publishes result. Modal display in UI.
+
+## Feature 24: Config Backup & Rollback — ✓ Complete (v0.9)
+
+Auto-backup scarguard.yml on-change (debounced 3 min). Admin UI for listing backups, viewing unified diffs against current config, and restoring with pre-restore safety backup. Configurable max backups and debounce interval.
+
+## Feature 22: Training Data Readiness Nudge — ✓ Complete (v0.9)
+
+Dismissible dashboard banner when labeled events since last dataset export exceed a configurable threshold (default 100). Shows per-class breakdown. Export timestamp tracked in SQLite app_state table, resets nudge after each export.
+
+## Feature 21: Metrics Persistence & Historical Trending — ✓ Complete (v0.9)
+
+Persist system metrics (CPU, GPU, temp, RAM, per-camera FPS) to SQLite. Chart.js time-series UI with range selector (1h/24h/7d/30d). CSV export endpoint. Configurable retention (default 90 days) with hourly pruning.
+
+## Feature 20: Camera Health Monitoring & Alerts — ✓ Complete (v0.9)
+
+Per-camera online/offline state tracking with debounce. Dashboard health indicators (green/yellow/red). Alerts via existing notification channels when offline exceeds threshold. Configurable alert threshold and debounce interval.
+
+## Feature 19: Visit Duration Tracking — ✓ Complete (v0.9)
+
+Groups consecutive detections of same class on same camera into visit sessions. Configurable timeout (default 5 min). Sessions persisted to SQLite. Dedicated Visits page with filtering and pagination.
+
+## Feature 18: Ntfy Push Notifications — ✓ Complete (v0.9)
+
+Ntfy notification channel type. Supports self-hosted or ntfy.sh, Bearer token or Basic auth, configurable priority (1-5), snapshot attachment. Configurable via web UI.
+
+## CI/CD Improvements — ✓ Complete (v0.9)
+
+Container-based pytest (run tests inside built Docker images), Trivy security scanning (CRITICAL/HIGH), VERSION file consistency check (CI + release tag validation), categorized auto-generated release notes.
 
 ---
 

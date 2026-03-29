@@ -234,6 +234,13 @@ function readForm() {
       timezone: document.getElementById("sys-timezone").value.trim(),
       snapshot_retention_days: (v => isNaN(v) ? 30 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
       stats_interval: (v => isNaN(v) || v < 1 ? 5 : Math.min(v, 60))(parseInt(document.getElementById("sys-stats-interval").value, 10)),
+      visit_timeout_seconds: parseInt(document.getElementById('visit_timeout_seconds')?.value || '300'),
+      training_nudge_threshold: parseInt(document.getElementById('training_nudge_threshold')?.value || '100'),
+      metrics_retention_days: parseInt(document.getElementById('metrics_retention_days')?.value || '90'),
+      camera_health: {
+        alert_threshold_minutes: parseInt(document.getElementById('camera_health_alert_threshold_minutes')?.value || '10'),
+        debounce_seconds: parseInt(document.getElementById('camera_health_debounce_seconds')?.value || '30'),
+      },
       schedule,
       auth: {
         enabled: document.getElementById("auth-enabled").checked,
@@ -400,6 +407,15 @@ const _CHANNEL_FIELDS = {
     { id: "url", label: "URL", type: "text", placeholder: "https://example.com/webhook" },
     { id: "method", label: "HTTP method", type: "select", options: ["POST", "PUT"], default: "POST" },
     { id: "auth_token", label: "Bearer token (optional)", type: "password", placeholder: "" },
+  ],
+  ntfy: [
+    { id: "server", label: "Server URL", type: "text", placeholder: "https://ntfy.sh", default: "https://ntfy.sh" },
+    { id: "topic", label: "Topic", type: "text", placeholder: "scarguard-alerts" },
+    { id: "token", label: "Access token (optional)", type: "password", placeholder: "" },
+    { id: "username", label: "Username (optional, alternative to token)", type: "text", placeholder: "" },
+    { id: "password", label: "Password (optional)", type: "password", placeholder: "" },
+    { id: "priority", label: "Priority", type: "select", options: ["1", "2", "3", "4", "5"], default: "3" },
+    { id: "include_snapshot", label: "Attach snapshot image", type: "checkbox", default: true },
   ],
 };
 

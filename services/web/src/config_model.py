@@ -66,14 +66,78 @@ class AuthConfig(BaseModel):
         return v
 
 
+class CameraHealthConfig(BaseModel):
+    alert_threshold_minutes: int = 10
+    debounce_seconds: int = 30
+
+    @field_validator("alert_threshold_minutes")
+    @classmethod
+    def threshold_range(cls, v: int) -> int:
+        if not 1 <= v <= 1440:
+            raise ValueError("alert_threshold_minutes must be between 1 and 1440")
+        return v
+
+    @field_validator("debounce_seconds")
+    @classmethod
+    def debounce_range(cls, v: int) -> int:
+        if not 5 <= v <= 300:
+            raise ValueError("debounce_seconds must be between 5 and 300")
+        return v
+
+
+class BackupConfig(BaseModel):
+    max_backups: int = 50
+    debounce_seconds: int = 180
+
+    @field_validator("max_backups")
+    @classmethod
+    def max_backups_range(cls, v: int) -> int:
+        if not 5 <= v <= 500:
+            raise ValueError("max_backups must be between 5 and 500")
+        return v
+
+    @field_validator("debounce_seconds")
+    @classmethod
+    def backup_debounce_range(cls, v: int) -> int:
+        if not 30 <= v <= 600:
+            raise ValueError("debounce_seconds must be between 30 and 600")
+        return v
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"
     snapshot_retention_days: int = 30
     stats_interval: int = 5
+    visit_timeout_seconds: int = 300
+    training_nudge_threshold: int = 100
+    metrics_retention_days: int = 90
     schedule: ScheduleConfig = ScheduleConfig()
     auth: AuthConfig = AuthConfig()
+    camera_health: CameraHealthConfig = CameraHealthConfig()
+    backup: BackupConfig = BackupConfig()
+
+    @field_validator("metrics_retention_days")
+    @classmethod
+    def metrics_retention_range(cls, v: int) -> int:
+        if not 1 <= v <= 365:
+            raise ValueError("metrics_retention_days must be between 1 and 365")
+        return v
+
+    @field_validator("visit_timeout_seconds")
+    @classmethod
+    def visit_timeout_range(cls, v: int) -> int:
+        if not 60 <= v <= 3600:
+            raise ValueError("visit_timeout_seconds must be between 60 and 3600")
+        return v
+
+    @field_validator("training_nudge_threshold")
+    @classmethod
+    def nudge_threshold_range(cls, v: int) -> int:
+        if not 10 <= v <= 10000:
+            raise ValueError("training_nudge_threshold must be between 10 and 10000")
+        return v
 
     @field_validator("timezone")
     @classmethod

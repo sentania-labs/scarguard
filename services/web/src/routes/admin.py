@@ -7,10 +7,17 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from starlette.responses import Response
 
 log = logging.getLogger(__name__)
+
+
+def _require_admin(request: Request) -> bool:
+    """Return True if the current user is an admin."""
+    user = getattr(request.state, "user", None)
+    return bool(user and user.get("is_admin"))
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -175,3 +182,72 @@ async def logs_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Config Backup Management ─────────────────────────────────────────────────
+
+
+@router.get("/backups", response_class=HTMLResponse)
+async def backups_page(request: Request) -> Response:
+    """List all config backups."""
+    if not _require_admin(request):
+        return RedirectResponse("/", status_code=302)
+    from main import backup_manager
+
+    backups = backup_manager.list_backups() if backup_manager else []
+    return templates.TemplateResponse(request, "backups.html", {"backups": backups})
+
+
+@router.get("/backups/{name}/diff")
+async def backup_diff(request: Request, name: str) -> JSONResponse:
+    """Return a unified diff between a backup and the current config."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    from main import backup_manager
+
+    if not backup_manager:
+        return JSONResponse(
+            {"error": "Backup manager not initialized"}, status_code=500
+        )
+    if not name.startswith("scarguard_") or not name.endswith(".yml"):
+        return JSONResponse({"error": "Invalid backup name"}, status_code=400)
+    diff = backup_manager.get_diff(name)
+    if diff is None:
+        return JSONResponse({"error": "Backup not found"}, status_code=404)
+    return JSONResponse({"diff": diff})
+
+
+@router.post("/backups/{name}/restore")
+async def backup_restore(request: Request, name: str) -> JSONResponse:
+    """Restore a backup to the active config."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    from main import backup_manager
+
+    if not backup_manager:
+        return JSONResponse(
+            {"error": "Backup manager not initialized"}, status_code=500
+        )
+    if not name.startswith("scarguard_") or not name.endswith(".yml"):
+        return JSONResponse({"error": "Invalid backup name"}, status_code=400)
+    ok = backup_manager.restore(name)
+    if not ok:
+        return JSONResponse({"error": "Restore failed"}, status_code=500)
+    return JSONResponse({"ok": True, "message": f"Restored from {name}"})
+
+
+@router.post("/backups/create")
+async def backup_create(request: Request) -> JSONResponse:
+    """Create a manual config backup."""
+    if not _require_admin(request):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    from main import backup_manager
+
+    if not backup_manager:
+        return JSONResponse(
+            {"error": "Backup manager not initialized"}, status_code=500
+        )
+    filename = backup_manager.create_backup("manual")
+    if not filename:
+        return JSONResponse({"error": "Failed to create backup"}, status_code=500)
+    return JSONResponse({"ok": True, "filename": filename})

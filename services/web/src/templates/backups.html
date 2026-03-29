@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Config Backups — ScarGuard{% endblock %}
+{% block content %}
+<h1>Config Backups</h1>
+<p class="hint">Automatic backups are created when the config file changes. You can also create manual backups and restore previous versions.</p>
+
+<div style="margin-bottom:1rem;">
+  <button onclick="createBackup()" id="create-btn">Create Backup Now</button>
+</div>
+
+<div id="backup-banner" style="display:none;" class="alert"></div>
+
+<table id="backups-table">
+  <thead><tr><th>Backup</th><th>Size</th><th>Created</th><th>Actions</th></tr></thead>
+  <tbody>
+  {% for b in backups %}
+  <tr>
+    <td><code>{{ b.name }}</code></td>
+    <td>{{ "%.1f"|format(b.size_bytes / 1024) }} KB</td>
+    <td>{{ b.created }}</td>
+    <td>
+      <button onclick="showDiff('{{ b.name }}')" class="btn-sm">Diff</button>
+      <button onclick="restoreBackup('{{ b.name }}')" class="btn-sm btn-danger">Restore</button>
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not backups %}
+  <tr><td colspan="4" class="muted">No backups found.</td></tr>
+  {% endif %}
+  </tbody>
+</table>
+
+<div id="diff-modal" style="display:none;margin-top:1rem;">
+  <h3>Diff: <span id="diff-name"></span></h3>
+  <pre id="diff-content" style="background:var(--bg);padding:1rem;border-radius:4px;overflow-x:auto;font-size:0.85rem;max-height:500px;overflow-y:auto;border:1px solid var(--border);"></pre>
+  <button onclick="document.getElementById('diff-modal').style.display='none'">Close</button>
+</div>
+
+<style>
+.btn-sm {
+  padding: 0.2em 0.6em;
+  font-size: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  border-radius: 3px;
+  cursor: pointer;
+  margin-right: 0.3rem;
+}
+.btn-danger { border-color: var(--danger, #e74c3c); color: var(--danger, #e74c3c); }
+</style>
+
+<script>
+function getCsrfToken(){var m=document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);return m?decodeURIComponent(m[1]):"";}
+
+async function createBackup() {
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  try {
+    const resp = await fetch('/admin/backups/create', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': getCsrfToken() },
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showBanner('Backup created: ' + data.filename, 'ok');
+      location.reload();
+    } else {
+      showBanner('Error: ' + data.error, 'err');
+    }
+  } catch (e) {
+    showBanner('Network error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Backup Now';
+  }
+}
+
+async function showDiff(name) {
+  document.getElementById('diff-name').textContent = name;
+  document.getElementById('diff-content').textContent = 'Loading...';
+  document.getElementById('diff-modal').style.display = 'block';
+  try {
+    const resp = await fetch('/admin/backups/' + encodeURIComponent(name) + '/diff');
+    const data = await resp.json();
+    document.getElementById('diff-content').textContent = data.diff || data.error || 'No data';
+  } catch (e) {
+    document.getElementById('diff-content').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function restoreBackup(name) {
+  if (!confirm('Restore config from ' + name + '? A pre-restore backup will be created first.')) return;
+  try {
+    const resp = await fetch('/admin/backups/' + encodeURIComponent(name) + '/restore', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': getCsrfToken() },
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showBanner('Config restored from ' + name + '. Changes take effect within ~10 seconds.', 'ok');
+      location.reload();
+    } else {
+      showBanner('Error: ' + data.error, 'err');
+    }
+  } catch (e) {
+    showBanner('Network error: ' + e.message, 'err');
+  }
+}
+
+function showBanner(msg, type) {
+  const banner = document.getElementById('backup-banner');
+  banner.style.display = 'block';
+  banner.className = 'alert alert-' + type;
+  banner.textContent = msg;
+}
+</script>
+{% endblock %}
