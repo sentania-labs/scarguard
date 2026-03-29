@@ -609,12 +609,12 @@ input[type="range"] {
 }
 .snapshot-overlay__inner {
   position: relative;
-  max-width: 90vw;
-  max-height: 90vh;
+  max-width: 60vw;
+  max-height: 70vh;
 }
 .snapshot-overlay__inner img {
-  max-width: 90vw;
-  max-height: 90vh;
+  max-width: 60vw;
+  max-height: 70vh;
   display: block;
   border-radius: 4px;
 }

@@ -240,6 +240,14 @@ async def dashboard(request: Request):
             "last_export": last_export,
         }
 
+    # Enabled notification channels for "send snapshot" feature
+    notif_channels: list[str] = []
+    raw_channels = cfg.get("notifications", {}).get("channels", [])
+    if isinstance(raw_channels, list):
+        for ch in raw_channels:
+            if isinstance(ch, dict) and ch.get("enabled", True) and ch.get("name"):
+                notif_channels.append(ch["name"])
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -254,6 +262,7 @@ async def dashboard(request: Request):
             "model_path": cfg.get("detection", {}).get("model_path", "—"),
             "schedule": _get_schedule_info(cfg),
             "training_nudge": training_nudge,
+            "notif_channels": notif_channels,
         },
     )
 

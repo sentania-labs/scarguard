@@ -99,13 +99,38 @@ function startStream() {
   };
 }
 
+function formatCaddyJson(line) {
+  // Convert Caddy JSON log lines to a human-readable format
+  if (!line.trimStart().startsWith("{")) return null;
+  try {
+    var obj = JSON.parse(line);
+    if (!obj.level && !obj.msg) return null;
+    var ts = obj.ts ? new Date(obj.ts * 1000).toISOString().replace("T", " ").replace("Z", "") : "";
+    var level = (obj.level || "info").toUpperCase().padEnd(5);
+    var msg = obj.msg || "";
+    var parts = [ts, level, msg].filter(Boolean);
+    // Append useful fields (skip ts, level, msg, logger which are already shown)
+    var skip = new Set(["ts", "level", "msg", "logger"]);
+    Object.keys(obj).forEach(function(k) {
+      if (!skip.has(k)) {
+        var v = typeof obj[k] === "object" ? JSON.stringify(obj[k]) : String(obj[k]);
+        parts.push(k + "=" + v);
+      }
+    });
+    return parts.join("  ");
+  } catch (_) { return null; }
+}
+
 function appendLine(text) {
   const box = document.getElementById("log-output");
   const level = detectLevel(text);
 
+  // Format Caddy JSON lines into readable text
+  var display = (_currentService === "caddy") ? formatCaddyJson(text) || text : text;
+
   const div = document.createElement("div");
   div.className = `log-line log-${level}`;
-  div.textContent = text;
+  div.textContent = display;
   box.appendChild(div);
   _lineCount++;
 
@@ -122,6 +147,19 @@ function appendLine(text) {
 }
 
 function detectLevel(line) {
+  // Caddy outputs JSON logs with "level":"error" — try parsing first
+  if (line.trimStart().startsWith("{")) {
+    try {
+      var obj = JSON.parse(line);
+      if (obj.level) {
+        var l = obj.level.toLowerCase();
+        if (l === "error" || l === "fatal" || l === "panic") return "error";
+        if (l === "warn") return "warning";
+        if (l === "debug") return "debug";
+        return "info";
+      }
+    } catch (_) { /* not JSON, fall through */ }
+  }
   const u = line.toUpperCase();
   if (u.includes("CRITICAL") || u.includes("ERROR") || u.includes("EXCEPTION") || u.includes("TRACEBACK")) return "error";
   if (u.includes("WARNING") || u.includes("WARN")) return "warning";
