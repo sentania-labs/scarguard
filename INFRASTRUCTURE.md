@@ -7,6 +7,8 @@ Doc last verified: 2026-03-24
 ```
 scarguard/
 ├── docker-compose.yml
+├── docker-compose.gpu.yml
+├── BENCHMARKS.md
 ├── setup.sh
 ├── pyproject.toml
 ├── .env.example
@@ -17,7 +19,8 @@ scarguard/
 │   └── scarguard.db
 ├── services/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
-│   │   ├── Dockerfile
+│   │   ├── Dockerfile               # Jetson/L4T (ARM64)
+│   │   ├── Dockerfile.x86           # x86 CUDA+CPU
 │   │   ├── requirements.txt
 │   │   └── src/
 │   │       ├── main.py
@@ -84,8 +87,10 @@ scarguard/
 
 ## Container Base Images
 
-- **detector:** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`runtime: nvidia` in Compose).
+- **detector (Jetson):** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`docker-compose.gpu.yml` override).
+- **detector (x86):** `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`.
 - **web and notifier:** `python:3.11-slim` — no GPU needed.
+- **caddy:** `caddy:2-alpine` + Python for config parsing.
 
 ## Named Volumes
 
@@ -124,14 +129,14 @@ ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. Th
 - **Deterrence (future):** Physical deterrence hardware (solenoid valves, relays) will be managed by companion project "Scar's Revenge," which receives webhook notifications from ScarGuard
 - **Network:** Host and cameras on the same LAN with layer 2 connectivity to RTSP sources
 
-> **Portability:** The detector image is currently ARM64/L4T only. Web and notifier images are multi-arch. An x86/CUDA detector image is planned.
+> **Portability:** Two detector images: `scarguard-detector` (Jetson/L4T ARM64) and `scarguard-detector-x86` (x86 CUDA+CPU). Web, notifier, and caddy images are multi-arch. `setup.sh` auto-selects the correct detector image via `DETECTOR_IMAGE` env var.
 
 ## CI/CD Strategy
 
 ### Runners
 
-- **x86 runners (existing org runners):** Lint, type checking, pytest for web + notifier, build and push non-GPU images to GHCR
-- **Orin runner (self-hosted, containerized):** Build detector image (ARM64 + L4T base), GPU integration tests, full Compose smoke tests
+- **x86 runners (existing org runners):** Lint, type checking, pytest for web + notifier, build and push web/notifier/caddy/detector-x86 images to GHCR, compose smoke test
+- **Orin runner (self-hosted, containerized):** Build Jetson detector image (ARM64 + L4T base), GPU smoke test + inference benchmark
 
 ### x86 Runner Details
 - Containerized GitHub Actions runner on ubuntu24 host, Dockerfile managed out of band
@@ -147,20 +152,44 @@ ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. Th
 ### Build & Deploy Flow
 
 ```
-Push to main
+Push to main / PR
   ├── x86 runners:
   │   ├── Lint + type check (all services)
   │   ├── pytest (web, notifier — no GPU needed)
-  │   └── Build + push web/notifier images to ghcr.io
+  │   ├── Build web/notifier/caddy images (multi-arch amd64+arm64)
+  │   ├── Build detector-x86 image + CPU inference benchmark
+  │   └── Compose smoke test (full stack, CPU mode)
   │
   └── Orin runner:
-      ├── Build detector image locally (ARM64 + L4T base)
-      ├── Run GPU smoke test (load model, single frame inference)
-      └── Push detector image to ghcr.io
+      ├── Build Jetson detector image (ARM64 + L4T base)
+      └── GPU smoke test + inference benchmark
+
+Tag push (release)
+  ├── x86 runners:
+  │   ├── Build + push web/notifier/caddy to ghcr.io
+  │   └── Build + push detector-x86 to ghcr.io + CPU benchmark
+  │
+  ├── Orin runner:
+  │   └── Build + push detector to ghcr.io + GPU benchmark
+  │
+  └── Post-release:
+      ├── Append benchmarks to BENCHMARKS.md
+      └── Create GitHub Release with image table
 ```
 
 ### Runner Image Updates
 Currently manual: SSH into Orin, rebuild runner image, restart container.
+
+## Platform Selection (Environment Variables)
+
+`setup.sh` auto-detects the platform and writes these to `.env`:
+
+| Variable | Purpose | Jetson value | x86 + GPU value | x86 CPU-only value |
+|----------|---------|-------------|-----------------|-------------------|
+| `DETECTOR_IMAGE` | Detector container image | `ghcr.io/.../scarguard-detector` | `ghcr.io/.../scarguard-detector-x86` | `ghcr.io/.../scarguard-detector-x86` |
+| `COMPOSE_FILE` | Compose files to load | `docker-compose.yml:docker-compose.gpu.yml` | `docker-compose.yml:docker-compose.gpu.yml` | `docker-compose.yml` |
+
+The `docker-compose.gpu.yml` override adds `runtime: nvidia` and NVIDIA environment variables to the detector service. Without it, the detector runs on CPU.
 
 ## Host Prerequisites
 

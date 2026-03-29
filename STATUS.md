@@ -8,7 +8,8 @@
 - **Webhook notifications:** Generic HTTP/HTTPS webhook channel (POST or PUT, optional Bearer auth).
 - **Named notification channels:** Multi-instance per type (`notifications.channels`), each with a unique name. Legacy flat `discord`/`email` keys still work.
 - **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload — functional.
-- **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational.
+- **CI/CD:** GitHub Actions workflow builds and pushes images to GHCR. x86 and Orin self-hosted runners operational. Compose smoke test, GPU/CPU inference benchmarks in CI.
+- **x86 detector:** CUDA+CPU detector image (`scarguard-detector-x86`) runs on any x86 Linux with or without NVIDIA GPU. CPU fallback via PyTorch.
 - **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
 - **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required).
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
@@ -46,7 +47,7 @@ None currently identified.
 - Custom-trained heron model (have the tooling now, need labeled data)
 - Physical deterrence — planned as companion project "Scar's Revenge" (ESP32 valve controller receiving ScarGuard webhooks)
 
-See [ROADMAP.md](ROADMAP.md) for upcoming features (17, 23, 26) and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history.
+See [ROADMAP.md](ROADMAP.md) for upcoming features (23, 26) and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history.
 
 ## Completed Work
 
@@ -90,3 +91,5 @@ See [ROADMAP.md](ROADMAP.md) for upcoming features (17, 23, 26) and [ROADMAP_ARC
 | v0.9 | Config backup & rollback (auto-backup, admin UI, diff/restore) | ✅ Complete |
 | v0.9 | On-demand camera snapshot (Redis request/response, dashboard button) | ✅ Complete |
 | v0.9 | CI/CD hardening (container pytest, Trivy scanning, VERSION checks, release notes) | ✅ Complete |
+| v0.10 | CI/CD pipeline hardening (compose smoke test, GPU/CPU inference benchmarks, BENCHMARKS.md) | ✅ Complete |
+| v0.10 | x86/CUDA detector image (Dockerfile.x86, CPU fallback, setup.sh platform detection) | ✅ Complete |

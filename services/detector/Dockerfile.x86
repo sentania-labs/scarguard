@@ -1,0 +1,30 @@
+# Build context: repo root
+# docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86 .
+#
+# x86/CUDA detector image.  Uses GPU when NVIDIA runtime is available,
+# falls back to CPU inference when it is not.
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+
+# OpenCV headless deps (no GStreamer needed on x86 — cv2 handles RTSP directly)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python deps before copying source (layer caching)
+# torch / torchvision / torchaudio are provided by the pytorch base image.
+# Do NOT add them here — pip will skip reinstalling compatible versions.
+COPY services/detector/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application source
+COPY services/detector/src/ ./src/
+COPY shared/ ./shared/
+
+# Both src/ and shared/ on the path
+ENV PYTHONPATH=/app/src:/app/shared
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python3", "src/main.py"]

@@ -1,8 +1,16 @@
 # ScarGuard — Completed Features Archive
 
-Features 1–15, 18–22, and 24–25 are fully implemented. Feature 16 is mostly complete. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+Features 1–17, 18–22, and 24–25 are fully implemented. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
 
 ---
+
+## Feature 17: x86/CUDA Detector Image — ✓ Complete (v0.10)
+
+x86-compatible detector container so ScarGuard can run on non-Jetson hardware. `Dockerfile.x86` based on `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`. Separate image (`scarguard-detector-x86`) — not a multi-arch manifest since L4T and x86 base images are fundamentally different. GPU runtime extracted to `docker-compose.gpu.yml` override; `setup.sh` auto-configures `COMPOSE_FILE` and `DETECTOR_IMAGE`. CPU inference works via PyTorch fallback. Generic ARM64 (non-Jetson) not supported. Inference benchmarks tracked in `BENCHMARKS.md`, auto-updated by release CI.
+
+## Feature 16: CI/CD Pipeline Hardening — ✓ Complete (v0.10)
+
+Three-gate CI strategy. Gate 1 (push): ruff, mypy, pytest. Gate 2 (PR): build all images (web/notifier/caddy on x86, detector on Orin, detector-x86 on x86), container pytest, Trivy scanning, VERSION check, compose smoke test (full stack health checks), GPU smoke test + inference benchmark on Orin, CPU inference benchmark on x86. Gate 3 (tag): build+push all images to GHCR, VERSION validation, auto-generated release notes, inference benchmarks appended to `BENCHMARKS.md`. Caddy admin API disabled (`CADDY_ADMIN: "off"`).
 
 ## Feature 25: On-Demand Camera Snapshot — ✓ Complete (v0.9)
 

@@ -1,59 +1,6 @@
 # ScarGuard — Roadmap
 
-Active and planned features. Each item includes acceptance criteria. Completed features (1–15, 18–22, 24–25) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
-
----
-
-## Feature 16: CI/CD Pipeline Hardening (Gate 1 complete, Gate 2 mostly complete — v0.9)
-
-Three-gate CI strategy: lint on push, build + test on PR, push on release.
-
-**Gate 1 — On push to any branch:** ✓ Complete
-- ✓ Ruff lint across all services
-- ✓ mypy type checking (web + notifier)
-- ✓ pytest (web + notifier)
-- Fast feedback, no image builds
-
-**Gate 2 — On PR to main:** Mostly complete
-- ✓ Build all three service images (web, notifier on x86; detector on Orin runner) — images not pushed
-- ✓ Run pytest *inside* the built containers (not just against source)
-- ✓ Trivy container image scanning (CRITICAL/HIGH severity)
-- ✓ VERSION file consistency check
-- Smoke test: `docker compose up`, verify Redis health, web UI `/health` endpoint responds, detector logs "Model loaded" (Orin runner only)
-- PR cannot merge if any gate fails
-
-**Gate 3 — On tag push:**
-- ✓ Build and push images to GHCR (same as today)
-- ✓ Validate VERSION matches tag
-- ✓ Categorized auto-generated release notes
-- Optionally: auto-deploy to Orin via SSH or webhook
-
-**Acceptance criteria:**
-- ✓ Ruff + mypy run on every branch push, fail the check on violations
-- ✓ PR workflow builds all three images (not pushed to GHCR)
-- ✓ PR workflow runs pytest inside each built container
-- ✓ PR workflow runs Trivy security scanning on built images
-- ✓ VERSION file validated on every CI run and matched against release tag
-- PR workflow runs a compose smoke test (stack up, health check, stack down)
-- Detector smoke test runs on Orin runner with GPU (model load + single frame inference)
-- ✓ Tag workflow builds and pushes to GHCR (existing behavior, unchanged)
-
----
-
-## Feature 17: x86/CUDA Detector Image
-
-Build an x86-compatible detector container so ScarGuard can run on non-Jetson hardware. The current detector image is ARM64/L4T only. This removes the "must own a Jetson" barrier for adoption.
-
-**Acceptance criteria:**
-- x86/CUDA detector Dockerfile (e.g. based on `pytorch/pytorch` or `nvidia/cuda` + `ultralytics`) builds and runs inference successfully
-- x86 detector image published to GHCR alongside ARM64 image (multi-arch manifest or separate tag)
-- CI builds x86 detector on existing x86 runners (no Orin required)
-- `docker-compose.yml` works on both Jetson and x86 without manual edits (auto-detect or env var)
-- TensorRT `.engine` files are architecture-specific — document that `.pt` models work cross-platform but `.engine` must be regenerated per-device
-- Stats collector works on x86 (nvidia-smi path already implemented)
-- CPU-only inference as stretch goal: detector runs without NVIDIA GPU using PyTorch CPU backend. Slower but functional with small models (yolov8n). Requires `runtime: nvidia` to be optional in compose.
-- `setup.sh` detects host architecture and pulls the correct image
-- README updated with x86 deployment instructions alongside Jetson
+Active and planned features. Each item includes acceptance criteria. Completed features (1–17, 18–22, 24–25) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 
 ---
 
@@ -93,6 +40,13 @@ Extend snapshot retention to also prune old detection event records from SQLite.
 ## Cleanup / Deprecation
 
 - **Remove legacy SSL→TLS migration** (target v1.0 or v0.12) — `_migrate_ssl_to_tls()` in `main.py` and the legacy `ssl:` fallback in `caddy-entrypoint.sh`. Added in v0.9 to support users upgrading from the old `ssl:` config section. Safe to remove once enough releases have passed.
+- **Remove legacy flat notification keys** (target v0.13.x) — `notifications.discord` and `notifications.email` flat config keys. Deprecated in v0.10 with log warnings. Users should migrate to `notifications.channels` named channel format. Code to remove: fallback branch in `build_notifiers()` (notifier `main.py`), `DiscordConfig`/`EmailConfig` models in web `config_model.py`, legacy form sections in `config.html`, legacy write in `routes/config.py`.
+
+---
+
+## Hardening (Opportunistic)
+
+- **Redis authentication** — Add `requirepass` to Redis and pass credentials to detector/web/notifier via env var. Currently unauthenticated, relying on Docker network isolation. Low risk (single-tenant compose stack, no host port binding) but defense-in-depth says add auth. Touches Redis connection code in all three services.
 
 ---
 

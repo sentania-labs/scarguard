@@ -93,15 +93,19 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
                 logger.error("Failed to build channel [%s]: %s", ch_name, exc)
     else:
         # Legacy flat format — backward compatibility
+        # DEPRECATED: Legacy flat discord/email keys will be removed in v0.13.x.
+        # Migrate to named channels under notifications.channels.
         discord_cfg = notif_cfg.get("discord", {})
         if discord_cfg.get("enabled") and discord_cfg.get("webhook_url"):
             notifiers.append(DiscordNotifier(discord_cfg, tz_name))
-            logger.info("Discord notifier enabled (legacy config)")
+            logger.warning("Discord notifier using deprecated legacy config — "
+                           "migrate to notifications.channels (removal in v0.13.x)")
 
         email_cfg = notif_cfg.get("email", {})
         if email_cfg.get("enabled") and email_cfg.get("smtp_host"):
             notifiers.append(EmailNotifier(email_cfg, tz_name))
-            logger.info("Email notifier enabled (legacy config)")
+            logger.warning("Email notifier using deprecated legacy config — "
+                           "migrate to notifications.channels (removal in v0.13.x)")
 
     return notifiers
 

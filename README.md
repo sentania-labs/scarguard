@@ -82,7 +82,7 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 | Deterrence (future) | Companion project "Scar's Revenge" — ESP32 + solenoid valves receiving ScarGuard webhooks | — |
 | Network | Any network with layer 2 connectivity between host and cameras | Host must reach camera RTSP streams directly |
 
-> **Note:** The detector container currently ships as an ARM64 image built on L4T (Linux for Tegra) for Jetson. An x86/CUDA detector image is a planned future addition. CPU-only inference is technically possible via ultralytics but not yet supported as a deployment target.
+> **Platform support:** Two detector images are available: `scarguard-detector` for Jetson (ARM64/L4T) and `scarguard-detector-x86` for x86 systems. The x86 image uses CUDA when an NVIDIA GPU is present and falls back to CPU inference when it's not. `setup.sh` auto-detects your platform. See [BENCHMARKS.md](BENCHMARKS.md) for inference performance by platform.
 
 ---
 
@@ -90,9 +90,10 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 
 | Service | Role | Base Image |
 |---------|------|-----------|
-| `detector` | RTSP ingestion, YOLO inference, event publishing | `dustynv/l4t-pytorch:r36.4.0` (CUDA + TensorRT) |
+| `detector` | RTSP ingestion, YOLO inference, event publishing | Jetson: `dustynv/l4t-pytorch:r36.4.0`; x86: `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` |
 | `web` | FastAPI + Jinja UI, REST API, SQLite access | `python:3.11-slim` |
 | `notifier` | Redis subscriber, Discord + email + webhook dispatch | `python:3.11-slim` |
+| `caddy` | HTTPS reverse proxy | `caddy:2-alpine` |
 | `redis` | Internal message bus | `redis:alpine` |
 
 Services communicate over Redis pub/sub. All configuration lives in a single `scarguard.yml` file mounted into each container.
@@ -107,10 +108,13 @@ The instructions below target the reference setup (Jetson Orin Nano + UniFi came
 
 ### Prerequisites
 
-- NVIDIA Jetson (Orin Nano or similar) running JetPack 6.x, or an x86 host with NVIDIA GPU and Docker (x86 detector image coming soon)
-- NVIDIA Container Runtime installed (`nvidia-ctk` / `nvidia-docker2`)
+- **Jetson:** NVIDIA Jetson (Orin Nano or similar) running JetPack 6.x with NVIDIA Container Runtime
+- **x86 with GPU:** Any Linux x86_64 host with Docker and NVIDIA Container Runtime (`nvidia-ctk` / `nvidia-container-toolkit`)
+- **x86 CPU-only:** Any Linux x86_64 host with Docker (slower inference, no GPU required)
 - Internet connection (to pull images from ghcr.io)
 - One or more cameras with RTSP streaming enabled
+
+> **Model files:** YOLO `.pt` model files work cross-platform. TensorRT `.engine` files are architecture-specific and must be regenerated per device (ultralytics does this automatically on first load).
 
 ### 1. Clone the repo
 
@@ -126,7 +130,8 @@ bash setup.sh
 ```
 
 The script will:
-- Check that Docker and the NVIDIA container runtime are installed (and offer to install them via `infra/orin-setup.sh` if not)
+- Detect your platform (Jetson or x86) and select the correct detector image
+- Check that Docker is installed; check for NVIDIA container runtime (required on Jetson, optional on x86)
 - Ask which HTTP port to use (default: 80)
 - Create `config/scarguard.yml` from the example template (stored in the `scarguard-config` named volume)
 - Ask how you'll access ScarGuard (LAN only / internet with Let's Encrypt / own certificates)
@@ -399,7 +404,7 @@ notifications:
 
 All channels can be added, edited, and enabled/disabled from the **Settings → Notification Channels** section of the web UI without editing the YAML directly.
 
-> **Legacy keys:** `notifications.discord` and `notifications.email` flat keys are still supported for backward compatibility, but named channels under `notifications.channels` are the preferred format.
+> **Legacy keys (deprecated — removal in v0.13.x):** `notifications.discord` and `notifications.email` flat keys are still supported for backward compatibility, but named channels under `notifications.channels` are the preferred format. Migrate to named channels before v0.13.x — the legacy keys will be removed.
 
 ---
 
