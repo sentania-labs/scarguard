@@ -43,6 +43,8 @@ def main() -> None:
         port=8080,
         log_config=None,
         log_level=log_level.lower(),
+        proxy_headers=True,
+        forwarded_allow_ips="*",  # Safe: only Caddy can reach port 8080 (no host port binding)
     )
 
 
