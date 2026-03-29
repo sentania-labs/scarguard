@@ -404,7 +404,7 @@ notifications:
 
 All channels can be added, edited, and enabled/disabled from the **Settings → Notification Channels** section of the web UI without editing the YAML directly.
 
-> **Legacy keys (deprecated — removal in v0.13.x):** `notifications.discord` and `notifications.email` flat keys are still supported for backward compatibility, but named channels under `notifications.channels` are the preferred format. Migrate to named channels before v0.13.x — the legacy keys will be removed.
+> **Legacy keys (deprecated — removal in x.13.x):** `notifications.discord` and `notifications.email` flat keys are still supported for backward compatibility, but named channels under `notifications.channels` are the preferred format. Migrate to named channels before x.13.x — the legacy keys will be removed.
 
 ---
 

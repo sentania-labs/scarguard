@@ -170,14 +170,18 @@ jobs:
           print('GPU smoke test passed')
           "
 
+      # Uses docker create + cp instead of bind mounts (-v) because the
+      # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
+      # the outer host filesystem, not the runner container's filesystem.
       - name: Inference benchmark (GPU)
         run: |
-          docker run --rm \
-            --runtime nvidia \
-            -e NVIDIA_VISIBLE_DEVICES=all \
-            -v ${{ github.workspace }}/tests/ci:/ci:ro \
-            scarguard-detector:build-validate \
-            python3 /ci/smoke_inference.py
+          cid=$(docker create --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+            scarguard-detector:build-validate python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
 
       - name: Clean up build-validate image
         if: always()
@@ -198,12 +202,15 @@ jobs:
             --tag scarguard-detector-x86:build-validate \
             .
 
+      # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
       - name: Inference benchmark (CPU)
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}/tests/ci:/ci:ro \
-            scarguard-detector-x86:build-validate \
-            python3 /ci/smoke_inference.py
+          cid=$(docker create scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
 
       - name: Trivy scan — detector-x86
         uses: aquasecurity/trivy-action@master

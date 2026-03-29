@@ -153,16 +153,19 @@ jobs:
           print('Smoke test passed')
           "
 
+      # Uses docker create + cp instead of bind mounts — self-hosted DinD
+      # paths don't translate for volume mounts.
       - name: Inference benchmark (GPU)
         id: benchmark
         run: |
-          OUTPUT=$(docker run --rm \
-            --runtime nvidia \
-            -e NVIDIA_VISIBLE_DEVICES=all \
-            -v ${{ github.workspace }}/tests/ci:/ci:ro \
-            ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} \
-            python3 /ci/smoke_inference.py)
+          cid=$(docker create --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+            ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          OUTPUT=$(docker start -a "$cid")
+          rc=$?
+          docker rm "$cid" > /dev/null
           echo "$OUTPUT"
+          if [ $rc -ne 0 ]; then exit $rc; fi
           BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
           echo "json=$BENCH" >> "$GITHUB_OUTPUT"
 
@@ -218,14 +221,18 @@ jobs:
             --tag ${{ env.DETECTOR_X86_IMAGE }}:latest \
             .
 
+      # Uses docker create + cp instead of bind mounts — self-hosted DinD.
       - name: Inference benchmark (CPU)
         id: benchmark
         run: |
-          OUTPUT=$(docker run --rm \
-            -v ${{ github.workspace }}/tests/ci:/ci:ro \
-            ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
+          cid=$(docker create ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
             python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          OUTPUT=$(docker start -a "$cid")
+          rc=$?
+          docker rm "$cid" > /dev/null
           echo "$OUTPUT"
+          if [ $rc -ne 0 ]; then exit $rc; fi
           BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
           echo "json=$BENCH" >> "$GITHUB_OUTPUT"
 
