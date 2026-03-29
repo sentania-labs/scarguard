@@ -393,7 +393,7 @@ function updateInferenceTable(cameras) {
 
 connect();
 </script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
 let histCpuChart = null;
 let histGpuChart = null;
@@ -416,7 +416,8 @@ function loadHistory(range, btn) {
       document.getElementById('hist-status').textContent = data.length + ' samples loaded.';
       renderHistCharts(data);
     })
-    .catch(() => {
+    .catch((err) => {
+      console.error('Historical stats error:', err);
       document.getElementById('hist-status').textContent = 'Failed to load historical data.';
     });
 }
