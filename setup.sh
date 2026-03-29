@@ -154,6 +154,22 @@ if [[ -f ".env" ]]; then
     # shellcheck disable=SC1091
     source .env
     set +a
+
+    # Backfill keys added in v0.10 (DETECTOR_IMAGE, COMPOSE_FILE) for upgrades
+    # from older .env files that don't have them yet.
+    if ! grep -q '^DETECTOR_IMAGE=' .env; then
+        echo "DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}" >> .env
+        info "Backfilled DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}"
+    fi
+    if ! grep -q '^COMPOSE_FILE=' .env; then
+        if [[ "$NVIDIA_OK" == "true" ]]; then
+            echo "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml" >> .env
+            info "Backfilled COMPOSE_FILE with GPU override"
+        else
+            echo "COMPOSE_FILE=docker-compose.yml" >> .env
+            info "Backfilled COMPOSE_FILE (CPU only)"
+        fi
+    fi
 else
     # Prompt for HTTP port
     ask "HTTP port? (press Enter for default 80): "

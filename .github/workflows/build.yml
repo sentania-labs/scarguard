@@ -242,13 +242,14 @@ jobs:
           docker build -f services/notifier/Dockerfile -t scarguard-notifier:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
 
+      # Seed the named volume that docker-compose.yml actually mounts.
       - name: Seed config volume
         run: |
-          docker volume create smoke-config 2>/dev/null || true
-          docker run --rm \
-            -v smoke-config:/config \
-            -v ${{ github.workspace }}/config:/src:ro \
-            alpine:3.20 sh -c 'cp /src/scarguard.example.yml /config/scarguard.yml && mkdir -p /config/certs'
+          docker volume create scarguard-config 2>/dev/null || true
+          cid=$(docker create -v scarguard-config:/config alpine:3.20 sh -c 'cp /src/scarguard.example.yml /config/scarguard.yml && mkdir -p /config/certs')
+          docker cp ${{ github.workspace }}/config/. "$cid:/src/"
+          docker start -a "$cid"
+          docker rm "$cid" > /dev/null
 
       - name: Start stack (CPU mode)
         env:
@@ -311,6 +312,5 @@ jobs:
           GHCR_OWNER: ""
         run: |
           docker compose down -v || true
-          docker volume rm smoke-config 2>/dev/null || true
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
             scarguard-notifier:smoke scarguard-caddy:smoke 2>/dev/null || true
