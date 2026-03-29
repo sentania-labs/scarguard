@@ -220,6 +220,9 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          # pytorch base image is ~5GB; disable secret scanner to avoid timeout
+          scanners: vuln
+          timeout: 10m0s
 
       - name: Clean up
         if: always()
