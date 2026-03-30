@@ -3,7 +3,7 @@
 #
 # x86/CUDA detector image.  Uses GPU when NVIDIA runtime is available,
 # falls back to CPU inference when it is not.
-ARG PYTORCH_TAG=2.5.1-cuda12.4-cudnn9-runtime
+ARG PYTORCH_TAG=2.6.0-cuda12.4-cudnn9-runtime
 FROM pytorch/pytorch:${PYTORCH_TAG}
 
 # OpenCV headless deps (no GStreamer needed on x86 — cv2 handles RTSP directly)
