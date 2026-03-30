@@ -1,0 +1,11 @@
+# GPU override — applied when NVIDIA container runtime is detected.
+# setup.sh sets COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml automatically.
+# Manual usage:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml docker compose up -d
+
+services:
+  detector:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video

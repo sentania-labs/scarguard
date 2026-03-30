@@ -51,20 +51,30 @@ echo "${BOLD}║       ScarGuard — First-Run Setup      ║${RESET}"
 echo "${BOLD}╚════════════════════════════════════════╝${RESET}"
 echo "  Running from: $REPO_ROOT"
 
-# ── Step 1: Architecture check ───────────────────────────────────────────────
-step "Checking platform"
+# ── Step 1: Platform detection ───────────────────────────────────────────────
+step "Detecting platform"
 
 ARCH=$(uname -m)
-if [[ "$ARCH" != "aarch64" ]]; then
-    warn "This machine reports arch=${ARCH}, not aarch64."
-    warn "ScarGuard is designed for Jetson Orin Nano (ARM64)."
-    if ! confirm "Continue anyway (e.g. for testing on x86)?"; then
-        echo "Exiting. Run this script on your Jetson Orin Nano."
+case "$ARCH" in
+    aarch64)
+        if [[ -f /etc/nv_tegra_release ]] || grep -q "NVIDIA" /proc/device-tree/compatible 2>/dev/null; then
+            PLATFORM="jetson"
+            DETECTOR_IMG_DEFAULT="ghcr.io/sentania-labs/scarguard-detector"
+        else
+            error "Generic ARM64 detected. ScarGuard requires a Jetson (ARM64+GPU) or x86 system."
+            exit 1
+        fi
+        ;;
+    x86_64)
+        PLATFORM="x86"
+        DETECTOR_IMG_DEFAULT="ghcr.io/sentania-labs/scarguard-detector-x86"
+        ;;
+    *)
+        error "Unsupported architecture: $ARCH"
         exit 1
-    fi
-else
-    info "Platform: ARM64 (aarch64) — looks like a Jetson."
-fi
+        ;;
+esac
+info "Platform: ${PLATFORM} (${ARCH})"
 
 # ── Step 2: Docker check ──────────────────────────────────────────────────────
 step "Checking Docker"
@@ -92,8 +102,13 @@ if docker info --format '{{.Runtimes}}' 2>/dev/null | grep -q nvidia; then
     NVIDIA_OK=true
     info "NVIDIA container runtime: found"
 else
-    error "NVIDIA container runtime is not configured in Docker."
-    NEEDS_SETUP=true
+    if [[ "$PLATFORM" == "jetson" ]]; then
+        error "NVIDIA container runtime is not configured in Docker."
+        NEEDS_SETUP=true
+    else
+        warn "NVIDIA container runtime not found — detector will use CPU inference."
+        warn "GPU inference requires: NVIDIA driver + nvidia-container-toolkit"
+    fi
 fi
 
 # Offer to run the host setup script if prerequisites are missing.
@@ -139,6 +154,22 @@ if [[ -f ".env" ]]; then
     # shellcheck disable=SC1091
     source .env
     set +a
+
+    # Backfill keys added in v0.10 (DETECTOR_IMAGE, COMPOSE_FILE) for upgrades
+    # from older .env files that don't have them yet.
+    if ! grep -q '^DETECTOR_IMAGE=' .env; then
+        echo "DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}" >> .env
+        info "Backfilled DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}"
+    fi
+    if ! grep -q '^COMPOSE_FILE=' .env; then
+        if [[ "$NVIDIA_OK" == "true" ]]; then
+            echo "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml" >> .env
+            info "Backfilled COMPOSE_FILE with GPU override"
+        else
+            echo "COMPOSE_FILE=docker-compose.yml" >> .env
+            info "Backfilled COMPOSE_FILE (CPU only)"
+        fi
+    fi
 else
     # Prompt for HTTP port
     ask "HTTP port? (press Enter for default 80): "
@@ -158,7 +189,17 @@ else
         sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT_VALUE}/" .env
     fi
 
-    info "Created .env (HTTP_PORT=${HTTP_PORT_VALUE})"
+    # Set detector image based on detected platform
+    sed -i "s|^DETECTOR_IMAGE=.*|DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}|" .env
+
+    # Set compose files — include GPU override when NVIDIA runtime is available
+    if [[ "$NVIDIA_OK" == "true" ]]; then
+        sed -i "s|^COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml|" .env
+    else
+        sed -i "s|^COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml|" .env
+    fi
+
+    info "Created .env (HTTP_PORT=${HTTP_PORT_VALUE}, platform=${PLATFORM})"
 fi
 
 # Read HTTP_PORT for use in the final message
@@ -401,19 +442,24 @@ echo
 
 echo "  $([[ -z "$MODEL_FILES" ]] && echo 4 || echo 3). ${BOLD}Open the web UI:${RESET}"
 
-# Determine likely IP for the Orin
-ORIN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || echo "YOUR_ORIN_IP")
+# Determine likely IP for this host
+HOST_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || echo "YOUR_HOST_IP")
 if [[ "$HTTP_PORT_FINAL" == "80" ]]; then
-    echo "       http://${ORIN_IP}"
+    echo "       http://${HOST_IP}"
 else
-    echo "       http://${ORIN_IP}:${HTTP_PORT_FINAL}"
+    echo "       http://${HOST_IP}:${HTTP_PORT_FINAL}"
 fi
 echo
 
 if [[ "$NVIDIA_OK" == "false" ]]; then
-    echo "${YELLOW}Reminder:${RESET} NVIDIA container runtime was not detected."
-    echo "  The detector service (GPU inference) will fail to start."
-    echo "  Log out and back in, then run:  docker compose up -d"
+    if [[ "$PLATFORM" == "jetson" ]]; then
+        echo "${YELLOW}Reminder:${RESET} NVIDIA container runtime was not detected."
+        echo "  The detector service (GPU inference) will fail to start."
+        echo "  Log out and back in, then run:  docker compose up -d"
+    else
+        echo "${YELLOW}Note:${RESET} Running in CPU-only mode (no NVIDIA runtime detected)."
+        echo "  Inference will be slower. Install nvidia-container-toolkit for GPU acceleration."
+    fi
     echo
 fi
 

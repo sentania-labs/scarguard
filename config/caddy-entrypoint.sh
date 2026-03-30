@@ -39,7 +39,7 @@ try:
     # If no tls section exists but the old ssl section is present and enabled,
     # use its cert/key paths.  The web service handles the actual migration
     # (writing the tls section) since the config volume is read-only here.
-    # TODO(v1.0): Remove this legacy fallback (target v1.0 or v0.12).
+    # TODO: Remove this legacy fallback (target x.12.x).
     ssl_cfg = cfg.get("ssl", {})
     if not tls_cfg and isinstance(ssl_cfg, dict) and ssl_cfg.get("enabled"):
         cert = ssl_cfg.get("cert_path", "/config/certs/cert.pem")

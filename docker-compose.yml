@@ -43,22 +43,21 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       HTTPS_PORT: ${HTTPS_PORT:-${WEB_HTTPS_PORT:-443}}
+      CADDY_ADMIN: "off"                # Disable admin API (port 2019) — not used
     depends_on:
       - web
     restart: unless-stopped
 
   # ── Detector ──────────────────────────────────────────────────────────────
-  # Requires NVIDIA Container Runtime on the host (see infra/orin-setup.sh).
-  # GPU is used for YOLO inference via TensorRT / PyTorch.
+  # GPU support requires the NVIDIA Container Runtime on the host.
+  # For GPU: COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml (set by setup.sh)
+  # For CPU-only: COMPOSE_FILE=docker-compose.yml
   detector:
     build:
       context: .
       dockerfile: services/detector/Dockerfile
-    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-detector:${IMAGE_TAG:-latest}
-    runtime: nvidia
+    image: ${DETECTOR_IMAGE:-ghcr.io/sentania-labs/scarguard-detector}:${IMAGE_TAG:-latest}
     environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db

@@ -435,6 +435,37 @@
                      placeholder="/config/certs/key.pem">
             </div>
           </div>
+          <p class="hint" style="margin-top:0.75rem;">
+            Upload PEM files or paste their contents below. Files are written to <code>/config/certs/</code>.
+          </p>
+          <div class="cert-upload-tabs" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+            <button type="button" class="btn-secondary cert-tab-btn active" onclick="switchCertTab('upload',this)">Upload files</button>
+            <button type="button" class="btn-secondary cert-tab-btn" onclick="switchCertTab('paste',this)">Paste PEM</button>
+          </div>
+          <div id="cert-tab-upload">
+            <div class="field-row">
+              <div class="field-group">
+                <label>Certificate file (.pem)</label>
+                <input type="file" id="tls-cert-file" accept=".pem,.crt,.cer">
+              </div>
+              <div class="field-group">
+                <label>Key file (.pem)</label>
+                <input type="file" id="tls-key-file" accept=".pem,.key">
+              </div>
+            </div>
+          </div>
+          <div id="cert-tab-paste" style="display:none;">
+            <div class="field-group">
+              <label>Certificate PEM</label>
+              <textarea id="tls-cert-pem" rows="4" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" style="font-family:var(--mono);font-size:0.8rem;"></textarea>
+            </div>
+            <div class="field-group" style="margin-top:0.5rem;">
+              <label>Key PEM</label>
+              <textarea id="tls-key-pem" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" style="font-family:var(--mono);font-size:0.8rem;"></textarea>
+            </div>
+          </div>
+          <button type="button" class="btn-secondary" onclick="uploadCerts()" style="margin-top:0.5rem;" id="cert-upload-btn">Upload certificates</button>
+          <span id="cert-upload-status" class="hint" style="margin-left:0.5rem;"></span>
         </div>
       </div>
     </div>
@@ -446,6 +477,52 @@
       document.getElementById('tls-manual-fields').style.display = mode === 'manual' ? '' : 'none';
     }
     toggleTlsFields();
+
+    function switchCertTab(tab, btn) {
+      document.getElementById('cert-tab-upload').style.display = tab === 'upload' ? '' : 'none';
+      document.getElementById('cert-tab-paste').style.display = tab === 'paste' ? '' : 'none';
+      document.querySelectorAll('.cert-tab-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    }
+
+    async function uploadCerts() {
+      var status = document.getElementById('cert-upload-status');
+      var btn = document.getElementById('cert-upload-btn');
+      btn.disabled = true;
+      status.textContent = 'Uploading...';
+      status.style.color = '';
+
+      var fd = new FormData();
+      var certFile = document.getElementById('tls-cert-file').files[0];
+      var keyFile = document.getElementById('tls-key-file').files[0];
+      var certPem = document.getElementById('tls-cert-pem').value;
+      var keyPem = document.getElementById('tls-key-pem').value;
+
+      if (certFile) fd.append('cert_file', certFile);
+      if (keyFile) fd.append('key_file', keyFile);
+      if (certPem) fd.append('cert_pem', certPem);
+      if (keyPem) fd.append('key_pem', keyPem);
+
+      try {
+        var resp = await fetch('/config/tls/upload-cert', {
+          method: 'POST',
+          body: fd,
+          headers: {'X-CSRF-Token': getCsrfToken()}
+        });
+        var data = await resp.json();
+        if (data.ok) {
+          status.textContent = 'Uploaded: ' + data.written.join(', ');
+          status.style.color = 'var(--ok)';
+        } else {
+          status.textContent = data.error || 'Upload failed';
+          status.style.color = 'var(--danger)';
+        }
+      } catch (e) {
+        status.textContent = 'Network error: ' + e.message;
+        status.style.color = 'var(--danger)';
+      }
+      btn.disabled = false;
+    }
   </script>
 
   <button id="save-btn" type="button" onclick="saveConfig()">Save</button>

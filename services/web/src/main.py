@@ -51,8 +51,8 @@ async def _startup() -> None:
 def _migrate_ssl_to_tls() -> None:
     """One-time migration: convert legacy ssl section to new tls section.
 
-    TODO(v1.0): Remove this migration and the legacy ssl fallback in
-    caddy-entrypoint.sh once enough releases have passed (target v1.0 or v0.12).
+    TODO: Remove this migration and the legacy ssl fallback in
+    caddy-entrypoint.sh once enough releases have passed (target x.12.x).
     """
     import logging
 

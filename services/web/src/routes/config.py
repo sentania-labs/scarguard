@@ -15,7 +15,7 @@ from config_model import (
     SystemConfig,
     TLSConfig,
 )
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
@@ -253,3 +253,79 @@ async def save_config(request: Request, raw_yaml: str = Form(...)):
             "available_models": _list_models(),
         },
     )
+
+
+_CERTS_DIR = Path("/config/certs")
+_MAX_CERT_SIZE = 64 * 1024  # 64 KB — generous for PEM bundles
+
+
+@router.post("/tls/upload-cert", response_class=JSONResponse)
+async def upload_tls_cert(
+    request: Request,
+    cert_file: UploadFile | None = File(None),
+    key_file: UploadFile | None = File(None),
+    cert_pem: str = Form(""),
+    key_pem: str = Form(""),
+) -> JSONResponse:
+    """Upload or paste TLS certificate and key files.
+
+    Accepts either file uploads (cert_file, key_file) or pasted PEM text
+    (cert_pem, key_pem).  Files are written to /config/certs/ which is
+    mounted from the scarguard-config volume.
+    """
+    _CERTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    cert_data: bytes | None = None
+    key_data: bytes | None = None
+
+    # Prefer file upload over pasted text
+    if cert_file and cert_file.filename:
+        cert_data = await cert_file.read()
+    elif cert_pem.strip():
+        cert_data = cert_pem.strip().encode()
+
+    if key_file and key_file.filename:
+        key_data = await key_file.read()
+    elif key_pem.strip():
+        key_data = key_pem.strip().encode()
+
+    if not cert_data and not key_data:
+        return JSONResponse(
+            {"ok": False, "error": "No certificate or key provided"},
+            status_code=400,
+        )
+
+    # Validate all files before writing any to avoid partial-write on error
+    errors: list[str] = []
+    to_write: list[tuple[str, bytes]] = []
+
+    if cert_data:
+        if len(cert_data) > _MAX_CERT_SIZE:
+            errors.append("Certificate file too large (max 64 KB)")
+        elif b"-----BEGIN" not in cert_data:
+            errors.append("Certificate does not appear to be PEM-encoded")
+        else:
+            to_write.append(("cert.pem", cert_data))
+
+    if key_data:
+        if len(key_data) > _MAX_CERT_SIZE:
+            errors.append("Key file too large (max 64 KB)")
+        elif b"-----BEGIN" not in key_data:
+            errors.append("Key does not appear to be PEM-encoded")
+        else:
+            to_write.append(("key.pem", key_data))
+
+    if errors:
+        return JSONResponse({"ok": False, "error": "; ".join(errors)}, status_code=400)
+
+    # All validation passed — write files
+    written: list[str] = []
+    for name, data in to_write:
+        path = _CERTS_DIR / name
+        path.write_bytes(data)
+        if name == "key.pem":
+            path.chmod(0o600)
+        written.append(name)
+
+    log.info("TLS cert files uploaded: %s", ", ".join(written))
+    return JSONResponse({"ok": True, "written": written})

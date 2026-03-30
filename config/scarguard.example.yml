@@ -145,6 +145,8 @@ detection:
 # ── Notifications ─────────────────────────────────────────────────────────────
 notifications:
 
+  # DEPRECATED: Legacy flat discord/email keys below will be removed in x.13.x.
+  # Use named channels (notifications.channels) instead — see examples further down.
   discord:
     enabled: false                                # Set to true after adding your webhook URL
 

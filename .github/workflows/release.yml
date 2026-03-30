@@ -104,11 +104,13 @@ jobs:
 
   # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
   release-detector:
-    name: Release detector image
+    name: Release detector image (Jetson)
     runs-on: [self-hosted, linux, arm64, jetson]
     permissions:
       contents: read
       packages: write
+    outputs:
+      benchmark_json: ${{ steps.benchmark.outputs.json }}
 
     env:
       DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
@@ -151,6 +153,22 @@ jobs:
           print('Smoke test passed')
           "
 
+      # Uses docker create + cp instead of bind mounts — self-hosted DinD
+      # paths don't translate for volume mounts.
+      - name: Inference benchmark (GPU)
+        id: benchmark
+        run: |
+          cid=$(docker create --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+            ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          OUTPUT=$(docker start -a "$cid")
+          rc=$?
+          docker rm "$cid" > /dev/null
+          echo "$OUTPUT"
+          if [ $rc -ne 0 ]; then exit $rc; fi
+          BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
+          echo "json=$BENCH" >> "$GITHUB_OUTPUT"
+
       - name: Push detector image
         run: |
           docker push ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }}
@@ -169,12 +187,137 @@ jobs:
             | sort -u \
             | xargs -r docker rmi -f || true
 
+  # ── Build & push — detector x86 (x86 runner) ─────────────────────────────
+  release-detector-x86:
+    name: Release detector image (x86)
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      benchmark_json: ${{ steps.benchmark.outputs.json }}
+
+    env:
+      DETECTOR_X86_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector-x86
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write version from tag
+        run: echo "${{ github.ref_name }}" | sed 's/^v//' > VERSION
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build x86 detector image
+        run: |
+          docker build \
+            --file services/detector/Dockerfile.x86 \
+            --tag ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
+            --tag ${{ env.DETECTOR_X86_IMAGE }}:latest \
+            .
+
+      # Uses docker create + cp instead of bind mounts — self-hosted DinD.
+      - name: Inference benchmark (CPU)
+        id: benchmark
+        run: |
+          cid=$(docker create ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
+            python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          OUTPUT=$(docker start -a "$cid")
+          rc=$?
+          docker rm "$cid" > /dev/null
+          echo "$OUTPUT"
+          if [ $rc -ne 0 ]; then exit $rc; fi
+          BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
+          echo "json=$BENCH" >> "$GITHUB_OUTPUT"
+
+      - name: Push x86 detector image
+        run: |
+          docker push ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }}
+          docker push ${{ env.DETECTOR_X86_IMAGE }}:latest
+
+      - name: Prune
+        if: always()
+        run: docker image prune -f
+
+  # ── Update benchmark ledger ──────────────────────────────────────────────────
+  update-benchmarks:
+    name: Update BENCHMARKS.md
+    needs: [release-detector, release-detector-x86]
+    runs-on: [self-hosted, linux, generic]
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Append benchmark rows
+        env:
+          TAG: ${{ github.ref_name }}
+          ORIN_BENCH: ${{ needs.release-detector.outputs.benchmark_json }}
+          X86_BENCH: ${{ needs.release-detector-x86.outputs.benchmark_json }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, sys
+
+          tag = os.environ["TAG"]
+          benchmarks = [
+              ("Orin", os.environ.get("ORIN_BENCH", "")),
+              ("x86", os.environ.get("X86_BENCH", "")),
+          ]
+
+          rows = []
+          for label, raw in benchmarks:
+              if not raw or raw == "null":
+                  print(f"WARNING: No benchmark data for {label}, skipping")
+                  continue
+              try:
+                  d = json.loads(raw)
+              except json.JSONDecodeError as e:
+                  print(f"WARNING: Invalid JSON for {label}: {e}, skipping")
+                  continue
+              device = d.get("device", "unknown")
+              hw = d.get("gpu") if device == "cuda" else d.get("cpu", "unknown")
+              notes = "GPU inference" if device == "cuda" else "CPU fallback"
+              rows.append(f"| {tag} | {d.get('arch', '?')} | {device} | {hw} | {d.get('fps', '?')} | {notes} |")
+
+          if rows:
+              with open("BENCHMARKS.md", "a") as f:
+                  for row in rows:
+                      f.write(row + "\n")
+              print(f"Appended {len(rows)} benchmark row(s)")
+          else:
+              print("No benchmark rows to append")
+          PYEOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add BENCHMARKS.md
+          git diff --cached --quiet && echo "No benchmark changes" && exit 0
+          git commit -m "$(cat <<'EOF'
+          chore: update BENCHMARKS.md for ${{ github.ref_name }}
+
+          Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          EOF
+          )"
+          git push
+
   # ── Create GitHub Release ──────────────────────────────────────────────────
-  # Waits for both image builds to succeed, then creates a GitHub Release
+  # Waits for all image builds to succeed, then creates a GitHub Release
   # with auto-generated notes so there's a visible changelog on the repo.
   create-release:
     name: Create GitHub Release
-    needs: [release-x86, release-detector]
+    needs: [release-x86, release-detector, release-detector-x86, update-benchmarks]
     runs-on: [self-hosted, linux, generic]
     permissions:
       contents: write
@@ -207,9 +350,12 @@ jobs:
 
             ## Images
 
-            | Service | Image |
-            |---------|-------|
-            | detector | `ghcr.io/${{ github.repository_owner }}/scarguard-detector:${{ github.ref_name }}` |
-            | web | `ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}` |
-            | notifier | `ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}` |
-            | caddy | `ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}` |
+            | Service | Image | Platform |
+            |---------|-------|----------|
+            | detector (Jetson) | `ghcr.io/${{ github.repository_owner }}/scarguard-detector:${{ github.ref_name }}` | ARM64 / L4T |
+            | detector (x86) | `ghcr.io/${{ github.repository_owner }}/scarguard-detector-x86:${{ github.ref_name }}` | x86_64 (CUDA + CPU) |
+            | web | `ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}` | amd64, arm64 |
+            | notifier | `ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}` | amd64, arm64 |
+            | caddy | `ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}` | amd64, arm64 |
+
+            See [BENCHMARKS.md](BENCHMARKS.md) for inference performance by platform.

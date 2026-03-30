@@ -76,11 +76,25 @@
 
 <!-- Snapshot modal -->
 <div id="snapshot-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;">
-  <div style="background:var(--card-bg, #1a1a2e);padding:1.5rem;border-radius:8px;max-width:90%;max-height:90%;overflow:auto;position:relative;">
+  <div style="background:var(--card-bg, #1a1a2e);padding:1.5rem;border-radius:8px;max-width:60%;max-height:80%;overflow:auto;position:relative;">
     <button onclick="closeSnapshotModal()" style="position:absolute;top:0.5rem;right:0.5rem;background:none;border:none;color:var(--fg);font-size:1.5rem;cursor:pointer;">&times;</button>
     <h3 id="snapshot-title" style="margin-top:0;">Snapshot</h3>
     <div id="snapshot-status" class="hint">Requesting snapshot...</div>
     <img id="snapshot-img" style="display:none;max-width:100%;border-radius:4px;margin-top:0.5rem;">
+    {% if notif_channels %}
+    <div id="snapshot-send" style="display:none;margin-top:0.75rem;">
+      <label style="font-size:0.8rem;color:var(--muted);">Send to channel</label>
+      <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.25rem;">
+        <select id="snapshot-channel" class="btn-snapshot" style="flex:1;">
+          {% for ch in notif_channels %}
+          <option value="{{ ch }}">{{ ch }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn-snapshot" onclick="sendSnapshotToChannel()" id="snapshot-send-btn" style="border-color:var(--accent);color:var(--accent);">Send</button>
+      </div>
+      <span id="snapshot-send-status" class="hint" style="font-size:0.75rem;"></span>
+    </div>
+    {% endif %}
   </div>
 </div>
 
@@ -135,12 +149,19 @@ function _updateRearmTimers() {
 setInterval(_updateRearmTimers, 1000);
 _updateRearmTimers();
 
+var _snapshotFilename = '';
+var _snapshotCamera = '';
+
 async function grabSnapshot(cameraName) {
   var modal = document.getElementById('snapshot-modal');
   modal.style.display = 'flex';
+  _snapshotCamera = cameraName;
+  _snapshotFilename = '';
   document.getElementById('snapshot-title').textContent = 'Snapshot: ' + cameraName;
   document.getElementById('snapshot-status').textContent = 'Requesting snapshot...';
   document.getElementById('snapshot-img').style.display = 'none';
+  var sendDiv = document.getElementById('snapshot-send');
+  if (sendDiv) sendDiv.style.display = 'none';
 
   try {
     var resp = await fetch('/snapshot/' + encodeURIComponent(cameraName));
@@ -150,12 +171,44 @@ async function grabSnapshot(cameraName) {
       var img = document.getElementById('snapshot-img');
       img.src = data.snapshot_url + '?t=' + Date.now();
       img.style.display = 'block';
+      _snapshotFilename = data.filename || '';
+      if (sendDiv && _snapshotFilename) sendDiv.style.display = '';
     } else {
       document.getElementById('snapshot-status').textContent = 'Error: ' + (data.error || 'Unknown error');
     }
   } catch (e) {
     document.getElementById('snapshot-status').textContent = 'Network error: ' + e.message;
   }
+}
+
+async function sendSnapshotToChannel() {
+  var btn = document.getElementById('snapshot-send-btn');
+  var status = document.getElementById('snapshot-send-status');
+  var channel = document.getElementById('snapshot-channel').value;
+  btn.disabled = true;
+  status.textContent = 'Sending...';
+  status.style.color = '';
+
+  var fd = new FormData();
+  fd.append('filename', _snapshotFilename);
+  fd.append('channel', channel);
+  fd.append('camera_name', _snapshotCamera);
+
+  try {
+    var resp = await fetch('/snapshot/send', { method: 'POST', body: fd, headers: {'X-CSRF-Token': getCsrfToken()} });
+    var data = await resp.json();
+    if (data.ok) {
+      status.textContent = 'Sent to ' + channel;
+      status.style.color = 'var(--ok)';
+    } else {
+      status.textContent = data.error || 'Send failed';
+      status.style.color = 'var(--danger)';
+    }
+  } catch (e) {
+    status.textContent = 'Network error: ' + e.message;
+    status.style.color = 'var(--danger)';
+  }
+  btn.disabled = false;
 }
 
 function closeSnapshotModal() {

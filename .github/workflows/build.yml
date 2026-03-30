@@ -140,9 +140,9 @@ jobs:
         run: |
           docker rmi scarguard-web:test scarguard-notifier:test || true
 
-  # ── Build detector (Orin runner, ARM64) ───────────────────────────────────────
+  # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   build-detector:
-    name: Build detector image
+    name: Build detector image (Jetson)
     runs-on: [self-hosted, linux, arm64, jetson]
 
     steps:
@@ -155,6 +155,179 @@ jobs:
             --tag scarguard-detector:build-validate \
             .
 
+      - name: GPU smoke test
+        run: |
+          docker run --rm \
+            --runtime nvidia \
+            -e NVIDIA_VISIBLE_DEVICES=all \
+            scarguard-detector:build-validate \
+            python3 -c "
+          import torch
+          assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
+          print(f'GPU:  {torch.cuda.get_device_name(0)}')
+          print(f'SM:   {torch.cuda.get_device_capability(0)}')
+          print(f'CUDA: {torch.version.cuda}')
+          print('GPU smoke test passed')
+          "
+
+      # Uses docker create + cp instead of bind mounts (-v) because the
+      # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
+      # the outer host filesystem, not the runner container's filesystem.
+      - name: Inference benchmark (GPU)
+        run: |
+          cid=$(docker create --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+            scarguard-detector:build-validate python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
+
       - name: Clean up build-validate image
         if: always()
         run: docker rmi scarguard-detector:build-validate || true
+
+  # ── Build detector — x86 CUDA+CPU (x86 runner) ─────────────────────────────
+  build-detector-x86:
+    name: Build detector image (x86)
+    runs-on: [self-hosted, linux, docker]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build x86 detector image
+        run: |
+          docker build \
+            --file services/detector/Dockerfile.x86 \
+            --tag scarguard-detector-x86:build-validate \
+            .
+
+      # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
+      - name: Inference benchmark (CPU)
+        run: |
+          cid=$(docker create scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
+          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
+
+      - name: Trivy scan — detector-x86
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-detector-x86:build-validate
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+          ignore-unfixed: true
+          # pytorch base image is ~5GB; disable secret scanner to avoid timeout
+          # severity limited to CRITICAL — base image carries dozens of HIGH
+          # Ubuntu kernel CVEs we cannot fix; only block on actionable findings
+          scanners: vuln
+          timeout: 10m0s
+
+      - name: Clean up
+        if: always()
+        run: docker rmi scarguard-detector-x86:build-validate || true
+
+  # ── Compose smoke test (x86 runner) ─────────────────────────────────────────
+  compose-smoke-test:
+    name: Compose smoke test
+    needs: [build-detector-x86, build-web-notifier]
+    runs-on: [self-hosted, linux, docker]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure docker compose plugin
+        run: |
+          if ! docker compose version &>/dev/null; then
+            echo "Installing docker compose plugin..."
+            COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | grep -oP '"tag_name": "\K[^"]+')
+            mkdir -p ~/.docker/cli-plugins
+            curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
+              -o ~/.docker/cli-plugins/docker-compose
+            chmod +x ~/.docker/cli-plugins/docker-compose
+          fi
+          docker compose version
+
+      - name: Build all images locally
+        run: |
+          docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86:smoke .
+          docker build -f services/web/Dockerfile -t scarguard-web:smoke \
+            --build-arg GIT_COMMIT=${{ github.sha }} .
+          docker build -f services/notifier/Dockerfile -t scarguard-notifier:smoke .
+          docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
+
+      # Seed the named volume that docker-compose.yml actually mounts.
+      - name: Seed config volume
+        run: |
+          docker volume create scarguard-config 2>/dev/null || true
+          cid=$(docker create -v scarguard-config:/config alpine:3.20 sh -c 'cp /src/scarguard.example.yml /config/scarguard.yml && mkdir -p /config/certs')
+          docker cp ${{ github.workspace }}/config/. "$cid:/src/"
+          docker start -a "$cid"
+          docker rm "$cid" > /dev/null
+
+      - name: Start stack (CPU mode)
+        env:
+          COMPOSE_FILE: docker-compose.yml
+          DETECTOR_IMAGE: scarguard-detector-x86
+          IMAGE_TAG: smoke
+          GHCR_OWNER: ""
+        run: docker compose up -d
+
+      - name: Health checks
+        env:
+          COMPOSE_FILE: docker-compose.yml
+          DETECTOR_IMAGE: scarguard-detector-x86
+          IMAGE_TAG: smoke
+          GHCR_OWNER: ""
+        run: |
+          REDIS_OK=false
+          echo "Waiting for Redis..."
+          for i in $(seq 1 30); do
+            if docker compose exec -T redis redis-cli ping 2>/dev/null; then
+              REDIS_OK=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$REDIS_OK" != "true" ]; then
+            echo "FAIL: Redis did not become healthy within 60s"
+            docker compose logs redis 2>&1 | tail -20
+            exit 1
+          fi
+
+          WEB_OK=false
+          echo "Waiting for web /health..."
+          for i in $(seq 1 30); do
+            if docker compose exec -T web python3 -c "
+          import urllib.request
+          r = urllib.request.urlopen('http://localhost:8080/health')
+          print(f'Web health: {r.status}')
+          " 2>/dev/null; then
+              WEB_OK=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$WEB_OK" != "true" ]; then
+            echo "FAIL: Web /health did not respond within 60s"
+            docker compose logs web 2>&1 | tail -20
+            exit 1
+          fi
+
+          echo "Checking detector logs..."
+          docker compose logs detector 2>&1 | tail -20
+
+      - name: Tear down
+        if: always()
+        env:
+          COMPOSE_FILE: docker-compose.yml
+          DETECTOR_IMAGE: scarguard-detector-x86
+          IMAGE_TAG: smoke
+          GHCR_OWNER: ""
+        run: |
+          docker compose down -v || true
+          docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
+            scarguard-notifier:smoke scarguard-caddy:smoke 2>/dev/null || true
