@@ -239,6 +239,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure docker compose plugin
+        run: |
+          if ! docker compose version &>/dev/null; then
+            echo "Installing docker compose plugin..."
+            COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | grep -oP '"tag_name": "\K[^"]+')
+            sudo mkdir -p /usr/local/lib/docker/cli-plugins
+            sudo curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" \
+              -o /usr/local/lib/docker/cli-plugins/docker-compose
+            sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          fi
+          docker compose version
+
       - name: Build all images locally
         run: |
           docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86:smoke .
