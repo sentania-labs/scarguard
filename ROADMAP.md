@@ -63,3 +63,4 @@ Extend snapshot retention to also prune old detection event records from SQLite.
 - NVR-lite — proxy live RTSP video + audio through the web UI (HLS or WebRTC). Significant scope; dedicated NVR tools (Frigate, Protect) already do this well.
 - S3/Minio remote config backup — upload config backups to object storage for off-device redundancy
 - Automated Orin runner/self-updates — CI pushes runner updates to Orin via SSH (parked)
+- Isolated benchmark runner — use concurrency groups or dedicated runner labels at release time to ensure CPU inference benchmarks run without competing workloads skewing FPS numbers

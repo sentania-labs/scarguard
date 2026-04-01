@@ -20,18 +20,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 # Build-time metadata injected via Docker build args (see Dockerfile).
+VERSION: str = os.environ.get("VERSION", "local-dev")
 GIT_COMMIT: str = os.environ.get("GIT_COMMIT", "unknown")
 BUILD_DATE: str = os.environ.get("BUILD_DATE", "unknown")
-
-# VERSION file is copied into the image at /app/VERSION during build.
-_VERSION_FILE = Path(__file__).parent.parent.parent / "VERSION"
-
-
-def _read_version() -> str:
-    try:
-        return _VERSION_FILE.read_text().strip()
-    except OSError:
-        return "unknown"
 
 
 def _check_redis(cfg: dict) -> bool:
@@ -87,7 +78,7 @@ async def about_page(request: Request) -> HTMLResponse:
         request,
         "about.html",
         {
-            "version": _read_version(),
+            "version": VERSION,
             "git_commit": GIT_COMMIT,
             "build_date": BUILD_DATE,
             "python_version": sys.version.split()[0],

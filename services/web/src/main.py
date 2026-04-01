@@ -7,6 +7,7 @@ import hmac
 import os
 import secrets
 from pathlib import Path
+from urllib.parse import parse_qs
 
 import auth as auth_module
 from config_backup import ConfigBackupManager
@@ -220,17 +221,36 @@ async def csrf_middleware(request: Request, call_next):
                 )
             return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
 
-        # Require token via header or form field, and verify it matches cookie
+        # Require token via header or form field, and verify it matches cookie.
         # Token can come from X-CSRF-Token header (htmx/fetch) or
-        # _csrf_token form field (plain HTML forms).  The form body is
-        # cached by Starlette, so route handlers can still read it.
+        # _csrf_token form field (plain HTML forms).
+        #
+        # IMPORTANT: We must NOT call request.form() here — doing so in
+        # BaseHTTPMiddleware consumes the body stream, preventing downstream
+        # route handlers from reading Form() fields.  Instead, parse the raw
+        # body bytes (which Starlette caches without breaking form parsing).
         submitted_token: str | None = request.headers.get("x-csrf-token")
         if submitted_token is None:
             content_type = request.headers.get("content-type", "")
-            if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
-                form = await request.form()
-                raw = form.get("_csrf_token")
+            body = await request.body()
+            if "application/x-www-form-urlencoded" in content_type:
+                params = parse_qs(body.decode())
+                raw = params.get("_csrf_token", [None])[0]
                 submitted_token = raw if isinstance(raw, str) else None
+            elif "multipart/form-data" in content_type:
+                # Extract _csrf_token from multipart body without calling
+                # request.form().  The token field is always a short text
+                # value placed by the hidden input, so a byte search works.
+                marker = b'name="_csrf_token"\r\n\r\n'
+                idx = body.find(marker)
+                if idx != -1:
+                    start = idx + len(marker)
+                    end = body.find(b"\r\n", start)
+                    try:
+                        raw = body[start:end].decode() if end != -1 else None
+                    except UnicodeDecodeError:
+                        raw = None
+                    submitted_token = raw if isinstance(raw, str) else None
 
         if submitted_token is None or not hmac.compare_digest(submitted_token, submitted_cookie):
             if _wants_html(request):
