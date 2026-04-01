@@ -9,11 +9,11 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 
 COPY services/web/src/ ./src/
 COPY shared/ ./shared/
-COPY VERSION ./VERSION
-
 # Build-time metadata injected by CI; exposed as env vars at runtime.
+ARG VERSION=local-dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
+ENV VERSION=${VERSION}
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
 

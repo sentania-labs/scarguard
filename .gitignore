@@ -7,6 +7,9 @@ data/
 # Model files — large binaries not tracked in git
 models/
 
+# Version file — generated at build time from git tag, not tracked
+VERSION
+
 # Docker environment overrides
 .env
 

@@ -25,20 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate tag matches VERSION
-        run: |
-          FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
-          TAG_VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
-          if [ "$FILE_VERSION" != "$TAG_VERSION" ]; then
-            echo "ERROR: VERSION file ($FILE_VERSION) does not match tag ($TAG_VERSION)"
-            echo "Update VERSION to $TAG_VERSION before tagging."
-            exit 1
-          fi
-          echo "VERSION $FILE_VERSION matches tag $TAG_VERSION"
-
-      - name: Write version from tag
-        # Strip the leading 'v' so VERSION contains e.g. "1.2.3" not "v1.2.3"
-        run: echo "${{ github.ref_name }}" | sed 's/^v//' > VERSION
+      - name: Derive version from tag
+        id: version
+        run: echo "semver=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -63,6 +52,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/scarguard-web:latest
           build-args: |
+            VERSION=${{ steps.version.outputs.semver }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
@@ -117,9 +107,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Write version from tag
-        run: echo "${{ github.ref_name }}" | sed 's/^v//' > VERSION
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -202,9 +189,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Write version from tag
-        run: echo "${{ github.ref_name }}" | sed 's/^v//' > VERSION
 
       - name: Log in to GHCR
         uses: docker/login-action@v3

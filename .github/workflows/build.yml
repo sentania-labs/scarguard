@@ -46,6 +46,7 @@ jobs:
           push: false
           provenance: false
           build-args: |
+            VERSION=dev-${{ github.sha }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
@@ -82,6 +83,7 @@ jobs:
           docker build \
             --tag scarguard-web:test \
             --file services/web/Dockerfile \
+            --build-arg VERSION=dev-${{ github.sha }} \
             --build-arg GIT_COMMIT=${{ github.sha }} \
             --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
             .
@@ -255,6 +257,7 @@ jobs:
         run: |
           docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86:smoke .
           docker build -f services/web/Dockerfile -t scarguard-web:smoke \
+            --build-arg VERSION=dev-${{ github.sha }} \
             --build-arg GIT_COMMIT=${{ github.sha }} .
           docker build -f services/notifier/Dockerfile -t scarguard-notifier:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
