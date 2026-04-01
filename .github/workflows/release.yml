@@ -308,6 +308,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add BENCHMARKS.md
           git diff --cached --quiet && echo "No benchmark changes" && exit 0
+          # Clean up prior branch from a previous run (if any)
+          git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           git commit -m "$(cat <<'EOF'
           chore: update BENCHMARKS.md for ${{ github.ref_name }}
@@ -316,11 +318,13 @@ jobs:
           EOF
           )"
           git push origin "$BRANCH"
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore: update BENCHMARKS.md for ${{ github.ref_name }}" \
-            --body "Automated benchmark results from release ${{ github.ref_name }}."
+          # Create PR if one doesn't already exist for this branch
+          gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q . \
+            || gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore: update BENCHMARKS.md for ${{ github.ref_name }}" \
+              --body "Automated benchmark results from release ${{ github.ref_name }}."
           gh pr edit "$BRANCH" --add-label ci 2>/dev/null || true
 
   # ── Create GitHub Release ──────────────────────────────────────────────────
