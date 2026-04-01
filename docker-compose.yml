@@ -43,7 +43,6 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       HTTPS_PORT: ${HTTPS_PORT:-${WEB_HTTPS_PORT:-443}}
-      CADDY_ADMIN: "off"                # Disable admin API (port 2019) — not used
     depends_on:
       - web
     restart: unless-stopped
