@@ -246,7 +246,10 @@ async def csrf_middleware(request: Request, call_next):
                 if idx != -1:
                     start = idx + len(marker)
                     end = body.find(b"\r\n", start)
-                    raw = body[start:end].decode() if end != -1 else None
+                    try:
+                        raw = body[start:end].decode() if end != -1 else None
+                    except UnicodeDecodeError:
+                        raw = None
                     submitted_token = raw if isinstance(raw, str) else None
 
         if submitted_token is None or not hmac.compare_digest(submitted_token, submitted_cookie):
