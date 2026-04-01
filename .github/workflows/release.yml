@@ -252,6 +252,7 @@ jobs:
     runs-on: [self-hosted, linux, generic]
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -298,26 +299,40 @@ jobs:
               print("No benchmark rows to append")
           PYEOF
 
-      - name: Commit and push
+      - name: Create benchmark PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          BRANCH="chore/benchmarks-${{ github.ref_name }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add BENCHMARKS.md
           git diff --cached --quiet && echo "No benchmark changes" && exit 0
+          # Clean up prior branch from a previous run (if any)
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
           git commit -m "$(cat <<'EOF'
           chore: update BENCHMARKS.md for ${{ github.ref_name }}
 
           Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
           EOF
           )"
-          git push
+          git push origin "$BRANCH"
+          # Create PR if one doesn't already exist for this branch
+          gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q . \
+            || gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore: update BENCHMARKS.md for ${{ github.ref_name }}" \
+              --body "Automated benchmark results from release ${{ github.ref_name }}."
+          gh pr edit "$BRANCH" --add-label ci 2>/dev/null || true
 
   # ── Create GitHub Release ──────────────────────────────────────────────────
   # Waits for all image builds to succeed, then creates a GitHub Release
   # with auto-generated notes so there's a visible changelog on the repo.
   create-release:
     name: Create GitHub Release
-    needs: [release-x86, release-detector, release-detector-x86, update-benchmarks]
+    needs: [release-x86, release-detector, release-detector-x86]
     runs-on: [self-hosted, linux, generic]
     permissions:
       contents: write
@@ -325,37 +340,72 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Build release body
+        env:
+          TAG: ${{ github.ref_name }}
+          OWNER: ${{ github.repository_owner }}
+          ORIN_BENCH: ${{ needs.release-detector.outputs.benchmark_json }}
+          X86_BENCH: ${{ needs.release-detector-x86.outputs.benchmark_json }}
+        run: |
+          python3 << 'PYEOF' > release_body.md
+          import json, os, textwrap
+
+          tag = os.environ["TAG"]
+          owner = os.environ["OWNER"]
+
+          print(textwrap.dedent(f"""\
+          ## Docker Images
+
+          Pull and run this release:
+
+          ```bash
+          # In your .env file, set:
+          IMAGE_TAG={tag}
+
+          docker compose pull
+          docker compose up -d
+          ```
+
+          Or update a running installation:
+          ```bash
+          echo "IMAGE_TAG={tag}" >> .env
+          docker compose pull && docker compose up -d
+          ```
+
+          ## Images
+
+          | Service | Image | Platform |
+          |---------|-------|----------|
+          | detector (Jetson) | `ghcr.io/{owner}/scarguard-detector:{tag}` | ARM64 / L4T |
+          | detector (x86) | `ghcr.io/{owner}/scarguard-detector-x86:{tag}` | x86_64 (CUDA + CPU) |
+          | web | `ghcr.io/{owner}/scarguard-web:{tag}` | amd64, arm64 |
+          | notifier | `ghcr.io/{owner}/scarguard-notifier:{tag}` | amd64, arm64 |
+          | caddy | `ghcr.io/{owner}/scarguard-caddy:{tag}` | amd64, arm64 |
+
+          ## Benchmarks
+
+          | Arch | Device | Hardware | FPS | Notes |
+          |------|--------|----------|-----|-------|"""))
+
+          for label, raw in [("Orin", os.environ.get("ORIN_BENCH", "")),
+                             ("x86", os.environ.get("X86_BENCH", ""))]:
+              if not raw or raw == "null":
+                  continue
+              try:
+                  d = json.loads(raw)
+              except json.JSONDecodeError:
+                  continue
+              device = d.get("device", "unknown")
+              hw = d.get("gpu") if device == "cuda" else d.get("cpu", "unknown")
+              notes = "GPU inference" if device == "cuda" else "CPU fallback"
+              print(f"| {d.get('arch', '?')} | {device} | {hw} | {d.get('fps', '?')} | {notes} |")
+
+          print()
+          print("See [BENCHMARKS.md](BENCHMARKS.md) for full benchmark history.")
+          PYEOF
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          body: |
-            ## Docker Images
-
-            Pull and run this release:
-
-            ```bash
-            # In your .env file, set:
-            IMAGE_TAG=${{ github.ref_name }}
-
-            docker compose pull
-            docker compose up -d
-            ```
-
-            Or update a running installation:
-            ```bash
-            echo "IMAGE_TAG=${{ github.ref_name }}" >> .env
-            docker compose pull && docker compose up -d
-            ```
-
-            ## Images
-
-            | Service | Image | Platform |
-            |---------|-------|----------|
-            | detector (Jetson) | `ghcr.io/${{ github.repository_owner }}/scarguard-detector:${{ github.ref_name }}` | ARM64 / L4T |
-            | detector (x86) | `ghcr.io/${{ github.repository_owner }}/scarguard-detector-x86:${{ github.ref_name }}` | x86_64 (CUDA + CPU) |
-            | web | `ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}` | amd64, arm64 |
-            | notifier | `ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}` | amd64, arm64 |
-            | caddy | `ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}` | amd64, arm64 |
-
-            See [BENCHMARKS.md](BENCHMARKS.md) for inference performance by platform.
+          body_path: release_body.md
