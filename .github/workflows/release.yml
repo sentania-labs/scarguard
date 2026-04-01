@@ -320,8 +320,8 @@ jobs:
             --base main \
             --head "$BRANCH" \
             --title "chore: update BENCHMARKS.md for ${{ github.ref_name }}" \
-            --body "Automated benchmark results from release ${{ github.ref_name }}." \
-            --label ci
+            --body "Automated benchmark results from release ${{ github.ref_name }}."
+          gh pr edit "$BRANCH" --add-label ci 2>/dev/null || true
 
   # ── Create GitHub Release ──────────────────────────────────────────────────
   # Waits for all image builds to succeed, then creates a GitHub Release
