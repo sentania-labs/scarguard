@@ -7,3 +7,5 @@ Results are appended automatically by the release workflow.
 |---------|------|--------|-----------|-----|-------|
 | v0.10.0 | aarch64 | cuda | Orin | 30.9 | GPU inference |
 | v0.10.0 | x86_64 | cpu | x86_64 | 1.9 | CPU fallback |
+| v0.11.0 | aarch64 | cuda | Orin | 34.1 | GPU inference |
+| v0.11.0 | x86_64 | cpu | x86_64 | 1.8 | CPU fallback |
