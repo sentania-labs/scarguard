@@ -38,6 +38,10 @@ class DiscordNotifier:
         return self._name
 
     def send(self, event: dict) -> None:
+        if event.get("_digest"):
+            self._send_digest(event)
+            return
+
         class_name = event["class_name"]
         confidence = event["confidence"]
         camera_name = event["camera_name"]
@@ -77,3 +81,12 @@ class DiscordNotifier:
             )
             resp.raise_for_status()
             logger.info("Discord notification sent (no snapshot)")
+
+    def _send_digest(self, report: dict) -> None:
+        """Send a digest report as a Discord embed."""
+        from digest import format_discord_embed
+
+        payload = format_discord_embed(report)
+        resp = requests.post(self._webhook_url, json=payload, timeout=15)
+        resp.raise_for_status()
+        logger.info("Discord digest sent")

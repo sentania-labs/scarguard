@@ -104,25 +104,46 @@ class BackupConfig(BaseModel):
         return v
 
 
+class SummaryReportConfig(BaseModel):
+    enabled: bool = False
+    frequency: Literal["daily", "weekly", "monthly"] = "daily"
+    time: str = "07:00"
+    channels: list[str] = []
+
+    @field_validator("time")
+    @classmethod
+    def valid_time_format(cls, v: str) -> str:
+        if not v:
+            return "07:00"
+        parts = v.strip().split(":")
+        try:
+            h, m = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            raise ValueError(f"Time must be in HH:MM format, got {v!r}")
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"Invalid time {v!r}")
+        return f"{h:02d}:{m:02d}"
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"
-    snapshot_retention_days: int = 30
+    retention_days: int = 90
     stats_interval: int = 5
     visit_timeout_seconds: int = 300
     training_nudge_threshold: int = 100
-    metrics_retention_days: int = 90
     schedule: ScheduleConfig = ScheduleConfig()
     auth: AuthConfig = AuthConfig()
     camera_health: CameraHealthConfig = CameraHealthConfig()
     backup: BackupConfig = BackupConfig()
+    summary_report: SummaryReportConfig = SummaryReportConfig()
 
-    @field_validator("metrics_retention_days")
+    @field_validator("retention_days")
     @classmethod
-    def metrics_retention_range(cls, v: int) -> int:
-        if not 1 <= v <= 365:
-            raise ValueError("metrics_retention_days must be between 1 and 365")
+    def retention_days_range(cls, v: int) -> int:
+        if v != 0 and not 1 <= v <= 365:
+            raise ValueError("retention_days must be 0 (disabled) or between 1 and 365")
         return v
 
     @field_validator("visit_timeout_seconds")

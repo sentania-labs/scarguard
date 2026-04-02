@@ -48,6 +48,10 @@ class EmailNotifier:
             logger.warning("Email notifier: no to_addresses configured, skipping")
             return
 
+        if event.get("_digest"):
+            self._send_digest(event)
+            return
+
         class_name = event["class_name"]
         confidence = event["confidence"]
         camera_name = event["camera_name"]
@@ -95,6 +99,23 @@ class EmailNotifier:
                 if self._smtp_user and self._smtp_pass:
                     server.login(self._smtp_user, self._smtp_pass)
                 server.sendmail(self._smtp_user, self._to_addresses, msg.as_string())
+
+    def _send_digest(self, report: dict) -> None:
+        """Send a digest report as an HTML email."""
+        from digest import format_email_html
+
+        html = format_email_html(report)
+        period = report.get("period_label", "Summary")
+        subject = f"ScarGuard Digest — {period}"
+
+        msg = MIMEMultipart("alternative")
+        msg["From"] = self._smtp_user
+        msg["To"] = ", ".join(self._to_addresses)
+        msg["Subject"] = subject
+        msg.attach(MIMEText(html, "html"))
+
+        self._send_message(msg)
+        logger.info("Email digest sent to %s", self._to_addresses)
 
 
 def _attach_snapshot(

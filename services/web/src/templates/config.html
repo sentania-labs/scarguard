@@ -48,9 +48,10 @@
             </datalist>
           </div>
           <div class="field-group">
-            <label>Snapshot retention (days, 0 = keep forever)</label>
-            <input type="number" id="sys-retention" value="{{ cfg.system.snapshot_retention_days }}"
-                   min="0" max="3650">
+            <label>Data retention (days, 0 = keep forever)</label>
+            <input type="number" id="sys-retention" value="{{ cfg.system.retention_days | default(90) }}"
+                   min="0" max="365">
+            <p class="hint">Applies to snapshots, events, visits, and metrics</p>
           </div>
         </div>
         <div class="field-row">
@@ -74,12 +75,6 @@
         </div>
         <div class="field-row">
           <div class="field-group">
-            <label>Metrics retention (days)</label>
-            <input type="number" id="metrics_retention_days" min="1" max="365"
-                   value="{{ cfg.system.metrics_retention_days | default(90) }}">
-            <p class="hint">How long to keep historical metrics data (1-365 days)</p>
-          </div>
-          <div class="field-group">
             <label>Camera offline alert threshold (minutes)</label>
             <input type="number" id="camera_health_alert_threshold_minutes" min="1" max="1440"
                    value="{{ cfg.system.camera_health.alert_threshold_minutes | default(10) }}">
@@ -88,6 +83,62 @@
             <label>Camera health debounce (seconds)</label>
             <input type="number" id="camera_health_debounce_seconds" min="5" max="300"
                    value="{{ cfg.system.camera_health.debounce_seconds | default(30) }}">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Config backup limit</label>
+            <input type="number" id="backup_max_backups" min="5" max="500"
+                   value="{{ cfg.system.backup.max_backups | default(50) }}">
+            <p class="hint">Maximum number of config backups to keep (5-500)</p>
+          </div>
+          <div class="field-group">
+            <label>Backup debounce (seconds)</label>
+            <input type="number" id="backup_debounce_seconds" min="30" max="600"
+                   value="{{ cfg.system.backup.debounce_seconds | default(180) }}">
+            <p class="hint">Delay after config save before taking backup — prevents rapid-fire backups during editing (30-600)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Summary Reports ──────────────────────────────────────────────────────── #}
+  <div class="config-section" id="section-summary-report">
+    <div class="config-section-header" onclick="toggleSection('section-summary-report')">
+      <span class="config-section-label">Summary Reports</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <div class="field-row">
+          <div class="field-group">
+            <label><input type="checkbox" id="summary-report-enabled"
+              {% if cfg.system.summary_report.enabled %}checked{% endif %}> Enable scheduled digest</label>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Frequency</label>
+            <select id="summary-report-frequency">
+              <option value="daily" {% if cfg.system.summary_report.frequency == 'daily' %}selected{% endif %}>Daily</option>
+              <option value="weekly" {% if cfg.system.summary_report.frequency == 'weekly' %}selected{% endif %}>Weekly (Mondays)</option>
+              <option value="monthly" {% if cfg.system.summary_report.frequency == 'monthly' %}selected{% endif %}>Monthly (1st)</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Send at (HH:MM)</label>
+            <input type="text" id="summary-report-time" value="{{ cfg.system.summary_report.time | default('07:00') }}"
+                   placeholder="07:00" maxlength="5">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group" style="flex:1;">
+            <label>Channels (comma-separated names)</label>
+            <input type="text" id="summary-report-channels"
+                   value="{{ cfg.system.summary_report.channels | join(', ') }}"
+                   placeholder="e.g. pond-alerts, email-digest">
+            <p class="hint">Names of notification channels to receive the digest</p>
           </div>
         </div>
       </div>

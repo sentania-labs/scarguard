@@ -45,6 +45,7 @@ async def _startup() -> None:
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _migrate_ssl_to_tls()
+    _migrate_retention_fields()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
 
@@ -79,6 +80,62 @@ def _migrate_ssl_to_tls() -> None:
         )
     except Exception as exc:
         log.warning("SSL→TLS migration skipped: %s", exc)
+
+
+def _migrate_retention_fields() -> None:
+    """One-time migration: consolidate legacy snapshot_retention_days and
+    metrics_retention_days into a single retention_days field.
+
+    TODO: Remove this migration once enough releases have passed (target x.14.x).
+    """
+    import logging
+
+    import config_store
+    log = logging.getLogger("startup")
+    try:
+        cfg = config_store.load()
+        sys_cfg = cfg.get("system", {})
+        if not isinstance(sys_cfg, dict):
+            return
+
+        old_snap = sys_cfg.get("snapshot_retention_days")
+        old_metrics = sys_cfg.get("metrics_retention_days")
+        has_new = "retention_days" in sys_cfg
+
+        if old_snap is None and old_metrics is None:
+            return  # Nothing to migrate
+
+        if has_new:
+            # New key already present; just clean up old keys
+            changed = False
+            if old_snap is not None:
+                del sys_cfg["snapshot_retention_days"]
+                changed = True
+            if old_metrics is not None:
+                del sys_cfg["metrics_retention_days"]
+                changed = True
+            if changed:
+                config_store.save(cfg)
+                log.info("Removed legacy retention keys (retention_days already set)")
+            return
+
+        # Derive new value: take the larger of the two old values
+        values = [int(v) for v in (old_snap, old_metrics) if v is not None]
+        retention_days = max(values)
+
+        sys_cfg["retention_days"] = retention_days
+        if old_snap is not None:
+            del sys_cfg["snapshot_retention_days"]
+        if old_metrics is not None:
+            del sys_cfg["metrics_retention_days"]
+
+        config_store.save(cfg)
+        log.info(
+            "Migrated snapshot_retention_days/metrics_retention_days → retention_days: %d",
+            retention_days,
+        )
+    except Exception as exc:
+        log.warning("Retention fields migration skipped: %s", exc)
 
 
 # ── Auth middleware ────────────────────────────────────────────────────────────

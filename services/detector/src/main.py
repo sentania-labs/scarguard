@@ -24,7 +24,7 @@ from datetime import datetime
 
 import yaml
 from camera_health import CameraHealthTracker
-from cleanup import SnapshotCleaner
+from cleanup import RetentionCleaner
 from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from evaluator import EvaluationRunner
@@ -279,10 +279,11 @@ def main() -> None:
         sys.exit(1)
 
     # ---- Config sections -------------------------------------------------------
+    sys_cfg: dict = cfg.get("system", {})
     det_cfg: dict = cfg.get("detection", {})
     redis_cfg: dict = cfg.get("redis", {})
     # Mutable references so hot-reload can update these without restarting threads.
-    armed_ref: list[bool] = [cfg.get("system", {}).get("armed", True)]
+    armed_ref: list[bool] = [sys_cfg.get("armed", True)]
     frame_skip_ref: list[int] = [det_cfg.get("frame_skip", 2)]
 
     # ---- Model pool ------------------------------------------------------------
@@ -298,8 +299,15 @@ def main() -> None:
         db_path=DB_PATH,
     )
 
-    retention_days = int(cfg.get("system", {}).get("snapshot_retention_days", 30))
-    cleaner = SnapshotCleaner(
+    # Unified retention_days; fall back to legacy snapshot_retention_days for
+    # configs that haven't been migrated yet by the web service.
+    _ret = sys_cfg.get("retention_days")
+    if _ret is None:
+        _ret = sys_cfg.get("snapshot_retention_days")
+    if _ret is None:
+        _ret = 90
+    retention_days = int(_ret)
+    cleaner = RetentionCleaner(
         snapshot_dir=SNAPSHOT_DIR,
         db_path=DB_PATH,
         retention_days=retention_days,
@@ -307,7 +315,7 @@ def main() -> None:
     cleaner.start()
 
     # ---- Camera health tracking ---------------------------------------------------
-    health_cfg = cfg.get("system", {}).get("camera_health", {})
+    health_cfg = sys_cfg.get("camera_health", {})
     health_tracker = CameraHealthTracker(
         alert_threshold_seconds=int(health_cfg.get("alert_threshold_minutes", 10)) * 60,
         debounce_seconds=int(health_cfg.get("debounce_seconds", 30)),
@@ -346,13 +354,11 @@ def main() -> None:
         )
 
     scheduler = ArmScheduler(armed_ref, _on_scheduler_transition, get_redis=_make_redis)
-    sys_cfg = cfg.get("system", {})
     scheduler.configure(sys_cfg.get("schedule", {}), sys_cfg.get("timezone", "UTC"))
     scheduler.start()
 
     # ---- Metrics store -----------------------------------------------------------
-    metrics_retention = int(sys_cfg.get("metrics_retention_days", 90))
-    metrics_store = MetricsStore(db_path=DB_PATH, retention_days=metrics_retention)
+    metrics_store = MetricsStore(db_path=DB_PATH)
 
     # ---- Visit tracker -----------------------------------------------------------
     visit_timeout = int(sys_cfg.get("visit_timeout_seconds", 300))
@@ -496,21 +502,6 @@ def main() -> None:
         target=_visit_flush_loop, name="visit-flush", daemon=True
     )
     visit_flush_thread.start()
-
-    # ---- Metrics prune thread ----------------------------------------------------
-    def _metrics_prune_loop() -> None:
-        while not global_stop.wait(3600):
-            try:
-                deleted = metrics_store.prune()
-                if deleted:
-                    logger.info("Pruned %d old metric samples", deleted)
-            except Exception:
-                logger.exception("Metrics prune error")
-
-    metrics_prune_thread = threading.Thread(
-        target=_metrics_prune_loop, name="metrics-prune", daemon=True
-    )
-    metrics_prune_thread.start()
 
     # ---- Model evaluation runner -----------------------------------------------
     eval_runner = EvaluationRunner(

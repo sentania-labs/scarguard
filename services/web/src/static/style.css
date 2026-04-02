@@ -57,6 +57,10 @@ nav a:hover { color: var(--text); text-decoration: none; }
   font-size: 0.9rem;
   cursor: pointer;
   user-select: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
 }
 .nav-dropdown__toggle:hover { color: var(--text); }
 .nav-dropdown__menu {
@@ -76,7 +80,8 @@ nav a:hover { color: var(--text); text-decoration: none; }
   padding: 0.35rem 0;
   box-shadow: 0 6px 18px rgba(0,0,0,0.45);
 }
-.nav-dropdown:hover .nav-dropdown__menu { display: block; }
+.nav-dropdown:hover .nav-dropdown__menu,
+.nav-dropdown.open .nav-dropdown__menu { display: block; }
 .nav-dropdown__menu-inner a {
   display: block;
   padding: 0.4rem 1rem;
@@ -93,6 +98,17 @@ nav a:hover { color: var(--text); text-decoration: none; }
   height: 1px;
   background: var(--border);
   margin: 0.3rem 0;
+}
+
+/* ── Mobile nav ──────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  nav {
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+    padding: 0.5rem 1rem;
+  }
+  nav a, .nav-dropdown__toggle { font-size: 0.82rem; }
+  .nav-dropdown__toggle { min-height: 44px; min-width: 44px; }
 }
 
 /* ── Main layout ──────────────────────────────────────────────────────────── */

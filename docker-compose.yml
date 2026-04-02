@@ -103,9 +103,13 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       NOTIFIER_STATE_DIR: /var/lib/scarguard
+      DB_PATH: /data/scarguard.db       # read-only — digest reports query events/metrics
+      SNAPSHOT_DIR: /data/snapshots
+      MODELS_DIR: /models
     volumes:
       - scarguard-config:/config:ro
-      - scarguard-data:/data:ro         # ro — reads snapshot files for Discord/email attachments
+      - scarguard-models:/models:ro     # ro — digest reports storage size
+      - scarguard-data:/data:ro         # ro — reads SQLite + snapshots for attachments/digests
       - scarguard-notifier:/var/lib/scarguard
     depends_on:
       redis:

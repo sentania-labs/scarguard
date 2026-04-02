@@ -21,10 +21,11 @@ system:
   # Leave as "UTC" to keep the existing behaviour.
   timezone: "UTC"
 
-  # How many days to keep snapshot images on disk.
-  # The detector deletes snapshots older than this at startup and once per day.
+  # How many days to keep snapshots, events, visits, and metrics.
+  # The detector cleans up at startup and once per day.
+  # Labeled events (training data) are never pruned.
   # Set to 0 to disable automatic cleanup.
-  snapshot_retention_days: 30
+  retention_days: 90
 
   # ── Authentication ────────────────────────────────────────────────────────
   # Gate all web UI routes behind a login page.
@@ -63,6 +64,18 @@ system:
   #   use_solar: false
   #   latitude: 37.7749
   #   longitude: -122.4194
+
+  # ── Summary Reports ──────────────────────────────────────────────────────
+  # Scheduled digest notifications summarizing detection activity, system
+  # health, storage usage, and training data stats.
+  #
+  # summary_report:
+  #   enabled: false                 # disabled by default
+  #   frequency: daily               # daily | weekly (Mondays) | monthly (1st)
+  #   time: "07:00"                  # send time in system timezone (HH:MM)
+  #   channels:                      # notification channel names to receive the digest
+  #     - email-digest
+  #     - pond-alerts
 
 
 # ── Cameras ───────────────────────────────────────────────────────────────────
