@@ -54,12 +54,13 @@ class DigestScheduler:
             self._channels = list(report_cfg.get("channels", []))
             self._tz_name = tz_name
 
-        if self._enabled:
+        if self._enabled and self._channels:
             logger.info(
                 "Digest scheduler configured: %s at %s → %s",
-                self._frequency, self._time_str,
-                ", ".join(self._channels) if self._channels else "(all channels)",
+                self._frequency, self._time_str, ", ".join(self._channels),
             )
+        elif self._enabled:
+            logger.warning("Digest enabled but no channels configured — digest will not send")
         else:
             logger.info("Digest scheduler disabled")
 
@@ -111,12 +112,12 @@ class DigestScheduler:
         if now.time() < scheduled:
             return
 
-        # Fire!
-        self._last_sent_date = today
-        self._send_digest(frequency, channels)
+        # Fire — only mark as sent if dispatch succeeds
+        if self._send_digest(frequency, channels):
+            self._last_sent_date = today
 
-    def _send_digest(self, frequency: str, channels: list[str]) -> None:
-        """Generate and dispatch the digest report."""
+    def _send_digest(self, frequency: str, channels: list[str]) -> bool:
+        """Generate and dispatch the digest report. Returns True on success."""
         try:
             import digest
 
@@ -133,5 +134,7 @@ class DigestScheduler:
                 report, self._notifiers, self._notifiers_lock, None
             )
             logger.info("Digest report dispatched to: %s", ", ".join(channels))
+            return True
         except Exception:
-            logger.exception("Failed to generate/dispatch digest report")
+            logger.exception("Failed to generate/dispatch digest report — will retry next tick")
+            return False
