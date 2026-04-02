@@ -1,6 +1,18 @@
 # ScarGuard — Completed Features Archive
 
-Features 1–17, 18–22, and 24–25 are fully implemented. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+Features 1–17, 18–26 are fully implemented. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+
+---
+
+## Feature 26: Event Record Pruning & Unified Retention — ✓ Complete (v0.11)
+
+Consolidated `snapshot_retention_days` and `metrics_retention_days` into a single `system.retention_days` field (default: 90). The `RetentionCleaner` in the detector service runs a daily cycle that prunes: snapshot files on disk, unlabeled detection events, visit sessions, and system metrics. Labeled events (with feedback) and `_system` events (arm/disarm) are never pruned — training data is always protected. Legacy config keys are auto-migrated on startup (rewrite `scarguard.yml`); migration code removal targeted for x.14.x. Dashboard shows protected vs pruneable event counts.
+
+---
+
+## Feature 23: Scheduled Summary Reports — ✓ Complete (v0.11)
+
+Configurable daily/weekly/monthly digest notifications. Notifier service owns end-to-end: read-only SQLite access for report data, scheduler thread for timing, and per-notifier formatters (Discord embed, HTML email, webhook JSON, ntfy plain text). Digest content: detection summary with period-over-period comparison, visit highlights, performance stoplight (green/yellow/red with hardcoded CPU/GPU/camera thresholds), camera health, storage usage (snapshots/DB/models), and training data stats. Config section: `system.summary_report` with `enabled`, `frequency`, `time`, and `channels`. Configurable via web UI.
 
 ---
 

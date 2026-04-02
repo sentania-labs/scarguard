@@ -7,10 +7,9 @@ system:
   armed: true
   log_level: info
   timezone: "UTC"
-  snapshot_retention_days: 30   # days; 0 = keep forever
+  retention_days: 90             # days; applies to snapshots, events, visits, and metrics; 0 = keep forever (1-365)
   stats_interval: 5             # seconds between system stats collection (1-60)
   visit_timeout_seconds: 300    # gap before a visit session is closed (60-3600)
-  metrics_retention_days: 90    # days to keep historical metrics (1-365)
   training_nudge_threshold: 100 # labeled events before showing training nudge banner (10-10000)
   camera_health:
     alert_threshold_minutes: 10 # minutes offline before alerting (1-1440)
@@ -25,6 +24,11 @@ system:
   #   use_solar: false               # true = arm at sunrise, disarm at sunset
   #   latitude: null                 # required when use_solar is true
   #   longitude: null                # required when use_solar is true
+  # summary_report:                  # optional — scheduled digest notifications
+  #   enabled: false                 # toggle digest on/off (default: disabled)
+  #   frequency: daily               # daily | weekly (Mondays) | monthly (1st)
+  #   time: "07:00"                  # HH:MM in system timezone
+  #   channels: []                   # notification channel names to receive the digest
 
 tls:
   mode: "off"                  # "off", "auto" (Let's Encrypt), or "manual" (own certs)

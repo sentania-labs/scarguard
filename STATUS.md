@@ -37,6 +37,9 @@
 - **Config backup & rollback:** Auto-backup on config change with admin UI for listing, diffing, and restoring backups.
 - **On-demand camera snapshot:** Dashboard button to grab a live frame from any camera via Redis request/response pattern, even when disarmed.
 - **CI/CD hardening:** Container-based pytest, Trivy security scanning, VERSION consistency checks, categorized release notes.
+- **Unified data retention:** Single `system.retention_days` config (default 90) drives cleanup of snapshots, events, visits, and metrics. Labeled training data is never pruned. Legacy config keys auto-migrated.
+- **Scheduled digest reports:** Configurable daily/weekly/monthly digest via any notification channel. Includes detection summary, visit highlights, performance stoplight, storage usage, and training data stats. Notifier-owned with read-only DB access.
+- **Mobile-friendly admin menu:** Admin dropdown works on touch devices (Safari). Nav wraps on small screens.
 
 ## Known Issues / Buggy
 
@@ -47,7 +50,7 @@ None currently identified.
 - Custom-trained heron model (have the tooling now, need labeled data)
 - Physical deterrence — planned as companion project "Scar's Revenge" (ESP32 valve controller receiving ScarGuard webhooks)
 
-See [ROADMAP.md](ROADMAP.md) for upcoming features (23, 26) and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history.
+See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–26).
 
 ## Completed Work
 

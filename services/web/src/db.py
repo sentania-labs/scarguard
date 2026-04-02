@@ -258,6 +258,26 @@ def get_feedback_stats(
 
 # ── Export ──────────────────────────────────────────────────────────────────
 
+def count_protected_events() -> int:
+    """Count events with feedback labels (protected from pruning)."""
+    conn = _connect()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM detection_events"
+        " WHERE feedback IS NOT NULL"
+    ).fetchone()
+    return row[0]
+
+
+def count_pruneable_events() -> int:
+    """Count unlabeled, non-system events eligible for pruning."""
+    conn = _connect()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM detection_events"
+        " WHERE feedback IS NULL AND camera_name != '_system'"
+    ).fetchone()
+    return row[0]
+
+
 _EXPORTABLE_WHERE = (
     "camera_name != '_system'"
     " AND feedback IN ('correct', 'wrong_class')"

@@ -42,6 +42,10 @@ class NtfyNotifier:
         return self._name
 
     def send(self, event: dict) -> None:
+        if event.get("_digest"):
+            self._send_digest(event)
+            return
+
         class_name = event["class_name"]
         confidence = event["confidence"]
         camera_name = event["camera_name"]
@@ -71,6 +75,22 @@ class NtfyNotifier:
 
         resp.raise_for_status()
         logger.info("Ntfy [%s] → %s/%s (%d)", self._name, self._server, self._topic, resp.status_code)
+
+    def _send_digest(self, report: dict) -> None:
+        """Send condensed digest via ntfy."""
+        from digest import format_plain_text
+
+        text = format_plain_text(report)
+        url = f"{self._server}/{self._topic}"
+        headers: dict[str, str] = {
+            "Title": f"ScarGuard Digest — {report.get('period_label', 'Summary')}",
+            "Priority": "3",
+            "Tags": "chart_with_upwards_trend",
+        }
+        self._add_auth_headers(headers)
+        resp = requests.post(url, data=text.encode(), headers=headers, timeout=15)
+        resp.raise_for_status()
+        logger.info("Ntfy [%s] digest sent", self._name)
 
     def _add_auth_headers(self, headers: dict[str, str]) -> None:
         """Add authentication headers if credentials are configured."""

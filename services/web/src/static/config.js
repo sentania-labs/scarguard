@@ -232,14 +232,17 @@ function readForm() {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
-      snapshot_retention_days: (v => isNaN(v) ? 30 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
+      retention_days: (v => isNaN(v) ? 90 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
       stats_interval: (v => isNaN(v) || v < 1 ? 5 : Math.min(v, 60))(parseInt(document.getElementById("sys-stats-interval").value, 10)),
       visit_timeout_seconds: parseInt(document.getElementById('visit_timeout_seconds')?.value || '300'),
       training_nudge_threshold: parseInt(document.getElementById('training_nudge_threshold')?.value || '100'),
-      metrics_retention_days: parseInt(document.getElementById('metrics_retention_days')?.value || '90'),
       camera_health: {
         alert_threshold_minutes: parseInt(document.getElementById('camera_health_alert_threshold_minutes')?.value || '10'),
         debounce_seconds: parseInt(document.getElementById('camera_health_debounce_seconds')?.value || '30'),
+      },
+      backup: {
+        max_backups: parseInt(document.getElementById('backup_max_backups')?.value || '50'),
+        debounce_seconds: parseInt(document.getElementById('backup_debounce_seconds')?.value || '180'),
       },
       schedule,
       auth: {
@@ -249,6 +252,13 @@ function readForm() {
         lockout_duration_minutes: parseInt(document.getElementById("auth-lockout-minutes").value, 10) || 15,
         require_api_auth: document.getElementById("auth-require-api").checked,
         nonadmin_rearm_minutes: parseInt(document.getElementById("auth-rearm-minutes").value, 10) || 0,
+      },
+      summary_report: {
+        enabled: document.getElementById("summary-report-enabled").checked,
+        frequency: document.getElementById("summary-report-frequency").value,
+        time: document.getElementById("summary-report-time").value.trim() || "07:00",
+        channels: (document.getElementById("summary-report-channels").value || "")
+          .split(",").map(s => s.trim()).filter(Boolean),
       },
     },
     cameras: readCameras(),

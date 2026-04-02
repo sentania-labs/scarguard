@@ -13,6 +13,7 @@ from typing import Optional
 import redis as redis_lib
 import yaml
 from config_watcher import ConfigWatcher
+from digest_scheduler import DigestScheduler
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
 from notification_queue import WORKER_INTERVAL, NotificationQueue
@@ -272,6 +273,16 @@ def main() -> None:
     if queue.depth:
         logger.info("Resuming with %d notification(s) pending in retry queue", queue.depth)
 
+    # ---- Digest scheduler --------------------------------------------------------
+    digest_scheduler = DigestScheduler(
+        dispatch_fn=dispatch,
+        notifiers=notifiers,
+        notifiers_lock=notifiers_lock,
+    )
+    report_cfg = cfg.get("system", {}).get("summary_report", {})
+    digest_scheduler.configure(report_cfg, tz_name)
+    digest_scheduler.start()
+
     # Use a mutable flag so the signal handler can stop the blocking listen loop.
     shutdown_flag = [False]
 
@@ -296,6 +307,10 @@ def main() -> None:
         else:
             logger.info("Config reloaded — no notifiers enabled")
 
+        # Update digest scheduler with new config
+        new_report_cfg = new_cfg.get("system", {}).get("summary_report", {})
+        digest_scheduler.configure(new_report_cfg, new_tz)
+
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
@@ -304,6 +319,7 @@ def main() -> None:
     subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag, queue)
 
     watcher.stop()
+    digest_scheduler.stop()
     logger.info("Notifier stopped cleanly")
 
 

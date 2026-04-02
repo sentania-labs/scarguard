@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +16,12 @@ class MetricsStore:
 
     Opens its own SQLite connection (separate from EventProcessor) so it can
     be called safely from the StatsCollector thread.
+
+    Pruning is handled by RetentionCleaner on the daily retention cycle.
     """
 
-    def __init__(self, db_path: str, retention_days: int = 90) -> None:
+    def __init__(self, db_path: str) -> None:
         self._db_path = db_path
-        self._retention_days = retention_days
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10)
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -60,14 +61,3 @@ class MetricsStore:
             except Exception:
                 logger.warning("Failed to store metrics sample", exc_info=True)
 
-    def prune(self) -> int:
-        """Delete rows older than retention_days. Returns count deleted."""
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=self._retention_days)
-        ).isoformat()
-        with self._lock:
-            cur = self._conn.execute(
-                "DELETE FROM system_metrics WHERE timestamp < ?", (cutoff,)
-            )
-            self._conn.commit()
-            return cur.rowcount

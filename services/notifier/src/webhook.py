@@ -40,6 +40,10 @@ class WebhookNotifier:
         return self._name
 
     def send(self, event: dict) -> None:
+        if event.get("_digest"):
+            self._send_digest(event)
+            return
+
         snap = event.get("snapshot_path")
         payload = {
             "timestamp": event.get("timestamp"),
@@ -62,3 +66,23 @@ class WebhookNotifier:
             "Webhook [%s] %s %s → %d",
             self._name, self._method, self._url, resp.status_code,
         )
+
+    def _send_digest(self, report: dict) -> None:
+        """Send digest report as structured JSON."""
+        payload = {
+            "type": "digest",
+            "frequency": report.get("frequency"),
+            "period": report.get("period_label"),
+            "generated_at": report.get("generated_at"),
+            "detections": report.get("detections"),
+            "visits": report.get("visits"),
+            "performance": report.get("performance"),
+            "storage": report.get("storage"),
+            "training": report.get("training"),
+        }
+        resp = requests.request(
+            self._method, self._url, json=payload,
+            headers=self._headers, timeout=15,
+        )
+        resp.raise_for_status()
+        logger.info("Webhook [%s] digest sent → %d", self._name, resp.status_code)

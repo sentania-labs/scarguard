@@ -21,7 +21,7 @@
     <a href="/feed">Live Feed</a>
     {% if request.state.user and request.state.user.is_admin %}
     <div class="nav-dropdown">
-      <span class="nav-dropdown__toggle">Admin &#9660;</span>
+      <button class="nav-dropdown__toggle" aria-expanded="false">Admin &#9660;</button>
       <div class="nav-dropdown__menu">
         <div class="nav-dropdown__menu-inner">
           <a href="/config">Config</a>
@@ -50,5 +50,21 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  <script>
+  (function(){
+    var dd = document.querySelector('.nav-dropdown');
+    if (!dd) return;
+    var btn = dd.querySelector('.nav-dropdown__toggle');
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var open = dd.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open);
+    });
+    document.addEventListener('click', function() {
+      dd.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  })();
+  </script>
 </body>
 </html>
