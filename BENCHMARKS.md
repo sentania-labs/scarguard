@@ -5,3 +5,5 @@ Results are appended automatically by the release workflow.
 
 | Release | Arch | Device | CPU / GPU | FPS | Notes |
 |---------|------|--------|-----------|-----|-------|
+| v0.10.0 | aarch64 | cuda | Orin | 30.9 | GPU inference |
+| v0.10.0 | x86_64 | cpu | x86_64 | 1.9 | CPU fallback |
