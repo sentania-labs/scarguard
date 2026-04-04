@@ -21,6 +21,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 from camera_health import CameraHealthTracker
@@ -193,6 +194,9 @@ def run_camera(
             stop_event.wait(1.0)
             continue
 
+        # Touch health marker so Docker health check knows we're alive
+        Path("/tmp/healthy").touch(exist_ok=True)
+
         if health_tracker is not None:
             health_tracker.record_frame(name)
 
@@ -271,6 +275,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard detector starting")
+    Path("/tmp/healthy").touch(exist_ok=True)
 
     # ---- Enabled cameras ------------------------------------------------------
     cameras: list[dict] = [c for c in cfg.get("cameras", []) if c.get("enabled", True)]

@@ -789,3 +789,16 @@ input[type="range"] {
 }
 .eval-sample-card img { margin-bottom: 0.4rem; }
 .eval-sample-info { font-size: 0.75rem; line-height: 1.4; }
+
+/* ── Expert mode toggle ──────────────────────────────────────────────────── */
+.mode-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+}
+.expert-only { display: none !important; }
+body.expert-mode .expert-only { display: block !important; }
+body.expert-mode .expert-only.field-row { display: flex !important; }
+body.expert-mode .expert-only.field-group { display: block !important; }
+body.expert-mode .expert-only.config-section { display: block !important; }
+body.expert-mode details.expert-only { display: block !important; }

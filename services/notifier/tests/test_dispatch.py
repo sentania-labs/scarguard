@@ -136,9 +136,11 @@ class TestEmailNotifier:
         captured = []
         with patch.object(notifier, "_send_message", side_effect=lambda m: captured.append(m)):
             notifier.send(SAMPLE_EVENT)
-        body = captured[0].get_payload()[0].get_payload()
-        assert "pond-north" in body
-        assert "87%" in body
+        # Structure: related > [alternative > [plaintext, html], ...]
+        alt_part = captured[0].get_payload()[0]
+        plain_body = alt_part.get_payload()[0].get_payload()
+        assert "pond-north" in plain_body
+        assert "87%" in plain_body
 
     def test_attaches_snapshot_when_include_true(self, tmp_path):
         snap = tmp_path / "frame.jpg"
@@ -151,10 +153,11 @@ class TestEmailNotifier:
             notifier.send(event)
 
         parts = sent_msgs[0].get_payload()
-        # Multipart: [MIMEText body, MIMEBase attachment]
+        # Structure: related > [alternative, inline image]
         assert len(parts) == 2
-        attachment = parts[1]
-        assert attachment.get_filename() == "frame.jpg"
+        inline_img = parts[1]
+        assert inline_img["Content-ID"] == "<snapshot>"
+        assert inline_img.get_filename() == "snapshot.jpg"
 
     def test_raises_on_smtp_error(self):
         import smtplib

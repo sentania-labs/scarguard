@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScarGuard — Detection Feedback</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d2e;
+    --border: #2a2d3e;
+    --text: #e0e0e0;
+    --muted: #888;
+    --accent: #4a9eff;
+    --green: #3ecf8e;
+    --red: #e53e3e;
+    --yellow: #ffb020;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 480px;
+    width: 100%;
+    text-align: center;
+  }
+  .card h1 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+  }
+  .card .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+  .snapshot {
+    width: 100%;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+  }
+  .details {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .details strong { color: var(--text); }
+  .buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .btn {
+    display: block;
+    padding: 0.75rem 1rem;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.95rem;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.preselected { border-color: var(--accent); background: rgba(74,158,255,0.1); }
+  .btn-correct:hover, .btn-correct.preselected { border-color: var(--green); color: var(--green); background: rgba(62,207,142,0.1); }
+  .btn-fp:hover, .btn-fp.preselected { border-color: var(--red); color: var(--red); background: rgba(229,62,62,0.1); }
+  .btn-wrong:hover, .btn-wrong.preselected { border-color: var(--yellow); color: var(--yellow); background: rgba(255,176,32,0.1); }
+  .message {
+    padding: 1rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+  .message.success { background: rgba(62,207,142,0.15); color: var(--green); }
+  .message.error { background: rgba(229,62,62,0.15); color: var(--red); }
+  .message.info { background: rgba(74,158,255,0.15); color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ScarGuard</h1>
+  <p class="subtitle">Detection Feedback</p>
+
+  {% if error == "expired" %}
+    <div class="message error">This feedback link has expired or is invalid.</div>
+
+  {% elif error == "already_used" %}
+    <div class="message info">Feedback has already been recorded for this detection. Thank you!</div>
+
+  {% elif error == "success" %}
+    <div class="message success">Thank you! Your feedback has been recorded.</div>
+
+  {% elif event %}
+    {% if event.snapshot_path %}
+      {% set fname = event.snapshot_path.split("/")[-1] %}
+      <img class="snapshot" src="/snapshots/{{ fname }}" alt="Detection snapshot">
+    {% endif %}
+
+    <div class="details">
+      <span><strong>{{ event.class_name | replace("_", " ") | title }}</strong></span>
+      <span>{{ "%.0f%%" | format(event.confidence * 100) }}</span>
+      <span>{{ event.camera_name }}</span>
+    </div>
+
+    <div class="buttons">
+      <form method="post" action="/feedback/{{ token }}">
+        <button type="submit" name="feedback" value="correct"
+                class="btn btn-correct {{ 'preselected' if preselect == 'correct' else '' }}">
+          Correct Detection
+        </button>
+      </form>
+      <form method="post" action="/feedback/{{ token }}">
+        <button type="submit" name="feedback" value="false_positive"
+                class="btn btn-fp {{ 'preselected' if preselect == 'false_positive' else '' }}">
+          False Positive
+        </button>
+      </form>
+      <form method="post" action="/feedback/{{ token }}">
+        <button type="submit" name="feedback" value="wrong_class"
+                class="btn btn-wrong {{ 'preselected' if preselect == 'wrong_class' else '' }}">
+          Wrong Class
+        </button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+</body>
+</html>

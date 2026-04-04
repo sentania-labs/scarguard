@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import pathlib
 import signal
 import sys
 import threading
@@ -196,6 +197,7 @@ def subscribe_loop(
     notifiers_lock: threading.Lock,
     shutdown_flag: list,
     queue: NotificationQueue,
+    _base_url_ref: list[str] | None = None,
 ) -> None:
     """Connect to Redis and listen for events, reconnecting on failure."""
     host = redis_cfg.get("host", "redis")
@@ -209,12 +211,15 @@ def subscribe_loop(
             pubsub.subscribe(CHANNEL, HEALTH_CHANNEL)
             logger.info("Subscribed to Redis channels: %s, %s", CHANNEL, HEALTH_CHANNEL)
             delay = _REDIS_RECONNECT_DELAY  # reset backoff on successful connect
+            pathlib.Path("/tmp/healthy").touch(exist_ok=True)
 
             for message in pubsub.listen():
                 if shutdown_flag[0]:
                     break
                 if message["type"] != "message":
                     continue
+                # Touch health marker so Docker health check knows we're alive
+                pathlib.Path("/tmp/healthy").touch(exist_ok=True)
                 try:
                     event = json.loads(message["data"])
                 except json.JSONDecodeError:
@@ -237,6 +242,11 @@ def subscribe_loop(
                     )
                     dispatch(alert_event, notifiers, notifiers_lock, queue)
                     continue
+
+                # Inject base_url so notifiers can build feedback links
+                base_url = _base_url_ref[0] if _base_url_ref else ""
+                if base_url:
+                    event["_base_url"] = base_url
 
                 logger.info(
                     "Event received: %s from %s (conf=%.2f)",
@@ -266,6 +276,7 @@ def main() -> None:
     tz_name = cfg.get("system", {}).get("timezone", "UTC")
     notifiers = build_notifiers(cfg.get("notifications", {}), tz_name)
     notifiers_lock = threading.Lock()
+    base_url_ref: list[str] = [cfg.get("system", {}).get("base_url", "")]
     if not notifiers:
         logger.warning("No notifiers enabled — will consume events without dispatching")
 
@@ -295,6 +306,7 @@ def main() -> None:
 
     def _on_config_change(new_cfg: dict) -> None:
         new_tz = new_cfg.get("system", {}).get("timezone", "UTC")
+        base_url_ref[0] = new_cfg.get("system", {}).get("base_url", "")
         new_notifiers = build_notifiers(new_cfg.get("notifications", {}), new_tz)
         with notifiers_lock:
             notifiers.clear()
@@ -316,7 +328,7 @@ def main() -> None:
 
     _start_retry_worker(queue, notifiers, notifiers_lock, shutdown_flag)
 
-    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag, queue)
+    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag, queue, base_url_ref)
 
     watcher.stop()
     digest_scheduler.stop()

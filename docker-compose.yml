@@ -60,6 +60,12 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     volumes:
       - scarguard-config:/config:ro
       - scarguard-models:/models:ro
@@ -84,6 +90,12 @@ services:
       MODELS_DIR: /models
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     volumes:
       - scarguard-config:/config        # rw — config editor writes scarguard.yml
       - scarguard-models:/models        # rw — model upload endpoint writes here
@@ -106,6 +118,12 @@ services:
       DB_PATH: /data/scarguard.db       # read-only — digest reports query events/metrics
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     volumes:
       - scarguard-config:/config:ro
       - scarguard-models:/models:ro     # ro — digest reports storage size

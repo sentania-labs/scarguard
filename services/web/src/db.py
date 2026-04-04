@@ -160,6 +160,27 @@ def count_events_today() -> int:
 
 # ── Feedback ────────────────────────────────────────────────────────────────
 
+_FEEDBACK_TOKEN_EXPIRY_DAYS = 7
+
+
+def get_event_by_token(token: str) -> sqlite3.Row | None:
+    """Look up a detection event by its feedback token.
+
+    Returns None if the token is invalid or the event is older than the
+    expiry window.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_FEEDBACK_TOKEN_EXPIRY_DAYS)).isoformat()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM detection_events
+            WHERE feedback_token = ? AND timestamp >= ?
+            """,
+            (token, cutoff),
+        ).fetchone()
+        return row
+
+
 def update_feedback(
     event_id: int,
     feedback: str,

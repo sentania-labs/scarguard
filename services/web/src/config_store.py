@@ -10,6 +10,10 @@ import yaml
 
 CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "/config/scarguard.yml"))
 
+# Dead config keys stripped on save.  Add keys here when removing deprecated
+# features — no per-feature migration function needed.
+_STALE_TOP_KEYS: set[str] = {"ssl"}
+
 _lock = threading.Lock()
 _cache_cfg: dict | None = None
 _cache_mtime_ns: int | None = None
@@ -64,9 +68,20 @@ def load_cached(ttl_seconds: float = 1.0) -> dict:
 
 def save(cfg: dict) -> None:
     global _cache_cfg, _cache_mtime_ns, _cache_loaded_at
+    import tempfile
+    for key in _STALE_TOP_KEYS:
+        cfg.pop(key, None)
     with _lock:
-        with CONFIG_PATH.open("w") as f:
-            yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(CONFIG_PATH.parent), suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+            os.replace(tmp_path, str(CONFIG_PATH))
+        except BaseException:
+            os.unlink(tmp_path)
+            raise
         _cache_cfg = copy.deepcopy(cfg)
         try:
             _cache_mtime_ns = CONFIG_PATH.stat().st_mtime_ns

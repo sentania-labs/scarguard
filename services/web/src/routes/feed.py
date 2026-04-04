@@ -72,12 +72,15 @@ async def feed_stream(request: Request):
         client = aioredis.Redis(host=host, port=port, decode_responses=True)
         pubsub = client.pubsub()
         await pubsub.subscribe(CHANNEL)
-        # Send an initial keepalive comment so the connection is established
         yield ": connected\n\n"
         try:
-            async for message in pubsub.listen():
-                if await request.is_disconnected():
-                    break
+            while not await request.is_disconnected():
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=15.0,
+                )
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
                 if message["type"] != "message":
                     continue
                 try:

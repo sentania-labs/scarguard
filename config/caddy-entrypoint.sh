@@ -35,18 +35,6 @@ try:
         cfg = {}
     tls_cfg = cfg.get("tls", {})
 
-    # ── Legacy fallback: ssl → tls (read-only) ───────────────────────────
-    # If no tls section exists but the old ssl section is present and enabled,
-    # use its cert/key paths.  The web service handles the actual migration
-    # (writing the tls section) since the config volume is read-only here.
-    # TODO: Remove this legacy fallback (target x.12.x).
-    ssl_cfg = cfg.get("ssl", {})
-    if not tls_cfg and isinstance(ssl_cfg, dict) and ssl_cfg.get("enabled"):
-        cert = ssl_cfg.get("cert_path", "/config/certs/cert.pem")
-        key = ssl_cfg.get("key_path", "/config/certs/key.pem")
-        tls_cfg = {"mode": "manual", "domain": "", "cert_path": cert, "key_path": key}
-        print(f"[caddy-entrypoint] Using legacy ssl config (cert={cert}) — save config in the web UI to complete migration", file=sys.stderr)
-
 except Exception as e:
     print(f"[caddy-entrypoint] Warning: cannot read {config_path}: {e}", file=sys.stderr)
 

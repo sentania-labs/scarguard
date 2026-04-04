@@ -18,6 +18,21 @@ function toggleSection(id) {
   document.getElementById(id).classList.toggle("collapsed");
 }
 
+// ── Expert mode toggle ───────────────────────────────────────────────────────
+
+function toggleExpertMode(enabled) {
+  document.body.classList.toggle("expert-mode", enabled);
+  localStorage.setItem("scarguard-expert-mode", enabled ? "1" : "0");
+}
+
+(function restoreExpertMode() {
+  if (localStorage.getItem("scarguard-expert-mode") === "1") {
+    document.body.classList.add("expert-mode");
+    const toggle = document.getElementById("expert-mode-toggle");
+    if (toggle) toggle.checked = true;
+  }
+})();
+
 // ── Confidence slider ─────────────────────────────────────────────────────────
 
 const slider = document.getElementById("conf-slider");
@@ -108,7 +123,7 @@ function buildCameraCard(cam) {
       <label>RTSP URL</label>
       <input type="text" class="cam-rtsp" value="${_esc(cam.rtsp_url || "")}" placeholder="rtsp:// or rtsps://192.168.1.1:7447/TOKEN">
     </div>
-    <details style="margin-top:0.75rem;">
+    <details class="expert-only" style="margin-top:0.75rem;">
       <summary style="cursor:pointer;font-weight:500;">Per-Camera Model & Classes</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
@@ -132,7 +147,7 @@ function buildCameraCard(cam) {
       <span class="toggle-track"></span>
       Enabled
     </label>
-    <details style="margin-top:0.75rem;">
+    <details class="expert-only" style="margin-top:0.75rem;">
       <summary style="cursor:pointer;font-weight:500;">Exclusion Zones (${zones.length})</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
@@ -146,7 +161,7 @@ function buildCameraCard(cam) {
         <div class="zone-list" style="margin-top:0.4rem;"></div>
       </div>
     </details>
-    <details style="margin-top:0.75rem;">
+    <details class="expert-only" style="margin-top:0.75rem;">
       <summary style="cursor:pointer;font-weight:500;">Action Rules (${rules.length})</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
@@ -232,6 +247,7 @@ function readForm() {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
+      base_url: (document.getElementById("sys-base-url")?.value || "").trim(),
       retention_days: (v => isNaN(v) ? 90 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
       stats_interval: (v => isNaN(v) || v < 1 ? 5 : Math.min(v, 60))(parseInt(document.getElementById("sys-stats-interval").value, 10)),
       visit_timeout_seconds: parseInt(document.getElementById('visit_timeout_seconds')?.value || '300'),

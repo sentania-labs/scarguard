@@ -1,6 +1,22 @@
 # ScarGuard — Completed Features Archive
 
-Features 1–17, 18–26 are fully implemented. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+Features 1–17, 18–27 are fully implemented. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+
+---
+
+## Feature 27: Beta 1 — HTML Notifications, Feedback Tokens, Config UI Modes & Hardening — ✓ Complete (v0.12)
+
+Beta 1 milestone combining usability improvements, notification enhancements, and operational hardening.
+
+**HTML email notifications:** Detection alert emails converted from plaintext to HTML with inline-embedded snapshot images via `Content-ID` / `cid:` references. `MIMEMultipart("related")` containing `MIMEMultipart("alternative")` for HTML + plaintext fallback. Dark-themed HTML template with detection details and annotated snapshot.
+
+**One-click notification feedback:** Each detection event generates a `feedback_token` (UUID4 hex) stored in `detection_events`. Tokens flow through Redis to the notifier and are embedded in notification URLs. Email includes styled HTML feedback buttons; Discord appends markdown links; ntfy uses native `Actions` header buttons. Standalone feedback page at `/feedback/{token}` with pre-selection via `?v=` query param and POST confirmation. Tokens expire after 7 days. CSRF exempted (token itself is the auth). `system.base_url` config field (expert-only) enables feedback URL generation.
+
+**Config UI normal/expert modes:** Toggle switch at top of Settings tab. CSS class `expert-only` hides advanced fields by default; `body.expert-mode` class reveals them. Expert-only: stats intervals, backup settings, camera health config, summary reports, notification channels section, schedule, auth, TLS, base_url, per-camera model overrides, exclusion zones, action rules. `readForm()` reads ALL fields regardless of visibility — saving in Normal mode preserves expert values. Persisted to `localStorage`.
+
+**Quick wins from code audits:** `/health` endpoint (bypasses auth), Docker Compose healthchecks (HTTP for web, touch file for detector/notifier), SSE keepalive comments (15s polling), atomic config writes (`tempfile.mkstemp` + `os.replace`), SQLite indexes on `detection_events`, camera name sanitization in snapshot filenames.
+
+**Hardening:** Non-root containers (`scarguard` user, `video` group for GPU access), dependency pinning to exact versions in all `requirements.txt` files. Legacy SSL→TLS migration code removed.
 
 ---
 
