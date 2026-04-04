@@ -51,7 +51,7 @@ async def _get_rearm_at(cfg: dict) -> str | None:
         log.warning("Failed to read rearm_at from Redis")
         return None
     finally:
-        await r.aclose()
+        await r.close()
 
 
 async def _get_camera_health(cfg: dict) -> dict:
@@ -71,7 +71,7 @@ async def _get_camera_health(cfg: dict) -> dict:
         log.warning("Failed to read camera health from Redis")
         return {}
     finally:
-        await r.aclose()
+        await r.close()
 
 
 async def _set_rearm_at(cfg: dict, ts: str) -> None:
@@ -83,7 +83,7 @@ async def _set_rearm_at(cfg: dict, ts: str) -> None:
     except Exception:
         log.warning("Failed to set rearm_at in Redis")
     finally:
-        await r.aclose()
+        await r.close()
 
 
 async def _clear_rearm_at(cfg: dict) -> None:
@@ -95,7 +95,7 @@ async def _clear_rearm_at(cfg: dict) -> None:
     except Exception:
         log.warning("Failed to clear rearm_at in Redis")
     finally:
-        await r.aclose()
+        await r.close()
 
 
 def _parse_time(s: str) -> dt_time | None:

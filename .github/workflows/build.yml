@@ -94,7 +94,7 @@ jobs:
       # causing empty mount directories inside the test container.
       - name: Test web in container
         run: |
-          cid=$(docker create scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/web/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -111,7 +111,7 @@ jobs:
 
       - name: Test notifier in container
         run: |
-          cid=$(docker create scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -177,7 +177,7 @@ jobs:
       # the outer host filesystem, not the runner container's filesystem.
       - name: Inference benchmark (GPU)
         run: |
-          cid=$(docker create --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+          cid=$(docker create --user root --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
             scarguard-detector:build-validate python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           docker start -a "$cid"
@@ -207,7 +207,7 @@ jobs:
       # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
       - name: Inference benchmark (CPU)
         run: |
-          cid=$(docker create scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
+          cid=$(docker create --user root scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           docker start -a "$cid"
           rc=$?

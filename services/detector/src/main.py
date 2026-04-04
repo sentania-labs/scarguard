@@ -275,6 +275,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard detector starting")
+    Path("/tmp/healthy").touch(exist_ok=True)
 
     # ---- Enabled cameras ------------------------------------------------------
     cameras: list[dict] = [c for c in cfg.get("cameras", []) if c.get("enabled", True)]

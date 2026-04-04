@@ -211,6 +211,7 @@ def subscribe_loop(
             pubsub.subscribe(CHANNEL, HEALTH_CHANNEL)
             logger.info("Subscribed to Redis channels: %s, %s", CHANNEL, HEALTH_CHANNEL)
             delay = _REDIS_RECONNECT_DELAY  # reset backoff on successful connect
+            pathlib.Path("/tmp/healthy").touch(exist_ok=True)
 
             for message in pubsub.listen():
                 if shutdown_flag[0]:
