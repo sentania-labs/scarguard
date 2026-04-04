@@ -61,6 +61,17 @@ class NtfyNotifier:
             "Priority": str(self._priority),
             "Tags": "warning" if self._priority >= 4 else "eyes",
         }
+
+        base_url = event.get("_base_url", "")
+        token = event.get("feedback_token", "")
+        if base_url and token:
+            fb = f"{base_url.rstrip('/')}/feedback/{token}"
+            headers["Actions"] = (
+                f"http, Correct, {fb}?v=correct, method=POST; "
+                f"http, False Positive, {fb}?v=false_positive, method=POST; "
+                f"http, Wrong Class, {fb}?v=wrong_class, method=POST"
+            )
+
         self._add_auth_headers(headers)
 
         # Send with snapshot attachment if configured and file exists

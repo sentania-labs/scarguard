@@ -14,7 +14,19 @@ from config_backup import ConfigBackupManager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from routes import about, admin, config, dashboard, events, feed, models, snapshot, stats, training
+from routes import (
+    about,
+    admin,
+    config,
+    dashboard,
+    events,
+    feed,
+    feedback,
+    models,
+    snapshot,
+    stats,
+    training,
+)
 from routes import auth as auth_routes
 from routes import users as users_routes
 
@@ -44,42 +56,9 @@ async def _startup() -> None:
     global backup_manager
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
-    _migrate_ssl_to_tls()
     _migrate_retention_fields()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
-
-
-def _migrate_ssl_to_tls() -> None:
-    """One-time migration: convert legacy ssl section to new tls section.
-
-    TODO: Remove this migration and the legacy ssl fallback in
-    caddy-entrypoint.sh once enough releases have passed (target x.12.x).
-    """
-    import logging
-
-    import config_store
-    log = logging.getLogger("startup")
-    try:
-        cfg = config_store.load()
-        ssl_cfg = cfg.get("ssl", {})
-        if cfg.get("tls") or not isinstance(ssl_cfg, dict) or not ssl_cfg.get("enabled"):
-            return  # Already migrated or no legacy SSL
-        tls_cfg = {
-            "mode": "manual",
-            "domain": "",
-            "cert_path": ssl_cfg.get("cert_path", "/config/certs/cert.pem"),
-            "key_path": ssl_cfg.get("key_path", "/config/certs/key.pem"),
-        }
-        cfg["tls"] = tls_cfg
-        del cfg["ssl"]
-        config_store.save(cfg)
-        log.info(
-            "Migrated legacy ssl config to tls (mode=manual, cert=%s)",
-            tls_cfg["cert_path"],
-        )
-    except Exception as exc:
-        log.warning("SSL→TLS migration skipped: %s", exc)
 
 
 def _migrate_retention_fields() -> None:
@@ -141,7 +120,7 @@ def _migrate_retention_fields() -> None:
 # ── Auth middleware ────────────────────────────────────────────────────────────
 
 # Paths that are always public (no login required).
-_PUBLIC_PREFIXES = ("/login", "/setup", "/static/")
+_PUBLIC_PREFIXES = ("/login", "/setup", "/static/", "/health", "/feedback")
 
 
 def _is_public(path: str) -> bool:
@@ -255,6 +234,11 @@ async def csrf_middleware(request: Request, call_next):
         request.state.csrf_token = ""
         return await call_next(request)
 
+    # Skip CSRF for token-based feedback (the token itself is the auth)
+    if request.url.path.startswith("/feedback/"):
+        request.state.csrf_token = ""
+        return await call_next(request)
+
     # Ensure a CSRF cookie exists and is valid
     csrf_cookie = request.cookies.get(_CSRF_COOKIE)
     needs_cookie = not csrf_cookie or not _verify_csrf_token(csrf_cookie)
@@ -335,6 +319,13 @@ async def csrf_middleware(request: Request, call_next):
     return response
 
 
+# ── Health ─────────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 app.include_router(auth_routes.router)
 app.include_router(users_routes.router)
@@ -348,3 +339,4 @@ app.include_router(admin.router)
 app.include_router(stats.router)
 app.include_router(training.router)
 app.include_router(snapshot.router)
+app.include_router(feedback.router)

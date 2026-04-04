@@ -14,4 +14,10 @@ COPY shared/ ./shared/
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
+# Run as non-root for defense in depth
+RUN useradd -r -s /usr/sbin/nologin scarguard && \
+    mkdir -p /data /config /var/lib/scarguard && \
+    chown scarguard:scarguard /data /config /var/lib/scarguard
+USER scarguard
+
 CMD ["python", "src/main.py"]

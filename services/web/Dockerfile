@@ -20,6 +20,12 @@ ENV BUILD_DATE=${BUILD_DATE}
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
+# Run as non-root for defense in depth
+RUN useradd -r -s /usr/sbin/nologin scarguard && \
+    mkdir -p /data /config /models && \
+    chown scarguard:scarguard /data /config /models
+USER scarguard
+
 # start.py launches uvicorn on HTTP port 8080.
 # TLS termination is handled by the Caddy reverse proxy container.
 CMD ["python3", "src/start.py"]

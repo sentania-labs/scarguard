@@ -54,6 +54,16 @@ class DiscordNotifier:
             f"Camera: `{camera_name}` | Confidence: `{confidence:.0%}` | `{timestamp}`"
         )
 
+        base_url = event.get("_base_url", "")
+        token = event.get("feedback_token", "")
+        if base_url and token:
+            fb = f"{base_url.rstrip('/')}/feedback/{token}"
+            content += (
+                f"\n[Correct]({fb}?v=correct) \u00b7 "
+                f"[False Positive]({fb}?v=false_positive) \u00b7 "
+                f"[Wrong Class]({fb}?v=wrong_class)"
+            )
+
         payload: dict[str, object] = {"content": content}
 
         snapshot_bytes: bytes | None = None

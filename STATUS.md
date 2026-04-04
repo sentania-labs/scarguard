@@ -40,6 +40,16 @@
 - **Unified data retention:** Single `system.retention_days` config (default 90) drives cleanup of snapshots, events, visits, and metrics. Labeled training data is never pruned. Legacy config keys auto-migrated.
 - **Scheduled digest reports:** Configurable daily/weekly/monthly digest via any notification channel. Includes detection summary, visit highlights, performance stoplight, storage usage, and training data stats. Notifier-owned with read-only DB access.
 - **Mobile-friendly admin menu:** Admin dropdown works on touch devices (Safari). Nav wraps on small screens.
+- **HTML email notifications:** Detection alert emails now use HTML with inline-embedded snapshot images (Content-ID). Plaintext fallback for clients that don't render HTML.
+- **One-click notification feedback:** Each detection event generates a one-time feedback token (UUID4). Email, Discord, and ntfy notifications include feedback links/buttons. Standalone confirmation page (no login required, 7-day token expiry).
+- **Config UI normal/expert modes:** Toggle switch hides advanced fields (stats intervals, backup settings, TLS, auth, schedule, per-camera model overrides, exclusion zones, action rules). `readForm()` preserves all values regardless of visibility.
+- **Docker health checks:** `/health` HTTP endpoint on web service; `/tmp/healthy` touch file for detector and notifier. Compose healthcheck blocks with `start_period` and retry intervals.
+- **SSE keepalive:** Event and feed SSE streams emit `: keepalive` comments every 15 seconds to prevent proxy/browser timeouts.
+- **Atomic config writes:** `config_store.save()` uses `tempfile.mkstemp` + `os.replace` to prevent partial writes on crash.
+- **SQLite indexes:** Indexes on `detection_events` for `timestamp`, `camera_name`, `class_name`, and `feedback` columns.
+- **Camera name sanitization:** Snapshot filenames sanitized with `re.sub(r'[^\w\-]', '_', camera_name)` to prevent path traversal.
+- **Non-root containers:** All service Dockerfiles run as `scarguard` user (detector adds `video` group for GPU access).
+- **Dependency pinning:** All `requirements.txt` files pin exact versions.
 
 ## Known Issues / Buggy
 
@@ -50,7 +60,7 @@ None currently identified.
 - Custom-trained heron model (have the tooling now, need labeled data)
 - Physical deterrence — planned as companion project "Scar's Revenge" (ESP32 valve controller receiving ScarGuard webhooks)
 
-See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–26).
+See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–27).
 
 ## Completed Work
 
@@ -96,3 +106,5 @@ See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_
 | v0.9 | CI/CD hardening (container pytest, Trivy scanning, VERSION checks, release notes) | ✅ Complete |
 | v0.10 | CI/CD pipeline hardening (compose smoke test, GPU/CPU inference benchmarks, BENCHMARKS.md) | ✅ Complete |
 | v0.10 | x86/CUDA detector image (Dockerfile.x86, CPU fallback, setup.sh platform detection) | ✅ Complete |
+| v0.11 | Unified retention, digest reports, mobile menu, stats chart fix, event pruning | ✅ Complete |
+| v0.12 | HTML email, notification feedback tokens, config UI modes, health checks, hardening | ✅ Complete (Beta 1) |

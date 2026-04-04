@@ -11,6 +11,7 @@ system:
   stats_interval: 5             # seconds between system stats collection (1-60)
   visit_timeout_seconds: 300    # gap before a visit session is closed (60-3600)
   training_nudge_threshold: 100 # labeled events before showing training nudge banner (10-10000)
+  base_url: ""                  # external URL for feedback links in notifications (e.g. "https://scarguard.example.com")
   camera_health:
     alert_threshold_minutes: 10 # minutes offline before alerting (1-1440)
     debounce_seconds: 30        # ignore brief RTSP hiccups shorter than this (5-300)
@@ -165,6 +166,7 @@ Labeled events power the training pipeline:
 | `frame_size` | TEXT | JSON `[width, height]` of original frame |
 | `feedback` | TEXT | `correct`, `false_positive`, `wrong_class`, or NULL |
 | `corrected_class` | TEXT | Class name when feedback is `wrong_class` |
+| `feedback_token` | TEXT | UUID4 hex token for one-click notification feedback (unique, 7-day expiry) |
 
 ### Database Tables: visit_sessions
 

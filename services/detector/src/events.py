@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -73,6 +75,7 @@ class EventProcessor:
                 self._last_event[key] = now
             timestamp = datetime.now(timezone.utc)
             snapshot_path = self._save_snapshot(frame, det, camera_name, timestamp)
+            feedback_token = uuid.uuid4().hex
             # None  → action rules exist but no rule matched (suppress)
             # []    → no action rules configured (notify all channels)
             # [...]→ matched rule with specific channels
@@ -82,7 +85,7 @@ class EventProcessor:
                 actions_triggered = actions_by_class.get(det.class_name)
             self._persist(
                 timestamp, det, camera_name, snapshot_path,
-                actions_triggered, frame_size,
+                actions_triggered, frame_size, feedback_token,
             )
 
             logger.info(
@@ -111,6 +114,7 @@ class EventProcessor:
                     "actions_triggered": actions_triggered,
                     "bbox": bbox_list,
                     "frame_size": list(frame_size),
+                    "feedback_token": feedback_token,
                 }
             )
 
@@ -165,8 +169,9 @@ class EventProcessor:
             # Import lazily so unit tests can run in environments without OpenCV system libs.
             import cv2
 
+            safe_name = re.sub(r'[^\w\-]', '_', camera_name)
             filename = (
-                f"{camera_name}_{det.class_name}_{timestamp.strftime('%Y%m%dT%H%M%SZ')}.jpg"
+                f"{safe_name}_{det.class_name}_{timestamp.strftime('%Y%m%dT%H%M%SZ')}.jpg"
             )
             path = self._snapshot_dir / filename
             cv2.imwrite(str(path), frame)
@@ -206,6 +211,7 @@ class EventProcessor:
                 "frame_size": "ALTER TABLE detection_events ADD COLUMN frame_size TEXT",
                 "feedback": "ALTER TABLE detection_events ADD COLUMN feedback TEXT",
                 "corrected_class": "ALTER TABLE detection_events ADD COLUMN corrected_class TEXT",
+                "feedback_token": "ALTER TABLE detection_events ADD COLUMN feedback_token TEXT",
             }
             for col, ddl in migrations.items():
                 if col not in existing:
@@ -268,6 +274,29 @@ class EventProcessor:
             )
             self._conn.commit()
 
+            # Indexes on detection_events for common web UI query patterns
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_timestamp "
+                "ON detection_events(timestamp)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_camera "
+                "ON detection_events(camera_name)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_class "
+                "ON detection_events(class_name)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_feedback "
+                "ON detection_events(feedback)"
+            )
+            self._conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_token "
+                "ON detection_events(feedback_token)"
+            )
+            self._conn.commit()
+
     def _persist(
         self,
         timestamp: datetime,
@@ -276,12 +305,13 @@ class EventProcessor:
         snapshot_path: str | None,
         actions_triggered: list[str] | None,
         frame_size: tuple[int, int] | None = None,
+        feedback_token: str | None = None,
     ) -> None:
         with self._db_lock:
             try:
                 self._insert_event(
                     timestamp, det, camera_name, snapshot_path,
-                    actions_triggered, frame_size,
+                    actions_triggered, frame_size, feedback_token,
                 )
                 self._conn.commit()
             except Exception:
@@ -299,6 +329,7 @@ class EventProcessor:
         snapshot_path: str | None,
         actions_triggered: list[str] | None,
         frame_size: tuple[int, int] | None = None,
+        feedback_token: str | None = None,
     ) -> None:
         actions_json = json.dumps(actions_triggered) if actions_triggered is not None else None
         bbox_json = json.dumps(list(det.bbox)) if det.bbox else None
@@ -307,8 +338,8 @@ class EventProcessor:
             """
             INSERT INTO detection_events
                 (timestamp, class_name, confidence, camera_name, snapshot_path,
-                 actions_triggered, bbox, frame_size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 actions_triggered, bbox, frame_size, feedback_token)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp.isoformat(),
@@ -319,6 +350,7 @@ class EventProcessor:
                 actions_json,
                 bbox_json,
                 frame_size_json,
+                feedback_token,
             ),
         )
 
