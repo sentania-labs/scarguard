@@ -1,10 +1,10 @@
-fastapi==0.135.2
-uvicorn[standard]==0.42.0
-jinja2==3.1.2
+fastapi==0.135.3
+uvicorn[standard]==0.43.0
+jinja2==3.1.6
 python-multipart==0.0.22
-pyyaml==6.0.1
+pyyaml==6.0.3
 pydantic==2.12.5
-redis==4.3.4
+redis==7.4.0
 aiofiles==25.1.0
 tzdata
 docker==7.1.0

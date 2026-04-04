@@ -1,6 +1,6 @@
-redis==4.3.4
-pyyaml==6.0.1
+redis==7.4.0
+pyyaml==6.0.3
 pydantic==2.12.5
-requests==2.31.0
+requests==2.33.1
 tzdata
-Pillow==12.1.1
+Pillow==12.2.0
