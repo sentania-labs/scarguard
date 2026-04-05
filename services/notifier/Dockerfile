@@ -4,6 +4,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
+
 COPY services/notifier/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
@@ -14,10 +16,15 @@ COPY shared/ ./shared/
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
-# Run as non-root for defense in depth
+# Create non-root user for defense in depth.
+# Container starts as root; entrypoint fixes volume ownership then drops
+# to scarguard via gosu.
 RUN useradd -r -s /usr/sbin/nologin scarguard && \
     mkdir -p /data /config /var/lib/scarguard && \
     chown scarguard:scarguard /data /config /var/lib/scarguard
-USER scarguard
 
+COPY services/notifier/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python", "src/main.py"]
