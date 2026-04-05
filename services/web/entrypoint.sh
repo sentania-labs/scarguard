@@ -7,10 +7,10 @@ set -e
 # When running as non-root already (e.g. CI --user root override removed),
 # skip chown/gosu and just exec the command directly.
 if [ "$(id -u)" = "0" ]; then
-    if [ ! -f /data/.ownership-fixed ]; then
+    if [ ! -f /data/.ownership-fixed-web ]; then
         chown -R scarguard:scarguard /data /models 2>/dev/null || echo "WARNING: chown failed on /data or /models — check volume mounts" >&2
         chown -R scarguard:scarguard /config 2>/dev/null || echo "WARNING: chown failed on /config — check volume mounts" >&2
-        touch /data/.ownership-fixed 2>/dev/null || true
+        touch /data/.ownership-fixed-web 2>/dev/null || true
     else
         # On subsequent starts, just fix top-level dirs (fast)
         chown scarguard:scarguard /data /config /models 2>/dev/null || true
