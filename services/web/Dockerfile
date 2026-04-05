@@ -3,6 +3,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends gosu && rm -rf /var/lib/apt/lists/*
+
 COPY services/web/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
@@ -20,12 +22,17 @@ ENV BUILD_DATE=${BUILD_DATE}
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
-# Run as non-root for defense in depth
+# Create non-root user for defense in depth.
+# Container starts as root; entrypoint fixes volume ownership then drops
+# to scarguard via gosu.
 RUN useradd -r -s /usr/sbin/nologin scarguard && \
     mkdir -p /data /config /models && \
     chown scarguard:scarguard /data /config /models
-USER scarguard
 
+COPY services/web/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 # start.py launches uvicorn on HTTP port 8080.
 # TLS termination is handled by the Caddy reverse proxy container.
 CMD ["python3", "src/start.py"]

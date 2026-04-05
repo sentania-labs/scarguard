@@ -108,8 +108,7 @@
 
   {% elif event %}
     {% if event.snapshot_path %}
-      {% set fname = event.snapshot_path.split("/")[-1] %}
-      <img class="snapshot" src="/snapshots/{{ fname }}" alt="Detection snapshot">
+      <img class="snapshot" src="/feedback/{{ token }}/snapshot" alt="Detection snapshot">
     {% endif %}
 
     <div class="details">

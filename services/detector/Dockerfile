@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgstreamer-plugins-base1.0-0 \
     libgl1 \
     libglib2.0-0 \
+    gosu \
  && if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
         apt-get install -y --no-install-recommends nvidia-l4t-tools || \
         echo "nvidia-l4t-tools not available in apt repos; GPU stats will use sysfs fallback"; \
@@ -34,11 +35,16 @@ COPY shared/ ./shared/
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
-# Run as non-root for defense in depth
+# Create non-root user for defense in depth.
 # The video group provides GPU device access on most Linux hosts.
+# Container starts as root; entrypoint fixes volume ownership then drops
+# to scarguard via gosu.
 RUN useradd -r -s /usr/sbin/nologin -G video scarguard && \
     mkdir -p /data /config /models && \
     chown scarguard:scarguard /data /config /models
-USER scarguard
 
+COPY services/detector/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python3", "src/main.py"]
