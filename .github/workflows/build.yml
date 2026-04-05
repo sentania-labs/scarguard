@@ -3,11 +3,15 @@ name: Build
 # Validates that all Docker images build successfully on every PR and merge.
 # Catches Dockerfile / dependency issues before they block a release.
 #
-# Pipeline:
+# PR runs (full validation):
 #   1. Multi-arch build (amd64 + arm64) — validates Dockerfiles
 #   2. Single-arch load (amd64) — loads images for testing and scanning
 #   3. Container pytest — runs tests inside built images to catch import/dep issues
 #   4. Trivy scan — fails on CRITICAL/HIGH CVEs with known fixes
+#
+# Main-push runs (cache only):
+#   1. Multi-arch build only — warms the GHA build cache for future PRs
+#   Tests, Trivy, and compose smoke test are skipped (already passed on the PR).
 #
 # Images are built but NOT pushed — this is a build-only validation.
 # Versioned releases and GHCR pushes are handled by release.yml.
@@ -21,9 +25,9 @@ on:
 
 jobs:
 
-  # ── Build web + notifier (x86 runner) ────────────────────────────────────────
-  build-web-notifier:
-    name: Build web + notifier images
+  # ── Build web (x86 runner) ───────────────────────────────────────────────────
+  build-web:
+    name: Build web image
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -52,33 +56,13 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
-      - name: Build notifier (validate only, no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/notifier/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          provenance: false
-          cache-from: type=gha,scope=notifier
-          cache-to: type=gha,scope=notifier,mode=max
-
-      - name: Build caddy (validate only, no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/caddy/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          provenance: false
-          cache-from: type=gha,scope=caddy
-          cache-to: type=gha,scope=caddy,mode=max
-
+      # ── Test + scan (PR only — main push only warms build cache) ──────────
       # Single-platform build loaded into local Docker for testing and Trivy
       # scanning.  Uses the default docker driver (not buildx) to avoid
       # BuildKit's persistent layer cache on self-hosted runners, which can
       # serve stale layers even after Dockerfile changes.
       - name: Build web (amd64, load for test)
+        if: github.event_name != 'push'
         run: |
           docker build \
             --tag scarguard-web:test \
@@ -93,8 +77,9 @@ jobs:
       # the outer host filesystem, not the runner container's filesystem,
       # causing empty mount directories inside the test container.
       - name: Test web in container
+        if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root --entrypoint "" scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/web/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -102,24 +87,8 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
-      - name: Build notifier (amd64, load for test)
-        run: |
-          docker build \
-            --tag scarguard-notifier:test \
-            --file services/notifier/Dockerfile \
-            .
-
-      - name: Test notifier in container
-        run: |
-          cid=$(docker create --user root scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
-          docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
-          docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
-          docker start -a "$cid"
-          rc=$?
-          docker rm "$cid" > /dev/null
-          exit $rc
-
       - name: Trivy scan — web
+        if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: scarguard-web:test
@@ -127,8 +96,61 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          timeout: 20m0s
+
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-web:test || true
+
+  # ── Build notifier (x86 runner) ─────────────────────────────────────────────
+  build-notifier:
+    name: Build notifier image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build notifier (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/notifier/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=notifier
+          cache-to: type=gha,scope=notifier,mode=max
+
+      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      - name: Build notifier (amd64, load for test)
+        if: github.event_name != 'push'
+        run: |
+          docker build \
+            --tag scarguard-notifier:test \
+            --file services/notifier/Dockerfile \
+            .
+
+      - name: Test notifier in container
+        if: github.event_name != 'push'
+        run: |
+          cid=$(docker create --user root --entrypoint "" scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
+          docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
 
       - name: Trivy scan — notifier
+        if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: scarguard-notifier:test
@@ -136,11 +158,36 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          timeout: 20m0s
 
-      - name: Clean up test images
-        if: always()
-        run: |
-          docker rmi scarguard-web:test scarguard-notifier:test || true
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-notifier:test || true
+
+  # ── Build caddy (x86 runner) ────────────────────────────────────────────────
+  build-caddy:
+    name: Build caddy image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build caddy (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/caddy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,scope=caddy,mode=max
 
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   build-detector:
@@ -177,7 +224,7 @@ jobs:
       # the outer host filesystem, not the runner container's filesystem.
       - name: Inference benchmark (GPU)
         run: |
-          cid=$(docker create --user root --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+          cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
             scarguard-detector:build-validate python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           docker start -a "$cid"
@@ -207,7 +254,7 @@ jobs:
       # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
       - name: Inference benchmark (CPU)
         run: |
-          cid=$(docker create --user root scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
+          cid=$(docker create --user root --entrypoint "" scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           docker start -a "$cid"
           rc=$?
@@ -226,7 +273,7 @@ jobs:
           # severity limited to CRITICAL — base image carries dozens of HIGH
           # Ubuntu kernel CVEs we cannot fix; only block on actionable findings
           scanners: vuln
-          timeout: 10m0s
+          timeout: 20m0s
 
       - name: Clean up
         if: always()
@@ -235,7 +282,8 @@ jobs:
   # ── Compose smoke test (x86 runner) ─────────────────────────────────────────
   compose-smoke-test:
     name: Compose smoke test
-    needs: [build-detector-x86, build-web-notifier]
+    if: github.event_name != 'push'
+    needs: [build-detector-x86, build-web, build-notifier, build-caddy]
     runs-on: [self-hosted, linux, docker]
 
     steps:

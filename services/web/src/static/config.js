@@ -475,7 +475,10 @@ function buildChannelCard(ch) {
   div.innerHTML = `
     <div class="camera-card-header">
       <span class="camera-card-title">${type.charAt(0).toUpperCase() + type.slice(1)} Channel</span>
-      <button type="button" class="btn-remove" onclick="removeChannel(this)">Remove</button>
+      <span>
+        <button type="button" class="btn-add" onclick="sendTestNotification(this)" style="margin-right:0.5rem;">Send Test</button>
+        <button type="button" class="btn-remove" onclick="removeChannel(this)">Remove</button>
+      </span>
     </div>
     <div class="field-row">
       <div class="field-group">
@@ -721,4 +724,40 @@ function toggleSolar(enabled) {
 
 function _esc(s) {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+// ── Test notification ────────────────────────────────────────────────────────
+
+async function sendTestNotification(btn) {
+  const card = btn.closest(".camera-card");
+  const name = card.querySelector(".ch-name").value.trim();
+  if (!name) {
+    alert("Give this channel a name first.");
+    return;
+  }
+
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = "Sending\u2026";
+
+  try {
+    const resp = await fetch("/config/test-notification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": getCsrfToken() },
+      body: JSON.stringify({ channel: name }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      btn.textContent = "Sent!";
+      setTimeout(() => { btn.textContent = origText; }, 2000);
+    } else {
+      alert("Test failed: " + result.error);
+      btn.textContent = origText;
+    }
+  } catch (e) {
+    alert("Network error: " + e.message);
+    btn.textContent = origText;
+  } finally {
+    btn.disabled = false;
+  }
 }
