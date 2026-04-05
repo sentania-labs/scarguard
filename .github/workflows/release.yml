@@ -145,7 +145,7 @@ jobs:
       - name: Inference benchmark (GPU)
         id: benchmark
         run: |
-          cid=$(docker create --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+          cid=$(docker create --user root --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
             ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           OUTPUT=$(docker start -a "$cid")
@@ -209,7 +209,7 @@ jobs:
       - name: Inference benchmark (CPU)
         id: benchmark
         run: |
-          cid=$(docker create ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
+          cid=$(docker create --user root ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
             python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           OUTPUT=$(docker start -a "$cid")
