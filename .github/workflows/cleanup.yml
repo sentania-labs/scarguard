@@ -14,9 +14,16 @@ on:
 jobs:
 
   # ── x86 runner cleanup ─────────────────────────────────────────────────────
+  # Matrix with max-parallel:1 ensures each job is assigned to a different
+  # idle runner.  There are 3 docker-labeled runners: runner-docker,
+  # runner-terraform, runner-packer.
   cleanup-x86:
-    name: Cleanup x86 runner
+    name: Cleanup x86 runner (${{ matrix.runner-index }}/3)
     runs-on: [self-hosted, linux, docker]
+    strategy:
+      max-parallel: 1
+      matrix:
+        runner-index: [1, 2, 3]
     steps:
       - name: Docker system prune
         run: docker system prune -f --volumes

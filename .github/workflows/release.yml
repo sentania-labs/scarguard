@@ -58,11 +58,9 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
-      - name: Prune Docker images and build cache
+      - name: Prune dangling images
         if: always()
-        run: |
-          docker image prune -f
-          docker builder prune -f --keep-storage 5GB
+        run: docker image prune -f
 
   # ── Build & push — notifier (x86 runner) ───────────────────────────────────
   release-notifier:
@@ -100,11 +98,9 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
-      - name: Prune Docker images and build cache
+      - name: Prune dangling images
         if: always()
-        run: |
-          docker image prune -f
-          docker builder prune -f --keep-storage 5GB
+        run: docker image prune -f
 
   # ── Build & push — caddy (x86 runner) ──────────────────────────────────────
   release-caddy:
@@ -142,11 +138,9 @@ jobs:
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
 
-      - name: Prune Docker images and build cache
+      - name: Prune dangling images
         if: always()
-        run: |
-          docker image prune -f
-          docker builder prune -f --keep-storage 5GB
+        run: docker image prune -f
 
   # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
   release-detector:

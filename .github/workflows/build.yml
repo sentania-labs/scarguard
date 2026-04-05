@@ -3,11 +3,15 @@ name: Build
 # Validates that all Docker images build successfully on every PR and merge.
 # Catches Dockerfile / dependency issues before they block a release.
 #
-# Pipeline:
+# PR runs (full validation):
 #   1. Multi-arch build (amd64 + arm64) — validates Dockerfiles
 #   2. Single-arch load (amd64) — loads images for testing and scanning
 #   3. Container pytest — runs tests inside built images to catch import/dep issues
 #   4. Trivy scan — fails on CRITICAL/HIGH CVEs with known fixes
+#
+# Main-push runs (cache only):
+#   1. Multi-arch build only — warms the GHA build cache for future PRs
+#   Tests, Trivy, and compose smoke test are skipped (already passed on the PR).
 #
 # Images are built but NOT pushed — this is a build-only validation.
 # Versioned releases and GHCR pushes are handled by release.yml.
@@ -52,11 +56,13 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
+      # ── Test + scan (PR only — main push only warms build cache) ──────────
       # Single-platform build loaded into local Docker for testing and Trivy
       # scanning.  Uses the default docker driver (not buildx) to avoid
       # BuildKit's persistent layer cache on self-hosted runners, which can
       # serve stale layers even after Dockerfile changes.
       - name: Build web (amd64, load for test)
+        if: github.event_name != 'push'
         run: |
           docker build \
             --tag scarguard-web:test \
@@ -71,6 +77,7 @@ jobs:
       # the outer host filesystem, not the runner container's filesystem,
       # causing empty mount directories inside the test container.
       - name: Test web in container
+        if: github.event_name != 'push'
         run: |
           cid=$(docker create --user root --entrypoint "" scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/web/tests/. "$cid:/app/tests/"
@@ -81,6 +88,7 @@ jobs:
           exit $rc
 
       - name: Trivy scan — web
+        if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: scarguard-web:test
@@ -90,7 +98,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Clean up
-        if: always()
+        if: always() && github.event_name != 'push'
         run: docker rmi scarguard-web:test || true
 
   # ── Build notifier (x86 runner) ─────────────────────────────────────────────
@@ -120,7 +128,9 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
+      # ── Test + scan (PR only — main push only warms build cache) ──────────
       - name: Build notifier (amd64, load for test)
+        if: github.event_name != 'push'
         run: |
           docker build \
             --tag scarguard-notifier:test \
@@ -128,6 +138,7 @@ jobs:
             .
 
       - name: Test notifier in container
+        if: github.event_name != 'push'
         run: |
           cid=$(docker create --user root --entrypoint "" scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
@@ -138,6 +149,7 @@ jobs:
           exit $rc
 
       - name: Trivy scan — notifier
+        if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: scarguard-notifier:test
@@ -147,7 +159,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Clean up
-        if: always()
+        if: always() && github.event_name != 'push'
         run: docker rmi scarguard-notifier:test || true
 
   # ── Build caddy (x86 runner) ────────────────────────────────────────────────
@@ -268,6 +280,7 @@ jobs:
   # ── Compose smoke test (x86 runner) ─────────────────────────────────────────
   compose-smoke-test:
     name: Compose smoke test
+    if: github.event_name != 'push'
     needs: [build-detector-x86, build-web, build-notifier, build-caddy]
     runs-on: [self-hosted, linux, docker]
 
