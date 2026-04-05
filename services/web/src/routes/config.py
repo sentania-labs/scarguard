@@ -1,11 +1,14 @@
 import json
 import logging
 import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import available_timezones
 
 import config_store
 import db
+import redis.asyncio as aioredis
 import yaml
 from config_model import (
     CameraConfig,
@@ -329,3 +332,70 @@ async def upload_tls_cert(
 
     log.info("TLS cert files uploaded: %s", ", ".join(written))
     return JSONResponse({"ok": True, "written": written})
+
+
+# ── Test notification ─────────────────────────────────────────────────────────
+
+_SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "/data/snapshots"))
+_TEST_IMAGE = Path(__file__).resolve().parent.parent / "static" / "test-fish.png"
+_DETECTIONS_CHANNEL = "scarguard:detections"
+
+
+@router.post("/test-notification", response_class=JSONResponse)
+async def send_test_notification(request: Request) -> JSONResponse:
+    """Send a test notification to a named channel via the notifier."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+
+    channel: str = body.get("channel", "").strip()
+    if not channel:
+        return JSONResponse(
+            {"ok": False, "error": "Channel name is required"},
+            status_code=400,
+        )
+
+    cfg = config_store.load_cached()
+
+    # Validate channel name against configured named channels
+    raw_channels = cfg.get("notifications", {}).get("channels", [])
+    valid_names = {
+        ch["name"] for ch in raw_channels
+        if isinstance(ch, dict) and ch.get("name")
+    }
+    if channel not in valid_names:
+        return JSONResponse(
+            {"ok": False, "error": f"Unknown channel: {channel}. Save config first."},
+            status_code=400,
+        )
+
+    # Copy the bundled test image into the shared snapshot directory so the
+    # notifier container can read it.
+    snapshot_path: str | None = None
+    if _TEST_IMAGE.is_file():
+        dest = _SNAPSHOT_DIR / "test-fish.png"
+        shutil.copy2(_TEST_IMAGE, dest)
+        snapshot_path = str(dest)
+
+    redis_cfg = cfg.get("redis", {})
+    host = redis_cfg.get("host", "redis")
+    port = int(redis_cfg.get("port", 6379))
+
+    event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "class_name": "test_notification",
+        "confidence": 1.0,
+        "camera_name": "test",
+        "snapshot_path": snapshot_path,
+        "actions_triggered": [channel],
+    }
+
+    client = aioredis.Redis(host=host, port=port, decode_responses=True)
+    try:
+        await client.publish(_DETECTIONS_CHANNEL, json.dumps(event))
+    finally:
+        await client.close()
+
+    log.info("Test notification sent to channel %s", channel)
+    return JSONResponse({"ok": True})
