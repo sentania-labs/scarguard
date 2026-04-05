@@ -96,6 +96,7 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          timeout: 20m0s
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -157,6 +158,7 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          timeout: 20m0s
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -271,7 +273,7 @@ jobs:
           # severity limited to CRITICAL — base image carries dozens of HIGH
           # Ubuntu kernel CVEs we cannot fix; only block on actionable findings
           scanners: vuln
-          timeout: 10m0s
+          timeout: 20m0s
 
       - name: Clean up
         if: always()
