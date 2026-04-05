@@ -1,6 +1,6 @@
 # ScarGuard — Infrastructure
 
-Doc last verified: 2026-03-24
+Doc last verified: 2026-04-05
 
 ## Repository Structure
 
@@ -21,6 +21,7 @@ scarguard/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
 │   │   ├── Dockerfile               # Jetson/L4T (ARM64)
 │   │   ├── Dockerfile.x86           # x86 CUDA+CPU
+│   │   ├── entrypoint.sh            # Volume ownership fix + gosu drop
 │   │   ├── requirements.txt
 │   │   └── src/
 │   │       ├── main.py
@@ -32,6 +33,7 @@ scarguard/
 │   │       └── config_watcher.py
 │   ├── web/                         # FastAPI + Jinja web UI
 │   │   ├── Dockerfile
+│   │   ├── entrypoint.sh            # Volume ownership fix + gosu drop
 │   │   ├── requirements.txt
 │   │   └── src/
 │   │       ├── start.py             # Startup script: reads ssl config, launches uvicorn
@@ -47,6 +49,7 @@ scarguard/
 │   │       │   ├── dashboard.py
 │   │       │   ├── events.py
 │   │       │   ├── feed.py
+│   │       │   ├── feedback.py
 │   │       │   └── models.py
 │   │       ├── static/
 │   │       │   ├── config.js
@@ -63,8 +66,13 @@ scarguard/
 │   │           └── partials/
 │   │               ├── arm_badge.html
 │   │               └── event_rows.html
+│   ├── caddy/                       # Reverse proxy (TLS termination)
+│   │   ├── Dockerfile
+│   │   ├── caddy-entrypoint.sh
+│   │   └── Caddyfile.template
 │   └── notifier/
 │       ├── Dockerfile
+│       ├── entrypoint.sh            # Volume ownership fix + gosu drop
 │       ├── requirements.txt
 │       └── src/
 │           ├── config_watcher.py
@@ -82,7 +90,10 @@ scarguard/
 │   └── orin-setup.sh
 └── .github/
     └── workflows/
-        └── ci.yml
+        ├── ci.yml                   # Lint, type check, pytest (PR only)
+        ├── build.yml                # Docker image builds (PR: full; main: cache only)
+        ├── release.yml              # Build + push to GHCR on tag push
+        └── cleanup.yml              # Weekly runner cleanup (all docker runners)
 ```
 
 ## Container Base Images
@@ -91,6 +102,18 @@ scarguard/
 - **detector (x86):** `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`. The PyTorch tag is parameterized via `ARG PYTORCH_TAG` in `Dockerfile.x86` — override with `--build-arg PYTORCH_TAG=<tag>` to test a different version. Bump the default when cutting a release.
 - **web and notifier:** `python:3.11-slim` — no GPU needed.
 - **caddy:** `caddy:2-alpine` + Python for config parsing.
+
+### Non-root containers
+
+All application containers (detector, web, notifier) create a `scarguard` system user and run the application as that user for defense in depth. Since `setup.sh` creates Docker volumes as root, each service has an `entrypoint.sh` that:
+
+1. Starts as root
+2. Fixes volume ownership (`chown -R scarguard:scarguard`) on first boot (sentinel file prevents slow re-chown on restarts with large snapshot volumes)
+3. Drops to `scarguard` via `gosu` before executing the application
+
+Each service uses a per-service sentinel file (`.ownership-fixed-{detector,web,notifier}`) so services sharing the same volume don't skip each other's chown.
+
+CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
 ## Named Volumes
 
@@ -135,46 +158,60 @@ ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. Th
 
 ### Runners
 
-- **x86 runners (existing org runners):** Lint, type checking, pytest for web + notifier, build and push web/notifier/caddy/detector-x86 images to GHCR, compose smoke test
-- **Orin runner (self-hosted, containerized):** Build Jetson detector image (ARM64 + L4T base), GPU smoke test + inference benchmark
+| Runner | Labels | Purpose |
+|--------|--------|---------|
+| `runner-docker` | self-hosted, linux, docker | x86 Docker builds |
+| `runner-terraform` | self-hosted, linux, terraform, docker | x86 Docker builds |
+| `runner-packer` | self-hosted, linux, packer, docker | x86 Docker builds |
+| `runner-generic` / `-2` / `-3` | self-hosted, linux, generic | Lint, typecheck, pytest |
+| `orin-nano` | self-hosted, linux, arm64, jetson | Jetson detector builds |
 
-### x86 Runner Details
-- Containerized GitHub Actions runner on ubuntu24 host, Dockerfile managed out of band
-- Docker socket mount from host — runner issues Docker commands against host daemon
-- Labels: `self-hosted`, `linux`, `X64`, `docker`
-
-### Orin Runner Details
-- Containerized GitHub Actions runner on the Orin (ARM64 Dockerfile in `infra/orin-runner/`)
-- Docker socket mount from host — runner issues Docker commands against host daemon
-- GPU accessible because builds/tests run on host Docker (not nested)
-- Labels: `self-hosted`, `linux`, `arm64`, `jetson`
+All x86 runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
 
 ### Build & Deploy Flow
 
 ```
-Push to main / PR
-  ├── x86 runners:
-  │   ├── Lint + type check (all services)
-  │   ├── pytest (web, notifier — no GPU needed)
-  │   ├── Build web/notifier/caddy images (multi-arch amd64+arm64)
-  │   ├── Build detector-x86 image + CPU inference benchmark
-  │   └── Compose smoke test (full stack, CPU mode)
+PR to main (ci.yml + build.yml — full validation)
+  ├── generic runners (parallel):
+  │   ├── Lint (ruff — all services)
+  │   ├── Type check (mypy — web, notifier)
+  │   ├── pytest — web
+  │   └── pytest — notifier
   │
-  └── Orin runner:
-      ├── Build Jetson detector image (ARM64 + L4T base)
-      └── GPU smoke test + inference benchmark
+  ├── docker runners (parallel, one job per runner):
+  │   ├── Build web image (multi-arch) + amd64 test + Trivy
+  │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
+  │   ├── Build caddy image (multi-arch)
+  │   └── Build detector-x86 image + CPU benchmark + Trivy
+  │
+  ├── Orin runner:
+  │   └── Build detector image + GPU smoke test + benchmark
+  │
+  └── Compose smoke test (after all builds pass)
 
-Tag push (release)
-  ├── x86 runners:
-  │   ├── Build + push web/notifier/caddy to ghcr.io
+Merge to main (build.yml — cache warming only)
+  ├── docker runners: Multi-arch builds only (warms GHA build cache)
+  └── Tests, Trivy, and compose smoke test are SKIPPED (passed on PR)
+
+Tag push (release.yml)
+  ├── docker runners (parallel, one job per runner):
+  │   ├── Build + push web to ghcr.io
+  │   ├── Build + push notifier to ghcr.io
+  │   └── Build + push caddy to ghcr.io
+  │
+  ├── docker runner:
   │   └── Build + push detector-x86 to ghcr.io + CPU benchmark
   │
   ├── Orin runner:
   │   └── Build + push detector to ghcr.io + GPU benchmark
   │
   └── Post-release:
-      ├── Append benchmarks to BENCHMARKS.md
+      ├── Append benchmarks to BENCHMARKS.md (auto-PR)
       └── Create GitHub Release with image table
+
+Weekly (cleanup.yml — Sunday 03:00 UTC)
+  ├── docker runners: system prune + builder cache prune (matrix hits all 3)
+  └── Orin runner: system prune (no volume prune — preserves models)
 ```
 
 ### Runner Image Updates
