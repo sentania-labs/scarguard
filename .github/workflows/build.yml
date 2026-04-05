@@ -21,9 +21,9 @@ on:
 
 jobs:
 
-  # ── Build web + notifier (x86 runner) ────────────────────────────────────────
-  build-web-notifier:
-    name: Build web + notifier images
+  # ── Build web (x86 runner) ───────────────────────────────────────────────────
+  build-web:
+    name: Build web image
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -51,28 +51,6 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
-
-      - name: Build notifier (validate only, no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/notifier/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          provenance: false
-          cache-from: type=gha,scope=notifier
-          cache-to: type=gha,scope=notifier,mode=max
-
-      - name: Build caddy (validate only, no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/caddy/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          provenance: false
-          cache-from: type=gha,scope=caddy
-          cache-to: type=gha,scope=caddy,mode=max
 
       # Single-platform build loaded into local Docker for testing and Trivy
       # scanning.  Uses the default docker driver (not buildx) to avoid
@@ -102,6 +80,46 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
+      - name: Trivy scan — web
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-web:test
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Clean up
+        if: always()
+        run: docker rmi scarguard-web:test || true
+
+  # ── Build notifier (x86 runner) ─────────────────────────────────────────────
+  build-notifier:
+    name: Build notifier image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build notifier (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/notifier/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=notifier
+          cache-to: type=gha,scope=notifier,mode=max
+
       - name: Build notifier (amd64, load for test)
         run: |
           docker build \
@@ -119,15 +137,6 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
-      - name: Trivy scan — web
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: scarguard-web:test
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-
       - name: Trivy scan — notifier
         uses: aquasecurity/trivy-action@master
         with:
@@ -137,10 +146,34 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
-      - name: Clean up test images
+      - name: Clean up
         if: always()
-        run: |
-          docker rmi scarguard-web:test scarguard-notifier:test || true
+        run: docker rmi scarguard-notifier:test || true
+
+  # ── Build caddy (x86 runner) ────────────────────────────────────────────────
+  build-caddy:
+    name: Build caddy image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build caddy (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/caddy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,scope=caddy,mode=max
 
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   build-detector:
@@ -235,7 +268,7 @@ jobs:
   # ── Compose smoke test (x86 runner) ─────────────────────────────────────────
   compose-smoke-test:
     name: Compose smoke test
-    needs: [build-detector-x86, build-web-notifier]
+    needs: [build-detector-x86, build-web, build-notifier, build-caddy]
     runs-on: [self-hosted, linux, docker]
 
     steps:
