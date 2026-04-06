@@ -159,14 +159,19 @@ services:
       dockerfile: services/log-streamer/Dockerfile
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-log-streamer:${IMAGE_TAG:-latest}
     environment:
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
+      # Must match the Redis endpoint in scarguard.yml (redis.host / redis.port).
+      # Override via .env if Redis is moved off-container.
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
       test: >-
         python3 -c "
         import os, redis;
-        r=redis.Redis(host='redis', port=6379, password=os.environ.get('REDIS_PASSWORD') or None);
+        r=redis.Redis(
+          host=os.environ.get('REDIS_HOST','redis'),
+          port=int(os.environ.get('REDIS_PORT','6379')),
+          password=os.environ.get('REDIS_PASSWORD') or None);
         r.ping()
         "
       interval: 30s

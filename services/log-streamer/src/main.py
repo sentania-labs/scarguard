@@ -68,7 +68,9 @@ def discover_services(
     result: dict[str, docker.models.containers.Container] = {}
     for c in containers:
         service = c.labels.get("com.docker.compose.service")
-        if service:
+        # Skip ourselves — tailing our own logs creates a feedback loop
+        # when Redis is down (failed-publish warnings get re-tailed).
+        if service and service != "log-streamer":
             result[service] = c
     return result
 
