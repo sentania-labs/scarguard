@@ -240,7 +240,7 @@ class EvaluationRunner:
                 continue
 
             try:
-                results = model.predict(frame, conf=0.1, verbose=False, save=False)
+                results = model.predict(frame, conf=0.1, verbose=False, save=False, project="/tmp/runs")
             except Exception:
                 logger.exception("Inference failed for snapshot %s", gt["resolved_path"])
                 all_predictions.append([])
