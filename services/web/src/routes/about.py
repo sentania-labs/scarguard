@@ -6,6 +6,7 @@ import platform
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import config_store
 import db
@@ -49,8 +50,8 @@ def _check_log_streamer(cfg: dict) -> bool:
     """Return True if the log-streamer sidecar has populated any ring buffers."""
     try:
         r = _redis_conn(cfg)
-        keys: list = list(r.keys("scarguard:logs:buffer:*"))
-        return len(keys) > 0
+        keys: Any = r.keys("scarguard:logs:buffer:*")
+        return bool(keys)
     except Exception:
         return False
 
