@@ -64,6 +64,16 @@
       <canvas id="gpu-chart" width="440" height="120"></canvas>
     </div>
   </div>
+  <div class="chart-row" style="margin-top:1rem;">
+    <div class="chart-container">
+      <span class="chart-label">Inference ms</span>
+      <canvas id="infer-chart" width="440" height="120"></canvas>
+    </div>
+    <div class="chart-container">
+      <span class="chart-label">FPS</span>
+      <canvas id="fps-chart" width="440" height="120"></canvas>
+    </div>
+  </div>
 </section>
 
 <!-- Per-camera Inference Performance -->
@@ -96,6 +106,16 @@
     <div class="chart-container">
       <span class="chart-label">GPU % & Temp</span>
       <canvas id="hist-gpu-chart"></canvas>
+    </div>
+  </div>
+  <div class="chart-row" style="margin-top:1.5rem;">
+    <div class="chart-container">
+      <span class="chart-label">Inference Time (ms)</span>
+      <canvas id="hist-inference-chart"></canvas>
+    </div>
+    <div class="chart-container">
+      <span class="chart-label">Detection FPS</span>
+      <canvas id="hist-fps-chart"></canvas>
     </div>
   </div>
   <div id="hist-status" class="hint" style="margin-top:0.5rem;">Loading...</div>
@@ -197,6 +217,16 @@ const INTERVAL = {{ interval }} * 1000;
 const MAX_POINTS = Math.ceil(600 / {{ interval }});  // 10 minutes of history
 const cpuHistory = [];
 const gpuHistory = [];
+const inferHistory = {};  // {camera_name: [values...]}
+const fpsHistory = {};    // {camera_name: [values...]}
+const CAM_COLORS = [
+  'rgba(78,159,255,0.8)',   // blue
+  'rgba(62,207,142,0.8)',   // green
+  'rgba(255,159,67,0.8)',   // orange
+  'rgba(207,62,207,0.8)',   // purple
+  'rgba(255,99,132,0.8)',   // red
+  'rgba(255,205,86,0.8)',   // yellow
+];
 let es = null;
 let backoff = 1000;
 
@@ -303,6 +333,24 @@ function updateCharts(d) {
     if (gpuHistory.length > MAX_POINTS) gpuHistory.shift();
     drawChart("gpu-chart", gpuHistory, "rgba(62,207,142,0.8)", "rgba(62,207,142,0.1)");
   }
+
+  // Per-camera inference and FPS
+  const cameras = d.cameras || {};
+  const names = Object.keys(cameras).sort();
+  for (const name of names) {
+    if (!inferHistory[name]) inferHistory[name] = [];
+    if (!fpsHistory[name]) fpsHistory[name] = [];
+    inferHistory[name].push(cameras[name].avg_inference_ms || 0);
+    if (inferHistory[name].length > MAX_POINTS) inferHistory[name].shift();
+    fpsHistory[name].push(cameras[name].fps || 0);
+    if (fpsHistory[name].length > MAX_POINTS) fpsHistory[name].shift();
+  }
+  if (names.length > 0) {
+    const inferSeries = names.map((n, i) => ({data: inferHistory[n], color: CAM_COLORS[i % CAM_COLORS.length], label: n}));
+    const fpsSeries = names.map((n, i) => ({data: fpsHistory[n], color: CAM_COLORS[i % CAM_COLORS.length], label: n}));
+    drawMultiChart("infer-chart", inferSeries);
+    drawMultiChart("fps-chart", fpsSeries);
+  }
 }
 
 function drawChart(canvasId, data, strokeColor, fillColor) {
@@ -366,6 +414,78 @@ function drawChart(canvasId, data, strokeColor, fillColor) {
   ctx.fill();
 }
 
+function drawMultiChart(canvasId, series) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width;
+  const h = rect.height;
+  const pad = { top: 5, bottom: 14, left: 0, right: 0 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Find max value across all series for auto-scaling
+  let maxVal = 0;
+  for (const s of series) {
+    for (const v of s.data) if (v > maxVal) maxVal = v;
+  }
+  maxVal = maxVal > 0 ? maxVal * 1.15 : 1;  // 15% headroom
+
+  // Grid lines at 25%, 50%, 75%
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach(pct => {
+    const y = pad.top + ch * (1 - pct);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(w - pad.right, y);
+    ctx.stroke();
+  });
+
+  // Grid labels
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "right";
+  [0.25, 0.5, 0.75, 1.0].forEach(pct => {
+    const y = pad.top + ch * (1 - pct);
+    ctx.fillText(Math.round(maxVal * pct).toString(), w - 2, y + 3);
+  });
+
+  const step = cw / (MAX_POINTS - 1);
+
+  // Draw each series line
+  for (const s of series) {
+    if (s.data.length < 2) continue;
+    const startX = pad.left + (MAX_POINTS - s.data.length) * step;
+    ctx.beginPath();
+    ctx.moveTo(startX, pad.top + ch - (s.data[0] / maxVal) * ch);
+    for (let i = 1; i < s.data.length; i++) {
+      ctx.lineTo(startX + i * step, pad.top + ch - (s.data[i] / maxVal) * ch);
+    }
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Legend at bottom
+  ctx.font = "9px system-ui";
+  ctx.textAlign = "left";
+  let lx = pad.left + 4;
+  for (let i = 0; i < series.length; i++) {
+    ctx.fillStyle = series[i].color;
+    ctx.fillRect(lx, h - 10, 8, 8);
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillText(series[i].label, lx + 11, h - 3);
+    lx += ctx.measureText(series[i].label).width + 20;
+  }
+}
+
 function updateInferenceTable(cameras) {
   const tbody = document.getElementById("inference-tbody");
   const names = Object.keys(cameras).sort();
@@ -397,7 +517,18 @@ connect();
 <script>
 let histCpuChart = null;
 let histGpuChart = null;
+let histInferenceChart = null;
+let histFpsChart = null;
 let currentRange = '1h';
+
+const HIST_CAM_COLORS = [
+  'rgba(78,159,255,0.9)',
+  'rgba(62,207,142,0.9)',
+  'rgba(255,159,67,0.9)',
+  'rgba(207,62,207,0.9)',
+  'rgba(255,99,132,0.9)',
+  'rgba(255,205,86,0.9)',
+];
 
 function loadHistory(range, btn) {
   currentRange = range;
@@ -438,6 +569,8 @@ function renderHistCharts(data) {
 
   if (histCpuChart) histCpuChart.destroy();
   if (histGpuChart) histGpuChart.destroy();
+  if (histInferenceChart) histInferenceChart.destroy();
+  if (histFpsChart) histFpsChart.destroy();
 
   const cpuCtx = document.getElementById('hist-cpu-chart').getContext('2d');
   histCpuChart = new Chart(cpuCtx, {
@@ -481,6 +614,53 @@ function renderHistCharts(data) {
       plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
     },
   });
+
+  // Per-camera inference and FPS historical charts
+  const cameraNames = new Set();
+  data.forEach(d => {
+    if (d.cameras) Object.keys(d.cameras).forEach(n => cameraNames.add(n));
+  });
+  const cameras = [...cameraNames].sort();
+
+  if (cameras.length > 0) {
+    const inferDatasets = cameras.map((cam, i) => ({
+      label: cam,
+      data: data.map(d => d.cameras && d.cameras[cam] ? d.cameras[cam].avg_inference_ms : null),
+      borderColor: HIST_CAM_COLORS[i % HIST_CAM_COLORS.length],
+      fill: false, tension: 0.3, pointRadius: 0, spanGaps: true,
+    }));
+
+    const fpsDatasets = cameras.map((cam, i) => ({
+      label: cam,
+      data: data.map(d => d.cameras && d.cameras[cam] ? d.cameras[cam].fps : null),
+      borderColor: HIST_CAM_COLORS[i % HIST_CAM_COLORS.length],
+      fill: false, tension: 0.3, pointRadius: 0, spanGaps: true,
+    }));
+
+    const camChartOpts = (yLabel) => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {display: true, ticks: {maxTicksLimit: 10, color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y: {min: 0, title: {display: true, text: yLabel, color: 'rgba(255,255,255,0.4)'}, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+      },
+      plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
+    });
+
+    const inferCtx = document.getElementById('hist-inference-chart').getContext('2d');
+    histInferenceChart = new Chart(inferCtx, {
+      type: 'line',
+      data: {labels: labels, datasets: inferDatasets},
+      options: camChartOpts('ms'),
+    });
+
+    const fpsCtx = document.getElementById('hist-fps-chart').getContext('2d');
+    histFpsChart = new Chart(fpsCtx, {
+      type: 'line',
+      data: {labels: labels, datasets: fpsDatasets},
+      options: camChartOpts('fps'),
+    });
+  }
 }
 
 loadHistory('1h', document.querySelector('.range-btn[data-range="1h"]'));

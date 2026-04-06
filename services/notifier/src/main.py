@@ -205,6 +205,8 @@ def subscribe_loop(
     delay = _REDIS_RECONNECT_DELAY
 
     while not shutdown_flag[0]:
+        client: redis_lib.Redis | None = None
+        pubsub: redis_lib.client.PubSub | None = None
         try:
             client = redis_lib.Redis(host=host, port=port, decode_responses=True)
             pubsub = client.pubsub()
@@ -264,6 +266,18 @@ def subscribe_loop(
             )
             time.sleep(delay)
             delay = min(delay * 2, _REDIS_MAX_RECONNECT_DELAY)
+        finally:
+            if pubsub is not None:
+                try:
+                    pubsub.unsubscribe()
+                    pubsub.close()
+                except Exception:
+                    pass
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
     logger.info("Subscription loop exited")
 

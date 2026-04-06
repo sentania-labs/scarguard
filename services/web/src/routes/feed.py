@@ -1,6 +1,8 @@
 """Live feed page — SSE stream pushes latest annotated snapshot on each detection."""
 
+import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,10 +14,15 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/feed")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 CHANNEL = "scarguard:detections"
+
+# Max buffered events per SSE client before dropping oldest.
+_FEED_QUEUE_MAX = 32
 
 
 def _to_local(iso_str: str, tz_name: str) -> str:
@@ -59,32 +66,56 @@ async def feed_page(request: Request):
 
 @router.get("/stream")
 async def feed_stream(request: Request):
-    """
-    SSE stream — pushes an HTML <img> fragment for each new detection.
-    The browser swaps it into the feed container via HTMX hx-swap-oob or
-    a simple EventSource listener in the template.
+    """SSE stream with per-client backpressure via bounded queue.
+
+    A background task reads from Redis pub/sub into a bounded asyncio.Queue.
+    If a slow client can't keep up, the oldest events are dropped so the
+    server is never blocked.
     """
     redis_cfg = config_store.load_cached().get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
     async def generator():
+        queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=_FEED_QUEUE_MAX)
         client = aioredis.Redis(host=host, port=port, decode_responses=True)
         pubsub = client.pubsub()
         await pubsub.subscribe(CHANNEL)
+
+        async def _reader() -> None:
+            """Read from Redis pubsub and enqueue; drop oldest on overflow."""
+            try:
+                while True:
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=15.0,
+                    )
+                    if message is None:
+                        await _put_or_drop(queue, None)
+                        continue
+                    if message["type"] != "message":
+                        continue
+                    await _put_or_drop(queue, message["data"])
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.debug("Feed reader error", exc_info=True)
+
+        reader_task = asyncio.create_task(_reader())
         yield ": connected\n\n"
         try:
             while not await request.is_disconnected():
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=15.0,
-                )
-                if message is None:
+                try:
+                    raw = await asyncio.wait_for(queue.get(), timeout=30.0)
+                except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                     continue
-                if message["type"] != "message":
+
+                if raw is None:
+                    yield ": keepalive\n\n"
                     continue
+
                 try:
-                    event = json.loads(message["data"])
+                    event = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
 
@@ -107,7 +138,22 @@ async def feed_stream(request: Request):
                 })
                 yield f"event: detection\ndata: {payload}\n\n"
         finally:
+            reader_task.cancel()
+            try:
+                await reader_task
+            except asyncio.CancelledError:
+                pass
             await pubsub.unsubscribe(CHANNEL)
             await client.aclose()
 
     return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+async def _put_or_drop(queue: asyncio.Queue[str | None], item: str | None) -> None:
+    """Put item into queue; if full, drop oldest first."""
+    if queue.full():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+    await queue.put(item)

@@ -3,6 +3,8 @@
 #
 # x86/CUDA detector image.  Uses GPU when NVIDIA runtime is available,
 # falls back to CPU inference when it is not.
+# Not digest-pinned: Docker does not support @sha256 with ARG interpolation.
+# Pin is handled by the tag version; override requires explicit tag.
 ARG PYTORCH_TAG=2.6.0-cuda12.4-cudnn9-runtime
 FROM pytorch/pytorch:${PYTORCH_TAG}
 
