@@ -10,7 +10,7 @@
 - **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload — functional.
 - **CI/CD:** GitHub Actions workflows build and push images to GHCR. 3 x86 docker runners + 3 generic runners + 1 Orin runner. Web, notifier, caddy, and detector-x86 builds parallelized across docker runners. CI lint/tests run on PRs only; main-push builds warm the GHA cache without re-running tests. Weekly cleanup hits all docker runners via matrix strategy. Compose smoke test, GPU/CPU inference benchmarks in CI.
 - **x86 detector:** CUDA+CPU detector image (`scarguard-detector-x86`) runs on any x86 Linux with or without NVIDIA GPU. CPU fallback via PyTorch.
-- **Docker Compose stack:** All four services (redis, detector, web, notifier) start and communicate correctly.
+- **Docker Compose stack:** All six services (redis, caddy, detector, web, notifier, log-streamer) start and communicate correctly.
 - **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required).
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
 - **Notifier resilience:** Internet interruptions handled with per-notifier retry queue and exponential backoff.
@@ -52,6 +52,10 @@
 - **Token-scoped feedback snapshots:** Feedback page serves snapshots via `/feedback/{token}/snapshot` (token-validated, no global `/snapshots` exposure for unauthenticated users).
 - **Non-root containers:** All service Dockerfiles run as `scarguard` user (detector adds `video` group for GPU access).
 - **Dependency pinning:** All `requirements.txt` files pin exact versions.
+- **Log-streamer sidecar:** Dedicated container tails Docker logs and publishes to Redis pub/sub. Web UI subscribes to Redis for admin log streaming — Docker socket no longer mounted in the web container.
+- **Redis authentication:** `requirepass` with `REDIS_PASSWORD` env var across all services.
+- **FairLock inference scheduling:** FIFO lock prevents camera thread starvation when multiple cameras share a YOLO model.
+- **Caddy reverse proxy:** TLS termination, automatic HTTPS via Let's Encrypt or manual certs.
 
 ## Known Issues / Buggy
 
@@ -60,7 +64,7 @@ None currently identified.
 ## Not Yet Built
 
 - Custom-trained heron model (have the tooling now, need labeled data)
-- Physical deterrence — planned as companion project "Scar's Revenge" (ESP32 valve controller receiving ScarGuard webhooks)
+- Physical deterrence — actuator service with Tuya WiFi valve control (see [ACTUATION_SPEC.md](ACTUATION_SPEC.md)); blocked on PoC hardware
 
 See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–27).
 
@@ -109,4 +113,8 @@ See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_
 | v0.10 | CI/CD pipeline hardening (compose smoke test, GPU/CPU inference benchmarks, BENCHMARKS.md) | ✅ Complete |
 | v0.10 | x86/CUDA detector image (Dockerfile.x86, CPU fallback, setup.sh platform detection) | ✅ Complete |
 | v0.11 | Unified retention, digest reports, mobile menu, stats chart fix, event pruning | ✅ Complete |
-| v0.12 | HTML email, notification feedback tokens, config UI modes, health checks, hardening | ✅ Complete (Beta 1) |
+| v0.12 | HTML email, notification feedback tokens, config UI modes, health checks, Caddy TLS proxy | ✅ Complete (Beta 1) |
+| v0.12.3 | Hardening: base image pins, CI alignment, graceful shutdown, GPU release, frame skip, SSE backpressure, Redis buffering | ✅ Complete |
+| v0.12.4 | Hardening: Redis auth, ConfigWatcher dedup, AtomicRef thread safety, live feed removal | ✅ Complete |
+| v0.12.5 | Hardening: run_camera refactor, FairLock inference fairness, stats chart fix, setup.sh upgrade UX | ✅ Complete |
+| v0.12.6 | Hardening: log-streamer sidecar, Docker socket removal from web container | ✅ Complete |
