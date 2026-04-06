@@ -116,7 +116,6 @@ services:
       - scarguard-config:/config        # rw — config editor writes scarguard.yml
       - scarguard-models:/models        # rw — model upload endpoint writes here
       - scarguard-data:/data            # rw — reads SQLite + serves snapshots + writes auth.db
-      - /var/run/docker.sock:/var/run/docker.sock:ro  # Admin logs tab
     depends_on:
       redis:
         condition: service_healthy
@@ -146,6 +145,36 @@ services:
       - scarguard-models:/models:ro     # ro — digest reports storage size
       - scarguard-data:/data:ro         # ro — reads SQLite + snapshots for attachments/digests
       - scarguard-notifier:/var/lib/scarguard
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Log Streamer (sidecar) ────────────────────────────────────────────────
+  # Tails container logs via Docker socket and publishes to Redis.
+  # Replaces the Docker socket mount previously needed by the web container.
+  log-streamer:
+    build:
+      context: .
+      dockerfile: services/log-streamer/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-log-streamer:${IMAGE_TAG:-latest}
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    healthcheck:
+      test: >-
+        python3 -c "
+        import os, redis;
+        r=redis.Redis(host='redis', port=6379, password=os.environ.get('REDIS_PASSWORD') or None);
+        r.ping()
+        "
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       redis:
         condition: service_healthy
