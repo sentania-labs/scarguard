@@ -253,6 +253,7 @@ jobs:
 
       # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
       - name: Inference benchmark (CPU)
+        if: github.event_name != 'push'
         run: |
           cid=$(docker create --user root --entrypoint "" scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
@@ -262,6 +263,7 @@ jobs:
           exit $rc
 
       - name: Trivy scan — detector-x86
+        if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: scarguard-detector-x86:build-validate

@@ -1,7 +1,11 @@
 name: Runner Cleanup
 
 # Prunes stale Docker images, stopped containers, and unused build cache
-# on both runner types to prevent disk exhaustion over time.
+# on all runners to prevent disk exhaustion over time.
+#
+# Each x86 job targets a specific runner via its unique label so that all
+# three machines are guaranteed to be pruned (the previous matrix approach
+# could schedule multiple legs on the same runner).
 #
 # Runs weekly automatically, or trigger manually via workflow_dispatch.
 # Note: does NOT prune volumes on the Orin to preserve model weights.
@@ -14,16 +18,33 @@ on:
 jobs:
 
   # ── x86 runner cleanup ─────────────────────────────────────────────────────
-  # Matrix with max-parallel:1 ensures each job is assigned to a different
-  # idle runner.  There are 3 docker-labeled runners: runner-docker,
-  # runner-terraform, runner-packer.
-  cleanup-x86:
-    name: Cleanup x86 runner (${{ matrix.runner-index }}/3)
+  # Three separate jobs pinned by unique labels.  runner-terraform and
+  # runner-packer each have a label no other runner shares.  runner-docker
+  # uses [self-hosted, linux, docker] which matches all three, but the other
+  # two are occupied by their pinned jobs so it lands on runner-docker.
+  cleanup-docker:
+    name: Cleanup runner-docker
     runs-on: [self-hosted, linux, docker]
-    strategy:
-      max-parallel: 1
-      matrix:
-        runner-index: [1, 2, 3]
+    steps:
+      - name: Docker system prune
+        run: docker system prune -f --volumes
+
+      - name: Prune build cache older than 7 days
+        run: docker builder prune -f --keep-storage 5GB
+
+  cleanup-terraform:
+    name: Cleanup runner-terraform
+    runs-on: [self-hosted, linux, terraform]
+    steps:
+      - name: Docker system prune
+        run: docker system prune -f --volumes
+
+      - name: Prune build cache older than 7 days
+        run: docker builder prune -f --keep-storage 5GB
+
+  cleanup-packer:
+    name: Cleanup runner-packer
+    runs-on: [self-hosted, linux, packer]
     steps:
       - name: Docker system prune
         run: docker system prune -f --volumes
