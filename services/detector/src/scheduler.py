@@ -20,6 +20,8 @@ from datetime import time as dt_time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from atomic_ref import AtomicRef
+
 logger = logging.getLogger(__name__)
 
 _CHECK_INTERVAL = 60  # seconds between schedule checks
@@ -30,7 +32,7 @@ class ArmScheduler:
 
     def __init__(
         self,
-        armed_ref: list[bool],
+        armed_ref: AtomicRef[bool],
         on_transition: Callable[[bool], None],
         get_redis: Callable[[], Any] | None = None,
     ) -> None:
@@ -156,7 +158,7 @@ class ArmScheduler:
                     t_time.strftime("%Y-%m-%d %H:%M %Z"),
                     t_armed,
                 )
-                self._armed_ref[0] = t_armed
+                self._armed_ref.set(t_armed)
                 try:
                     self._on_transition(t_armed)
                 except Exception:
@@ -199,7 +201,7 @@ class ArmScheduler:
                 )
                 return
             logger.info("Non-admin auto-rearm triggered")
-            self._armed_ref[0] = True
+            self._armed_ref.set(True)
             try:
                 self._on_transition(True)
             except Exception:
