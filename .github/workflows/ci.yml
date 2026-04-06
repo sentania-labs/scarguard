@@ -30,6 +30,7 @@ jobs:
             services/detector/src \
             services/web/src \
             services/notifier/src \
+            services/log-streamer/src \
             shared
 
   # ── Type check ──────────────────────────────────────────────────────────────

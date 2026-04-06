@@ -7,6 +7,5 @@ pydantic==2.12.5
 redis==7.4.0
 aiofiles==25.1.0
 tzdata
-docker==7.1.0
 astral==3.2
 bcrypt==5.0.0

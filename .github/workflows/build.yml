@@ -189,6 +189,55 @@ jobs:
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
 
+  # ── Build log-streamer (x86 runner) ─────────────────────────────────────────
+  build-log-streamer:
+    name: Build log-streamer image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build log-streamer (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/log-streamer/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=log-streamer
+          cache-to: type=gha,scope=log-streamer,mode=max
+
+      - name: Build log-streamer (amd64, load for scan)
+        if: github.event_name != 'push'
+        run: |
+          docker build \
+            --tag scarguard-log-streamer:test \
+            --file services/log-streamer/Dockerfile \
+            .
+
+      - name: Trivy scan — log-streamer
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-log-streamer:test
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-log-streamer:test || true
+
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   build-detector:
     name: Build detector image (Jetson)
@@ -285,7 +334,7 @@ jobs:
   compose-smoke-test:
     name: Compose smoke test
     if: github.event_name != 'push'
-    needs: [build-detector-x86, build-web, build-notifier, build-caddy]
+    needs: [build-detector-x86, build-web, build-notifier, build-caddy, build-log-streamer]
     runs-on: [self-hosted, linux, docker]
 
     steps:
@@ -311,6 +360,7 @@ jobs:
             --build-arg GIT_COMMIT=${{ github.sha }} .
           docker build -f services/notifier/Dockerfile -t scarguard-notifier:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
+          docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
 
       # Seed the named volume that docker-compose.yml actually mounts.
       - name: Seed config volume
@@ -383,4 +433,5 @@ jobs:
         run: |
           docker compose down -v || true
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
-            scarguard-notifier:smoke scarguard-caddy:smoke 2>/dev/null || true
+            scarguard-notifier:smoke scarguard-caddy:smoke \
+            scarguard-log-streamer:smoke 2>/dev/null || true

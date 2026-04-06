@@ -109,6 +109,11 @@ function buildCameraCard(cam) {
       <span class="camera-card-title">Camera</span>
       <button type="button" class="btn-remove" onclick="removeCamera(this)">Remove</button>
     </div>
+    <label class="toggle-label">
+      <input type="checkbox" class="cam-enabled" ${enabled ? "checked" : ""}>
+      <span class="toggle-track"></span>
+      Enabled
+    </label>
     <div class="field-row">
       <div class="field-group">
         <label>Name</label>
@@ -142,11 +147,6 @@ function buildCameraCard(cam) {
         </div>
       </div>
     </details>
-    <label class="toggle-label">
-      <input type="checkbox" class="cam-enabled" ${enabled ? "checked" : ""}>
-      <span class="toggle-track"></span>
-      Enabled
-    </label>
     <details class="expert-only" style="margin-top:0.75rem;">
       <summary style="cursor:pointer;font-weight:500;">Exclusion Zones (${zones.length})</summary>
       <div style="margin-top:0.5rem;">
@@ -480,16 +480,15 @@ function buildChannelCard(ch) {
         <button type="button" class="btn-remove" onclick="removeChannel(this)">Remove</button>
       </span>
     </div>
+    <label class="toggle-label">
+      <input type="checkbox" class="ch-enabled" ${enabled ? "checked" : ""}>
+      <span class="toggle-track"></span>
+      Enabled
+    </label>
     <div class="field-row">
       <div class="field-group">
         <label>Channel name (unique)</label>
         <input type="text" class="ch-name" value="${_esc(ch.name || "")}" placeholder="e.g. pond-alerts">
-      </div>
-      <div class="field-group">
-        <label class="toggle-label" style="padding-top:1.5rem;">
-          <input type="checkbox" class="ch-enabled" ${enabled ? "checked" : ""}>
-          <span class="toggle-track"></span> Enabled
-        </label>
       </div>
     </div>
     ${fieldsHtml}

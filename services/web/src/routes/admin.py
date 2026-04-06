@@ -1,11 +1,11 @@
-"""Admin routes — service log viewer."""
+"""Admin routes — service log viewer and config backup management."""
 
-import asyncio
 import logging
-import re
-import threading
+import os
 from pathlib import Path
 
+import config_store
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -23,79 +23,22 @@ router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 SERVICES = ["detector", "notifier", "web", "caddy"]
-# Must match `name:` in docker-compose.yml. If the project is renamed or run
-# with `docker compose -p <name>`, this constant must be updated to match or
-# the container lookup will silently return nothing.
-COMPOSE_PROJECT = "scarguard"
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mK]")
 
-# Check at import time so a missing dependency surfaces in startup logs rather
-# than silently on first page visit.
-try:
-    import docker as _docker_check  # noqa: F401
-    _DOCKER_AVAILABLE = True
-except ImportError:
-    log.warning(
-        "Python 'docker' package not installed — Admin Logs tab will be unavailable. "
-        "Add 'docker' to services/web/requirements.txt and rebuild the image."
-    )
-    _DOCKER_AVAILABLE = False
+# Redis key prefixes — must match log-streamer sidecar constants.
+_CHANNEL_PREFIX = "scarguard:logs:"
+_BUFFER_PREFIX = "scarguard:logs:buffer:"
 
 
-def _strip_ansi(text: str) -> str:
-    return _ANSI_RE.sub("", text)
-
-
-def _find_container(client, service: str) -> object | None:
-    """Return the first running container for *service* within this Compose project.
-
-    Scoping by both service name and project name prevents cross-stack matches
-    when multiple Compose projects with the same service names run on the host.
-
-    NOTE: /var/run/docker.sock gives host-root equivalent access. This endpoint
-    must be protected by authentication (Feature 9) before being exposed beyond
-    the local network. The service parameter is validated against SERVICES before
-    this function is called, preventing injection via the label filter.
-    """
-    try:
-        containers = client.containers.list(
-            filters={
-                "label": [
-                    f"com.docker.compose.service={service}",
-                    f"com.docker.compose.project={COMPOSE_PROJECT}",
-                ]
-            }
-        )
-        return containers[0] if containers else None
-    except Exception as exc:
-        log.warning("Cannot access Docker socket (service=%s): %s", service, exc)
-        return None
-
-
-def _tail_logs_to_queue(
-    container,
-    q: "asyncio.Queue[str | None]",
-    loop: asyncio.AbstractEventLoop,
-    tail: int,
-    stop: threading.Event,
-) -> None:
-    """Blocking function — runs in a thread.  Feeds log lines into an async queue."""
-    try:
-        for chunk in container.logs(stream=True, follow=True, tail=tail):
-            if stop.is_set():
-                break
-            line = chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else str(chunk)
-            asyncio.run_coroutine_threadsafe(q.put(line), loop).result(timeout=5)
-    except Exception as exc:
-        msg = (
-            "[ScarGuard] Log stream stalled (queue full) — reconnect to resume"
-            if "TimeoutError" in type(exc).__name__
-            else f"[ERROR] {exc}"
-        )
-        asyncio.run_coroutine_threadsafe(q.put(msg + "\n"), loop).result(timeout=5)
-    finally:
-        # Use .result() so the sentinel is guaranteed delivered before the thread exits.
-        asyncio.run_coroutine_threadsafe(q.put(None), loop).result(timeout=5)
+def _redis_params() -> dict:
+    """Return Redis connection kwargs from config + environment."""
+    cfg = config_store.load_cached()
+    redis_cfg = cfg.get("redis", {})
+    return {
+        "host": redis_cfg.get("host", "redis"),
+        "port": int(redis_cfg.get("port", 6379)),
+        "password": os.environ.get("REDIS_PASSWORD", "") or None,
+        "decode_responses": True,
+    }
 
 
 @router.get("/logs", response_class=HTMLResponse)
@@ -111,71 +54,48 @@ async def logs_stream(
     service: str = "detector",
     tail: int = 500,
 ) -> StreamingResponse:
-    """SSE endpoint — streams log lines from a Docker container in real time."""
+    """SSE endpoint — streams log lines from the log-streamer sidecar via Redis."""
     if service not in SERVICES:
         service = "detector"
     tail = max(1, min(tail, 5000))
 
     async def generator():
-        loop = asyncio.get_running_loop()
-
-        if not _DOCKER_AVAILABLE:
-            yield "data: [ScarGuard] Docker SDK not installed — Admin Logs unavailable.\n\n"
-            return
-
-        import docker
-
-        client = docker.from_env()
+        client = aioredis.Redis(**_redis_params())
         try:
-            container = await loop.run_in_executor(None, _find_container, client, service)
-            if container is None:
+            # Backfill: read last N lines from the ring buffer.
+            # The buffer is newest-first (LPUSH order); reverse for chronological.
+            buffer_key = f"{_BUFFER_PREFIX}{service}"
+            lines = await client.lrange(buffer_key, 0, tail - 1)
+            if not lines:
                 yield (
-                    "data: [ScarGuard] Cannot reach Docker socket or container "
-                    f"'{service}' is not running. "
-                    "Ensure /var/run/docker.sock is mounted in the web service.\n\n"
+                    "data: [ScarGuard] No log history available yet "
+                    "— waiting for live lines from log-streamer sidecar...\n\n"
                 )
-                return
+            else:
+                for line in reversed(lines):
+                    safe = line.replace("\n", "  ")
+                    yield f"data: {safe}\n\n"
 
-            q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=500)
-            stop = threading.Event()
-
-            t = threading.Thread(
-                target=_tail_logs_to_queue,
-                args=(container, q, loop, tail, stop),
-                name=f"log-tail-{service}",
-                daemon=True,
-            )
-            t.start()
-
+            # Live stream: subscribe to the pub/sub channel.
+            channel = f"{_CHANNEL_PREFIX}{service}"
+            pubsub = client.pubsub()
+            await pubsub.subscribe(channel)
             try:
-                while True:
-                    if await request.is_disconnected():
-                        break
-                    try:
-                        line = await asyncio.wait_for(q.get(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        # Send a comment to keep the connection alive.
+                while not await request.is_disconnected():
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=15.0,
+                    )
+                    if message is None:
                         yield ": keepalive\n\n"
                         continue
-
-                    if line is None:
-                        break
-
-                    clean = _strip_ansi(line).rstrip("\n\r")
-                    if clean:
-                        # SSE data lines must not contain raw newlines.
-                        safe = clean.replace("\n", "  ")
-                        yield f"data: {safe}\n\n"
+                    if message["type"] != "message":
+                        continue
+                    safe = str(message["data"]).replace("\n", "  ")
+                    yield f"data: {safe}\n\n"
             finally:
-                stop.set()
+                await pubsub.unsubscribe(channel)
         finally:
-            # Closing the client interrupts the blocking container.logs() iterator
-            # in the tail thread, causing it to raise and exit promptly rather than
-            # waiting indefinitely for the next log chunk.
-            try:
-                client.close()
-            except Exception:
-                pass
+            await client.aclose()
 
     return StreamingResponse(
         generator(),

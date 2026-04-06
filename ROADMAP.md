@@ -1,6 +1,17 @@
 # ScarGuard — Roadmap
 
 Active and planned features. Each item includes acceptance criteria. Completed features (1–17, 18–22, 23–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
+---
+
+## Actuation — Sprinkler Deterrence (Scar's Revenge)
+
+New `actuator` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya WiFi hose timer valves via `tinytuya` LAN control (no cloud dependency). Randomized spray patterns (valve count, duration, inter-spray delays) to prevent wildlife habituation.
+
+- **Hardware:** Off-the-shelf Tuya/Smart Life WiFi hose timer valves, standard garden hose fittings, battery-powered. No custom wiring or relay boards.
+- **Config:** `actuation` section in `scarguard.yml` — valve definitions (device_id, local_key, IP), randomization ranges, cooldown, battery alert thresholds.
+- **Battery monitoring:** Periodic polling via tinytuya with low-battery alerts through the existing notification system.
+- **Blocked on:** PoC valve hardware arrival and LAN control validation.
+- **Full specification:** [ACTUATION_SPEC.md](ACTUATION_SPEC.md)
 
 ---
 
@@ -14,24 +25,9 @@ Stale config keys are handled by a declarative `_STALE_KEYS` set in `config_stor
 
 ---
 
-## Hardening (0.12.x cycle)
+## ~~Hardening (0.12.x cycle)~~ — ✓ Complete (v0.12.3–v0.12.6)
 
-Items identified during beta 1 code audits. Targeting iterative 0.12.z patch releases before 1.0.
-
-- **Redis authentication** — Add `requirepass` to Redis and pass credentials to detector/web/notifier via env var. Currently unauthenticated, relying on Docker network isolation. Low risk but defense-in-depth says add auth.
-- **Docker socket exposure** — Gate admin log streaming behind a config flag; evaluate sidecar alternative to reduce attack surface from `/var/run/docker.sock` mount.
-- **Redis publish failure buffering** — Bounded deque in detector publisher; re-publish buffered events on reconnect instead of silently dropping.
-- **SSE backpressure handling** — Bounded `asyncio.Queue` per SSE client; drop oldest events on overflow to prevent slow clients from blocking the server.
-- **Refactor `run_camera()`** — Extract `_process_detections()`, `_apply_exclusion_zones()`, `_publish_results()` sub-functions from the monolithic camera loop.
-- **Replace GIL-dependent mutable refs** — Swap bare list/dict refs used for cross-thread config sharing with `threading.Event` or explicit locks.
-- **Structured JSON logging** — Add a JSON formatter option across all services for machine-parseable log output.
-- **ConfigWatcher deduplication** — Consolidate duplicate file-watching logic in detector and notifier into a shared module.
-- **Shared model lock fairness** — Fair scheduling or per-camera inference queues to prevent camera starvation under high load.
-- **Frame skip decode optimization** — Use `grab()`/`retrieve()` pattern to avoid decoding frames that will be skipped.
-- **GPU memory release on model swap** — Explicit `del model` + `torch.cuda.empty_cache()` when ModelPool evicts a model.
-- **Pin base images to digests** — Add `@sha256:` suffix on Dockerfile `FROM` lines for reproducible builds.
-- **CI Python version alignment** — Match CI lint/test Python version to the 3.11 runtime or upgrade runtime.
-- **Notifier graceful shutdown** — Explicitly close Redis pubsub/client connections on SIGTERM instead of relying on process exit.
+All 13 items from the beta 1 code audit shipped across four patch releases. One item (structured JSON logging) was intentionally dropped — reduces readability for self-hosters who tail logs directly. See git history for v0.12.3–v0.12.6 for details.
 
 ---
 

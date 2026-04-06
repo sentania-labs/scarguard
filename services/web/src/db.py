@@ -564,7 +564,7 @@ def get_metrics_for_chart(
                        ROUND(AVG(gpu_temp), 1) AS gpu_temp,
                        ROUND(AVG(ram_used_mb))  AS ram_used_mb,
                        MAX(ram_total_mb)        AS ram_total_mb,
-                       NULL                     AS camera_data
+                       MAX(camera_data)         AS camera_data
                 FROM system_metrics
                 WHERE timestamp >= ?
                 GROUP BY CAST(strftime('%s', timestamp) / ? AS INTEGER)
