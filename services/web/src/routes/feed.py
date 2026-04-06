@@ -104,6 +104,11 @@ async def feed_stream(request: Request):
         yield ": connected\n\n"
         try:
             while not await request.is_disconnected():
+                # If the reader died (Redis disconnect), close the stream so
+                # the browser EventSource triggers an automatic reconnect.
+                if reader_task.done():
+                    logger.debug("Feed reader exited — closing SSE stream")
+                    return
                 try:
                     raw = await asyncio.wait_for(queue.get(), timeout=30.0)
                 except asyncio.TimeoutError:
