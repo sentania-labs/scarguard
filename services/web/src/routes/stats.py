@@ -93,7 +93,7 @@ async def stats_history(
 ) -> JSONResponse:
     """Return historical metrics as JSON for Chart.js."""
     hours = _parse_range(range)
-    rows = db.get_metrics(range_hours=hours)
+    rows = db.get_metrics_for_chart(range_hours=hours)
     data: list[dict] = []
     for r in rows:
         entry: dict = {

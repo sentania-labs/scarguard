@@ -140,6 +140,70 @@ def _validate_action_rules(
                 )
 
 
+def _apply_exclusion_zones(
+    detections: list,
+    zones: list[dict],
+    frame_w: int,
+    frame_h: int,
+    camera_name: str,
+) -> list:
+    """Filter detections that fall inside exclusion zones."""
+    if not zones:
+        return detections
+    filtered = [
+        det for det in detections
+        if not _in_exclusion_zone(
+            (det.bbox[0] + det.bbox[2]) // 2,
+            (det.bbox[1] + det.bbox[3]) // 2,
+            frame_w, frame_h, zones,
+        )
+    ]
+    if not filtered and detections:
+        logger.debug("[%s] All detections suppressed by exclusion zones", camera_name)
+    return filtered
+
+
+def _evaluate_action_rules(
+    detections: list,
+    rules: list[dict],
+) -> dict[str, list[str] | None]:
+    """Build a class_name → channel list mapping from action rules."""
+    actions_by_class: dict[str, list[str] | None] = {}
+    if not rules:
+        return actions_by_class
+    for det in detections:
+        if det.class_name not in actions_by_class:
+            actions_by_class[det.class_name] = _match_action_rules(
+                det.class_name, rules
+            )
+    return actions_by_class
+
+
+def _publish_detections(
+    detections: list,
+    camera_name: str,
+    frame: object,
+    event_processor: EventProcessor,
+    publisher: RedisPublisher,
+    visit_tracker: VisitTracker | None,
+    actions_by_class: dict[str, list[str] | None],
+) -> None:
+    """Run cooldown dedup, publish events to Redis, and record visits."""
+    events = event_processor.process(
+        detections, camera_name, frame,
+        actions_by_class=actions_by_class if actions_by_class else None,
+    )
+    for event in events:
+        publisher.publish(event)
+    if visit_tracker is not None:
+        for event in events:
+            visit_tracker.record_detection(
+                camera_name=camera_name,
+                class_name=event["class_name"],
+                timestamp=datetime.fromisoformat(event["timestamp"]),
+            )
+
+
 def run_camera(
     camera_cfg: dict,
     detector: YOLODetector,
@@ -235,45 +299,28 @@ def run_camera(
                 _infer_count = 0
                 _infer_total_ms = 0.0
                 _infer_window_start = time.monotonic()
-        if detections:
-            # Exclusion zones are applied BEFORE cooldown dedup intentionally:
-            # an object permanently in an excluded region should not consume the
-            # cooldown slot for its class on this camera.
-            zones = exclusion_zones_ref.get()
-            if zones:
-                frame_h, frame_w = frame.shape[:2]
-                detections = [
-                    det for det in detections
-                    if not _in_exclusion_zone(
-                        (det.bbox[0] + det.bbox[2]) // 2,
-                        (det.bbox[1] + det.bbox[3]) // 2,
-                        frame_w, frame_h, zones,
-                    )
-                ]
-                if not detections:
-                    logger.debug("[%s] All detections suppressed by exclusion zones", name)
-            if detections:
-                rules = action_rules_ref.get()
-                actions_by_class: dict[str, list[str]] = {}
-                if rules:
-                    for det in detections:
-                        if det.class_name not in actions_by_class:
-                            actions_by_class[det.class_name] = _match_action_rules(
-                                det.class_name, rules
-                            )
-                events = event_processor.process(
-                    detections, name, frame,
-                    actions_by_class=actions_by_class if actions_by_class else None,
-                )
-                for event in events:
-                    publisher.publish(event)
-                if visit_tracker is not None:
-                    for event in events:
-                        visit_tracker.record_detection(
-                            camera_name=name,
-                            class_name=event["class_name"],
-                            timestamp=datetime.fromisoformat(event["timestamp"]),
-                        )
+
+        if not detections:
+            continue
+
+        # Exclusion zones are applied BEFORE cooldown dedup intentionally:
+        # an object permanently in an excluded region should not consume the
+        # cooldown slot for its class on this camera.
+        frame_h, frame_w = frame.shape[:2]
+        detections = _apply_exclusion_zones(
+            detections, exclusion_zones_ref.get(), frame_w, frame_h, name,
+        )
+        if not detections:
+            continue
+
+        actions_by_class = _evaluate_action_rules(
+            detections, action_rules_ref.get(),
+        )
+        _publish_detections(
+            detections, name, frame,
+            event_processor, publisher, visit_tracker,
+            actions_by_class,
+        )
 
     stream.release()
     logger.info("[%s] Camera thread stopped", name)

@@ -526,3 +526,47 @@ def get_metrics(
             ).fetchall()
     except Exception:
         return []
+
+
+# Target number of data points for chart display.
+_CHART_TARGET_POINTS = 2000
+# Collection interval in seconds (must match stats_collector).
+_COLLECTION_INTERVAL = 5
+
+
+def get_metrics_for_chart(range_hours: int = 24) -> list[sqlite3.Row]:
+    """Return metrics for chart display, downsampled for large ranges.
+
+    For short ranges (≤ ~2.7 h at 5 s intervals) raw data is returned.
+    For longer ranges, data is aggregated into time buckets so the response
+    stays around ~2000 data points regardless of range.
+    """
+    raw_point_count = (range_hours * 3600) // _COLLECTION_INTERVAL
+    if raw_point_count <= _CHART_TARGET_POINTS:
+        return get_metrics(range_hours=range_hours, limit=_CHART_TARGET_POINTS)
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=range_hours)
+    ).isoformat()
+    bucket_seconds = (range_hours * 3600) // _CHART_TARGET_POINTS
+
+    try:
+        with _connect() as conn:
+            return conn.execute(
+                """
+                SELECT MIN(timestamp) AS timestamp,
+                       ROUND(AVG(cpu_pct), 1)  AS cpu_pct,
+                       ROUND(AVG(gpu_pct), 1)  AS gpu_pct,
+                       ROUND(AVG(gpu_temp), 1) AS gpu_temp,
+                       ROUND(AVG(ram_used_mb))  AS ram_used_mb,
+                       MAX(ram_total_mb)        AS ram_total_mb,
+                       NULL                     AS camera_data
+                FROM system_metrics
+                WHERE timestamp >= ?
+                GROUP BY CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                ORDER BY timestamp ASC
+                """,
+                (cutoff, bucket_seconds),
+            ).fetchall()
+    except Exception:
+        return []

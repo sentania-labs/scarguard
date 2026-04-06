@@ -1,10 +1,10 @@
 """YOLO model wrapper — loads .pt or .engine files and runs inference."""
 
 import logging
-import threading
 from dataclasses import dataclass
 
 import numpy as np
+from fair_lock import FairLock
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class YOLODetector:
         self.confidence_threshold = confidence_threshold
         self.target_classes = set(target_classes)
         self._model = None
-        self._lock = threading.Lock()
+        self._lock = FairLock()
         self._load()
 
     def _load(self) -> None:
@@ -52,13 +52,23 @@ class YOLODetector:
         If *target_classes* is provided it overrides the instance-level filter,
         allowing cameras that share a model to detect different class subsets.
         """
-        with self._lock:
+        wait_seconds = self._lock.acquire()
+        try:
             results = self._model.predict(
                 frame,
                 conf=self.confidence_threshold,
                 verbose=False,
                 save=False,
                 project="/tmp/runs",
+            )
+        finally:
+            self._lock.release()
+
+        if wait_seconds > 0.5:
+            logger.info(
+                "Inference lock wait: %.0f ms (model=%s)",
+                wait_seconds * 1000,
+                self.model_path,
             )
 
         classes = target_classes if target_classes is not None else self.target_classes

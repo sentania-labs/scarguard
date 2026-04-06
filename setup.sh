@@ -45,10 +45,22 @@ confirm() {
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
+# Detect upgrade vs fresh install early (before banner)
+IS_UPGRADE=false
+if [[ -f ".env" ]]; then
+    IS_UPGRADE=true
+fi
+
 echo
-echo "${BOLD}╔════════════════════════════════════════╗${RESET}"
-echo "${BOLD}║       ScarGuard — First-Run Setup      ║${RESET}"
-echo "${BOLD}╚════════════════════════════════════════╝${RESET}"
+if [[ "$IS_UPGRADE" == "true" ]]; then
+    echo "${BOLD}╔════════════════════════════════════════╗${RESET}"
+    echo "${BOLD}║       ScarGuard — Upgrade Check        ║${RESET}"
+    echo "${BOLD}╚════════════════════════════════════════╝${RESET}"
+else
+    echo "${BOLD}╔════════════════════════════════════════╗${RESET}"
+    echo "${BOLD}║       ScarGuard — First-Run Setup      ║${RESET}"
+    echo "${BOLD}╚════════════════════════════════════════╝${RESET}"
+fi
 echo "  Running from: $REPO_ROOT"
 
 # ── Step 1: Platform detection ───────────────────────────────────────────────
@@ -241,44 +253,49 @@ step "Preparing data volume (named volume: scarguard-data)"
 docker run --rm -v scarguard-data:/data alpine:3.20 mkdir -p /data/snapshots
 info "scarguard-data volume ready (snapshots directory created)"
 
-# ── Step 7: TLS setup ───────────────────────────────────────────────────────
-step "TLS configuration"
+# ── Step 7: TLS setup (first install only) ──────────────────────────────────
+if [[ "$IS_UPGRADE" == "true" ]]; then
+    step "TLS configuration"
+    info "Existing install detected — TLS settings preserved. Change via Settings > TLS."
+else
+    step "TLS configuration"
 
-echo "  How will you access ScarGuard?"
-echo "    1) LAN only (HTTP, no TLS — default)"
-echo "    2) Internet with automatic HTTPS (Let's Encrypt)"
-echo "    3) Own certificates (manual TLS)"
-echo
-ask "Choice [1]: "
-read -r TLS_CHOICE </dev/tty
-TLS_CHOICE="${TLS_CHOICE:-1}"
+    echo "  How will you access ScarGuard?"
+    echo "    1) LAN only (HTTP, no TLS — default)"
+    echo "    2) Internet with automatic HTTPS (Let's Encrypt)"
+    echo "    3) Own certificates (manual TLS)"
+    echo
+    ask "Choice [1]: "
+    read -r TLS_CHOICE </dev/tty
+    TLS_CHOICE="${TLS_CHOICE:-1}"
 
-case "$TLS_CHOICE" in
-    2)
-        ask "Domain name (e.g. scarguard.example.com): "
-        read -r TLS_DOMAIN </dev/tty
-        if [[ -n "$TLS_DOMAIN" ]]; then
-            # Update tls section in config volume (idempotent — works regardless of current value)
+    case "$TLS_CHOICE" in
+        2)
+            ask "Domain name (e.g. scarguard.example.com): "
+            read -r TLS_DOMAIN </dev/tty
+            if [[ -n "$TLS_DOMAIN" ]]; then
+                # Update tls section in config volume (idempotent — works regardless of current value)
+                docker run --rm -v scarguard-config:/config alpine:3.20 \
+                    sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"auto\"/' /config/scarguard.yml && \
+                           sed -i 's/domain: \"[^\"]*\"/domain: \"${TLS_DOMAIN}\"/' /config/scarguard.yml"
+                info "TLS mode set to auto (Let's Encrypt) with domain: ${TLS_DOMAIN}"
+                warn "Ports 80 and 443 must be reachable from the internet for ACME challenges."
+            else
+                warn "No domain provided — keeping TLS off. Change in Settings > TLS later."
+            fi
+            ;;
+        3)
+            info "TLS mode: manual. Place cert.pem and key.pem in the config volume's certs/ directory."
             docker run --rm -v scarguard-config:/config alpine:3.20 \
-                sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"auto\"/' /config/scarguard.yml && \
-                       sed -i 's/domain: \"[^\"]*\"/domain: \"${TLS_DOMAIN}\"/' /config/scarguard.yml"
-            info "TLS mode set to auto (Let's Encrypt) with domain: ${TLS_DOMAIN}"
-            warn "Ports 80 and 443 must be reachable from the internet for ACME challenges."
-        else
-            warn "No domain provided — keeping TLS off. Change in Settings > TLS later."
-        fi
-        ;;
-    3)
-        info "TLS mode: manual. Place cert.pem and key.pem in the config volume's certs/ directory."
-        docker run --rm -v scarguard-config:/config alpine:3.20 \
-            sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"manual\"/' /config/scarguard.yml"
-        info "Set TLS mode to manual in scarguard.yml."
-        warn "HTTPS will activate once cert and key files are present at the configured paths."
-        ;;
-    *)
-        info "TLS disabled (HTTP only). You can enable it later in Settings > TLS."
-        ;;
-esac
+                sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"manual\"/' /config/scarguard.yml"
+            info "Set TLS mode to manual in scarguard.yml."
+            warn "HTTPS will activate once cert and key files are present at the configured paths."
+            ;;
+        *)
+            info "TLS disabled (HTTP only). You can enable it later in Settings > TLS."
+            ;;
+    esac
+fi
 
 # ── Step 8: Model check / starter model download ──────────────────────────────
 step "Checking for YOLO model"
@@ -292,6 +309,8 @@ if [[ -n "$MODEL_FILES" ]]; then
     while IFS= read -r f; do
         info "  $(basename "$f")"
     done <<< "$MODEL_FILES"
+elif [[ "$IS_UPGRADE" == "true" ]]; then
+    warn "No model file found. Upload via the web UI Models page."
 else
     warn "No model file found in models volume."
     echo
@@ -381,106 +400,122 @@ else
     fi
 fi
 
-# ── Step 10: Create initial admin account ─────────────────────────────────────
-echo
-step "Creating initial admin account"
-echo "  If you skip this, visit the web UI on first launch to create an account."
-echo
-
-WEB_IMAGE=$(docker compose config --format json 2>/dev/null | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print(d['services']['web']['image'])" 2>/dev/null || echo "")
-
-if [[ -z "$WEB_IMAGE" ]]; then
-    warn "Could not determine web image name. Skipping admin account creation."
-    warn "Create your admin account via the web UI on first launch."
+# ── Step 10: Create initial admin account (first install only) ────────────────
+if [[ "$IS_UPGRADE" == "true" ]]; then
+    # Skip admin account creation on upgrade — account already exists
+    :
 else
-    if [[ -t 0 ]] && confirm "Create admin account now?" "y"; then
-        read -rp "  Admin username: " ADMIN_USER
-        while [[ -z "$ADMIN_USER" ]]; do
-            warn "Username cannot be empty."
-            read -rp "  Admin username: " ADMIN_USER
-        done
-        while true; do
-            read -rsp "  Admin password (min 8 characters): " ADMIN_PASS
-            echo
-            if [[ ${#ADMIN_PASS} -ge 8 ]]; then
-                break
-            fi
-            warn "Password must be at least 8 characters."
-        done
+    echo
+    step "Creating initial admin account"
+    echo "  If you skip this, visit the web UI on first launch to create an account."
+    echo
 
-        if docker run --rm \
-                -e AUTH_DB_PATH=/data/auth.db \
-                -v scarguard-data:/data \
-                "$WEB_IMAGE" \
-                python /app/src/auth.py create-admin "$ADMIN_USER" "$ADMIN_PASS"; then
-            info "Admin account '${ADMIN_USER}' created."
-        else
-            warn "Account creation failed. Create it via the web UI on first launch."
-        fi
+    WEB_IMAGE=$(docker compose config --format json 2>/dev/null | \
+        python3 -c "import sys,json; d=json.load(sys.stdin); print(d['services']['web']['image'])" 2>/dev/null || echo "")
+
+    if [[ -z "$WEB_IMAGE" ]]; then
+        warn "Could not determine web image name. Skipping admin account creation."
+        warn "Create your admin account via the web UI on first launch."
     else
-        info "Skipped. Create your admin account via the web UI on first launch."
+        if [[ -t 0 ]] && confirm "Create admin account now?" "y"; then
+            read -rp "  Admin username: " ADMIN_USER
+            while [[ -z "$ADMIN_USER" ]]; do
+                warn "Username cannot be empty."
+                read -rp "  Admin username: " ADMIN_USER
+            done
+            while true; do
+                read -rsp "  Admin password (min 8 characters): " ADMIN_PASS
+                echo
+                if [[ ${#ADMIN_PASS} -ge 8 ]]; then
+                    break
+                fi
+                warn "Password must be at least 8 characters."
+            done
+
+            if docker run --rm \
+                    -e AUTH_DB_PATH=/data/auth.db \
+                    -v scarguard-data:/data \
+                    "$WEB_IMAGE" \
+                    python /app/src/auth.py create-admin "$ADMIN_USER" "$ADMIN_PASS"; then
+                info "Admin account '${ADMIN_USER}' created."
+            else
+                warn "Account creation failed. Create it via the web UI on first launch."
+            fi
+        else
+            info "Skipped. Create your admin account via the web UI on first launch."
+        fi
     fi
 fi
 
-# ── Done ──────────────────────────────────────────────────────────────────────
-echo
-echo "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════╗${RESET}"
-echo "${BOLD}${GREEN}║  Setup complete!                                             ║${RESET}"
-echo "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════════╝${RESET}"
-echo
+# ── Start / Restart ──────────────────────────────────────────────────────────
 
-echo "${BOLD}Next steps:${RESET}"
-echo
-echo "  1. ${BOLD}Configure your cameras:${RESET}"
-echo "       Start the stack and use the web UI config editor to set your RTSP URLs."
-echo "       Or edit the config directly via a temporary container:"
-echo "         docker run --rm -it -v scarguard-config:/config alpine:3.20 vi /config/scarguard.yml"
-echo
-
-if [[ -z "$MODEL_FILES" ]]; then
-    echo "  2. ${BOLD}Add a YOLO model${RESET} (if you skipped the starter download):"
-    echo "       Upload via the web UI Models page after starting the stack."
-    echo
-    echo "  3. ${BOLD}Start ScarGuard:${RESET}"
-else
-    echo "  2. ${BOLD}Start ScarGuard:${RESET}"
-fi
-
-echo "       docker compose up -d"
-echo
-
-echo "  $([[ -z "$MODEL_FILES" ]] && echo 4 || echo 3). ${BOLD}Open the web UI:${RESET}"
-
-# Determine likely IP for this host
+# Determine likely IP/URL for this host
 HOST_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' || echo "YOUR_HOST_IP")
 if [[ "$HTTP_PORT_FINAL" == "80" ]]; then
-    echo "       http://${HOST_IP}"
+    WEB_URL="http://${HOST_IP}"
 else
-    echo "       http://${HOST_IP}:${HTTP_PORT_FINAL}"
+    WEB_URL="http://${HOST_IP}:${HTTP_PORT_FINAL}"
 fi
-echo
 
-if [[ "$NVIDIA_OK" == "false" ]]; then
-    if [[ "$PLATFORM" == "jetson" ]]; then
-        echo "${YELLOW}Reminder:${RESET} NVIDIA container runtime was not detected."
-        echo "  The detector service (GPU inference) will fail to start."
-        echo "  Log out and back in, then run:  docker compose up -d"
+if [[ "$IS_UPGRADE" == "true" ]]; then
+    step "Restarting services"
+    if docker compose up -d; then
+        info "Services restarted with updated images."
     else
-        echo "${YELLOW}Note:${RESET} Running in CPU-only mode (no NVIDIA runtime detected)."
-        echo "  Inference will be slower. Install nvidia-container-toolkit for GPU acceleration."
+        error "Failed to restart services. Run manually: docker compose up -d"
+    fi
+
+    echo
+    echo "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════╗${RESET}"
+    echo "${BOLD}${GREEN}║  Upgrade complete!                                           ║${RESET}"
+    echo "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════════╝${RESET}"
+    echo
+    echo "  Web UI: ${BOLD}${WEB_URL}${RESET}"
+    echo
+    echo "  To view logs:     docker compose logs -f"
+    echo "  To stop:          docker compose down"
+    echo
+else
+    step "Starting ScarGuard"
+    if docker compose up -d; then
+        info "Services started."
+    else
+        error "Failed to start services. Run manually: docker compose up -d"
+    fi
+
+    echo
+    echo "${BOLD}${GREEN}╔══════════════════════════════════════════════════════════════╗${RESET}"
+    echo "${BOLD}${GREEN}║  Setup complete!                                             ║${RESET}"
+    echo "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════════╝${RESET}"
+    echo
+
+    if [[ "$NVIDIA_OK" == "false" ]]; then
+        if [[ "$PLATFORM" == "jetson" ]]; then
+            echo "${YELLOW}Reminder:${RESET} NVIDIA container runtime was not detected."
+            echo "  The detector service (GPU inference) will fail to start."
+            echo "  Log out and back in, then run:  docker compose up -d"
+        else
+            echo "${YELLOW}Note:${RESET} Running in CPU-only mode (no NVIDIA runtime detected)."
+            echo "  Inference will be slower. Install nvidia-container-toolkit for GPU acceleration."
+        fi
+        echo
+    fi
+
+    echo "${BOLD}Next steps:${RESET}"
+    echo
+    echo "  1. ${BOLD}Open the web UI:${RESET}"
+    echo "       ${WEB_URL}"
+    echo
+    echo "  2. ${BOLD}Configure your cameras:${RESET}"
+    echo "       Go to Settings and add your RTSP camera URLs."
+    if [[ -z "$MODEL_FILES" ]]; then
+        echo
+        echo "  3. ${BOLD}Add a YOLO model:${RESET}"
+        echo "       Upload via the Models page in the admin menu."
     fi
     echo
-fi
-
-if [[ "$CONFIG_IS_NEW" == "true" ]]; then
-    echo "${YELLOW}Important:${RESET} scarguard.yml was created from the example in the config volume."
-    echo "  Update your RTSP camera URLs before starting — the system will not"
-    echo "  detect anything until real camera streams are configured."
+    echo "  To view logs:     docker compose logs -f"
+    echo "  To stop:          docker compose down"
+    echo "  To update:        git pull && sudo bash setup.sh"
     echo
 fi
-
-echo "  To view logs:     docker compose logs -f"
-echo "  To stop:          docker compose down"
-echo "  To update images: docker compose pull && docker compose up -d"
-echo
