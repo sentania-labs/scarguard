@@ -197,7 +197,7 @@ notifications:
 # You can also configure this in the web UI under Settings > TLS.
 tls:
   mode: "off"                           # off | auto | manual
-  domain: ""                            # Required for auto mode (e.g. scarguard.example.com)
+  domain: ""                            # Public hostname — used for TLS and notification feedback links
   cert_path: /config/certs/cert.pem     # Used in manual mode
   key_path: /config/certs/key.pem       # Used in manual mode
 

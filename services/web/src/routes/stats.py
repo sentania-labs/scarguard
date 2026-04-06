@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import logging
+import os
 from pathlib import Path
 
 import config_store
@@ -43,7 +44,7 @@ async def stats_stream(request: Request) -> StreamingResponse:
     interval = max(1, int(cfg.get("system", {}).get("stats_interval", 5)))
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, decode_responses=True)
+        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
         yield ": connected\n\n"
         try:
             while True:

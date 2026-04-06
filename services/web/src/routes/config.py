@@ -180,6 +180,8 @@ async def save_structured_config(request: Request) -> JSONResponse:
                 existing_nested = {}
             system_dump[nested_key] = {**existing_nested, **system_dump[nested_key]}
     existing["system"] = {**existing_system, **system_dump}
+    # base_url removed in v0.12.4 — derived from tls.domain at runtime
+    existing["system"].pop("base_url", None)
 
     # Merge cameras: start from the existing entry (preserves exclusion_zones and
     # any other fields the form doesn't know about), then overlay the form values.
@@ -391,7 +393,7 @@ async def send_test_notification(request: Request) -> JSONResponse:
         "actions_triggered": [channel],
     }
 
-    client = aioredis.Redis(host=host, port=port, decode_responses=True)
+    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
     try:
         await client.publish(_DETECTIONS_CHANNEL, json.dumps(event))
     finally:

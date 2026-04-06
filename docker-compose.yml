@@ -17,8 +17,21 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command: >-
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+        exec redis-server --requirepass "$$REDIS_PASSWORD";
+      else
+        exec redis-server;
+      fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: >-
+        sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+          redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping;
+        else
+          redis-cli ping;
+        fi'
       interval: 5s
       timeout: 3s
       retries: 10
@@ -43,6 +56,7 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       HTTPS_PORT: ${HTTPS_PORT:-${WEB_HTTPS_PORT:-443}}
+      XDG_CONFIG_HOME: /data/caddy/config
     depends_on:
       - web
     restart: unless-stopped
@@ -60,6 +74,7 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s
@@ -90,6 +105,7 @@ services:
       MODELS_DIR: /models
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s
@@ -118,6 +134,7 @@ services:
       DB_PATH: /data/scarguard.db       # read-only — digest reports query events/metrics
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s

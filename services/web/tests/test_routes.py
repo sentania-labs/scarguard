@@ -322,10 +322,3 @@ class TestModels:
         )
         assert resp.status_code == 200
         assert "test.pt" in resp.text
-
-
-class TestFeed:
-    def test_page_loads(self, client):
-        resp = client.get("/feed")
-        assert resp.status_code == 200
-        assert "Live Feed" in resp.text

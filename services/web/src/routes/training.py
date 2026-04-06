@@ -234,7 +234,7 @@ async def start_evaluation(
         "date_to": date_to or None,
     }
 
-    client = aioredis.Redis(host=host, port=port, decode_responses=True)
+    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
     try:
         await client.publish(EVAL_REQUEST_CHANNEL, json.dumps(eval_request))
     finally:
@@ -256,7 +256,7 @@ async def evaluate_stream(request: Request) -> StreamingResponse:
     max_poll_seconds = 600  # 10-minute timeout
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, decode_responses=True)
+        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
         try:
             yield ": connected\n\n"
             elapsed = 0.0

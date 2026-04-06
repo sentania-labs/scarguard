@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -436,9 +437,11 @@ class StatsCollector(threading.Thread):
         )
 
         # Redis client is lazy — actual connection happens on first command.
+        _pw = os.environ.get("REDIS_PASSWORD", "") or None
         client = redis_lib.Redis(
             host=self._redis_cfg.get("host", "redis"),
             port=int(self._redis_cfg.get("port", 6379)),
+            password=_pw,
             decode_responses=True,
             socket_connect_timeout=5,
             retry_on_timeout=True,

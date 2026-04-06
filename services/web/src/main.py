@@ -20,7 +20,6 @@ from routes import (
     config,
     dashboard,
     events,
-    feed,
     feedback,
     models,
     snapshot,
@@ -57,6 +56,7 @@ async def _startup() -> None:
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _migrate_retention_fields()
+    _migrate_base_url_to_domain()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
 
@@ -115,6 +115,52 @@ def _migrate_retention_fields() -> None:
         )
     except Exception as exc:
         log.warning("Retention fields migration skipped: %s", exc)
+
+
+def _migrate_base_url_to_domain() -> None:
+    """One-time migration: move system.base_url → tls.domain.
+
+    v0.12.4 removed the separate base_url field.  If the user had base_url
+    set but tls.domain is empty, extract the hostname and populate tls.domain
+    so notification feedback links keep working.
+
+    TODO: Remove this migration once enough releases have passed (target x.15.x).
+    """
+    import logging
+    from urllib.parse import urlparse
+
+    import config_store
+    log = logging.getLogger("startup")
+    try:
+        cfg = config_store.load()
+        sys_cfg = cfg.get("system", {})
+        if not isinstance(sys_cfg, dict):
+            return
+        base_url = sys_cfg.get("base_url", "")
+        if not base_url:
+            return
+
+        tls_cfg = cfg.get("tls", {})
+        if not isinstance(tls_cfg, dict):
+            tls_cfg = {}
+            cfg["tls"] = tls_cfg
+
+        if not tls_cfg.get("domain"):
+            parsed = urlparse(base_url)
+            domain = parsed.hostname or ""
+            if domain:
+                tls_cfg["domain"] = domain
+                log.info("Migrated system.base_url → tls.domain: %s", domain)
+
+        # Only remove base_url if domain was already set or successfully migrated
+        if tls_cfg.get("domain"):
+            del sys_cfg["base_url"]
+            config_store.save(cfg)
+            log.info("Removed deprecated system.base_url")
+        else:
+            log.warning("Could not extract domain from base_url %r — keeping it as fallback", base_url)
+    except Exception as exc:
+        log.warning("base_url → domain migration skipped: %s", exc)
 
 
 # ── Auth middleware ────────────────────────────────────────────────────────────
@@ -333,7 +379,6 @@ app.include_router(dashboard.router)
 app.include_router(events.router)
 app.include_router(config.router)
 app.include_router(models.router)
-app.include_router(feed.router)
 app.include_router(about.router)
 app.include_router(admin.router)
 app.include_router(stats.router)

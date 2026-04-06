@@ -62,14 +62,7 @@
             <p class="hint">Applies to snapshots, events, visits, and metrics</p>
           </div>
         </div>
-        <div class="field-row expert-only">
-          <div class="field-group">
-            <label>External base URL (for notification feedback links)</label>
-            <input type="text" id="sys-base-url" value="{{ cfg.system.base_url | default('') }}"
-                   placeholder="https://scarguard.example.com">
-            <p class="hint">Required for one-click feedback from email/Discord/ntfy notifications</p>
-          </div>
-        </div>
+        {# base_url removed in v0.12.4 — derived from tls.domain at runtime #}
         <div class="field-row expert-only">
           <div class="field-group">
             <label>Stats polling interval (seconds, 1-60)</label>
@@ -230,7 +223,7 @@
   </div>
 
   {# ── Notifications — Discord ───────────────────────────────────────────────── #}
-  <div class="config-section" id="section-discord">
+  <div class="config-section expert-only" id="section-discord">
     <div class="config-section-header" onclick="toggleSection('section-discord')">
       <span class="config-section-label">Notifications — Discord</span>
       <span class="config-section-chevron">▾</span>
@@ -267,7 +260,7 @@
   </div>
 
   {# ── Notifications — Email ────────────────────────────────────────────────── #}
-  <div class="config-section" id="section-email">
+  <div class="config-section expert-only" id="section-email">
     <div class="config-section-header" onclick="toggleSection('section-email')">
       <span class="config-section-label">Notifications — Email</span>
       <span class="config-section-chevron">▾</span>
@@ -320,7 +313,7 @@
   </div>
 
   {# ── Notification Channels (named, multi-instance) ───────────────────────── #}
-  <div class="config-section collapsed expert-only" id="section-channels">
+  <div class="config-section collapsed" id="section-channels">
     <div class="config-section-header" onclick="toggleSection('section-channels')">
       <span class="config-section-label">Notification Channels</span>
       <span class="config-section-chevron">▾</span>
@@ -330,7 +323,7 @@
         <p class="hint">
           Named notification channels let you send alerts to multiple destinations — multiple
           Discord webhooks, email addresses, or custom HTTP endpoints. Each channel has a unique
-          name used by action rules. Leave this empty to use the legacy Discord/Email settings above.
+          name used by action rules.
         </p>
         <script id="channels-data" type="application/json">{{ channels_json | safe }}</script>
         <div id="channels-list"></div>
@@ -481,12 +474,13 @@
             <option value="manual" {% if cfg.tls.mode == 'manual' %}selected{% endif %}>Manual (own certificates)</option>
           </select>
         </div>
-        <div id="tls-auto-fields" style="display:none;">
+        <div id="tls-domain-field" style="display:none;">
           <div class="field-group">
             <label>Domain name</label>
             <input type="text" id="tls-domain" value="{{ cfg.tls.domain }}"
                    placeholder="scarguard.example.com">
-            <span class="hint">Must point to this server's public IP. Caddy will obtain a certificate automatically.</span>
+            <span class="hint" id="tls-domain-hint-auto">Must point to this server's public IP. Caddy will obtain a certificate automatically.</span>
+            <span class="hint" id="tls-domain-hint-manual" style="display:none;">Used to build notification feedback links (e.g. https://your-domain/feedback/…).</span>
           </div>
         </div>
         <div id="tls-manual-fields" style="display:none;">
@@ -540,7 +534,9 @@
   <script>
     function toggleTlsFields() {
       var mode = document.getElementById('tls-mode').value;
-      document.getElementById('tls-auto-fields').style.display = mode === 'auto' ? '' : 'none';
+      document.getElementById('tls-domain-field').style.display = (mode === 'auto' || mode === 'manual') ? '' : 'none';
+      document.getElementById('tls-domain-hint-auto').style.display = mode === 'auto' ? '' : 'none';
+      document.getElementById('tls-domain-hint-manual').style.display = mode === 'manual' ? '' : 'none';
       document.getElementById('tls-manual-fields').style.display = mode === 'manual' ? '' : 'none';
     }
     toggleTlsFields();

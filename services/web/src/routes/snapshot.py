@@ -32,7 +32,7 @@ async def grab_snapshot(request: Request, camera_name: str) -> JSONResponse:
     request_id = uuid.uuid4().hex
     result_channel = f"scarguard:snapshot:result:{request_id}"
 
-    client = aioredis.Redis(host=host, port=port, decode_responses=True)
+    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
     try:
         # Subscribe to result channel before publishing request
         pubsub = client.pubsub()
@@ -126,7 +126,7 @@ async def send_snapshot_to_channel(
         "actions_triggered": [channel],
     }
 
-    client = aioredis.Redis(host=host, port=port, decode_responses=True)
+    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
     try:
         await client.publish(DETECTIONS_CHANNEL, json.dumps(event))
     finally:

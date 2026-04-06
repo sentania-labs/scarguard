@@ -161,6 +161,11 @@ if [[ -f ".env" ]]; then
         echo "DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}" >> .env
         info "Backfilled DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}"
     fi
+    if ! grep -q '^REDIS_PASSWORD=' .env; then
+        REDIS_PASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+        echo "REDIS_PASSWORD=${REDIS_PASS}" >> .env
+        info "Backfilled REDIS_PASSWORD (generated random credential)"
+    fi
     if ! grep -q '^COMPOSE_FILE=' .env; then
         if [[ "$NVIDIA_OK" == "true" ]]; then
             echo "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml" >> .env
@@ -185,6 +190,11 @@ else
     fi
 
     cp .env.example .env
+
+    # Generate a random Redis password for inter-service auth
+    REDIS_PASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+    sed -i "s/^REDIS_PASSWORD=.*/REDIS_PASSWORD=${REDIS_PASS}/" .env
+
     if [[ "$HTTP_PORT_VALUE" != "80" ]]; then
         sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT_VALUE}/" .env
     fi
