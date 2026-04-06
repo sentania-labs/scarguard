@@ -58,6 +58,7 @@ class YOLODetector:
                 conf=self.confidence_threshold,
                 verbose=False,
                 save=False,
+                project="/tmp/runs",
             )
 
         classes = target_classes if target_classes is not None else self.target_classes
