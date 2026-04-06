@@ -30,7 +30,8 @@ def _check_redis(cfg: dict) -> bool:
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
     try:
-        r = redis_lib.Redis(host=host, port=port, socket_timeout=2, socket_connect_timeout=2)
+        pw = os.environ.get("REDIS_PASSWORD", "") or None
+        r = redis_lib.Redis(host=host, port=port, password=pw, socket_timeout=2, socket_connect_timeout=2)
         r.ping()
         return True
     except Exception:
