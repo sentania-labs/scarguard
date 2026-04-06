@@ -35,6 +35,18 @@ Items identified during beta 1 code audits. Targeting iterative 0.12.z patch rel
 
 ---
 
+## Actuation — Sprinkler Deterrence (Scar's Revenge)
+
+New `actuator` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya WiFi hose timer valves via `tinytuya` LAN control (no cloud dependency). Randomized spray patterns (valve count, duration, inter-spray delays) to prevent wildlife habituation.
+
+- **Hardware:** Off-the-shelf Tuya/Smart Life WiFi hose timer valves, standard garden hose fittings, battery-powered. No custom wiring or relay boards.
+- **Config:** `actuation` section in `scarguard.yml` — valve definitions (device_id, local_key, IP), randomization ranges, cooldown, battery alert thresholds.
+- **Battery monitoring:** Periodic polling via tinytuya with low-battery alerts through the existing notification system.
+- **Blocked on:** PoC valve hardware arrival and LAN control validation.
+- **Full specification:** [ACTUATION_SPEC.md](ACTUATION_SPEC.md)
+
+---
+
 ## Future Ideas (Unprioritized)
 
 - Twilio SMS notifications — paid per-message, but works on any phone without an app
