@@ -129,7 +129,6 @@ class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"
-    base_url: str = ""
     retention_days: int = 90
     stats_interval: int = 5
     visit_timeout_seconds: int = 300

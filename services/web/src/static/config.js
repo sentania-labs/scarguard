@@ -247,7 +247,7 @@ function readForm() {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
-      base_url: (document.getElementById("sys-base-url")?.value || "").trim(),
+      // base_url removed in v0.12.4 — derived from tls.domain at runtime
       retention_days: (v => isNaN(v) ? 90 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
       stats_interval: (v => isNaN(v) || v < 1 ? 5 : Math.min(v, 60))(parseInt(document.getElementById("sys-stats-interval").value, 10)),
       visit_timeout_seconds: parseInt(document.getElementById('visit_timeout_seconds')?.value || '300'),

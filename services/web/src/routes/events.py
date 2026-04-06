@@ -1,5 +1,6 @@
 import html as _html
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -176,7 +177,7 @@ async def event_stream(request: Request):
     port = int(redis_cfg.get("port", 6379))
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, decode_responses=True)
+        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
         pubsub = client.pubsub()
         await pubsub.subscribe(CHANNEL)
         yield ": connected\n\n"

@@ -1,4 +1,7 @@
-"""Config file watcher — polls mtime and fires a callback on changes."""
+"""Config file watcher — polls mtime and fires a callback on changes.
+
+Shared module used by both the detector and notifier services.
+"""
 
 import logging
 import os

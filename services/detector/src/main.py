@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
+from atomic_ref import AtomicRef
 from camera_health import CameraHealthTracker
 from cleanup import RetentionCleaner
 from config_watcher import ConfigWatcher
@@ -52,8 +53,8 @@ class CameraState:
 
     thread: threading.Thread
     stop_event: threading.Event
-    zones_ref: list[list[dict]]
-    rules_ref: list[list[dict]]
+    zones_ref: AtomicRef[list[dict]]
+    rules_ref: AtomicRef[list[dict]]
     model_path: str | None
     target_classes: set[str] | None
     detector: YOLODetector
@@ -145,10 +146,10 @@ def run_camera(
     target_classes: set[str] | None,
     event_processor: EventProcessor,
     redis_cfg: dict,
-    frame_skip_ref: list[int],
-    armed_ref: list[bool],
-    exclusion_zones_ref: list[list[dict]],
-    action_rules_ref: list[list[dict]],
+    frame_skip_ref: AtomicRef[int],
+    armed_ref: AtomicRef[bool],
+    exclusion_zones_ref: AtomicRef[list[dict]],
+    action_rules_ref: AtomicRef[list[dict]],
     stop_event: threading.Event,
     camera_stats: dict[str, dict] | None = None,
     camera_stats_lock: threading.Lock | None = None,
@@ -163,16 +164,18 @@ def run_camera(
     """
     name = camera_cfg["name"]
 
+    redis_password = os.environ.get("REDIS_PASSWORD", "")
     publisher = RedisPublisher(
         host=redis_cfg.get("host", "redis"),
         port=int(redis_cfg.get("port", 6379)),
+        password=redis_password or None,
     )
     stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"], stop_event=stop_event)
 
     logger.info(
         "[%s] Camera thread starting | frame_skip=%d | model=%s | classes=%s",
         name,
-        frame_skip_ref[0],
+        frame_skip_ref.get(),
         detector.model_path,
         sorted(target_classes) if target_classes else "(global)",
     )
@@ -185,7 +188,7 @@ def run_camera(
 
     while not stop_event.is_set():
         frame_count += 1
-        if frame_count % frame_skip_ref[0] != 0:
+        if frame_count % frame_skip_ref.get() != 0:
             # Advance stream without decoding — saves CPU/GPU on skipped frames
             if not stream.grab():
                 if health_tracker is not None:
@@ -209,7 +212,7 @@ def run_camera(
         if health_tracker is not None:
             health_tracker.record_frame(name)
 
-        if not armed_ref[0]:
+        if not armed_ref.get():
             continue
 
         t0 = time.monotonic()
@@ -236,7 +239,7 @@ def run_camera(
             # Exclusion zones are applied BEFORE cooldown dedup intentionally:
             # an object permanently in an excluded region should not consume the
             # cooldown slot for its class on this camera.
-            zones = exclusion_zones_ref[0]  # GIL-safe atomic read of list item
+            zones = exclusion_zones_ref.get()
             if zones:
                 frame_h, frame_w = frame.shape[:2]
                 detections = [
@@ -250,7 +253,7 @@ def run_camera(
                 if not detections:
                     logger.debug("[%s] All detections suppressed by exclusion zones", name)
             if detections:
-                rules = action_rules_ref[0]  # GIL-safe atomic read
+                rules = action_rules_ref.get()
                 actions_by_class: dict[str, list[str]] = {}
                 if rules:
                     for det in detections:
@@ -293,8 +296,8 @@ def main() -> None:
     det_cfg: dict = cfg.get("detection", {})
     redis_cfg: dict = cfg.get("redis", {})
     # Mutable references so hot-reload can update these without restarting threads.
-    armed_ref: list[bool] = [sys_cfg.get("armed", True)]
-    frame_skip_ref: list[int] = [det_cfg.get("frame_skip", 2)]
+    armed_ref: AtomicRef[bool] = AtomicRef(sys_cfg.get("armed", True))
+    frame_skip_ref: AtomicRef[int] = AtomicRef(det_cfg.get("frame_skip", 2))
 
     # ---- Model pool ------------------------------------------------------------
     model_pool = ModelPool(
@@ -357,9 +360,11 @@ def main() -> None:
     def _make_redis():  # type: ignore[return]
         import redis
 
+        _pw = os.environ.get("REDIS_PASSWORD", "") or None
         return redis.Redis(
             host=redis_cfg.get("host", "redis"),
             port=int(redis_cfg.get("port", 6379)),
+            password=_pw,
             decode_responses=True,
         )
 
@@ -427,8 +432,8 @@ def main() -> None:
             return False
 
         cam_stop = threading.Event()
-        zones_ref: list[list[dict]] = [list(camera_cfg.get("exclusion_zones", []))]
-        rules_ref: list[list[dict]] = [list(camera_cfg.get("action_rules", []))]
+        zones_ref: AtomicRef[list[dict]] = AtomicRef(list(camera_cfg.get("exclusion_zones", [])))
+        rules_ref: AtomicRef[list[dict]] = AtomicRef(list(camera_cfg.get("action_rules", [])))
         t = threading.Thread(
             target=run_camera,
             args=(
@@ -483,7 +488,7 @@ def main() -> None:
         "Monitoring %d camera(s): %s | armed=%s | cooldown=%ds",
         len(started),
         ", ".join(started),
-        armed_ref[0],
+        armed_ref.get(),
         det_cfg.get("cooldown_seconds", 30),
     )
 
@@ -544,8 +549,8 @@ def main() -> None:
 
         # armed flag
         new_armed = new_sys.get("armed", True)
-        if new_armed != armed_ref[0]:
-            armed_ref[0] = new_armed
+        if new_armed != armed_ref.get():
+            armed_ref.set(new_armed)
             changes.append(f"armed={new_armed}")
 
         # Update global defaults in the model pool (confidence and target_classes
@@ -577,8 +582,8 @@ def main() -> None:
             changes.append(f"cooldown_seconds={new_cooldown}")
 
         new_frame_skip = new_det.get("frame_skip", 2)
-        if new_frame_skip != frame_skip_ref[0]:
-            frame_skip_ref[0] = new_frame_skip
+        if new_frame_skip != frame_skip_ref.get():
+            frame_skip_ref.set(new_frame_skip)
             changes.append(f"frame_skip={new_frame_skip}")
 
         # Refresh known channels for validation.
@@ -614,16 +619,14 @@ def main() -> None:
                         changes.append(f"camera skipped after update (bad model): {cam_name}")
                 else:
                     # Hot-reload exclusion zones and action rules for running cameras.
-                    # list-item assignment is atomic under CPython's GIL (same pattern
-                    # as armed_ref and frame_skip_ref).
                     new_zones = list(cam_cfg.get("exclusion_zones", []))
-                    if new_zones != state.zones_ref[0]:
-                        state.zones_ref[0] = new_zones
+                    if new_zones != state.zones_ref.get():
+                        state.zones_ref.set(new_zones)
                         changes.append(f"exclusion_zones updated: {cam_name}")
                     new_rules = list(cam_cfg.get("action_rules", []))
-                    if new_rules != state.rules_ref[0]:
+                    if new_rules != state.rules_ref.get():
                         _validate_action_rules(cam_name, new_rules, known_channels)
-                        state.rules_ref[0] = new_rules
+                        state.rules_ref.set(new_rules)
                         changes.append(f"action_rules updated: {cam_name}")
 
         # cameras removed or disabled

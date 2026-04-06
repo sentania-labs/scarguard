@@ -13,6 +13,7 @@ from typing import Optional
 
 import redis as redis_lib
 import yaml
+from atomic_ref import AtomicRef
 from config_watcher import ConfigWatcher
 from digest_scheduler import DigestScheduler
 from discord import DiscordNotifier
@@ -30,6 +31,23 @@ HEALTH_CHANNEL = "scarguard:health"
 # How long to wait before retrying a failed Redis connection (seconds).
 _REDIS_RECONNECT_DELAY = 5
 _REDIS_MAX_RECONNECT_DELAY = 60
+
+
+def _derive_base_url(cfg: dict) -> str:
+    """Derive the external base URL from tls.domain.
+
+    In v0.12.4, system.base_url was removed.  The notifier now constructs the
+    URL from tls.domain (which Caddy uses for HTTPS).
+    """
+    tls = cfg.get("tls", {})
+    domain = tls.get("domain", "").strip()
+    if not domain:
+        return ""
+    mode = tls.get("mode", "off")
+    if mode in ("auto", "manual"):
+        return f"https://{domain}"
+    # mode=off with a domain set — user may be behind an external proxy
+    return f"https://{domain}"
 
 
 def load_config() -> dict:
@@ -172,18 +190,18 @@ def _start_retry_worker(
     queue: NotificationQueue,
     notifiers: list,
     notifiers_lock: threading.Lock,
-    shutdown_flag: list,
+    shutdown_event: threading.Event,
 ) -> threading.Thread:
     """Start the background thread that processes due retry queue entries."""
 
     def _worker() -> None:
         logger.info("Notification retry worker started (interval: %ds)", WORKER_INTERVAL)
-        while not shutdown_flag[0]:
+        while not shutdown_event.is_set():
             try:
                 queue.process_due(notifiers, notifiers_lock)
             except Exception:
                 logger.exception("Unexpected error in notification retry worker")
-            time.sleep(WORKER_INTERVAL)
+            shutdown_event.wait(WORKER_INTERVAL)
         logger.info("Notification retry worker stopped")
 
     t = threading.Thread(target=_worker, name="notif-retry-worker", daemon=True)
@@ -195,20 +213,21 @@ def subscribe_loop(
     redis_cfg: dict,
     notifiers: list,
     notifiers_lock: threading.Lock,
-    shutdown_flag: list,
+    shutdown_event: threading.Event,
     queue: NotificationQueue,
-    _base_url_ref: list[str] | None = None,
+    _base_url_ref: AtomicRef[str] | None = None,
 ) -> None:
     """Connect to Redis and listen for events, reconnecting on failure."""
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
     delay = _REDIS_RECONNECT_DELAY
 
-    while not shutdown_flag[0]:
+    while not shutdown_event.is_set():
         client: redis_lib.Redis | None = None
         pubsub: redis_lib.client.PubSub | None = None
         try:
-            client = redis_lib.Redis(host=host, port=port, decode_responses=True)
+            redis_password = os.environ.get("REDIS_PASSWORD", "") or None
+            client = redis_lib.Redis(host=host, port=port, password=redis_password, decode_responses=True)
             pubsub = client.pubsub()
             pubsub.subscribe(CHANNEL, HEALTH_CHANNEL)
             logger.info("Subscribed to Redis channels: %s, %s", CHANNEL, HEALTH_CHANNEL)
@@ -216,7 +235,7 @@ def subscribe_loop(
             pathlib.Path("/tmp/healthy").touch(exist_ok=True)
 
             for message in pubsub.listen():
-                if shutdown_flag[0]:
+                if shutdown_event.is_set():
                     break
                 if message["type"] != "message":
                     continue
@@ -246,7 +265,7 @@ def subscribe_loop(
                     continue
 
                 # Inject base_url so notifiers can build feedback links
-                base_url = _base_url_ref[0] if _base_url_ref else ""
+                base_url = _base_url_ref.get() if _base_url_ref else ""
                 if base_url:
                     event["_base_url"] = base_url
 
@@ -259,7 +278,7 @@ def subscribe_loop(
                 dispatch(event, notifiers, notifiers_lock, queue)
 
         except redis_lib.RedisError:
-            if shutdown_flag[0]:
+            if shutdown_event.is_set():
                 break
             logger.exception(
                 "Redis connection lost — retrying in %ds", delay
@@ -290,7 +309,7 @@ def main() -> None:
     tz_name = cfg.get("system", {}).get("timezone", "UTC")
     notifiers = build_notifiers(cfg.get("notifications", {}), tz_name)
     notifiers_lock = threading.Lock()
-    base_url_ref: list[str] = [cfg.get("system", {}).get("base_url", "")]
+    base_url_ref: AtomicRef[str] = AtomicRef(_derive_base_url(cfg))
     if not notifiers:
         logger.warning("No notifiers enabled — will consume events without dispatching")
 
@@ -308,19 +327,19 @@ def main() -> None:
     digest_scheduler.configure(report_cfg, tz_name)
     digest_scheduler.start()
 
-    # Use a mutable flag so the signal handler can stop the blocking listen loop.
-    shutdown_flag = [False]
+    # Use a threading.Event so the signal handler can stop the blocking listen loop.
+    shutdown_event = threading.Event()
 
     def _shutdown(sig: int, _frame: object) -> None:
         logger.info("Received signal %s — shutting down", sig)
-        shutdown_flag[0] = True
+        shutdown_event.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
     def _on_config_change(new_cfg: dict) -> None:
         new_tz = new_cfg.get("system", {}).get("timezone", "UTC")
-        base_url_ref[0] = new_cfg.get("system", {}).get("base_url", "")
+        base_url_ref.set(_derive_base_url(new_cfg))
         new_notifiers = build_notifiers(new_cfg.get("notifications", {}), new_tz)
         with notifiers_lock:
             notifiers.clear()
@@ -340,9 +359,9 @@ def main() -> None:
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
-    _start_retry_worker(queue, notifiers, notifiers_lock, shutdown_flag)
+    _start_retry_worker(queue, notifiers, notifiers_lock, shutdown_event)
 
-    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_flag, queue, base_url_ref)
+    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_event, queue, base_url_ref)
 
     watcher.stop()
     digest_scheduler.stop()

@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import date as dt_date
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
@@ -30,9 +31,11 @@ def _redis_client(cfg: dict) -> Any:
         import redis.asyncio as aioredis
 
         rc = cfg.get("redis", {})
+        pw = os.environ.get("REDIS_PASSWORD", "") or None
         return aioredis.Redis(
             host=rc.get("host", "redis"),
             port=int(rc.get("port", 6379)),
+            password=pw,
             decode_responses=True,
         )
     except Exception:

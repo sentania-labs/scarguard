@@ -16,8 +16,8 @@ _BUFFER_MAX = 256
 
 
 class RedisPublisher:
-    def __init__(self, host: str, port: int) -> None:
-        self._client = redis_lib.Redis(host=host, port=port, decode_responses=True)
+    def __init__(self, host: str, port: int, password: str | None = None) -> None:
+        self._client = redis_lib.Redis(host=host, port=port, password=password, decode_responses=True)
         self._buffer: deque[str] = deque(maxlen=_BUFFER_MAX)
 
     def publish(self, event: dict) -> None:
