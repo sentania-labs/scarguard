@@ -17,6 +17,16 @@ from detector import YOLODetector
 logger = logging.getLogger(__name__)
 
 
+def _clear_gpu_cache() -> None:
+    """Release cached GPU memory after model deletion."""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
 class ModelPool:
     """Lazy-loading, ref-counted pool of YOLO detectors."""
 
@@ -69,6 +79,7 @@ class ModelPool:
             if self._refcounts[path] <= 0:
                 del self._models[path]
                 del self._refcounts[path]
+                _clear_gpu_cache()
                 logger.info("ModelPool: unloaded %s (no cameras using it)", path)
 
     def update_defaults(

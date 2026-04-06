@@ -1,6 +1,6 @@
 # Build context: repo root
 # docker build -f services/detector/Dockerfile -t scarguard-detector .
-FROM dustynv/l4t-pytorch:r36.4.0
+FROM dustynv/l4t-pytorch:r36.4.0@sha256:a05c85def9139c21014546451d3baab44052d7cabe854d937f163390bfd5201b
 
 # GStreamer + OpenGL deps required by OpenCV RTSP support on L4T
 # nvidia-l4t-tools provides tegrastats for Jetson GPU stats (aarch64 only).

@@ -184,6 +184,15 @@ def run_camera(
     _infer_window_start = time.monotonic()
 
     while not stop_event.is_set():
+        frame_count += 1
+        if frame_count % frame_skip_ref[0] != 0:
+            # Advance stream without decoding — saves CPU/GPU on skipped frames
+            if not stream.grab():
+                if health_tracker is not None:
+                    health_tracker.record_failure(name)
+                stop_event.wait(1.0)
+            continue
+
         ret, frame = stream.read()
         if not ret:
             if health_tracker is not None:
@@ -199,10 +208,6 @@ def run_camera(
 
         if health_tracker is not None:
             health_tracker.record_frame(name)
-
-        frame_count += 1
-        if frame_count % frame_skip_ref[0] != 0:
-            continue
 
         if not armed_ref[0]:
             continue

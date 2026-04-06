@@ -114,6 +114,27 @@ class RTSPStream:
 
         return True, frame
 
+    def grab(self) -> bool:
+        """Advance the stream by one frame without decoding.
+
+        Returns True on success.  On failure, releases the capture so the
+        next call to :meth:`read` or :meth:`grab` triggers a reconnect.
+        """
+        if self._stop_event.is_set():
+            return False
+        if self._cap is None or not self._cap.isOpened():
+            if not self._reconnect():
+                return False
+
+        ret = self._cap.grab()
+        if not ret:
+            logger.warning("[%s] Grab failed — stream dropped", self.name)
+            self._cap.release()
+            self._cap = None
+            return False
+
+        return True
+
     def release(self) -> None:
         if self._cap is not None:
             self._cap.release()
