@@ -49,7 +49,7 @@ def _check_log_streamer(cfg: dict) -> bool:
     """Return True if the log-streamer sidecar has populated any ring buffers."""
     try:
         r = _redis_conn(cfg)
-        keys = r.keys("scarguard:logs:buffer:*")
+        keys: list = list(r.keys("scarguard:logs:buffer:*"))
         return len(keys) > 0
     except Exception:
         return False
