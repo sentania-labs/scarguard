@@ -15,6 +15,22 @@ if [ "$(id -u)" = "0" ]; then
         # On subsequent starts, just fix top-level dirs (fast)
         chown scarguard:scarguard /data /config /models 2>/dev/null || true
     fi
+    # Grant scarguard access to Docker socket (Admin Logs tab).
+    # Detect the GID of the socket on the host and ensure scarguard belongs
+    # to a group with that GID.
+    if [ -S /var/run/docker.sock ]; then
+        SOCK_GID=$(stat -c '%g' /var/run/docker.sock)
+        if [ "$SOCK_GID" != "0" ]; then
+            SOCK_GROUP=$(getent group "$SOCK_GID" | cut -d: -f1 || true)
+            if [ -z "$SOCK_GROUP" ]; then
+                groupadd -g "$SOCK_GID" dockersock
+                SOCK_GROUP=dockersock
+            fi
+            usermod -aG "$SOCK_GROUP" scarguard
+        else
+            usermod -aG root scarguard
+        fi
+    fi
     exec gosu scarguard "$@"
 fi
 exec "$@"

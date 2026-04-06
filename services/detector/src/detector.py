@@ -57,6 +57,7 @@ class YOLODetector:
                 frame,
                 conf=self.confidence_threshold,
                 verbose=False,
+                save=False,
             )
 
         classes = target_classes if target_classes is not None else self.target_classes
