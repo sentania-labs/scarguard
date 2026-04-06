@@ -93,7 +93,9 @@ async def stats_history(
 ) -> JSONResponse:
     """Return historical metrics as JSON for Chart.js."""
     hours = _parse_range(range)
-    rows = db.get_metrics(range_hours=hours)
+    cfg = config_store.load_cached()
+    interval = max(1, int(cfg.get("system", {}).get("stats_interval", 5)))
+    rows = db.get_metrics_for_chart(range_hours=hours, collection_interval=interval)
     data: list[dict] = []
     for r in rows:
         entry: dict = {

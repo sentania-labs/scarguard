@@ -37,8 +37,8 @@ ENV YOLO_CONFIG_DIR=/tmp/ultralytics
 # Container starts as root; entrypoint fixes volume ownership then drops
 # to scarguard via gosu.
 RUN useradd -r -m -d /home/scarguard -s /usr/sbin/nologin -G video scarguard && \
-    mkdir -p /data /config /models && \
-    chown scarguard:scarguard /data /config /models
+    mkdir -p /data /config /models /tmp/ultralytics && \
+    chown scarguard:scarguard /data /config /models /tmp/ultralytics
 
 COPY services/detector/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
