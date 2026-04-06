@@ -42,12 +42,16 @@ class FairLock:
             else:
                 self._queue.append(event)
         if not event.wait(timeout=timeout):
-            # Remove ourselves from the queue to avoid a dangling event
+            # Remove ourselves from the queue to avoid a dangling event.
+            # Race: release() may have popped & signaled us between wait()
+            # returning False and us acquiring _lock.  If so the event is
+            # now set and ownership has been handed to us — accept it.
             with self._lock:
                 try:
                     self._queue.remove(event)
                 except ValueError:
-                    pass  # already removed by release()
+                    if event.is_set():
+                        return time.monotonic() - t0
             raise TimeoutError(f"FairLock.acquire timed out after {timeout:.0f}s")
         return time.monotonic() - t0
 

@@ -280,7 +280,11 @@ def run_camera(
             continue
 
         t0 = time.monotonic()
-        detections = detector.predict(frame, target_classes=target_classes)
+        try:
+            detections = detector.predict(frame, target_classes=target_classes)
+        except TimeoutError:
+            logger.warning("[%s] Inference lock timed out — skipping frame", name)
+            continue
         infer_ms = (time.monotonic() - t0) * 1000.0
         _infer_count += 1
         _infer_total_ms += infer_ms

@@ -530,18 +530,22 @@ def get_metrics(
 
 # Target number of data points for chart display.
 _CHART_TARGET_POINTS = 2000
-# Collection interval in seconds (must match stats_collector).
-_COLLECTION_INTERVAL = 5
 
 
-def get_metrics_for_chart(range_hours: int = 24) -> list[sqlite3.Row]:
+def get_metrics_for_chart(
+    range_hours: int = 24,
+    collection_interval: int = 5,
+) -> list[sqlite3.Row]:
     """Return metrics for chart display, downsampled for large ranges.
 
-    For short ranges (≤ ~2.7 h at 5 s intervals) raw data is returned.
-    For longer ranges, data is aggregated into time buckets so the response
-    stays around ~2000 data points regardless of range.
+    *collection_interval* is the stats collection cadence in seconds
+    (from ``system.stats_interval`` config).  It determines whether the
+    raw or downsampled path is used.
+
+    For short ranges where raw point count fits in ~2000, raw data is
+    returned.  For longer ranges, data is aggregated into time buckets.
     """
-    raw_point_count = (range_hours * 3600) // _COLLECTION_INTERVAL
+    raw_point_count = (range_hours * 3600) // max(collection_interval, 1)
     if raw_point_count <= _CHART_TARGET_POINTS:
         return get_metrics(range_hours=range_hours, limit=_CHART_TARGET_POINTS)
 
