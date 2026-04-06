@@ -59,6 +59,16 @@
     </div>
 
     <div class="about-status-item">
+      <span class="status-dot {% if log_streamer_ok %}dot-ok{% else %}dot-warn{% endif %}"></span>
+      <div>
+        <div class="about-status-label">Log Streamer</div>
+        <div class="about-status-detail">
+          {% if log_streamer_ok %}Active — streaming container logs{% else %}No log data — sidecar may not be running{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="about-status-item">
       <span class="status-dot {% if latest_event %}dot-ok{% else %}dot-warn{% endif %}"></span>
       <div>
         <div class="about-status-label">Detector</div>

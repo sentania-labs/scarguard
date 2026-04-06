@@ -25,15 +25,32 @@ GIT_COMMIT: str = os.environ.get("GIT_COMMIT", "unknown")
 BUILD_DATE: str = os.environ.get("BUILD_DATE", "unknown")
 
 
-def _check_redis(cfg: dict) -> bool:
+def _redis_conn(cfg: dict) -> redis_lib.Redis:
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
+    pw = os.environ.get("REDIS_PASSWORD", "") or None
+    return redis_lib.Redis(
+        host=host, port=port, password=pw,
+        socket_timeout=2, socket_connect_timeout=2,
+    )
+
+
+def _check_redis(cfg: dict) -> bool:
     try:
-        pw = os.environ.get("REDIS_PASSWORD", "") or None
-        r = redis_lib.Redis(host=host, port=port, password=pw, socket_timeout=2, socket_connect_timeout=2)
+        r = _redis_conn(cfg)
         r.ping()
         return True
+    except Exception:
+        return False
+
+
+def _check_log_streamer(cfg: dict) -> bool:
+    """Return True if the log-streamer sidecar has populated any ring buffers."""
+    try:
+        r = _redis_conn(cfg)
+        keys = r.keys("scarguard:logs:buffer:*")
+        return len(keys) > 0
     except Exception:
         return False
 
@@ -63,6 +80,7 @@ async def about_page(request: Request) -> HTMLResponse:
 
     # Component status
     redis_ok = _check_redis(cfg)
+    log_streamer_ok = _check_log_streamer(cfg) if redis_ok else False
 
     latest_event = None
     latest_ago: str | None = None
@@ -89,6 +107,7 @@ async def about_page(request: Request) -> HTMLResponse:
             "armed": cfg.get("system", {}).get("armed", False),
             "cameras": cfg.get("cameras", []),
             "redis_ok": redis_ok,
+            "log_streamer_ok": log_streamer_ok,
             "latest_event": latest_event,
             "latest_ago": latest_ago,
             "today_count": today_count,
