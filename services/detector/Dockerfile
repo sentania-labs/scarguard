@@ -34,12 +34,13 @@ COPY shared/ ./shared/
 # Both src/ and shared/ on the path
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
+ENV YOLO_CONFIG_DIR=/tmp/ultralytics
 
 # Create non-root user for defense in depth.
 # The video group provides GPU device access on most Linux hosts.
 # Container starts as root; entrypoint fixes volume ownership then drops
 # to scarguard via gosu.
-RUN useradd -r -s /usr/sbin/nologin -G video scarguard && \
+RUN useradd -r -m -d /home/scarguard -s /usr/sbin/nologin -G video scarguard && \
     mkdir -p /data /config /models && \
     chown scarguard:scarguard /data /config /models
 
