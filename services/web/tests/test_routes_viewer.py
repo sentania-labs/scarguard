@@ -225,6 +225,20 @@ class TestViewerRole:
         # The placeholder does appear (at least once)
         assert "***REDACTED***" in body
 
+    def test_viewer_config_page_keeps_camera_entries(self, auth_client):
+        """Regression for the PR #94 review — feeding a redacted dict into
+        `_parse_cfg` caused `CameraConfig.rtsp_url` validation to fail on
+        the `***REDACTED***` placeholder, dropping the camera from the
+        form entirely.  The camera *name* must still reach the rendered
+        page (in the cameras_json hydration payload) so the viewer can
+        see that the camera exists, just with the URL masked.
+        """
+        _as(auth_client, "viewer")
+        body = auth_client.get("/config").text
+        assert "pond-north" in body
+        assert "VIEWER_SECRET_123" not in body
+        assert "***REDACTED***" in body
+
     def test_viewer_config_raw_denied(self, auth_client):
         _as(auth_client, "viewer")
         r = auth_client.get("/config/raw")

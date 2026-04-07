@@ -18,7 +18,7 @@ from config_model import (
     SystemConfig,
     TLSConfig,
 )
-from config_redact import redact_config
+from config_redact import REDACTED_PLACEHOLDER, redact_config
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -94,6 +94,29 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
     )
 
 
+def _redact_parsed_cfg(cfg: StructuredConfigPayload) -> None:
+    """Mask secrets on an already-parsed ``StructuredConfigPayload`` in place.
+
+    Used by the viewer (read-only admin) branch of `config_page`.  Parsing
+    happens first against the raw config (so structural validators pass),
+    then this walker replaces the sensitive leaves with
+    ``REDACTED_PLACEHOLDER``.  Keep this list in sync with the structural
+    paths in `config_redact._STRUCTURAL_PATHS` — both walkers cover the
+    same typed fields, just at different layers (dict vs Pydantic model).
+    Per-channel masking for `notifications.channels` still happens via
+    `redact_config` on the raw dict that feeds `_channels_json`.
+    """
+    for cam in cfg.cameras:
+        if cam.rtsp_url:
+            cam.rtsp_url = REDACTED_PLACEHOLDER
+    discord = cfg.notifications.discord
+    if discord.webhook_url:
+        discord.webhook_url = REDACTED_PLACEHOLDER
+    email = cfg.notifications.email
+    if email.smtp_pass:
+        email.smtp_pass = REDACTED_PLACEHOLDER
+
+
 def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
     """Serialize cameras to JSON, including latest snapshot URL per camera."""
     latest_snaps = db.get_latest_snapshots_by_camera()
@@ -130,22 +153,25 @@ async def config_page(request: Request) -> Response:
     raw_cfg = config_store.load()
     is_admin = has_admin_access(request)
 
-    # For viewers, redact BOTH the structural dict (used to build the
-    # form-mode cameras_json / channels_json hydration payloads) AND the
-    # raw-YAML string (shown in the Advanced tab for admins; hidden for
-    # viewers, but we redact it anyway as defence-in-depth in case a
-    # template bug leaks it).
+    # Parse from the unredacted dict so structural validation (e.g.
+    # `CameraConfig.rtsp_url` requiring an rtsp:// scheme) succeeds.  The
+    # masked placeholder would fail that validator and cause every camera
+    # with a real URL to be dropped from the form for viewers.  Secrets are
+    # masked *after* parsing, in-place on the Pydantic objects, via
+    # `_redact_parsed_cfg` below.
+    cfg = _parse_cfg(raw_cfg)
+
+    # For viewers, mask secrets on the parsed cfg (drives the form and
+    # cameras_json hydration) AND on the dict used for the raw-YAML dump
+    # and channels_json.  The Advanced/raw-YAML tab is hidden for viewers
+    # in the template, but we still mask the dumped string as defence in
+    # depth in case a template bug leaks it.
     if not is_admin:
+        _redact_parsed_cfg(cfg)
         raw_cfg_for_render = redact_config(raw_cfg)
     else:
         raw_cfg_for_render = raw_cfg
     raw = yaml.dump(raw_cfg_for_render, default_flow_style=False, sort_keys=False)
-
-    # Build a validated config object with defaults for any missing fields.
-    # Each section falls back independently so a single bad value does not
-    # blank out the entire form.  Parse from the (possibly redacted) dict
-    # so the Pydantic `cfg` shown in the form also has secrets masked.
-    cfg = _parse_cfg(raw_cfg_for_render)
 
     return templates.TemplateResponse(
         request,

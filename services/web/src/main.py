@@ -178,6 +178,19 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept
 
 
+def _parse_auth_enabled(value: object) -> bool:
+    """Parse the ``system.auth.enabled`` config value safely.
+
+    A naive ``bool(value)`` cast would report ``"false"`` as truthy,
+    which silently keeps auth on when an operator quoted the value in
+    hand-edited YAML.  Accept real bools plus the usual false-ish string
+    spellings.  Default (missing value) is True — fail closed.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "off", "")
+    return bool(value)
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
@@ -194,9 +207,7 @@ async def auth_middleware(request: Request, call_next):
     cfg = load_cached()
     system_cfg = cfg.get("system") or {}
     auth_cfg = system_cfg.get("auth") or {}
-    # Coerce to bool so string literals like "false" in hand-edited YAML
-    # don't accidentally count as truthy.
-    auth_enabled = bool(auth_cfg.get("enabled", True))
+    auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
 
     if not auth_enabled:
         # When auth is disabled (single-user / dev / test setups), grant every

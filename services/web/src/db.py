@@ -7,6 +7,7 @@ only to the ``feedback`` and ``corrected_class`` columns via UPDATE.
 import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
+from typing import Any
 
 DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
 
@@ -535,7 +536,7 @@ _CHART_TARGET_POINTS = 2000
 def get_metrics_for_chart(
     range_hours: int = 24,
     collection_interval: int = 5,
-) -> list[sqlite3.Row]:
+) -> list[Any]:
     """Return metrics for chart display, downsampled for large ranges.
 
     *collection_interval* is the stats collection cadence in seconds
@@ -549,16 +550,17 @@ def get_metrics_for_chart(
     if raw_point_count <= _CHART_TARGET_POINTS:
         return get_metrics(range_hours=range_hours, limit=_CHART_TARGET_POINTS)
 
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=range_hours)
-    ).isoformat()
+    now = datetime.now(timezone.utc)
+    cutoff_dt = now - timedelta(hours=range_hours)
+    cutoff = cutoff_dt.isoformat()
     bucket_seconds = (range_hours * 3600) // _CHART_TARGET_POINTS
 
     try:
         with _connect() as conn:
-            return conn.execute(
+            rows = conn.execute(
                 """
-                SELECT MIN(timestamp) AS timestamp,
+                SELECT CAST(strftime('%s', timestamp) / ? AS INTEGER) AS bucket_id,
+                       MIN(timestamp) AS timestamp,
                        ROUND(AVG(cpu_pct), 1)  AS cpu_pct,
                        ROUND(AVG(gpu_pct), 1)  AS gpu_pct,
                        ROUND(AVG(gpu_temp), 1) AS gpu_temp,
@@ -567,10 +569,37 @@ def get_metrics_for_chart(
                        MAX(camera_data)         AS camera_data
                 FROM system_metrics
                 WHERE timestamp >= ?
-                GROUP BY CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                GROUP BY bucket_id
                 ORDER BY timestamp ASC
                 """,
-                (cutoff, bucket_seconds),
+                (bucket_seconds, cutoff),
             ).fetchall()
     except Exception:
         return []
+
+    # Fill missing buckets with null-valued placeholders so the frontend
+    # chart can render gaps as breaks instead of interpolating straight
+    # lines across multi-hour or multi-day downtime.  Without this, a
+    # `GROUP BY` bucket with zero rows simply does not appear in the
+    # result, and Chart.js draws a line between the two neighbouring
+    # populated buckets.  That was the "invents data" symptom in #93.
+    start_bucket = int(cutoff_dt.timestamp() // bucket_seconds)
+    end_bucket = int(now.timestamp() // bucket_seconds)
+    by_bucket: dict[int, sqlite3.Row] = {r["bucket_id"]: r for r in rows}
+
+    filled: list[Any] = []
+    for b in range(start_bucket, end_bucket + 1):
+        if b in by_bucket:
+            filled.append(by_bucket[b])
+            continue
+        ts = datetime.fromtimestamp(b * bucket_seconds, tz=timezone.utc).isoformat()
+        filled.append({
+            "timestamp": ts,
+            "cpu_pct": None,
+            "gpu_pct": None,
+            "gpu_temp": None,
+            "ram_used_mb": None,
+            "ram_total_mb": None,
+            "camera_data": None,
+        })
+    return filled
