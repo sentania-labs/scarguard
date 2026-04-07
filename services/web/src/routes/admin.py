@@ -6,18 +6,14 @@ from pathlib import Path
 
 import config_store
 import redis.asyncio as aioredis
+from config_redact import redact_yaml
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
 
 log = logging.getLogger(__name__)
-
-
-def _require_admin(request: Request) -> bool:
-    """Return True if the current user is an admin."""
-    user = getattr(request.state, "user", None)
-    return bool(user and user.get("is_admin"))
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -42,7 +38,10 @@ def _redis_params() -> dict:
 
 
 @router.get("/logs", response_class=HTMLResponse)
-async def logs_page(request: Request) -> HTMLResponse:
+async def logs_page(request: Request) -> Response:
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
     return templates.TemplateResponse(
         request, "logs.html", {"services": SERVICES}
     )
@@ -53,8 +52,11 @@ async def logs_stream(
     request: Request,
     service: str = "detector",
     tail: int = 500,
-) -> StreamingResponse:
+) -> Response:
     """SSE endpoint — streams log lines from the log-streamer sidecar via Redis."""
+    gate = require_viewer(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     if service not in SERVICES:
         service = "detector"
     tail = max(1, min(tail, 5000))
@@ -109,9 +111,10 @@ async def logs_stream(
 
 @router.get("/backups", response_class=HTMLResponse)
 async def backups_page(request: Request) -> Response:
-    """List all config backups."""
-    if not _require_admin(request):
-        return RedirectResponse("/", status_code=302)
+    """List all config backups. Viewable by viewer and admin (list is non-secret)."""
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
     from main import backup_manager
 
     backups = backup_manager.list_backups() if backup_manager else []
@@ -119,10 +122,16 @@ async def backups_page(request: Request) -> Response:
 
 
 @router.get("/backups/{name}/diff")
-async def backup_diff(request: Request, name: str) -> JSONResponse:
-    """Return a unified diff between a backup and the current config."""
-    if not _require_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def backup_diff(request: Request, name: str) -> Response:
+    """Return a unified diff between a backup and the current config.
+
+    Viewers see the diff with sensitive lines collapsed to ``***REDACTED***``
+    (we redact both sides of the comparison before diffing, so pure-secret
+    edits render as no-change).  Admins see the full plaintext diff.
+    """
+    gate = require_viewer(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     from main import backup_manager
 
     if not backup_manager:
@@ -131,17 +140,23 @@ async def backup_diff(request: Request, name: str) -> JSONResponse:
         )
     if not name.startswith("scarguard_") or not name.endswith(".yml"):
         return JSONResponse({"error": "Invalid backup name"}, status_code=400)
-    diff = backup_manager.get_diff(name)
+    # When the caller is a viewer (not admin), produce the diff from redacted
+    # copies of both files so no plaintext secrets leak into the diff output.
+    if has_admin_access(request):
+        diff = backup_manager.get_diff(name)
+    else:
+        diff = backup_manager.get_diff(name, transform=redact_yaml)
     if diff is None:
         return JSONResponse({"error": "Backup not found"}, status_code=404)
     return JSONResponse({"diff": diff})
 
 
 @router.post("/backups/{name}/restore")
-async def backup_restore(request: Request, name: str) -> JSONResponse:
-    """Restore a backup to the active config."""
-    if not _require_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def backup_restore(request: Request, name: str) -> Response:
+    """Restore a backup to the active config. Admin only."""
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     from main import backup_manager
 
     if not backup_manager:
@@ -157,10 +172,11 @@ async def backup_restore(request: Request, name: str) -> JSONResponse:
 
 
 @router.post("/backups/create")
-async def backup_create(request: Request) -> JSONResponse:
-    """Create a manual config backup."""
-    if not _require_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def backup_create(request: Request) -> Response:
+    """Create a manual config backup. Admin only."""
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     from main import backup_manager
 
     if not backup_manager:

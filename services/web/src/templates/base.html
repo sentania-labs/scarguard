@@ -18,18 +18,22 @@
     <a href="/">Dashboard</a>
     <a href="/events">Events</a>
     <a href="/events/visits">Visits</a>
-    {% if request.state.user and request.state.user.is_admin %}
+    {% set _user = request.state.user %}
+    {% set _role = _user.role if _user and _user.role else ('admin' if _user and _user.is_admin else ('user' if _user else '')) %}
+    {% set _is_admin = _role == 'admin' %}
+    {% set _is_viewer = _role == 'viewer' %}
+    {% if _user and (_is_admin or _is_viewer) %}
     <div class="nav-dropdown">
       <button class="nav-dropdown__toggle" aria-expanded="false">Admin &#9660;</button>
       <div class="nav-dropdown__menu">
         <div class="nav-dropdown__menu-inner">
           <a href="/config">Config</a>
-          <a href="/models">Models</a>
+          {% if _is_admin %}<a href="/models">Models</a>{% endif %}
           <div class="nav-dropdown__sep"></div>
           <a href="/admin/stats">Stats</a>
           <a href="/admin/logs">Logs</a>
           <div class="nav-dropdown__sep"></div>
-          <a href="/admin/users">Users</a>
+          {% if _is_admin %}<a href="/admin/users">Users</a>{% endif %}
           <a href="/admin/training">Training Data</a>
           <a href="/admin/training/evaluate">Model Evaluation</a>
           <a href="/admin/backups">Config Backups</a>
@@ -38,8 +42,8 @@
     </div>
     {% endif %}
     <a href="/about">About</a>
-    {% if request.state.user %}
-    <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ request.state.user.username }}</span>
+    {% if _user %}
+    <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ _user.username }}{% if _is_viewer %} <span class="role-badge role-badge--viewer" title="Read-only admin — cannot make changes or see plaintext secrets">VIEWER</span>{% elif _role == 'user' %} <span class="role-badge role-badge--user" title="Regular user — can view dashboard and disarm">USER</span>{% endif %}</span>
     <form method="post" action="/logout" style="margin:0;">
       <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
       <button type="submit" style="background:none;border:1px solid var(--border);color:var(--muted);padding:0.25em 0.7em;font-size:0.8rem;">Logout</button>

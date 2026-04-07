@@ -802,3 +802,38 @@ body.expert-mode .expert-only.field-row { display: flex !important; }
 body.expert-mode .expert-only.field-group { display: block !important; }
 body.expert-mode .expert-only.config-section { display: block !important; }
 body.expert-mode details.expert-only { display: block !important; }
+
+/* ── Role badges (v0.12.7) ───────────────────────────────────────────────── */
+.role-badge {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  margin-left: 0.35em;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+}
+.role-badge--viewer {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.role-badge--user {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+/* ── Read-only config banner (v0.12.7) ───────────────────────────────────── */
+.readonly-banner {
+  background: rgba(255, 176, 0, 0.08);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  padding: 0.7em 1em;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.readonly-banner strong { color: var(--warn); }

@@ -192,10 +192,24 @@ async def auth_middleware(request: Request, call_next):
     # Load auth config (cached by config_store)
     from config_store import load_cached  # local import to avoid circular at module level
     cfg = load_cached()
-    auth_cfg = cfg.get("system", {}).get("auth", {})
-    auth_enabled = auth_cfg.get("enabled", True)
+    system_cfg = cfg.get("system") or {}
+    auth_cfg = system_cfg.get("auth") or {}
+    # Coerce to bool so string literals like "false" in hand-edited YAML
+    # don't accidentally count as truthy.
+    auth_enabled = bool(auth_cfg.get("enabled", True))
 
     if not auth_enabled:
+        # When auth is disabled (single-user / dev / test setups), grant every
+        # request full admin access so the role-based route guards introduced
+        # in v0.12.7 don't lock the operator out.  This preserves the pre-
+        # v0.12.7 behaviour where "auth disabled" meant "no checks at all".
+        request.state.user = {
+            "user_id": 0,
+            "username": "anonymous",
+            "role": "admin",
+            "is_admin": 1,
+            "disabled": 0,
+        }
         return await call_next(request)
 
     # First-run: no users exist → redirect to setup page

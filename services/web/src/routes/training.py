@@ -19,6 +19,8 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from route_auth import require_admin, require_viewer
+from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin/training")
@@ -38,8 +40,11 @@ async def training_dashboard(
     request: Request,
     date_from: str = "",
     date_to: str = "",
-) -> HTMLResponse:
-    """Training data quality dashboard."""
+) -> Response:
+    """Training data quality dashboard. Readable by viewer and admin."""
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
     dfrom = date_from or None
     dto = date_to or None
     stats = db.get_feedback_stats(date_from=dfrom, date_to=dto)
@@ -83,8 +88,15 @@ async def export_dataset(
     request: Request,
     date_from: str = "",
     date_to: str = "",
-) -> StreamingResponse:
-    """Generate a YOLO-format dataset zip from confirmed detections."""
+) -> Response:
+    """Generate a YOLO-format dataset zip from confirmed detections.
+
+    Admin only — exporting labeled data is treated as a write-equivalent
+    action (data leaves the system) so viewers are blocked.
+    """
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
     dfrom = date_from or None
     dto = date_to or None
     rows = db.get_exportable_events(date_from=dfrom, date_to=dto)
@@ -194,8 +206,11 @@ def _list_models() -> list[dict]:
 
 
 @router.get("/evaluate", response_class=HTMLResponse)
-async def evaluate_page(request: Request) -> HTMLResponse:
-    """Model evaluation comparison page."""
+async def evaluate_page(request: Request) -> Response:
+    """Model evaluation comparison page. Readable by viewer and admin."""
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
     models = _list_models()
     cfg = config_store.load_cached()
     current_model = cfg.get("detection", {}).get("model_path", "")
@@ -216,8 +231,15 @@ async def start_evaluation(
     model_b: str = Form(...),
     date_from: str = Form(""),
     date_to: str = Form(""),
-) -> HTMLResponse:
-    """Publish an evaluation request to Redis for the detector to process."""
+) -> Response:
+    """Publish an evaluation request to Redis for the detector to process.
+
+    Admin only — kicking off an evaluation runs GPU inference on the
+    detector and is a write-equivalent action.
+    """
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
@@ -246,8 +268,15 @@ async def start_evaluation(
 
 
 @router.get("/evaluate/stream")
-async def evaluate_stream(request: Request) -> StreamingResponse:
-    """SSE stream — polls Redis for evaluation progress and results."""
+async def evaluate_stream(request: Request) -> Response:
+    """SSE stream — polls Redis for evaluation progress and results.
+
+    Read-only; viewers can watch an in-flight evaluation kicked off by an
+    admin.
+    """
+    gate = require_viewer(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
@@ -293,8 +322,14 @@ async def evaluate_stream(request: Request) -> StreamingResponse:
 async def promote_model(
     request: Request,
     model_path: str = Form(...),
-) -> HTMLResponse:
-    """Update the active model in scarguard.yml, triggering hot-reload."""
+) -> Response:
+    """Update the active model in scarguard.yml, triggering hot-reload.
+
+    Admin only — changes the active detection model for all cameras.
+    """
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
     safe_name = Path(model_path).name  # strip directory components
     model_file = MODELS_DIR / safe_name
 

@@ -21,6 +21,32 @@ _log = logging.getLogger(__name__)
 
 AUTH_DB_PATH: str = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
 
+# ── Roles ───────────────────────────────────────────────────────────────────
+#
+# Three role tiers as of v0.12.7:
+#
+#   ROLE_USER   — authenticated; can view dashboard/events/visits/about,
+#                 disarm with auto-rearm, label feedback.  No admin pages,
+#                 no config editing, no user management.
+#   ROLE_VIEWER — "read-only admin".  Can view everything the admin can
+#                 (including admin pages and the structured config form),
+#                 but with sensitive fields redacted and no write access.
+#                 Cannot disarm or modify feedback either.
+#   ROLE_ADMIN  — full access, no restrictions.
+#
+# These are NOT strictly hierarchical: a VIEWER sees more than a USER
+# (e.g. admin pages) but writes less (no disarm, no feedback).  Route-level
+# authorisation is gated via the helpers in route_auth.py.
+#
+# The `role` column was added to the users table in v0.12.7; the legacy
+# `is_admin` boolean is kept in sync by create_user() / update_user() for
+# backwards compatibility and will be dropped in v0.13.x.
+
+ROLE_USER = "user"
+ROLE_VIEWER = "viewer"
+ROLE_ADMIN = "admin"
+VALID_ROLES: frozenset[str] = frozenset({ROLE_USER, ROLE_VIEWER, ROLE_ADMIN})
+
 # ── Database ────────────────────────────────────────────────────────────────
 
 _SCHEMA = """
@@ -32,6 +58,7 @@ CREATE TABLE IF NOT EXISTS users (
     username      TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,
     is_admin      INTEGER NOT NULL DEFAULT 1,
+    role          TEXT    NOT NULL DEFAULT 'user',
     created_at    TEXT    NOT NULL,
     disabled      INTEGER NOT NULL DEFAULT 0
 );
@@ -76,9 +103,33 @@ def init_db(db_path: str = AUTH_DB_PATH) -> None:
     conn = _connect(db_path)
     try:
         conn.executescript(_SCHEMA)
+        _migrate_add_role_column(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate_add_role_column(conn: sqlite3.Connection) -> None:
+    """Idempotently add the ``role`` column to an existing users table.
+
+    Fresh databases get the column via the CREATE TABLE in ``_SCHEMA`` and
+    this function is a no-op.  For databases created before v0.12.7 the
+    column is missing, so we ALTER TABLE and backfill from the legacy
+    ``is_admin`` boolean: is_admin=1 → role='admin', is_admin=0 → role='user'.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "role" in cols:
+        return
+    try:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'"
+        )
+        conn.execute(
+            "UPDATE users SET role = CASE WHEN is_admin THEN 'admin' ELSE 'user' END"
+        )
+        _log.info("Migrated users table: added 'role' column and backfilled from is_admin")
+    except sqlite3.Error as exc:
+        _log.warning("Failed to add role column to users table: %s", exc)
 
 
 def get_db(db_path: str = AUTH_DB_PATH) -> sqlite3.Connection:
@@ -128,12 +179,25 @@ def create_user(
     username: str,
     password: str,
     is_admin: bool = True,
+    role: str | None = None,
 ) -> int:
-    """Create a user and return their id. Raises sqlite3.IntegrityError on duplicate."""
+    """Create a user and return their id. Raises sqlite3.IntegrityError on duplicate.
+
+    ``role`` (v0.12.7+) is the source of truth: 'user', 'viewer', or 'admin'.
+    If omitted, it is derived from the legacy ``is_admin`` flag
+    (True → 'admin', False → 'user') so existing callers continue to work
+    unchanged.  When ``role`` is set, ``is_admin`` is ignored and written to
+    the DB as 1 iff role=='admin' (kept in sync for backwards compat).
+    """
+    if role is None:
+        role = ROLE_ADMIN if is_admin else ROLE_USER
+    if role not in VALID_ROLES:
+        raise ValueError(f"invalid role {role!r}; must be one of {sorted(VALID_ROLES)}")
+    is_admin_int = 1 if role == ROLE_ADMIN else 0
     now = _utcnow()
     cur = db.execute(
-        "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?,?,?,?)",
-        (username, hash_password(password), int(is_admin), now),
+        "INSERT INTO users (username, password_hash, is_admin, role, created_at) VALUES (?,?,?,?,?)",
+        (username, hash_password(password), is_admin_int, role, now),
     )
     db.commit()
     return cur.lastrowid  # type: ignore[return-value]
@@ -141,7 +205,7 @@ def create_user(
 
 def get_user(db: sqlite3.Connection, username: str) -> dict[str, Any] | None:
     row = db.execute(
-        "SELECT id, username, password_hash, is_admin, created_at, disabled FROM users WHERE username=?",
+        "SELECT id, username, password_hash, is_admin, role, created_at, disabled FROM users WHERE username=?",
         (username,),
     ).fetchone()
     return dict(row) if row else None
@@ -149,7 +213,7 @@ def get_user(db: sqlite3.Connection, username: str) -> dict[str, Any] | None:
 
 def get_user_by_id(db: sqlite3.Connection, user_id: int) -> dict[str, Any] | None:
     row = db.execute(
-        "SELECT id, username, password_hash, is_admin, created_at, disabled FROM users WHERE id=?",
+        "SELECT id, username, password_hash, is_admin, role, created_at, disabled FROM users WHERE id=?",
         (user_id,),
     ).fetchone()
     return dict(row) if row else None
@@ -157,9 +221,98 @@ def get_user_by_id(db: sqlite3.Connection, user_id: int) -> dict[str, Any] | Non
 
 def list_users(db: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = db.execute(
-        "SELECT id, username, is_admin, created_at, disabled FROM users ORDER BY id"
+        "SELECT id, username, is_admin, role, created_at, disabled FROM users ORDER BY id"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_user_role(db: sqlite3.Connection, user_id: int, role: str) -> None:
+    """Set a user's role. Keeps the legacy ``is_admin`` column in sync."""
+    if role not in VALID_ROLES:
+        raise ValueError(f"invalid role {role!r}; must be one of {sorted(VALID_ROLES)}")
+    is_admin_int = 1 if role == ROLE_ADMIN else 0
+    db.execute(
+        "UPDATE users SET role=?, is_admin=? WHERE id=?",
+        (role, is_admin_int, user_id),
+    )
+    db.commit()
+
+
+def try_demote_admin(db: sqlite3.Connection, user_id: int, new_role: str) -> bool:
+    """Atomically demote an admin to *new_role*, refusing if they're the last.
+
+    Returns True on success, False if the target is an admin and demoting
+    them would leave zero active admins.  The check and the write happen in
+    a single UPDATE so two concurrent requests can't both see count=2 and
+    both succeed.
+    """
+    if new_role not in VALID_ROLES:
+        raise ValueError(f"invalid role {new_role!r}")
+    if new_role == ROLE_ADMIN:
+        # Not a demotion; just a normal role update.
+        update_user_role(db, user_id, new_role)
+        return True
+    is_admin_int = 1 if new_role == ROLE_ADMIN else 0
+    cur = db.execute(
+        """UPDATE users
+           SET role=?, is_admin=?
+           WHERE id=?
+             AND (
+               role != ?
+               OR (SELECT COUNT(*) FROM users WHERE role=? AND disabled=0) > 1
+             )""",
+        (new_role, is_admin_int, user_id, ROLE_ADMIN, ROLE_ADMIN),
+    )
+    db.commit()
+    return cur.rowcount > 0
+
+
+def try_disable_admin(db: sqlite3.Connection, user_id: int, disabled: bool) -> bool:
+    """Atomically set disabled=*disabled*, refusing if it would leave zero admins."""
+    if not disabled:
+        set_user_disabled(db, user_id, False)
+        return True
+    cur = db.execute(
+        """UPDATE users
+           SET disabled=1
+           WHERE id=?
+             AND (
+               role != ?
+               OR (SELECT COUNT(*) FROM users WHERE role=? AND disabled=0) > 1
+             )""",
+        (user_id, ROLE_ADMIN, ROLE_ADMIN),
+    )
+    db.commit()
+    return cur.rowcount > 0
+
+
+def try_delete_admin(db: sqlite3.Connection, user_id: int) -> bool:
+    """Atomically delete a user, refusing if it would leave zero active admins."""
+    cur = db.execute(
+        """DELETE FROM users
+           WHERE id=?
+             AND (
+               role != ?
+               OR disabled != 0
+               OR (SELECT COUNT(*) FROM users WHERE role=? AND disabled=0) > 1
+             )""",
+        (user_id, ROLE_ADMIN, ROLE_ADMIN),
+    )
+    db.commit()
+    return cur.rowcount > 0
+
+
+def count_active_admins(db: sqlite3.Connection) -> int:
+    """Return the number of non-disabled users with role='admin'.
+
+    Used to enforce the "cannot delete / demote / disable the last admin"
+    rule so a misclick can't lock the operator out of their own instance.
+    """
+    row = db.execute(
+        "SELECT COUNT(*) FROM users WHERE role=? AND disabled=0",
+        (ROLE_ADMIN,),
+    ).fetchone()
+    return int(row[0])
 
 
 def set_user_disabled(db: sqlite3.Connection, user_id: int, disabled: bool) -> None:
@@ -207,11 +360,16 @@ def create_session(
 def validate_session(
     db: sqlite3.Connection, raw_token: str
 ) -> dict[str, Any] | None:
-    """Validate a raw session token. Returns the user dict if valid, else None."""
+    """Validate a raw session token. Returns the user dict if valid, else None.
+
+    The returned dict carries ``role`` (v0.12.7+) alongside the legacy
+    ``is_admin`` boolean.  Callers should prefer ``role`` for new logic;
+    ``is_admin`` is retained for backwards compat with older route helpers.
+    """
     token_hash = _hash_token(raw_token)
     now = _utcnow()
     row = db.execute(
-        """SELECT u.id AS user_id, u.username, u.is_admin, u.disabled
+        """SELECT u.id AS user_id, u.username, u.is_admin, u.role, u.disabled
            FROM sessions s
            JOIN users u ON u.id = s.user_id
            WHERE s.token_hash=? AND s.expires_at > ? AND u.disabled=0""",
@@ -248,10 +406,15 @@ def create_api_token(db: sqlite3.Connection, user_id: int, name: str) -> str:
 
 
 def validate_api_token(db: sqlite3.Connection, raw_token: str) -> dict[str, Any] | None:
-    """Validate a raw API token. Returns user dict if valid, else None."""
+    """Validate a raw API token. Returns user dict if valid, else None.
+
+    The returned dict inherits ``role`` from the owning user, so API tokens
+    issued to a viewer are gated at exactly the same level as the viewer's
+    session cookies.
+    """
     token_hash = _hash_token(raw_token)
     row = db.execute(
-        """SELECT t.id AS token_id, u.id AS user_id, u.username, u.is_admin, u.disabled
+        """SELECT t.id AS token_id, u.id AS user_id, u.username, u.is_admin, u.role, u.disabled
            FROM api_tokens t
            JOIN users u ON u.id = t.user_id
            WHERE t.token_hash=? AND t.disabled=0 AND u.disabled=0""",

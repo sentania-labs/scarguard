@@ -18,10 +18,13 @@ from config_model import (
     SystemConfig,
     TLSConfig,
 )
+from config_redact import redact_config
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from route_auth import has_admin_access, require_admin, require_viewer
+from starlette.responses import Response
 
 log = logging.getLogger(__name__)
 
@@ -112,14 +115,37 @@ def _channels_json(raw_cfg: dict) -> str:
 
 
 @router.get("", response_class=HTMLResponse)
-async def config_page(request: Request):
+async def config_page(request: Request) -> Response:
+    """Render the config editor.
+
+    Viewers get a read-only copy with sensitive fields replaced by
+    ``***REDACTED***`` (camera RTSP URLs, Discord webhook URLs, SMTP /
+    webhook / ntfy credentials).  The Advanced/raw-YAML tab is hidden
+    for viewers entirely — see config.html for the template branches.
+    """
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
+
     raw_cfg = config_store.load()
-    raw = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
+    is_admin = has_admin_access(request)
+
+    # For viewers, redact BOTH the structural dict (used to build the
+    # form-mode cameras_json / channels_json hydration payloads) AND the
+    # raw-YAML string (shown in the Advanced tab for admins; hidden for
+    # viewers, but we redact it anyway as defence-in-depth in case a
+    # template bug leaks it).
+    if not is_admin:
+        raw_cfg_for_render = redact_config(raw_cfg)
+    else:
+        raw_cfg_for_render = raw_cfg
+    raw = yaml.dump(raw_cfg_for_render, default_flow_style=False, sort_keys=False)
 
     # Build a validated config object with defaults for any missing fields.
     # Each section falls back independently so a single bad value does not
-    # blank out the entire form.
-    cfg = _parse_cfg(raw_cfg)
+    # blank out the entire form.  Parse from the (possibly redacted) dict
+    # so the Pydantic `cfg` shown in the form also has secrets masked.
+    cfg = _parse_cfg(raw_cfg_for_render)
 
     return templates.TemplateResponse(
         request,
@@ -130,24 +156,36 @@ async def config_page(request: Request):
             "error": None,
             "cfg": cfg,
             "cameras_json": _cameras_json(cfg.cameras),
-            "channels_json": _channels_json(raw_cfg),
+            "channels_json": _channels_json(raw_cfg_for_render),
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
+            "read_only": not is_admin,
         },
     )
 
 
 @router.get("/raw")
-async def get_raw_config() -> JSONResponse:
-    """Return the current config as a raw YAML string for the Advanced editor."""
+async def get_raw_config(request: Request) -> Response:
+    """Return the current config as a raw YAML string for the Advanced editor.
+
+    Admin-only: raw YAML is the one form of the config where we can't
+    redact cleanly without breaking round-trip semantics, so viewers are
+    denied this endpoint entirely.  The viewer's structured-form view is
+    built through ``redact_config`` in the /config GET handler instead.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     cfg = config_store.load()
     raw = yaml.dump(cfg, default_flow_style=False, sort_keys=False)
     return JSONResponse({"yaml": raw})
 
 
 @router.post("/structured", response_class=JSONResponse)
-async def save_structured_config(request: Request) -> JSONResponse:
+async def save_structured_config(request: Request) -> Response:
     """Accept JSON from the form-based config editor and write to scarguard.yml.
+
+    Admin only — viewers are blocked at the top of the handler.
 
     Only updates the sections the form knows about (system, cameras, detection,
     notifications.discord, notifications.email).  All other keys in the existing
@@ -156,6 +194,9 @@ async def save_structured_config(request: Request) -> JSONResponse:
     For cameras, unknown fields (e.g. exclusion_zones) are preserved by merging
     the form values over the existing entry matched by name.
     """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     try:
         body = await request.json()
         payload = StructuredConfigPayload.model_validate(body)
@@ -228,7 +269,11 @@ async def save_structured_config(request: Request) -> JSONResponse:
 
 
 @router.post("", response_class=HTMLResponse)
-async def save_config(request: Request, raw_yaml: str = Form(...)):
+async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
+    """Save raw-YAML config. Admin only."""
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
     error = None
     saved = False
     raw_cfg: dict = {}
@@ -271,13 +316,16 @@ async def upload_tls_cert(
     key_file: UploadFile | None = File(None),
     cert_pem: str = Form(""),
     key_pem: str = Form(""),
-) -> JSONResponse:
-    """Upload or paste TLS certificate and key files.
+) -> Response:
+    """Upload or paste TLS certificate and key files.  Admin only.
 
     Accepts either file uploads (cert_file, key_file) or pasted PEM text
     (cert_pem, key_pem).  Files are written to /config/certs/ which is
     mounted from the scarguard-config volume.
     """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     _CERTS_DIR.mkdir(parents=True, exist_ok=True)
 
     cert_data: bytes | None = None
@@ -344,8 +392,15 @@ _DETECTIONS_CHANNEL = "scarguard:detections"
 
 
 @router.post("/test-notification", response_class=JSONResponse)
-async def send_test_notification(request: Request) -> JSONResponse:
-    """Send a test notification to a named channel via the notifier."""
+async def send_test_notification(request: Request) -> Response:
+    """Send a test notification to a named channel via the notifier.
+
+    Admin only — viewers are blocked because this fires real outbound
+    traffic (Discord webhook, email SMTP, etc.).
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     try:
         body = await request.json()
     except Exception:

@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import threading
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -108,8 +109,20 @@ class ConfigBackupManager:
             logger.exception("Failed to list backups")
         return backups
 
-    def get_diff(self, backup_name: str) -> str | None:
-        """Return a unified diff between a backup and the current config."""
+    def get_diff(
+        self,
+        backup_name: str,
+        *,
+        transform: Callable[[str], str] | None = None,
+    ) -> str | None:
+        """Return a unified diff between a backup and the current config.
+
+        If *transform* is provided, it is applied to both the backup and
+        the current YAML text *before* diffing.  This is used by the
+        viewer-role code path to redact sensitive fields via
+        ``config_redact.redact_yaml`` so secret-line changes don't leak
+        through the diff output.
+        """
         backup_path = BACKUP_DIR / backup_name
         # Validate path stays in BACKUP_DIR
         if not backup_path.resolve().is_relative_to(BACKUP_DIR.resolve()):
@@ -117,8 +130,13 @@ class ConfigBackupManager:
         if not backup_path.exists():
             return None
         try:
-            backup_lines = backup_path.read_text().splitlines(keepends=True)
-            current_lines = CONFIG_PATH.read_text().splitlines(keepends=True)
+            backup_text = backup_path.read_text()
+            current_text = CONFIG_PATH.read_text()
+            if transform is not None:
+                backup_text = transform(backup_text)
+                current_text = transform(current_text)
+            backup_lines = backup_text.splitlines(keepends=True)
+            current_lines = current_text.splitlines(keepends=True)
             diff = difflib.unified_diff(
                 backup_lines,
                 current_lines,

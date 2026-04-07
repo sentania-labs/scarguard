@@ -359,6 +359,11 @@ function validate(data) {
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 async function saveConfig() {
+  // Belt-and-braces read-only guard — the DOM hardening in config.html
+  // already hides the Save button, and the server rejects the POST with
+  // 403, but this stops a stray onclick or test script from firing a
+  // spurious request.
+  if (window.SCARGUARD_READ_ONLY) return;
   const banner = document.getElementById("form-banner");
   banner.className = "";
   banner.textContent = "";
