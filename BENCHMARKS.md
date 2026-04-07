@@ -23,3 +23,5 @@ Results are appended automatically by the release workflow.
 | v0.12.5 | x86_64 | cpu | x86_64 | 0.8 | CPU fallback |
 | v0.12.6 | aarch64 | cuda | Orin | 32.3 | GPU inference |
 | v0.12.6 | x86_64 | cpu | x86_64 | 0.9 | CPU fallback |
+| v0.12.7 | aarch64 | cuda | Orin | 36.8 | GPU inference |
+| v0.12.7 | x86_64 | cpu | x86_64 | 0.7 | CPU fallback |
