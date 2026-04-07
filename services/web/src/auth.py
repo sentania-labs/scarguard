@@ -337,12 +337,19 @@ def set_user_disabled(db: sqlite3.Connection, user_id: int, disabled: bool) -> N
     db.commit()
 
 
-def set_user_password(db: sqlite3.Connection, user_id: int, new_password: str) -> None:
-    db.execute(
+def set_user_password(db: sqlite3.Connection, user_id: int, new_password: str) -> bool:
+    """Set a user's password. Returns True iff a row was updated.
+
+    Returning a bool lets callers (e.g. the audit-log hook in routes/users.py)
+    skip logging a "success" when the target user_id no longer exists —
+    otherwise a stale id produces a false-positive audit entry.
+    """
+    cur = db.execute(
         "UPDATE users SET password_hash=? WHERE id=?",
         (hash_password(new_password), user_id),
     )
     db.commit()
+    return cur.rowcount > 0
 
 
 def delete_user(db: sqlite3.Connection, user_id: int) -> None:
@@ -466,9 +473,15 @@ def list_api_tokens(db: sqlite3.Connection, user_id: int | None = None) -> list[
     return [dict(r) for r in rows]
 
 
-def revoke_api_token(db: sqlite3.Connection, token_id: int) -> None:
-    db.execute("UPDATE api_tokens SET disabled=1 WHERE id=?", (token_id,))
+def revoke_api_token(db: sqlite3.Connection, token_id: int) -> bool:
+    """Disable an API token. Returns True iff a row was updated.
+
+    The bool lets audit-log callers avoid logging a false "success" when
+    the token_id is stale or already revoked.
+    """
+    cur = db.execute("UPDATE api_tokens SET disabled=1 WHERE id=?", (token_id,))
     db.commit()
+    return cur.rowcount > 0
 
 
 def delete_api_token(db: sqlite3.Connection, token_id: int) -> None:

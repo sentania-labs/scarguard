@@ -226,7 +226,9 @@ async def change_password(
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.set_user_password(db, user_id, new_password)
+        changed = auth_module.set_user_password(db, user_id, new_password)
+        if not changed:
+            return _redirect_err("User not found.")
         audit.record(
             db,
             action="user.password_reset",
@@ -334,7 +336,8 @@ async def revoke_api_token(request: Request, token_id: int) -> RedirectResponse:
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.revoke_api_token(db, token_id)
+        if not auth_module.revoke_api_token(db, token_id):
+            return _redirect_err("API token not found.")
         audit.record(
             db,
             action="api_token.revoke",
