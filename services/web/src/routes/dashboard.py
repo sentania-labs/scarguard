@@ -10,8 +10,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import config_store
 import db
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from route_auth import current_role, has_admin_access
 
 log = logging.getLogger(__name__)
 
@@ -22,8 +23,8 @@ _REARM_KEY = "scarguard:rearm_at"
 
 
 def _is_admin(request: Request) -> bool:
-    user = getattr(request.state, "user", None)
-    return bool(user and user.get("is_admin"))
+    """Legacy shim. Prefer route_auth.has_admin_access() in new code."""
+    return has_admin_access(request)
 
 
 def _redis_client(cfg: dict) -> Any:
@@ -258,6 +259,7 @@ async def dashboard(request: Request):
             "armed": cfg.get("system", {}).get("armed", True),
             "rearm_at": rearm_at,
             "is_admin": _is_admin(request),
+            "user_role": current_role(request),
             "cameras": cameras,
             "camera_health": camera_health,
             "total_events": total,
@@ -280,7 +282,16 @@ async def arm_status(request: Request):
 
 
 @router.post("/arm", response_class=HTMLResponse)
-async def arm(request: Request):
+async def arm(request: Request) -> Response:
+    # Arming is a write action — viewers and unauth'd users are rejected.
+    # Regular users (role=user) historically could hit this route; preserve
+    # that so arm/disarm is symmetric for them.
+    role = current_role(request)
+    if role not in ("user", "admin"):
+        return await _arm_badge(
+            request,
+            armed=config_store.load().get("system", {}).get("armed", True),
+        )
     cfg = config_store.load()
     config_store.set_armed(True)
     await _clear_rearm_at(cfg)
@@ -288,11 +299,20 @@ async def arm(request: Request):
 
 
 @router.post("/disarm", response_class=HTMLResponse)
-async def disarm(request: Request):
+async def disarm(request: Request) -> Response:
+    # Viewers are read-only — refuse the disarm action outright and render
+    # the current arm badge unchanged.  Regular users can still disarm with
+    # the auto-rearm behaviour.
+    role = current_role(request)
+    if role not in ("user", "admin"):
+        return await _arm_badge(
+            request,
+            armed=config_store.load().get("system", {}).get("armed", True),
+        )
     cfg = config_store.load()
     config_store.set_armed(False)
     rearm_at: str | None = None
-    if _is_admin(request):
+    if role == "admin":
         await _clear_rearm_at(cfg)
     else:
         rearm_minutes = (

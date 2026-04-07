@@ -554,9 +554,27 @@ function loadHistory(range, btn) {
 }
 
 function renderHistCharts(data) {
+  // Pick a label format based on the total span of the data: short
+  // ranges show HH:MM only, multi-day ranges include the date so the
+  // x-axis ticks don't all look like the same hour (#93).  Parsing the
+  // first and last timestamps is cheap — server guarantees ascending
+  // order and fills empty buckets, so both endpoints always exist.
+  let spanMs = 0;
+  if (data.length >= 2) {
+    spanMs = new Date(data[data.length - 1].timestamp) - new Date(data[0].timestamp);
+  }
+  const oneDay = 24 * 60 * 60 * 1000;
+  const showDate = spanMs > oneDay;
+  const dateOnly = spanMs > 7 * oneDay;
   const labels = data.map(d => {
     const dt = new Date(d.timestamp);
-    return dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    if (dateOnly) {
+      return dt.toLocaleDateString([], {month: 'short', day: 'numeric'});
+    }
+    if (showDate) {
+      return dt.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+    }
+    return dt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
   });
   const cpuVals = data.map(d => d.cpu_pct);
   const ramVals = data.map(d => {

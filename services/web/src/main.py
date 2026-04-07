@@ -178,6 +178,19 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept
 
 
+def _parse_auth_enabled(value: object) -> bool:
+    """Parse the ``system.auth.enabled`` config value safely.
+
+    A naive ``bool(value)`` cast would report ``"false"`` as truthy,
+    which silently keeps auth on when an operator quoted the value in
+    hand-edited YAML.  Accept real bools plus the usual false-ish string
+    spellings.  Default (missing value) is True — fail closed.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "off", "")
+    return bool(value)
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
@@ -192,10 +205,22 @@ async def auth_middleware(request: Request, call_next):
     # Load auth config (cached by config_store)
     from config_store import load_cached  # local import to avoid circular at module level
     cfg = load_cached()
-    auth_cfg = cfg.get("system", {}).get("auth", {})
-    auth_enabled = auth_cfg.get("enabled", True)
+    system_cfg = cfg.get("system") or {}
+    auth_cfg = system_cfg.get("auth") or {}
+    auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
 
     if not auth_enabled:
+        # When auth is disabled (single-user / dev / test setups), grant every
+        # request full admin access so the role-based route guards introduced
+        # in v0.12.7 don't lock the operator out.  This preserves the pre-
+        # v0.12.7 behaviour where "auth disabled" meant "no checks at all".
+        request.state.user = {
+            "user_id": 0,
+            "username": "anonymous",
+            "role": "admin",
+            "is_admin": 1,
+            "disabled": 0,
+        }
         return await call_next(request)
 
     # First-run: no users exist → redirect to setup page

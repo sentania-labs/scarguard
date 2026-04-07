@@ -28,10 +28,23 @@
       </tr>
     </thead>
     <tbody>
+    {% set current_user_id = request.state.user.user_id if request.state.user else None %}
     {% for u in users %}
       <tr>
         <td><strong>{{ u.username }}</strong></td>
-        <td>{{ "Admin" if u.is_admin else "User" }}</td>
+        <td>
+          <form method="post" action="/admin/users/{{ u.id }}/role"
+                style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+            <select name="role" onchange="this.form.submit()"
+                    {% if u.id == current_user_id %}disabled title="Cannot change your own role"{% endif %}
+                    style="font-size:0.85rem;padding:0.15em 0.3em;">
+              {% for r in valid_roles %}
+              <option value="{{ r }}" {% if u.role == r %}selected{% endif %}>{{ r|capitalize }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
         <td class="muted" style="font-size:0.8rem;">{{ u.created_at[:10] }}</td>
         <td>
           {% if u.disabled %}
@@ -43,14 +56,16 @@
         <td>
           <form method="post" action="/admin/users/{{ u.id }}/disable" style="display:inline;">
             <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-            <button type="submit" class="btn-secondary" style="font-size:0.78rem;padding:0.2em 0.6em;">
+            <button type="submit" class="btn-secondary" style="font-size:0.78rem;padding:0.2em 0.6em;"
+                    {% if u.id == current_user_id %}disabled title="Cannot disable your own account"{% endif %}>
               {{ "Enable" if u.disabled else "Disable" }}
             </button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;"
                 onsubmit="return confirm('Delete user {{ u.username }}?');">
             <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-            <button type="submit" class="btn-remove" style="font-size:0.78rem;">Delete</button>
+            <button type="submit" class="btn-remove" style="font-size:0.78rem;"
+                    {% if u.id == current_user_id %}disabled title="Cannot delete your own account"{% endif %}>Delete</button>
           </form>
         </td>
       </tr>
@@ -88,12 +103,13 @@
       <label for="new-password">Password (min 8 chars)</label>
       <input type="password" id="new-password" name="password" minlength="8" required>
     </div>
-    <div class="field-group" style="flex:0;">
-      <label class="toggle-label" style="margin-top:1.5rem;">
-        <input type="checkbox" name="is_admin" value="on">
-        <span class="toggle-track"></span>
-        Admin
-      </label>
+    <div class="field-group" style="min-width:140px;">
+      <label for="new-role">Role</label>
+      <select id="new-role" name="role">
+        {% for r in valid_roles %}
+        <option value="{{ r }}" {% if r == 'user' %}selected{% endif %}>{{ r|capitalize }}</option>
+        {% endfor %}
+      </select>
     </div>
     <div style="align-self:flex-end;">
       <button type="submit">Add User</button>

@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from route_auth import require_admin, require_viewer
+from starlette.responses import Response
 
 router = APIRouter(prefix="/models")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -22,7 +24,11 @@ MAX_UPLOAD_BYTES = int(os.environ["MODEL_UPLOAD_MAX_BYTES"]) if "MODEL_UPLOAD_MA
 
 
 @router.get("", response_class=HTMLResponse)
-async def models_page(request: Request, uploaded: str = ""):
+async def models_page(request: Request, uploaded: str = "") -> Response:
+    """Model management page. Readable by viewer + admin; uploads are admin-only."""
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
     files = sorted(
         [
             {"name": f.name, "size_mb": round(f.stat().st_size / 1_048_576, 1)}
@@ -39,7 +45,11 @@ async def models_page(request: Request, uploaded: str = ""):
 
 
 @router.post("", response_class=HTMLResponse)
-async def upload_model(request: Request, file: UploadFile = File(...)):
+async def upload_model(request: Request, file: UploadFile = File(...)) -> Response:
+    """Upload a new model file. Admin only — writes to shared /models volume."""
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
     filename = file.filename or ""
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:

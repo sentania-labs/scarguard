@@ -1,14 +1,26 @@
-"""User and API token management routes (admin only)."""
+"""User and API token management routes (admin only).
+
+In v0.12.7 the binary ``is_admin`` flag was replaced with a three-value
+``role`` enum (user / viewer / admin).  User management is still gated to
+admins only — viewers do not see this page at all.
+
+Lockout protection: the "last admin" cannot be demoted, disabled, or
+deleted.  A SELECT COUNT guard in auth.count_active_admins() enforces
+this so a misclick can't orphan the instance.
+"""
 
 from __future__ import annotations
 
 import os
 import sqlite3
+from urllib.parse import quote
 
 import auth as auth_module
+from auth import ROLE_ADMIN, VALID_ROLES
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from route_auth import current_role, require_admin
 
 _src = os.path.dirname(os.path.dirname(__file__))
 templates = Jinja2Templates(directory=os.path.join(_src, "templates"))
@@ -18,20 +30,18 @@ router = APIRouter(prefix="/admin/users")
 AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
 
 
-def _require_admin(request: Request) -> dict | None:
-    """Return the current user if admin, else None."""
-    user = getattr(request.state, "user", None)
-    if user is None or not user.get("is_admin"):
-        return None
-    return user
+def _redirect_err(msg: str) -> RedirectResponse:
+    """Build a redirect back to the users list with an error query param."""
+    return RedirectResponse(f"/admin/users?error={quote(msg)}", status_code=302)
 
 
 # ── User list ─────────────────────────────────────────────────────────────────
 
 @router.get("", response_class=HTMLResponse)
 async def users_list(request: Request) -> Response:
-    if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
@@ -48,6 +58,7 @@ async def users_list(request: Request) -> Response:
             "tokens": tokens,
             "new_token": None,
             "error": request.query_params.get("error"),
+            "valid_roles": sorted(VALID_ROLES),
         },
     )
 
@@ -59,23 +70,65 @@ async def create_user(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    is_admin: str = Form("off"),
+    role: str = Form("user"),
 ) -> RedirectResponse:
-    if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        # require_admin returned a RedirectResponse — it happens to be the
+        # right type here, but cast for mypy.
+        return gate  # type: ignore[return-value]
 
+    if role not in VALID_ROLES:
+        return _redirect_err(f"Invalid role: {role}")
     if len(password) < 8:
-        return RedirectResponse(
-            "/admin/users?error=Password+must+be+at+least+8+characters.", status_code=302
-        )
+        return _redirect_err("Password must be at least 8 characters.")
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.create_user(db, username.strip(), password, is_admin=(is_admin == "on"))
+        auth_module.create_user(db, username.strip(), password, role=role)
     except sqlite3.IntegrityError:
-        return RedirectResponse(
-            f"/admin/users?error=Username+%27{username}%27+already+exists.", status_code=302
-        )
+        return _redirect_err(f"Username '{username}' already exists.")
+    finally:
+        db.close()
+
+    return RedirectResponse("/admin/users", status_code=302)
+
+
+# ── Change role ───────────────────────────────────────────────────────────────
+
+@router.post("/{user_id}/role")
+async def change_role(
+    request: Request,
+    user_id: int,
+    role: str = Form(...),
+) -> RedirectResponse:
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate  # type: ignore[return-value]
+    current_user = gate
+
+    if role not in VALID_ROLES:
+        return _redirect_err(f"Invalid role: {role}")
+
+    db = auth_module.get_db(AUTH_DB_PATH)
+    try:
+        target = auth_module.get_user_by_id(db, user_id)
+        if target is None:
+            return _redirect_err("User not found.")
+
+        # Cannot demote yourself (defence in depth — the UI also blocks this)
+        if target["id"] == current_user["user_id"] and role != ROLE_ADMIN:
+            return _redirect_err("Cannot change your own role.")
+
+        # Last-admin protection is handled atomically inside try_demote_admin:
+        # the UPDATE ... WHERE ... COUNT > 1 guard prevents a race where two
+        # concurrent demote requests would both observe count=2 and both
+        # succeed.
+        ok = auth_module.try_demote_admin(db, user_id, role)
+        if not ok:
+            return _redirect_err(
+                "Cannot demote the last admin — promote another user first."
+            )
     finally:
         db.close()
 
@@ -86,20 +139,26 @@ async def create_user(
 
 @router.post("/{user_id}/disable")
 async def toggle_disable(request: Request, user_id: int) -> RedirectResponse:
-    current_user = _require_admin(request)
-    if current_user is None:
-        return RedirectResponse("/", status_code=302)
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate  # type: ignore[return-value]
+    current_user = gate
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
         target = auth_module.get_user_by_id(db, user_id)
         if target is None:
-            return RedirectResponse("/admin/users?error=User+not+found.", status_code=302)
+            return _redirect_err("User not found.")
         if target["id"] == current_user["user_id"]:
-            return RedirectResponse(
-                "/admin/users?error=Cannot+disable+your+own+account.", status_code=302
+            return _redirect_err("Cannot disable your own account.")
+
+        new_disabled = not bool(target["disabled"])
+        # Atomic last-admin guard — see try_disable_admin docstring.
+        ok = auth_module.try_disable_admin(db, user_id, new_disabled)
+        if not ok:
+            return _redirect_err(
+                "Cannot disable the last active admin — promote another user first."
             )
-        auth_module.set_user_disabled(db, user_id, not bool(target["disabled"]))
     finally:
         db.close()
 
@@ -114,17 +173,15 @@ async def change_password(
     user_id: int,
     new_password: str = Form(...),
 ) -> RedirectResponse:
-    current_user = _require_admin(request)
-    if current_user is None:
-        # Non-admins may only change their own password
-        cur = getattr(request.state, "user", None)
-        if cur is None or cur.get("user_id") != user_id:
-            return RedirectResponse("/", status_code=302)
+    # Admins can change anyone's password; non-admins may only change their own.
+    cur = getattr(request.state, "user", None)
+    if cur is None:
+        return RedirectResponse("/", status_code=302)
+    if current_role(request) != ROLE_ADMIN and cur.get("user_id") != user_id:
+        return RedirectResponse("/", status_code=302)
 
     if len(new_password) < 8:
-        return RedirectResponse(
-            "/admin/users?error=Password+must+be+at+least+8+characters.", status_code=302
-        )
+        return _redirect_err("Password must be at least 8 characters.")
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
@@ -139,18 +196,25 @@ async def change_password(
 
 @router.post("/{user_id}/delete")
 async def delete_user(request: Request, user_id: int) -> RedirectResponse:
-    current_user = _require_admin(request)
-    if current_user is None:
-        return RedirectResponse("/", status_code=302)
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate  # type: ignore[return-value]
+    current_user = gate
 
     if current_user["user_id"] == user_id:
-        return RedirectResponse(
-            "/admin/users?error=Cannot+delete+your+own+account.", status_code=302
-        )
+        return _redirect_err("Cannot delete your own account.")
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.delete_user(db, user_id)
+        target = auth_module.get_user_by_id(db, user_id)
+        if target is None:
+            return _redirect_err("User not found.")
+        # Atomic last-admin guard — see try_delete_admin docstring.
+        ok = auth_module.try_delete_admin(db, user_id)
+        if not ok:
+            return _redirect_err(
+                "Cannot delete the last active admin — promote another user first."
+            )
     finally:
         db.close()
 
@@ -164,10 +228,11 @@ async def create_api_token(
     request: Request,
     name: str = Form(...),
 ) -> Response:
-    if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
 
-    current_user = request.state.user
+    current_user = gate
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
         raw_token = auth_module.create_api_token(db, current_user["user_id"], name.strip())
@@ -186,14 +251,16 @@ async def create_api_token(
             "tokens": tokens,
             "new_token": raw_token,
             "error": None,
+            "valid_roles": sorted(VALID_ROLES),
         },
     )
 
 
 @router.post("/api-tokens/{token_id}/revoke")
 async def revoke_api_token(request: Request, token_id: int) -> RedirectResponse:
-    if _require_admin(request) is None:
-        return RedirectResponse("/", status_code=302)
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate  # type: ignore[return-value]
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:

@@ -29,6 +29,14 @@ Stale config keys are handled by a declarative `_STALE_KEYS` set in `config_stor
 
 All 13 items from the beta 1 code audit shipped across four patch releases. One item (structured JSON logging) was intentionally dropped — reduces readability for self-hosters who tail logs directly. See git history for v0.12.3–v0.12.6 for details.
 
+## v0.12.7 — bundled release (in progress)
+
+Three workstreams bundled into one patch release:
+
+1. **Inference perf hotfix.** Pins ultralytics' predict save_dir so the `increment_path` O(N) scan doesn't dominate inference time. Regression introduced in v0.12.1 via commit `149374d` (the non-root container fix for #77) went undetected for six patch releases. Recovered v0.11.0 performance (~50 ms per call) on the production Orin via a one-line change in `detector.py`. See `INFERENCE_INVESTIGATION.md` for the full post-mortem including ~4 hours of wrong theories chased before py-spy gave the answer in 30 seconds.
+2. **Viewer role + sensitive-field redaction.** New third auth tier between `user` and `admin`: can view everything including admin pages but with every plaintext secret masked as `***REDACTED***`, zero write access, raw-YAML tab hidden entirely. Enables oversight-without-risk for family members and sysadmins. First server-side redaction helper in the codebase, closing a pre-existing authz gap where several admin routes (config, training, logs) had no role gating at all.
+3. **Last-admin protection.** Lockout-prevention check on the user-management routes — cannot delete, disable, or demote the last active admin.
+
 ---
 
 ## Future Ideas (Unprioritized)

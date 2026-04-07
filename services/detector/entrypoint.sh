@@ -15,6 +15,25 @@ if [ "$(id -u)" = "0" ]; then
         # On subsequent starts, just fix top-level dirs (fast)
         chown scarguard:scarguard /data /config /models 2>/dev/null || true
     fi
+
+    # Clean up any stale predict{N} dirs that may have accumulated from a
+    # pre-v0.12.7 detector sharing the same overlay layer.  Without this, an
+    # in-place container upgrade would inherit the old dirs, and even though
+    # the v0.12.7 code uses exist_ok=True, ultralytics still stats predict,
+    # predict2, ..., predict{N} on the first call before finding its free
+    # slot.  See INFERENCE_INVESTIGATION.md.
+    #
+    # The glob 'predict[0-9]*' intentionally matches predict2..predict9998
+    # but NOT the bare 'predict' directory we create immediately above —
+    # that's the single directory all pinned save_dirs now resolve to.
+    mkdir -p /tmp/runs/predict
+    stale_count=$(find /tmp/runs -mindepth 1 -maxdepth 1 -type d -name 'predict[0-9]*' 2>/dev/null | wc -l)
+    if [ "$stale_count" -gt 0 ]; then
+        echo "detector-entrypoint: cleaning $stale_count stale predict[N] dirs in /tmp/runs"
+        find /tmp/runs -mindepth 1 -maxdepth 1 -type d -name 'predict[0-9]*' -exec rm -rf {} + 2>/dev/null || true
+    fi
+    chown -R scarguard:scarguard /tmp/runs 2>/dev/null || true
+
     exec gosu scarguard "$@"
 fi
 exec "$@"

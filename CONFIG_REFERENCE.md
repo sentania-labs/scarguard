@@ -210,6 +210,61 @@ ScarGuard works with any camera that provides an RTSP stream. The notes below re
 - OpenCV `VideoCapture` handles RTSP natively; set `cv2.CAP_PROP_BUFFERSIZE` to 1 to reduce frame lag
 - Reference cameras: UniFi G3 Flex and G5 Flex
 
+## User Roles (v0.12.7+)
+
+ScarGuard has three authentication roles, stored in the `role` column of the
+`users` table (`auth.db`). Role is independent of `is_admin`, which is kept as
+a legacy alias for one-release backwards compatibility.
+
+| Role | Dashboard | Events / Visits / Stats | Admin pages (Training, Logs, Backups, Config) | Raw YAML | Writes (save config, arm, disarm, feedback) | User management |
+|---|---|---|---|---|---|---|
+| **user** | ✓ | ✓ | ✗ | ✗ | **disarm only** (with auto-rearm) + feedback | ✗ |
+| **viewer** (read-only admin) | ✓ | ✓ | ✓ *(secrets masked)* | ✗ | ✗ | ✗ |
+| **admin** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+The three roles are **not strictly hierarchical** — a viewer sees *more* than
+a user (admin pages, the config form) but writes *less* (no disarm, no
+feedback). The design makes "oversight without write risk" a first-class
+option for family members or sysadmins who need visibility without the
+ability to change anything or read plaintext secrets.
+
+### Sensitive-field redaction for viewers
+
+When a viewer loads `/config`, the server walks the YAML through
+`services/web/src/config_redact.py:redact_config()` before it reaches the
+browser. The following fields are replaced with `***REDACTED***` in the
+cameras/channels JSON hydration, the Pydantic form data, and the
+backups-diff view:
+
+- `cameras[].rtsp_url` — RTSP URLs with embedded auth tokens
+- `notifications.discord.webhook_url` — Discord webhook (itself a credential)
+- `notifications.email.smtp_pass` — SMTP password
+- `notifications.channels[].webhook_url` — per-channel Discord webhook
+- `notifications.channels[].smtp_pass` — per-channel email password
+- `notifications.channels[].auth_token` — webhook Bearer token
+- `notifications.channels[].token` — ntfy Bearer token
+- `notifications.channels[].password` — ntfy Basic auth password
+- `notifications.channels[].headers` — custom HTTP headers (may carry auth)
+
+The raw-YAML tab (`GET /config/raw`) is admin-only and returns 403 for
+viewers, because there's no lossless way to redact arbitrary YAML while
+keeping the structure valid for round-tripping.
+
+### Last-admin protection
+
+The user-management routes refuse to delete, disable, or demote the last
+active admin. Attempting any of those returns a `400 cannot demote the
+last admin — promote another user first.` so a misclick can't orphan the
+instance. See `auth.count_active_admins()` and the guards in
+`services/web/src/routes/users.py`.
+
+### Creating a viewer
+
+From the admin UI: `/admin/users` → "Add User" → set Role = Viewer.
+Existing users can be demoted or promoted via the role dropdown in the
+user list (disabled for the currently-logged-in user as a defence-in-depth
+measure).
+
 ## Arm/Disarm Modes
 
 ScarGuard supports three operating modes controlled by `system.armed` and the optional `system.schedule` section:
