@@ -165,15 +165,9 @@ services:
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
-      test: >-
-        python3 -c "
-        import os, redis;
-        r=redis.Redis(
-          host=os.environ.get('REDIS_HOST','redis'),
-          port=int(os.environ.get('REDIS_PORT','6379')),
-          password=os.environ.get('REDIS_PASSWORD') or None);
-        r.ping()
-        "
+      # Exec form (JSON array) avoids YAML folded-scalar indentation bugs
+      # that broke the previous inline python -c form.
+      test: ["CMD", "python3", "-c", "import os,redis; redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=int(os.environ.get('REDIS_PORT','6379')), password=os.environ.get('REDIS_PASSWORD') or None).ping()"]
       interval: 30s
       timeout: 5s
       retries: 3

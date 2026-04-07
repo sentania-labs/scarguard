@@ -87,6 +87,23 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     success      INTEGER NOT NULL DEFAULT 0,
     attempted_at TEXT    NOT NULL
 );
+
+-- v0.12.8+ structured audit trail for auth + admin state changes.
+-- login_attempts stays around for lockout logic; audit_events is the
+-- queryable "who did what from where" log surfaced in /admin/audit-log.
+CREATE TABLE IF NOT EXISTS audit_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts         TEXT    NOT NULL,
+    user_id    INTEGER,
+    username   TEXT,
+    action     TEXT    NOT NULL,
+    resource   TEXT,
+    client_ip  TEXT,
+    details    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_events(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_events(action);
 """
 
 

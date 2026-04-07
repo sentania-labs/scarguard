@@ -29,13 +29,58 @@ Stale config keys are handled by a declarative `_STALE_KEYS` set in `config_stor
 
 All 13 items from the beta 1 code audit shipped across four patch releases. One item (structured JSON logging) was intentionally dropped — reduces readability for self-hosters who tail logs directly. See git history for v0.12.3–v0.12.6 for details.
 
-## v0.12.7 — bundled release (in progress)
+## v0.12.7 — bundled release (released)
 
 Three workstreams bundled into one patch release:
 
 1. **Inference perf hotfix.** Pins ultralytics' predict save_dir so the `increment_path` O(N) scan doesn't dominate inference time. Regression introduced in v0.12.1 via commit `149374d` (the non-root container fix for #77) went undetected for six patch releases. Recovered v0.11.0 performance (~50 ms per call) on the production Orin via a one-line change in `detector.py`. See `INFERENCE_INVESTIGATION.md` for the full post-mortem including ~4 hours of wrong theories chased before py-spy gave the answer in 30 seconds.
 2. **Viewer role + sensitive-field redaction.** New third auth tier between `user` and `admin`: can view everything including admin pages but with every plaintext secret masked as `***REDACTED***`, zero write access, raw-YAML tab hidden entirely. Enables oversight-without-risk for family members and sysadmins. First server-side redaction helper in the codebase, closing a pre-existing authz gap where several admin routes (config, training, logs) had no role gating at all.
 3. **Last-admin protection.** Lockout-prevention check on the user-management routes — cannot delete, disable, or demote the last active admin.
+
+## v0.12.8 — post-0.12.7 hardening & UX (in progress)
+
+Final 0.12.x patch before the 0.13 actuator service. Scope is limited to
+items surfaced by ~24h of 0.12.7 running in production plus three small UX
+requests. Establishes a clean, fully-healthy baseline and a baseline audit
+trail before the big 0.13 feature lands.
+
+1. **Log-streamer healthcheck fix.** The v0.12.6 YAML folded-scalar `python -c`
+   produced an `IndentationError: unexpected indent` on every healthcheck
+   probe, so the container reported `unhealthy` for 23h+ despite actually
+   running fine. Replaced with exec-form JSON array (`["CMD", "python3", "-c", "..."]`)
+   which bypasses the YAML folding issue entirely.
+2. **Caddy edge deny for bot probes.** Added a `@probes` matcher in the
+   Caddyfile template that returns 404 for common scanner paths
+   (`/.git/*`, `/_ignition/*`, `/aws*config.js`, `/config.js`) before they
+   reach FastAPI. 404 (not 403) is intentional — quieter, fewer follow-ups.
+3. **`caddy fmt` cleanup.** Normalised the Caddyfile template to tabs so
+   Caddy stops logging the "input is not formatted" warning on every reload.
+4. **Feedback-by-link resubmit.** The token route used to hard-block any
+   POST once `feedback` was set, making it impossible to correct a wrong
+   first choice. Block removed (token 7-day expiry remains the real
+   single-use protection); template gained a corrected-class picker that
+   actually lets users record which class is correct.
+5. **Snapshot overlay auto-close.** Submitting feedback from the events
+   page snapshot overlay now closes the overlay instead of leaving it
+   open.
+6. **Minimum-viable audit log.** New `audit_events` table in auth.db +
+   `/admin/audit-log` admin-only viewer. Records login success/failure,
+   logout, config saves, user create/delete/role-change/password-reset/
+   disable/enable, and api_token create/revoke. Intentionally scoped small:
+   retention policies, CSV export, structured config diffs, RBAC on the
+   viewer, and hooks on backup/arm/model/TLS routes are deferred to 0.13.x.
+
+---
+
+## v0.13 — actuator service (planned)
+
+The first version in which ScarGuard closes the detect → notify → *deter*
+loop end-to-end. Introduces a new `actuator` service that controls a Tuya
+WiFi valve for sprinkler-based heron deterrence. See
+`ACTUATION_SPEC.md` for the design. Expected to ship as a **beta/opt-in**
+in 0.13.0, with 0.13.x patches hardening based on real-world use. **1.0.0**
+is reserved for "actuator validated in production" — i.e. the first
+version where ScarGuard fully delivers on its name.
 
 ---
 

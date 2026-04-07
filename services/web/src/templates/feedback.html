@@ -87,9 +87,37 @@
     border-radius: 8px;
     font-size: 0.95rem;
   }
-  .message.success { background: rgba(62,207,142,0.15); color: var(--green); }
+  .message.success { background: rgba(62,207,142,0.15); color: var(--green); margin-bottom: 1rem; }
   .message.error { background: rgba(229,62,62,0.15); color: var(--red); }
   .message.info { background: rgba(74,158,255,0.15); color: var(--accent); }
+  .current-choice {
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+  }
+  .current-choice strong { color: var(--text); }
+  .wrong-class-row {
+    display: none;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255,176,32,0.05);
+  }
+  .wrong-class-row.open { display: flex; }
+  .wrong-class-row input[type="text"] {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  .wrong-class-row input[type="text"]:focus {
+    outline: none;
+    border-color: var(--yellow);
+  }
 </style>
 </head>
 <body>
@@ -100,13 +128,22 @@
   {% if error == "expired" %}
     <div class="message error">This feedback link has expired or is invalid.</div>
 
-  {% elif error == "already_used" %}
-    <div class="message info">Feedback has already been recorded for this detection. Thank you!</div>
-
-  {% elif error == "success" %}
-    <div class="message success">Thank you! Your feedback has been recorded.</div>
-
   {% elif event %}
+    {% if error == "success" %}
+      <div class="message success">Thank you! Your feedback has been recorded.</div>
+      <div class="current-choice">
+        Current:
+        {% if event.feedback == "correct" %}
+          <strong>Correct</strong>
+        {% elif event.feedback == "false_positive" %}
+          <strong>False Positive</strong>
+        {% elif event.feedback == "wrong_class" %}
+          <strong>Wrong Class{% if event.corrected_class %} &mdash; {{ event.corrected_class | replace("_", " ") }}{% endif %}</strong>
+        {% endif %}
+        &middot; you can re-submit below if this isn't right.
+      </div>
+    {% endif %}
+
     {% if event.snapshot_path %}
       <img class="snapshot" src="/feedback/{{ token }}/snapshot" alt="Detection snapshot">
     {% endif %}
@@ -130,14 +167,41 @@
           False Positive
         </button>
       </form>
-      <form method="post" action="/feedback/{{ token }}">
-        <button type="submit" name="feedback" value="wrong_class"
-                class="btn btn-wrong {{ 'preselected' if preselect == 'wrong_class' else '' }}">
-          Wrong Class
-        </button>
+      <button type="button" id="btn-show-wrong"
+              class="btn btn-wrong {{ 'preselected' if preselect == 'wrong_class' else '' }}">
+        Wrong Class
+      </button>
+      <form method="post" action="/feedback/{{ token }}" id="wrong-class-form" class="wrong-class-row {{ 'open' if preselect == 'wrong_class' else '' }}">
+        <input type="hidden" name="feedback" value="wrong_class">
+        <input type="text" name="corrected_class" list="fb-class-options"
+               placeholder="Select or type the correct class…"
+               value="{{ event.corrected_class or '' }}" required>
+        <datalist id="fb-class-options">
+          {% for cls in target_classes %}
+            <option value="{{ cls }}">{{ cls | replace("_", " ") }}</option>
+          {% endfor %}
+        </datalist>
+        <button type="submit" class="btn btn-wrong">Submit Correction</button>
       </form>
     </div>
   {% endif %}
 </div>
+<script>
+(function() {
+  var btn = document.getElementById('btn-show-wrong');
+  var form = document.getElementById('wrong-class-form');
+  if (btn && form) {
+    btn.addEventListener('click', function() {
+      form.classList.add('open');
+      btn.style.display = 'none';
+      var input = form.querySelector('input[type="text"]');
+      if (input) input.focus();
+    });
+    if (form.classList.contains('open')) {
+      btn.style.display = 'none';
+    }
+  }
+})();
+</script>
 </body>
 </html>

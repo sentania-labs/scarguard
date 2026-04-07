@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from routes import (
     about,
     admin,
+    audit_log,
     config,
     dashboard,
     events,
@@ -408,5 +409,6 @@ app.include_router(about.router)
 app.include_router(admin.router)
 app.include_router(stats.router)
 app.include_router(training.router)
+app.include_router(audit_log.router)
 app.include_router(snapshot.router)
 app.include_router(feedback.router)

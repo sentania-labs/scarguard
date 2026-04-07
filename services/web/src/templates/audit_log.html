@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Audit Log — ScarGuard{% endblock %}
+{% block content %}
+<h1>Audit Log</h1>
+<p class="muted" style="font-size:0.85rem;margin-bottom:1rem;">
+  Login activity and admin state changes. Newest first.
+  Retention, export, and advanced filtering are planned for v0.13.x.
+</p>
+
+<form method="get" action="/admin/audit-log" class="card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">Action prefix</span>
+    <input type="text" name="action" value="{{ filter_action }}"
+           placeholder="e.g. user. or login."
+           style="padding:0.3em 0.5em;min-width:12rem;">
+  </label>
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">Username</span>
+    <input type="text" name="username" value="{{ filter_username }}"
+           style="padding:0.3em 0.5em;min-width:10rem;">
+  </label>
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">Limit</span>
+    <input type="number" name="limit" value="{{ limit }}" min="1" max="1000"
+           style="padding:0.3em 0.5em;width:6rem;">
+  </label>
+  <button type="submit" class="btn">Filter</button>
+  <a href="/admin/audit-log" class="btn btn-secondary">Reset</a>
+</form>
+
+<section class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Time (UTC)</th>
+        <th>User</th>
+        <th>Action</th>
+        <th>Resource</th>
+        <th>IP</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td class="muted" style="font-size:0.8rem;white-space:nowrap;">{{ e.ts[:19] | replace("T", " ") }}</td>
+        <td>{{ e.username or "—" }}</td>
+        <td><code style="font-size:0.85rem;">{{ e.action }}</code></td>
+        <td class="muted" style="font-size:0.85rem;">{{ e.resource or "" }}</td>
+        <td class="muted" style="font-size:0.85rem;">{{ e.client_ip or "" }}</td>
+        <td class="muted" style="font-size:0.8rem;max-width:24rem;overflow-wrap:anywhere;">{{ e.details or "" }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted" style="text-align:center;padding:1rem;">No audit events match the current filter.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
