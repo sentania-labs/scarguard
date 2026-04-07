@@ -244,7 +244,18 @@ class EvaluationRunner:
                 continue
 
             try:
-                results = model.predict(frame, conf=0.1, verbose=False, save=False, project="/tmp/runs")
+                # name + exist_ok pin the save_dir so ultralytics' increment_path
+                # doesn't create /tmp/runs/predict{N} per call.  See detector.py
+                # predict() and INFERENCE_INVESTIGATION.md for the full story.
+                results = model.predict(
+                    frame,
+                    conf=0.1,
+                    verbose=False,
+                    save=False,
+                    project="/tmp/runs",
+                    name="predict",
+                    exist_ok=True,
+                )
             except Exception:
                 logger.exception("Inference failed for snapshot %s", gt["resolved_path"])
                 all_predictions.append([])
