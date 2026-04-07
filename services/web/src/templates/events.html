@@ -226,9 +226,9 @@ function doOverlayFeedback(panel, eventId, feedback, correctedClass, sourceLink)
       // Update source link data attributes so reopening the overlay reflects the new state
       sourceLink.dataset.feedback = feedback;
       sourceLink.dataset.correctedClass = correctedClass;
-      // Re-render the feedback panel in the overlay
-      panel.innerHTML = buildOverlayFeedbackHTML(feedback, correctedClass);
-      wireOverlayFeedback(panel, eventId, sourceLink);
+      // Auto-close the overlay on successful feedback submission.
+      var overlay = panel.closest('.snapshot-overlay');
+      if (overlay) overlay.remove();
     })
     .catch(function(err) { console.error('Feedback submit failed:', err); });
 }

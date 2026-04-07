@@ -15,6 +15,7 @@ import os
 import sqlite3
 from urllib.parse import quote
 
+import audit
 import auth as auth_module
 from auth import ROLE_ADMIN, VALID_ROLES
 from fastapi import APIRouter, Form, Request
@@ -33,6 +34,15 @@ AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
 def _redirect_err(msg: str) -> RedirectResponse:
     """Build a redirect back to the users list with an error query param."""
     return RedirectResponse(f"/admin/users?error={quote(msg)}", status_code=302)
+
+
+def _actor(request: Request) -> tuple[int | None, str | None, str | None]:
+    """Return (user_id, username, client_ip) for the authenticated caller."""
+    user = getattr(request.state, "user", None)
+    uid = user.get("user_id") if user else None
+    uname = user.get("username") if user else None
+    ip = request.client.host if request.client else None
+    return uid, uname, ip
 
 
 # ── User list ─────────────────────────────────────────────────────────────────
@@ -83,9 +93,19 @@ async def create_user(
     if len(password) < 8:
         return _redirect_err("Password must be at least 8 characters.")
 
+    uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.create_user(db, username.strip(), password, role=role)
+        new_id = auth_module.create_user(db, username.strip(), password, role=role)
+        audit.record(
+            db,
+            action="user.create",
+            user_id=uid,
+            username=uname,
+            client_ip=ip,
+            resource=f"user:{new_id}",
+            details={"new_username": username.strip(), "role": role},
+        )
     except sqlite3.IntegrityError:
         return _redirect_err(f"Username '{username}' already exists.")
     finally:
@@ -129,6 +149,16 @@ async def change_role(
             return _redirect_err(
                 "Cannot demote the last admin — promote another user first."
             )
+        uid, uname, ip = _actor(request)
+        audit.record(
+            db,
+            action="user.role_change",
+            user_id=uid,
+            username=uname,
+            client_ip=ip,
+            resource=f"user:{user_id}",
+            details={"target": target["username"], "new_role": role},
+        )
     finally:
         db.close()
 
@@ -159,6 +189,16 @@ async def toggle_disable(request: Request, user_id: int) -> RedirectResponse:
             return _redirect_err(
                 "Cannot disable the last active admin — promote another user first."
             )
+        uid, uname, ip = _actor(request)
+        audit.record(
+            db,
+            action="user.disable" if new_disabled else "user.enable",
+            user_id=uid,
+            username=uname,
+            client_ip=ip,
+            resource=f"user:{user_id}",
+            details={"target": target["username"]},
+        )
     finally:
         db.close()
 
@@ -183,9 +223,21 @@ async def change_password(
     if len(new_password) < 8:
         return _redirect_err("Password must be at least 8 characters.")
 
+    uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.set_user_password(db, user_id, new_password)
+        changed = auth_module.set_user_password(db, user_id, new_password)
+        if not changed:
+            return _redirect_err("User not found.")
+        audit.record(
+            db,
+            action="user.password_reset",
+            user_id=uid,
+            username=uname,
+            client_ip=ip,
+            resource=f"user:{user_id}",
+            details={"self": uid == user_id},
+        )
     finally:
         db.close()
 
@@ -215,6 +267,16 @@ async def delete_user(request: Request, user_id: int) -> RedirectResponse:
             return _redirect_err(
                 "Cannot delete the last active admin — promote another user first."
             )
+        uid, uname, ip = _actor(request)
+        audit.record(
+            db,
+            action="user.delete",
+            user_id=uid,
+            username=uname,
+            client_ip=ip,
+            resource=f"user:{user_id}",
+            details={"target": target["username"]},
+        )
     finally:
         db.close()
 
@@ -238,6 +300,15 @@ async def create_api_token(
         raw_token = auth_module.create_api_token(db, current_user["user_id"], name.strip())
         users = auth_module.list_users(db)
         tokens = auth_module.list_api_tokens(db)
+        _, uname, ip = _actor(request)
+        audit.record(
+            db,
+            action="api_token.create",
+            user_id=current_user["user_id"],
+            username=uname,
+            client_ip=ip,
+            details={"name": name.strip()},
+        )
     finally:
         db.close()
 
@@ -262,9 +333,19 @@ async def revoke_api_token(request: Request, token_id: int) -> RedirectResponse:
     if not isinstance(gate, dict):
         return gate  # type: ignore[return-value]
 
+    uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
-        auth_module.revoke_api_token(db, token_id)
+        if not auth_module.revoke_api_token(db, token_id):
+            return _redirect_err("API token not found.")
+        audit.record(
+            db,
+            action="api_token.revoke",
+            user_id=uid,
+            username=uname,
+            client_ip=ip,
+            resource=f"api_token:{token_id}",
+        )
     finally:
         db.close()
 

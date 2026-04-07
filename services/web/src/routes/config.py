@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import available_timezones
 
+import audit
 import config_store
 import db
 import redis.asyncio as aioredis
@@ -291,6 +292,12 @@ async def save_structured_config(request: Request) -> Response:
     existing["tls"] = payload.tls.model_dump()
 
     config_store.save(existing)
+    audit.record_request(
+        request,
+        action="config.save",
+        resource="scarguard.yml",
+        details={"form": "structured", "tls_changed": tls_changed},
+    )
     return JSONResponse({"ok": True, "tls_changed": tls_changed})
 
 
@@ -310,6 +317,12 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
         config_store.save(raw_cfg)
         saved = True
         raw_yaml = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
+        audit.record_request(
+            request,
+            action="config.save",
+            resource="scarguard.yml",
+            details={"form": "raw_yaml"},
+        )
     except Exception as exc:
         error = str(exc)
 

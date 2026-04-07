@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+import audit
 import auth as auth_module
 from config_store import load_cached
 from fastapi import APIRouter, Form, Request
@@ -87,6 +88,13 @@ async def login_post(
         )
 
         auth_module.record_attempt(db, username, client_ip, success=valid)
+        audit.record(
+            db,
+            action="login.success" if valid else "login.failure",
+            user_id=(user["id"] if valid and user is not None else None),
+            username=username,
+            client_ip=client_ip,
+        )
 
         if not valid:
             cutoff = auth_module._utcnow_minus(minutes=lockout_minutes)
@@ -136,6 +144,14 @@ async def logout(request: Request) -> RedirectResponse:
         db = auth_module.get_db(AUTH_DB_PATH)
         try:
             auth_module.delete_session(db, raw_token)
+            user = getattr(request.state, "user", None)
+            audit.record(
+                db,
+                action="logout",
+                user_id=(user.get("user_id") if user else None),
+                username=(user.get("username") if user else None),
+                client_ip=(request.client.host if request.client else None),
+            )
         finally:
             db.close()
 
