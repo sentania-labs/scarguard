@@ -5,6 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Default token scope: read-only. No job in this workflow needs to write to
+# the repo, packages, or any other GitHub-controlled resource.
+permissions:
+  contents: read
+
 jobs:
 
   # ── Lint ────────────────────────────────────────────────────────────────────

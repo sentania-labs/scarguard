@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import available_timezones
@@ -228,9 +229,22 @@ async def save_structured_config(request: Request) -> Response:
         body = await request.json()
         payload = StructuredConfigPayload.model_validate(body)
     except ValidationError as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": f"Invalid request: {exc}"}, status_code=400)
+        # Don't echo pydantic's error text to the client — log it server-side
+        # under a short request ID the operator can grep for. CodeQL
+        # py/stack-trace-exposure (issue #95).
+        req_id = uuid.uuid4().hex[:8]
+        log.warning("config save validation error [%s]: %s", req_id, exc)
+        return JSONResponse(
+            {"ok": False, "error": "Invalid config payload", "request_id": req_id},
+            status_code=422,
+        )
+    except Exception:
+        req_id = uuid.uuid4().hex[:8]
+        log.exception("config save failed [%s]", req_id)
+        return JSONResponse(
+            {"ok": False, "error": "Unable to save config", "request_id": req_id},
+            status_code=400,
+        )
 
     existing = config_store.load()
 
@@ -323,8 +337,13 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             resource="scarguard.yml",
             details={"form": "raw_yaml"},
         )
-    except Exception as exc:
-        error = str(exc)
+    except Exception:
+        # Same scrubbing pattern as save_structured_config — don't surface raw
+        # exception text in the rendered template. Admin-only endpoint, but
+        # CodeQL flags the sink and the operator gets a request ID to grep.
+        req_id = uuid.uuid4().hex[:8]
+        log.exception("raw YAML config save failed [%s]", req_id)
+        error = f"Unable to save config (request_id={req_id})"
 
     cfg = _parse_cfg(raw_cfg)
 
@@ -387,9 +406,11 @@ async def upload_tls_cert(
             status_code=400,
         )
 
-    # Validate all files before writing any to avoid partial-write on error
+    # Validate everything before writing anything to avoid partial-write
+    # on a half-bad upload.
     errors: list[str] = []
-    to_write: list[tuple[str, bytes]] = []
+    cert_ok = False
+    key_ok = False
 
     if cert_data:
         if len(cert_data) > _MAX_CERT_SIZE:
@@ -397,7 +418,7 @@ async def upload_tls_cert(
         elif b"-----BEGIN" not in cert_data:
             errors.append("Certificate does not appear to be PEM-encoded")
         else:
-            to_write.append(("cert.pem", cert_data))
+            cert_ok = True
 
     if key_data:
         if len(key_data) > _MAX_CERT_SIZE:
@@ -405,19 +426,27 @@ async def upload_tls_cert(
         elif b"-----BEGIN" not in key_data:
             errors.append("Key does not appear to be PEM-encoded")
         else:
-            to_write.append(("key.pem", key_data))
+            key_ok = True
 
     if errors:
         return JSONResponse({"ok": False, "error": "; ".join(errors)}, status_code=400)
 
-    # All validation passed — write files
+    # All validation passed — write files. Filenames are hardcoded literals
+    # so no user-controlled value can reach the destination path. (Earlier
+    # iterations routed the names through a (name, data) tuple list, which
+    # CodeQL's taint tracker over-approximated as path-injection because it
+    # could not prove the first tuple element was always literal. Inlining
+    # the writes makes the literal nature obvious to both humans and the
+    # analyzer — issue #95.)
     written: list[str] = []
-    for name, data in to_write:
-        path = _CERTS_DIR / name
-        path.write_bytes(data)
-        if name == "key.pem":
-            path.chmod(0o600)
-        written.append(name)
+    if cert_ok and cert_data is not None:
+        (_CERTS_DIR / "cert.pem").write_bytes(cert_data)
+        written.append("cert.pem")
+    if key_ok and key_data is not None:
+        key_path = _CERTS_DIR / "key.pem"
+        key_path.write_bytes(key_data)
+        key_path.chmod(0o600)
+        written.append("key.pem")
 
     log.info("TLS cert files uploaded: %s", ", ".join(written))
     return JSONResponse({"ok": True, "written": written})

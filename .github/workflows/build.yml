@@ -23,6 +23,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Default token scope: read-only. Per-job permissions blocks below add the
+# minimum extras (packages: read for cache, security-events: write for SARIF).
+# No job in this workflow pushes images — that's release.yml.
+permissions:
+  contents: read
+
 jobs:
 
   # ── Build web (x86 runner) ───────────────────────────────────────────────────

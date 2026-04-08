@@ -405,7 +405,11 @@ async function saveConfig() {
       } catch (_) { /* non-critical — textarea will update on next page load */ }
     } else {
       banner.className = "alert alert-err";
-      banner.textContent = "Error: " + result.error;
+      // Server returns a generic message + request_id (issue #95). Surface
+      // the request_id so the operator can correlate with web container logs.
+      let msg = "Error: " + (result.error || "unknown");
+      if (result.request_id) msg += " (request_id=" + result.request_id + ")";
+      banner.textContent = msg;
     }
   } catch (e) {
     banner.className = "alert alert-err";
