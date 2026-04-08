@@ -50,29 +50,34 @@ https_port = os.environ.get("HTTPS_PORT", "443").strip()
 # a reference document only and is NOT read at runtime.  Keep any config
 # changes here, not there (an earlier attempt in v0.12.8 edited the
 # template and had no effect in production).
+#
+# NOTE: Caddy's `caddy fmt` linter expects tab indentation. Edit with care —
+# replacing tabs with spaces will resurrect the "Caddyfile input is not
+# formatted" warning v0.12.10 cleared (the v0.12.8 fmt fix was applied to
+# Caddyfile.template by mistake and never reached the active config).
 snippet = """(scarguard) {
-    header {
-        X-Frame-Options DENY
-        X-Content-Type-Options nosniff
-        Referrer-Policy strict-origin-when-cross-origin
-        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
-        -Server
-    }
-    # Drop common bot-probe paths at the edge so they never reach FastAPI.
-    # 404 (not 403) is intentional — quieter, looks like the path doesn't
-    # exist so scanners are less likely to follow up with more probes.
-    @probes {
-        path /.git/* /_ignition/* /aws*config.js /config.js
-    }
-    respond @probes 404
-    reverse_proxy web:8080
+\theader {
+\t\tX-Frame-Options DENY
+\t\tX-Content-Type-Options nosniff
+\t\tReferrer-Policy strict-origin-when-cross-origin
+\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
+\t\t-Server
+\t}
+\t# Drop common bot-probe paths at the edge so they never reach FastAPI.
+\t# 404 (not 403) is intentional — quieter, looks like the path doesn't
+\t# exist so scanners are less likely to follow up with more probes.
+\t@probes {
+\t\tpath /.git/* /_ignition/* /aws*config.js /config.js
+\t}
+\trespond @probes 404
+\treverse_proxy web:8080
 }
 """
 
 if mode == "auto" and domain:
     body = f"""{snippet}
 {domain} {{
-    import scarguard
+\timport scarguard
 }}
 """
 elif mode == "manual":
@@ -82,12 +87,12 @@ elif mode == "manual":
     if cert_ok and key_ok:
         body = f"""{snippet}
 :443 {{
-    tls {cert_path} {key_path}
-    import scarguard
+\ttls {cert_path} {key_path}
+\timport scarguard
 }}
 
 :80 {{
-    redir https://{{host}}{f":{https_port}" if https_port != "443" else ""}{{uri}} permanent
+\tredir https://{{host}}{f":{https_port}" if https_port != "443" else ""}{{uri}} permanent
 }}
 """
     else:
@@ -99,7 +104,7 @@ elif mode == "manual":
         print(f"[caddy-entrypoint] TLS mode=manual but missing: {', '.join(missing)} — falling back to HTTP", file=sys.stderr)
         body = f"""{snippet}
 :80 {{
-    import scarguard
+\timport scarguard
 }}
 """
 else:
@@ -107,7 +112,7 @@ else:
         print(f"[caddy-entrypoint] Unknown tls.mode '{mode}' — defaulting to HTTP", file=sys.stderr)
     body = f"""{snippet}
 :80 {{
-    import scarguard
+\timport scarguard
 }}
 """
 

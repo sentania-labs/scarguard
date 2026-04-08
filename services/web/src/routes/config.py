@@ -406,9 +406,11 @@ async def upload_tls_cert(
             status_code=400,
         )
 
-    # Validate all files before writing any to avoid partial-write on error
+    # Validate everything before writing anything to avoid partial-write
+    # on a half-bad upload.
     errors: list[str] = []
-    to_write: list[tuple[str, bytes]] = []
+    cert_ok = False
+    key_ok = False
 
     if cert_data:
         if len(cert_data) > _MAX_CERT_SIZE:
@@ -416,7 +418,7 @@ async def upload_tls_cert(
         elif b"-----BEGIN" not in cert_data:
             errors.append("Certificate does not appear to be PEM-encoded")
         else:
-            to_write.append(("cert.pem", cert_data))
+            cert_ok = True
 
     if key_data:
         if len(key_data) > _MAX_CERT_SIZE:
@@ -424,31 +426,27 @@ async def upload_tls_cert(
         elif b"-----BEGIN" not in key_data:
             errors.append("Key does not appear to be PEM-encoded")
         else:
-            to_write.append(("key.pem", key_data))
+            key_ok = True
 
     if errors:
         return JSONResponse({"ok": False, "error": "; ".join(errors)}, status_code=400)
 
-    # All validation passed — write files. The filenames are hardcoded
-    # literals above ("cert.pem", "key.pem") so no user input reaches the
-    # path. The containment check below is defense-in-depth: it satisfies
-    # CodeQL's py/path-injection sink and guards against any future refactor
-    # that threads user input into `name`. Same idiom as
-    # config_backup.py and routes/training.py:promote_model.
-    certs_root = _CERTS_DIR.resolve()
+    # All validation passed — write files. Filenames are hardcoded literals
+    # so no user-controlled value can reach the destination path. (Earlier
+    # iterations routed the names through a (name, data) tuple list, which
+    # CodeQL's taint tracker over-approximated as path-injection because it
+    # could not prove the first tuple element was always literal. Inlining
+    # the writes makes the literal nature obvious to both humans and the
+    # analyzer — issue #95.)
     written: list[str] = []
-    for name, data in to_write:
-        path = (_CERTS_DIR / name).resolve()
-        if not path.is_relative_to(certs_root):
-            log.warning("TLS cert write rejected: path escapes _CERTS_DIR: %s", name)
-            return JSONResponse(
-                {"ok": False, "error": "Invalid certificate filename"},
-                status_code=400,
-            )
-        path.write_bytes(data)
-        if name == "key.pem":
-            path.chmod(0o600)
-        written.append(name)
+    if cert_ok and cert_data is not None:
+        (_CERTS_DIR / "cert.pem").write_bytes(cert_data)
+        written.append("cert.pem")
+    if key_ok and key_data is not None:
+        key_path = _CERTS_DIR / "key.pem"
+        key_path.write_bytes(key_data)
+        key_path.chmod(0o600)
+        written.append("key.pem")
 
     log.info("TLS cert files uploaded: %s", ", ".join(written))
     return JSONResponse({"ok": True, "written": written})
