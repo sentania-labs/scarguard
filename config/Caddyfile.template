@@ -1,8 +1,11 @@
-# ScarGuard — Caddy reverse proxy configuration
+# ScarGuard — Caddy reverse proxy configuration (REFERENCE ONLY)
 #
-# This file is a template. The caddy-entrypoint.sh script reads the tls
-# section from scarguard.yml and generates the active Caddyfile from this
-# template at container startup (and on config changes).
+# ⚠️  This file is NOT read at runtime. It exists as a reference for
+# what the generated Caddyfile looks like in each TLS mode. The active
+# Caddyfile is produced by a Python heredoc inside config/caddy-entrypoint.sh
+# — any change intended to affect production Caddy behaviour must be made
+# there. (A v0.12.8 attempt to edit this file and nothing else was a
+# no-op in production; v0.12.9 fixed it in caddy-entrypoint.sh.)
 #
 # Three TLS modes are supported:
 #   off     — HTTP only (default, for LAN use)

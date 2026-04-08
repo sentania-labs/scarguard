@@ -14,6 +14,9 @@
     {% set fname = e.snapshot_path.split("/")[-1] %}
     <a href="/snapshots/{{ fname }}" target="_blank" class="snapshot-link"
        data-event-id="{{ e.id }}"
+       data-class-name="{{ e.class_name }}"
+       data-confidence="{{ e.confidence }}"
+       data-camera-name="{{ e.camera_name }}"
        data-feedback="{{ e.feedback or '' }}"
        data-corrected-class="{{ e.corrected_class or '' }}"
        {% if e.bbox and e.frame_size %}
