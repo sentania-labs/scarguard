@@ -91,6 +91,9 @@ document.addEventListener('click', function(e) {
   var eventId = link.dataset.eventId ? parseInt(link.dataset.eventId) : null;
   var initFeedback = link.dataset.feedback || '';
   var initCorrected = link.dataset.correctedClass || '';
+  var className = link.dataset.className || '';
+  var confidence = link.dataset.confidence ? parseFloat(link.dataset.confidence) : null;
+  var cameraName = link.dataset.cameraName || '';
   var src = link.querySelector('img').src;
 
   var overlay = document.createElement('div');
@@ -99,9 +102,38 @@ document.addEventListener('click', function(e) {
   var inner = document.createElement('div');
   inner.className = 'snapshot-overlay__inner';
 
+  // Header highlighting class, confidence, and camera so the user has the
+  // context in front of them while providing feedback on the enlarged image.
+  var header = document.createElement('div');
+  header.className = 'snapshot-overlay__header';
+  header.addEventListener('click', function(ev) { ev.stopPropagation(); });
+  var headerHTML = '';
+  if (className) {
+    headerHTML += '<span class="snapshot-overlay__class">' +
+                  _escHtml(className.replace(/_/g, ' ')) + '</span>';
+  }
+  if (confidence !== null && !isNaN(confidence)) {
+    headerHTML += '<span class="snapshot-overlay__conf">' +
+                  Math.round(confidence * 100) + '%</span>';
+  }
+  if (cameraName) {
+    headerHTML += '<span class="snapshot-overlay__cam">' +
+                  _escHtml(cameraName) + '</span>';
+  }
+  if (headerHTML) {
+    header.innerHTML = headerHTML;
+    inner.appendChild(header);
+  }
+
+  // Image lives in its own positioned wrapper so the bbox percentages stay
+  // anchored to the image regardless of the header and feedback panel that
+  // share .snapshot-overlay__inner as siblings.
+  var imgWrap = document.createElement('div');
+  imgWrap.className = 'snapshot-overlay__img-wrap';
   var img = document.createElement('img');
   img.src = src;
-  inner.appendChild(img);
+  imgWrap.appendChild(img);
+  inner.appendChild(imgWrap);
 
   img.onload = function() {
     if (bbox && frameSize && frameSize[0] > 0 && frameSize[1] > 0) {
@@ -119,7 +151,7 @@ document.addEventListener('click', function(e) {
       box.style.top = pctT + '%';
       box.style.width = pctW + '%';
       box.style.height = pctH + '%';
-      inner.appendChild(box);
+      imgWrap.appendChild(box);
     }
   };
 
