@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import available_timezones
@@ -228,9 +229,22 @@ async def save_structured_config(request: Request) -> Response:
         body = await request.json()
         payload = StructuredConfigPayload.model_validate(body)
     except ValidationError as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": f"Invalid request: {exc}"}, status_code=400)
+        # Don't echo pydantic's error text to the client — log it server-side
+        # under a short request ID the operator can grep for. CodeQL
+        # py/stack-trace-exposure (issue #95).
+        req_id = uuid.uuid4().hex[:8]
+        log.warning("config save validation error [%s]: %s", req_id, exc)
+        return JSONResponse(
+            {"ok": False, "error": "Invalid config payload", "request_id": req_id},
+            status_code=422,
+        )
+    except Exception:
+        req_id = uuid.uuid4().hex[:8]
+        log.exception("config save failed [%s]", req_id)
+        return JSONResponse(
+            {"ok": False, "error": "Unable to save config", "request_id": req_id},
+            status_code=400,
+        )
 
     existing = config_store.load()
 
@@ -323,8 +337,13 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             resource="scarguard.yml",
             details={"form": "raw_yaml"},
         )
-    except Exception as exc:
-        error = str(exc)
+    except Exception:
+        # Same scrubbing pattern as save_structured_config — don't surface raw
+        # exception text in the rendered template. Admin-only endpoint, but
+        # CodeQL flags the sink and the operator gets a request ID to grep.
+        req_id = uuid.uuid4().hex[:8]
+        log.exception("raw YAML config save failed [%s]", req_id)
+        error = f"Unable to save config (request_id={req_id})"
 
     cfg = _parse_cfg(raw_cfg)
 
@@ -410,10 +429,22 @@ async def upload_tls_cert(
     if errors:
         return JSONResponse({"ok": False, "error": "; ".join(errors)}, status_code=400)
 
-    # All validation passed — write files
+    # All validation passed — write files. The filenames are hardcoded
+    # literals above ("cert.pem", "key.pem") so no user input reaches the
+    # path. The containment check below is defense-in-depth: it satisfies
+    # CodeQL's py/path-injection sink and guards against any future refactor
+    # that threads user input into `name`. Same idiom as
+    # config_backup.py and routes/training.py:promote_model.
+    certs_root = _CERTS_DIR.resolve()
     written: list[str] = []
     for name, data in to_write:
-        path = _CERTS_DIR / name
+        path = (_CERTS_DIR / name).resolve()
+        if not path.is_relative_to(certs_root):
+            log.warning("TLS cert write rejected: path escapes _CERTS_DIR: %s", name)
+            return JSONResponse(
+                {"ok": False, "error": "Invalid certificate filename"},
+                status_code=400,
+            )
         path.write_bytes(data)
         if name == "key.pem":
             path.chmod(0o600)

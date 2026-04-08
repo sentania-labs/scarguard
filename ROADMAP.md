@@ -37,7 +37,34 @@ Three workstreams bundled into one patch release:
 2. **Viewer role + sensitive-field redaction.** New third auth tier between `user` and `admin`: can view everything including admin pages but with every plaintext secret masked as `***REDACTED***`, zero write access, raw-YAML tab hidden entirely. Enables oversight-without-risk for family members and sysadmins. First server-side redaction helper in the codebase, closing a pre-existing authz gap where several admin routes (config, training, logs) had no role gating at all.
 3. **Last-admin protection.** Lockout-prevention check on the user-management routes — cannot delete, disable, or demote the last active admin.
 
-## v0.12.8 — post-0.12.7 hardening & UX (in progress)
+## v0.12.10 — CodeQL hardening (in progress)
+
+Final 0.12.x patch. Clears the three open CodeQL findings deferred from
+the v0.12.7 review (tracked in issue #95) so 0.13 starts with a clean
+security baseline.
+
+1. **GitHub Actions token scoping.** Top-level `permissions: contents: read`
+   default added to all four workflows (`ci.yml`, `build.yml`, `release.yml`,
+   `cleanup.yml`). Per-job blocks already declared the minimum extras
+   (`packages: write` for image push, `contents: write` only on the
+   benchmark + release-creation jobs); the new top-level default ensures
+   any future job inherits read-only by default. Resolves CodeQL
+   `actions/missing-workflow-permissions` (alerts #4–#11).
+2. **TLS cert upload path containment.** `upload_tls_cert` in
+   `services/web/src/routes/config.py` already wrote to hardcoded
+   filenames (`cert.pem`, `key.pem`), but now also runs an explicit
+   `path.resolve().is_relative_to(_CERTS_DIR.resolve())` check before
+   the write — same idiom as `config_backup.py` and
+   `routes/training.py:promote_model`. Resolves CodeQL `py/path-injection`
+   (alerts #15, #16).
+3. **Exception message scrubbing.** `save_structured_config` and the raw
+   YAML `save_config` handler no longer return `str(exc)` directly. Both
+   now log the full exception server-side under a short `request_id` and
+   return a generic message + that ID to the client; `static/config.js`
+   surfaces the request_id in the error banner so operators can grep the
+   web logs. Resolves CodeQL `py/stack-trace-exposure` (alerts #13, #14).
+
+## v0.12.8 — post-0.12.7 hardening & UX (released)
 
 Final 0.12.x patch before the 0.13 actuator service. Scope is limited to
 items surfaced by ~24h of 0.12.7 running in production plus three small UX

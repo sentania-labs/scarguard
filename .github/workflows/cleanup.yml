@@ -15,6 +15,11 @@ on:
     - cron: "0 3 * * 0"  # Sunday 03:00 UTC
   workflow_dispatch:
 
+# Default token scope: read-only. The cleanup jobs only run local docker
+# prune commands on the runner — they do not touch GHCR or the repo.
+permissions:
+  contents: read
+
 jobs:
 
   # ── x86 runner cleanup ─────────────────────────────────────────────────────

@@ -299,6 +299,70 @@ class TestConfig:
         assert saved["system"]["timezone"] == "America/New_York"
 
 
+class TestConfigErrorScrubbing:
+    """Issue #95 — exception messages must not leak through the JSON body."""
+
+    def test_invalid_payload_returns_generic_message_and_request_id(self, client, monkeypatch):
+        # Force pydantic to fail by sending nonsense for a typed field.
+        bad_payload = {
+            "system": {"armed": True, "log_level": "info"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": "not-a-float",  # type error
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {
+                "discord": {"enabled": False, "webhook_url": "", "mention_role": "", "include_snapshot": True},
+                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+            },
+        }
+        resp = client.post("/config/structured", json=bad_payload)
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["ok"] is False
+        assert body["error"] == "Invalid config payload"
+        assert "request_id" in body and len(body["request_id"]) == 8
+        # Ensure no pydantic internals leaked through.
+        assert "ValidationError" not in resp.text
+        assert "confidence_threshold" not in resp.text
+
+    def test_invalid_json_body_returns_generic_message(self, client):
+        # Hits the generic Exception branch (json() raises before pydantic
+        # ever runs) — must also be scrubbed.
+        resp = client.post(
+            "/config/structured",
+            content=b"this is not json {{{",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["error"] == "Unable to save config"
+        assert "request_id" in body and len(body["request_id"]) == 8
+
+
+class TestTLSCertContainment:
+    """Issue #95 — defense-in-depth: writes to _CERTS_DIR must stay inside it."""
+
+    def test_upload_writes_into_certs_dir(self, client, monkeypatch, tmp_path):
+        from routes import config as config_route
+
+        certs_dir = tmp_path / "certs"
+        monkeypatch.setattr(config_route, "_CERTS_DIR", certs_dir)
+        pem = b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+        resp = client.post(
+            "/config/tls/upload-cert",
+            files={"cert_file": ("ignored-by-server.pem", pem, "application/x-pem-file")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert (certs_dir / "cert.pem").exists()
+        # Confirm nothing escaped the directory.
+        for p in certs_dir.iterdir():
+            assert p.parent.resolve() == certs_dir.resolve()
+
+
 class TestModels:
     def test_page_loads(self, client):
         resp = client.get("/models")

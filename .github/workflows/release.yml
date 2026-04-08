@@ -12,6 +12,12 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
+# Default token scope: read-only. Image-push jobs elevate to packages: write
+# per-job; the benchmark/release jobs elevate to contents: write only where
+# they need to commit BENCHMARKS.md or create the GitHub Release.
+permissions:
+  contents: read
+
 jobs:
 
   # ── Build & push — web (x86 runner) ─────────────────────────────────────────
