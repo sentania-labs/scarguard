@@ -44,7 +44,12 @@ cert_path = str(tls_cfg.get("cert_path", "/config/certs/cert.pem"))
 key_path = str(tls_cfg.get("key_path", "/config/certs/key.pem"))
 https_port = os.environ.get("HTTPS_PORT", "443").strip()
 
-# Common snippet: security headers + reverse proxy
+# Common snippet: security headers + probe-path deny + reverse proxy.
+#
+# NOTE: this is the *active* Caddy config — config/Caddyfile.template is
+# a reference document only and is NOT read at runtime.  Keep any config
+# changes here, not there (an earlier attempt in v0.12.8 edited the
+# template and had no effect in production).
 snippet = """(scarguard) {
     header {
         X-Frame-Options DENY
@@ -53,6 +58,13 @@ snippet = """(scarguard) {
         Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
         -Server
     }
+    # Drop common bot-probe paths at the edge so they never reach FastAPI.
+    # 404 (not 403) is intentional — quieter, looks like the path doesn't
+    # exist so scanners are less likely to follow up with more probes.
+    @probes {
+        path /.git/* /_ignition/* /aws*config.js /config.js
+    }
+    respond @probes 404
     reverse_proxy web:8080
 }
 """
