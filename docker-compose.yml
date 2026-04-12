@@ -150,6 +150,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Deterrent ─────────────────────────────────────────────────────────────
+  # Physical deterrence via Tuya Cloud API.  Subscribes to detection events
+  # and triggers smart devices (sprinklers, lights, sirens, plugs).
+  deterrent:
+    build:
+      context: .
+      dockerfile: services/deterrent/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-deterrent:${IMAGE_TAG:-latest}
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - scarguard-config:/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ── Log Streamer (sidecar) ────────────────────────────────────────────────
   # Tails container logs via Docker socket and publishes to Redis.
   # Replaces the Docker socket mount previously needed by the web container.

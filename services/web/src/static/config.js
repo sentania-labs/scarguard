@@ -309,6 +309,9 @@ function readForm() {
       cert_path: document.getElementById("tls-cert-path").value.trim(),
       key_path: document.getElementById("tls-key-path").value.trim(),
     },
+    deterrent: {
+      enabled: document.getElementById("deterrent-enabled").checked,
+    },
   };
 }
 

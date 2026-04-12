@@ -78,6 +78,18 @@ jobs:
             --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
             .
 
+      # Trivy first — fail fast on CVEs before spending time on container tests.
+      - name: Trivy scan — web
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-web:test
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
       # Uses docker create + cp instead of bind mounts (-v) because the
       # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
       # the outer host filesystem, not the runner container's filesystem,
@@ -92,17 +104,6 @@ jobs:
           rc=$?
           docker rm "$cid" > /dev/null
           exit $rc
-
-      - name: Trivy scan — web
-        if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: scarguard-web:test
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          timeout: 20m0s
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -169,6 +170,68 @@ jobs:
       - name: Clean up
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-notifier:test || true
+
+  # ── Build deterrent (x86 runner) ─────────────────────────────────────────────
+  build-deterrent:
+    name: Build deterrent image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build deterrent (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/deterrent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=deterrent
+          cache-to: type=gha,scope=deterrent,mode=max
+
+      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      - name: Build deterrent (amd64, load for test)
+        if: github.event_name != 'push'
+        run: |
+          docker build \
+            --tag scarguard-deterrent:test \
+            --file services/deterrent/Dockerfile \
+            .
+
+      - name: Test deterrent in container
+        if: github.event_name != 'push'
+        run: |
+          cid=$(docker create --user root --entrypoint "" scarguard-deterrent:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          docker cp ${{ github.workspace }}/services/deterrent/tests/. "$cid:/app/tests/"
+          docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
+
+      - name: Trivy scan — deterrent
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-deterrent:test
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-deterrent:test || true
 
   # ── Build caddy (x86 runner) ────────────────────────────────────────────────
   build-caddy:
@@ -340,7 +403,7 @@ jobs:
   compose-smoke-test:
     name: Compose smoke test
     if: github.event_name != 'push'
-    needs: [build-detector-x86, build-web, build-notifier, build-caddy, build-log-streamer]
+    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-caddy, build-log-streamer]
     runs-on: [self-hosted, linux, docker]
 
     steps:
@@ -365,6 +428,7 @@ jobs:
             --build-arg VERSION=dev-${{ github.sha }} \
             --build-arg GIT_COMMIT=${{ github.sha }} .
           docker build -f services/notifier/Dockerfile -t scarguard-notifier:smoke .
+          docker build -f services/deterrent/Dockerfile -t scarguard-deterrent:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
           docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
 
@@ -439,5 +503,5 @@ jobs:
         run: |
           docker compose down -v || true
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
-            scarguard-notifier:smoke scarguard-caddy:smoke \
-            scarguard-log-streamer:smoke 2>/dev/null || true
+            scarguard-notifier:smoke scarguard-deterrent:smoke \
+            scarguard-caddy:smoke scarguard-log-streamer:smoke 2>/dev/null || true

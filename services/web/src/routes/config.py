@@ -13,6 +13,7 @@ import db
 import redis.asyncio as aioredis
 import yaml
 from config_model import (
+    ActuationConfig,
     CameraConfig,
     DetectionConfig,
     NotificationsConfig,
@@ -93,6 +94,7 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         detection=_section(DetectionConfig, raw_cfg.get("detection", {})),
         notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
         tls=_section(TLSConfig, raw_cfg.get("tls", {})),
+        deterrent=_section(ActuationConfig, raw_cfg.get("deterrent", {})),
     )
 
 
@@ -117,6 +119,11 @@ def _redact_parsed_cfg(cfg: StructuredConfigPayload) -> None:
     email = cfg.notifications.email
     if email.smtp_pass:
         email.smtp_pass = REDACTED_PLACEHOLDER
+    tuya = cfg.deterrent.tuya
+    if tuya.api_key:
+        tuya.api_key = REDACTED_PLACEHOLDER
+    if tuya.api_secret:
+        tuya.api_secret = REDACTED_PLACEHOLDER
 
 
 def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
@@ -304,6 +311,16 @@ async def save_structured_config(request: Request) -> Response:
         payload.tls.model_dump()
     )
     existing["tls"] = payload.tls.model_dump()
+
+    # Merge deterrent: the config page only sends ``enabled``; the full
+    # device list and credentials live on the dedicated /admin/deterrent page.
+    # Only merge the fields the structured form actually controls to avoid
+    # wiping Tuya keys/devices with empty defaults on unrelated config saves.
+    existing_act = existing.get("deterrent", {})
+    if not isinstance(existing_act, dict):
+        existing_act = {}
+    existing_act["enabled"] = payload.deterrent.enabled
+    existing["deterrent"] = existing_act
 
     config_store.save(existing)
     audit.record_request(

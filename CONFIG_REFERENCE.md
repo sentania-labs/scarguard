@@ -275,8 +275,43 @@ ScarGuard supports three operating modes controlled by `system.armed` and the op
 
 The schedule is entirely optional. If the `schedule` key is missing, `enabled` is false, or both time fields are empty, no automatic transitions occur and the armed state is under manual control only.
 
+## Actuation (Physical Deterrence)
+
+The `deterrent` section configures the deterrent service — automated physical deterrence via Tuya Cloud API. See [TUYA_SETUP.md](TUYA_SETUP.md) for obtaining API credentials.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `deterrent.enabled` | bool | `false` | Master toggle for physical deterrence |
+| `deterrent.tuya.api_key` | str | — | Tuya IoT Platform Access ID |
+| `deterrent.tuya.api_secret` | str | — | Tuya IoT Platform Access Secret |
+| `deterrent.tuya.api_region` | str | `"us"` | Tuya data center: `us`, `eu`, `cn`, `in` |
+| `deterrent.devices[].name` | str | — | Human-readable device name |
+| `deterrent.devices[].device_id` | str | — | Tuya device ID |
+| `deterrent.devices[].type` | str | — | One of: `sprinkler`, `light`, `sound`, `plug` |
+| `deterrent.devices[].enabled` | bool | `true` | Whether this device participates in deterrence |
+| `deterrent.devices[].dp_code` | str | (auto) | Override the default DP code for on/off |
+| `deterrent.defaults.device_count_range` | list[int] | `[1, 4]` | Min/max devices to fire per event |
+| `deterrent.defaults.spray_duration_range` | list[float] | `[3.0, 8.0]` | Min/max seconds each device stays on |
+| `deterrent.defaults.inter_device_delay_range` | list[float] | `[1.0, 5.0]` | Min/max seconds between device activations |
+| `deterrent.defaults.pre_delay_range` | list[float] | `[0.0, 3.0]` | Min/max seconds before sequence starts |
+| `deterrent.defaults.cooldown_seconds` | int | `60` | Minimum gap between deterrence sequences |
+| `deterrent.battery_monitor.enabled` | bool | `true` | Poll battery levels periodically |
+| `deterrent.battery_monitor.check_interval_hours` | int | `24` | Hours between battery checks |
+| `deterrent.battery_monitor.alert_threshold_percent` | int | `20` | Alert when battery drops below this |
+
+### Default DP Codes by Device Type
+
+| Device type | Default DP code | Notes |
+|---|---|---|
+| `sprinkler` | `switch_1` | Most Tuya sprinkler valves |
+| `light` | `switch_led` | Tuya smart lights |
+| `sound` | `switch` | Tuya sirens/alarms |
+| `plug` | `switch_1` | Tuya smart plugs |
+
+Override per-device with `dp_code` if your device uses a different DP.
+
 ## Service Communication
 
-- **Between services:** Redis pub/sub. Detector publishes detection events; notifier and web UI subscribe.
-- **Config:** All services read from mounted `config/scarguard.yml` in external data directory. Web UI can write to it. Detector and notifier auto-restart on config file changes.
-- **Database:** SQLite at `data/scarguard.db`, shared volume between web and detector.
+- **Between services:** Redis pub/sub. Detector publishes detection events; notifier, deterrent, and web UI subscribe.
+- **Config:** All services read from mounted `config/scarguard.yml` in external data directory. Web UI can write to it. Detector, notifier, and deterrent auto-reload on config file changes.
+- **Database:** SQLite at `data/scarguard.db`, shared volume between web, detector, and deterrent.

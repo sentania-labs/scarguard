@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Deterrent — ScarGuard{% endblock %}
+{% block content %}
+<h1>Deterrent Configuration</h1>
+<p class="muted" style="font-size:0.85rem;margin-bottom:1rem;">
+  Configure Tuya Cloud API credentials and manage deterrent devices.
+  See <a href="https://github.com/sentania-labs/scarguard/blob/main/TUYA_SETUP.md" target="_blank">TUYA_SETUP.md</a> for setup instructions.
+</p>
+
+{% if read_only %}
+<div class="readonly-banner">
+  <strong>Read-only view.</strong> API credentials are masked.
+</div>
+{% endif %}
+
+<div id="deterrent-msg" style="display:none;margin-bottom:1rem;" class="alert"></div>
+
+{# ── Tuya Credentials ──────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2 style="margin-top:0;font-size:1.1rem;">Tuya Cloud Credentials</h2>
+  <p class="hint">
+    Get these from your Tuya IoT Platform project at
+    <a href="https://iot.tuya.com" target="_blank">iot.tuya.com</a>.
+  </p>
+  <div class="field-row">
+    <div class="field-group">
+      <label>API Key (Access ID)</label>
+      <input type="text" id="tuya-api-key" value="{{ tuya.get('api_key', '') }}"
+             placeholder="Access ID from Tuya IoT Platform"
+             {% if read_only %}disabled{% endif %}>
+    </div>
+    <div class="field-group">
+      <label>API Secret (Access Secret)</label>
+      <input type="password" id="tuya-api-secret" value="{{ tuya.get('api_secret', '') }}"
+             placeholder="Access Secret from Tuya IoT Platform"
+             {% if read_only %}disabled{% endif %}>
+    </div>
+  </div>
+  <div class="field-group" style="max-width:12rem;">
+    <label>API Region</label>
+    <select id="tuya-api-region" {% if read_only %}disabled{% endif %}>
+      {% for r in ["us", "eu", "cn", "in"] %}
+      <option value="{{ r }}" {% if tuya.get('api_region', 'us') == r %}selected{% endif %}>{{ r }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+{# ── Devices ────────────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2 style="margin-top:0;font-size:1.1rem;">Devices</h2>
+  <p class="hint">
+    Each device needs a name, Tuya Device ID (from the Devices tab in your
+    Tuya IoT project), and a type.
+  </p>
+
+  <table id="devices-table" style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+    <thead>
+      <tr style="text-align:left;border-bottom:2px solid var(--border);">
+        <th style="padding:0.4rem 0.5rem;">Name</th>
+        <th style="padding:0.4rem 0.5rem;">Device ID</th>
+        <th style="padding:0.4rem 0.5rem;width:8rem;">Type</th>
+        <th style="padding:0.4rem 0.5rem;width:4rem;">Enabled</th>
+        {% if not read_only %}<th style="padding:0.4rem 0.5rem;width:3rem;"></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody id="devices-body">
+    </tbody>
+  </table>
+
+  {% if not read_only %}
+  <button type="button" class="btn-secondary" onclick="addDevice()" style="margin-top:0.75rem;">
+    + Add device
+  </button>
+  {% endif %}
+</div>
+
+{% if not read_only %}
+<button type="button" id="save-deterrent-btn" onclick="saveDeterrent()">Save</button>
+{% endif %}
+
+<script>
+var _devices = {{ devices_json|safe }};
+var _readOnly = {{ 'true' if read_only else 'false' }};
+
+function renderDevices() {
+  var tbody = document.getElementById('devices-body');
+  tbody.innerHTML = '';
+  _devices.forEach(function(dev, i) {
+    var tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--border)';
+    if (_readOnly) {
+      tr.innerHTML =
+        '<td style="padding:0.4rem 0.5rem;">' + esc(dev.name) + '</td>' +
+        '<td style="padding:0.4rem 0.5rem;font-family:var(--mono);font-size:0.8rem;">' + esc(dev.device_id) + '</td>' +
+        '<td style="padding:0.4rem 0.5rem;">' + esc(dev.type || 'sprinkler') + '</td>' +
+        '<td style="padding:0.4rem 0.5rem;">' + (dev.enabled !== false ? 'Yes' : 'No') + '</td>';
+    } else {
+      tr.innerHTML =
+        '<td style="padding:0.4rem 0.5rem;"><input type="text" data-idx="' + i + '" data-field="name" value="' + esc(dev.name) + '" style="width:100%;"></td>' +
+        '<td style="padding:0.4rem 0.5rem;"><input type="text" data-idx="' + i + '" data-field="device_id" value="' + esc(dev.device_id) + '" style="width:100%;font-family:var(--mono);font-size:0.8rem;"></td>' +
+        '<td style="padding:0.4rem 0.5rem;"><select data-idx="' + i + '" data-field="type">' +
+          ['sprinkler','light','sound','plug'].map(function(t) {
+            return '<option value="' + t + '"' + ((dev.type || 'sprinkler') === t ? ' selected' : '') + '>' + t + '</option>';
+          }).join('') +
+        '</select></td>' +
+        '<td style="padding:0.4rem 0.5rem;text-align:center;"><input type="checkbox" data-idx="' + i + '" data-field="enabled"' + (dev.enabled !== false ? ' checked' : '') + '></td>' +
+        '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-danger-sm" onclick="removeDevice(' + i + ')" title="Remove">x</button></td>';
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+function addDevice() {
+  _devices.push({name: '', device_id: '', type: 'sprinkler', enabled: true});
+  renderDevices();
+  // Focus the new name field
+  var inputs = document.querySelectorAll('#devices-body input[data-field="name"]');
+  if (inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function removeDevice(idx) {
+  _devices.splice(idx, 1);
+  renderDevices();
+}
+
+function readDevicesFromForm() {
+  var rows = document.querySelectorAll('#devices-body tr');
+  var devices = [];
+  rows.forEach(function(tr, i) {
+    var nameEl = tr.querySelector('[data-field="name"]');
+    var idEl = tr.querySelector('[data-field="device_id"]');
+    var typeEl = tr.querySelector('[data-field="type"]');
+    var enabledEl = tr.querySelector('[data-field="enabled"]');
+    if (nameEl && idEl) {
+      devices.push({
+        name: nameEl.value.trim(),
+        device_id: idEl.value.trim(),
+        type: typeEl ? typeEl.value : 'sprinkler',
+        enabled: enabledEl ? enabledEl.checked : true,
+      });
+    }
+  });
+  return devices;
+}
+
+function esc(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function saveDeterrent() {
+  var btn = document.getElementById('save-deterrent-btn');
+  var msg = document.getElementById('deterrent-msg');
+  btn.disabled = true;
+  msg.style.display = 'none';
+
+  var devices = readDevicesFromForm();
+  // Validate
+  for (var i = 0; i < devices.length; i++) {
+    if (!devices[i].name) {
+      showMsg('Device ' + (i + 1) + ': name is required', true);
+      btn.disabled = false;
+      return;
+    }
+    if (!devices[i].device_id) {
+      showMsg('Device "' + devices[i].name + '": Device ID is required', true);
+      btn.disabled = false;
+      return;
+    }
+  }
+
+  var payload = {
+    tuya: {
+      api_key: document.getElementById('tuya-api-key').value.trim(),
+      api_secret: document.getElementById('tuya-api-secret').value.trim(),
+      api_region: document.getElementById('tuya-api-region').value,
+    },
+    devices: devices,
+  };
+
+  try {
+    var resp = await fetch('/admin/deterrent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
+      },
+      body: JSON.stringify(payload),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      showMsg('Deterrent config saved. Changes apply within ~10 seconds.', false);
+      _devices = devices;
+    } else {
+      showMsg('Error: ' + (data.error || 'Unknown error'), true);
+    }
+  } catch (e) {
+    showMsg('Network error: ' + e.message, true);
+  }
+  btn.disabled = false;
+}
+
+function showMsg(text, isError) {
+  var msg = document.getElementById('deterrent-msg');
+  msg.textContent = text;
+  msg.className = 'alert ' + (isError ? 'alert-err' : 'alert-ok');
+  msg.style.display = '';
+}
+
+renderDevices();
+</script>
+{% endblock %}

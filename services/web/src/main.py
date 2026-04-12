@@ -20,6 +20,7 @@ from routes import (
     audit_log,
     config,
     dashboard,
+    deterrent,
     events,
     feedback,
     models,
@@ -198,6 +199,7 @@ async def auth_middleware(request: Request, call_next):
 
     # Default: no authenticated user. Always set so templates can safely read it.
     request.state.user = None
+    request.state.deterrent_enabled = False  # set properly below when config loads
 
     # Always allow public paths (login page, setup page, static assets)
     if _is_public(path):
@@ -209,6 +211,10 @@ async def auth_middleware(request: Request, call_next):
     system_cfg = cfg.get("system") or {}
     auth_cfg = system_cfg.get("auth") or {}
     auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
+
+    # Expose deterrent state to base.html nav (controls Deterrent link visibility)
+    act_cfg = cfg.get("deterrent") or {}
+    request.state.deterrent_enabled = bool(act_cfg.get("enabled", False))
 
     if not auth_enabled:
         # When auth is disabled (single-user / dev / test setups), grant every
@@ -412,3 +418,4 @@ app.include_router(training.router)
 app.include_router(audit_log.router)
 app.include_router(snapshot.router)
 app.include_router(feedback.router)
+app.include_router(deterrent.router)

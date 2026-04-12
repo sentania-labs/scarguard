@@ -243,8 +243,41 @@ redis:
   #     # auth_token: "Bearer …"   # optional
 
 
-# ── Future: Physical Deterrence ───────────────────────────────────────────────
-# Physical deterrence (valve actuation, relays) is planned as a separate
-# companion project: "Scar's Revenge". It will receive webhook notifications
-# from ScarGuard and control the hardware. Configure a webhook channel above
-# to send detection events to the Scar's Revenge API endpoint.
+# ── Physical Deterrence (Tuya Cloud) ──────────────────────────────────────────
+# Automated deterrence via Tuya smart devices (sprinklers, lights, sirens,
+# smart plugs).  Requires a Tuya IoT Platform account and API credentials.
+# See TUYA_SETUP.md for step-by-step instructions.
+#
+# deterrent:
+#   enabled: true
+#
+#   # Tuya Cloud API credentials — get these from iot.tuya.com
+#   tuya:
+#     api_key: "your-access-id"
+#     api_secret: "your-access-secret"
+#     api_region: "us"              # us | eu | cn | in
+#
+#   # Devices to control — one entry per physical device
+#   devices:
+#     - name: pond-north-valve
+#       device_id: "bf1234567890abcdef"
+#       type: sprinkler              # sprinkler | light | sound | plug
+#       enabled: true
+#     # - name: pond-light
+#     #   device_id: "bf0987654321fedcba"
+#     #   type: light
+#     #   enabled: true
+#
+#   # Randomisation ranges — vary the response to prevent wildlife habituation
+#   defaults:
+#     device_count_range: [1, 4]       # how many devices to fire per event
+#     spray_duration_range: [3, 8]     # seconds each device stays on
+#     inter_device_delay_range: [1, 5] # seconds between device activations
+#     pre_delay_range: [0, 3]          # seconds before sequence starts
+#     cooldown_seconds: 60             # minimum gap between actuation sequences
+#
+#   # Battery monitoring — alerts when device batteries run low
+#   battery_monitor:
+#     enabled: true
+#     check_interval_hours: 24
+#     alert_threshold_percent: 20
