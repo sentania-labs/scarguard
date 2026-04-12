@@ -18,19 +18,20 @@ logger = logging.getLogger(__name__)
 DB_PATH: str = os.environ.get("DETERRENT_DB_PATH", "/data/deterrent.db")
 
 _lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
+_local = threading.local()
 
 
 def _get_conn() -> sqlite3.Connection:
-    """Return (or create) a long-lived connection for the writer thread."""
-    global _conn
-    if _conn is None:
-        _conn = sqlite3.connect(DB_PATH, timeout=10)
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute("PRAGMA synchronous=NORMAL")
-        _conn.execute("PRAGMA foreign_keys=ON")
-        _conn.row_factory = sqlite3.Row
-    return _conn
+    """Return a thread-local connection (created on first use per thread)."""
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.row_factory = sqlite3.Row
+        _local.conn = conn
+    return conn
 
 
 def init_db() -> None:
