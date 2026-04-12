@@ -312,12 +312,15 @@ async def save_structured_config(request: Request) -> Response:
     )
     existing["tls"] = payload.tls.model_dump()
 
-    # Merge deterrent: preserve fields the form doesn't know about (e.g.
-    # defaults, battery_monitor) while updating enabled/tuya/devices.
+    # Merge deterrent: the config page only sends ``enabled``; the full
+    # device list and credentials live on the dedicated /admin/deterrent page.
+    # Only merge the fields the structured form actually controls to avoid
+    # wiping Tuya keys/devices with empty defaults on unrelated config saves.
     existing_act = existing.get("deterrent", {})
     if not isinstance(existing_act, dict):
         existing_act = {}
-    existing["deterrent"] = {**existing_act, **payload.deterrent.model_dump()}
+    existing_act["enabled"] = payload.deterrent.enabled
+    existing["deterrent"] = existing_act
 
     config_store.save(existing)
     audit.record_request(

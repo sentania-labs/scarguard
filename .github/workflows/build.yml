@@ -78,6 +78,18 @@ jobs:
             --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
             .
 
+      # Trivy first — fail fast on CVEs before spending time on container tests.
+      - name: Trivy scan — web
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-web:test
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
       # Uses docker create + cp instead of bind mounts (-v) because the
       # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
       # the outer host filesystem, not the runner container's filesystem,
@@ -92,17 +104,6 @@ jobs:
           rc=$?
           docker rm "$cid" > /dev/null
           exit $rc
-
-      - name: Trivy scan — web
-        if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: scarguard-web:test
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          timeout: 20m0s
 
       - name: Clean up
         if: always() && github.event_name != 'push'

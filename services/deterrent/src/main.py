@@ -91,6 +91,11 @@ def _worker(
         act_cfg = act_cfg_ref.get()
         controller = controller_ref.get()
 
+        # Skip system/internal events (battery alerts, camera health, etc.)
+        class_name = event.get("class_name", "")
+        if class_name in ("low_battery", "camera_offline"):
+            continue
+
         # Gate checks
         if not act_cfg.enabled:
             logger.debug("Actuation disabled — ignoring event")
@@ -113,7 +118,6 @@ def _worker(
             logger.warning("No enabled devices — cannot actuate")
             continue
 
-        class_name = event.get("class_name", "unknown")
         camera_name = event.get("camera_name", "unknown")
         confidence = event.get("confidence", 0.0)
         logger.info(

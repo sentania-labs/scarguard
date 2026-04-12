@@ -99,7 +99,7 @@ class BatteryMonitor:
             ),
         }
         try:
-            self._redis.publish("scarguard:health", json.dumps(alert))
+            self._redis.publish("scarguard:detections", json.dumps(alert))
             logger.warning(
                 "Low battery alert: %s at %d%% (threshold %d%%)",
                 device.name, battery, threshold,

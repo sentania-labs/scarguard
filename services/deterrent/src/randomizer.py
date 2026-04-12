@@ -37,10 +37,11 @@ def build_random_plan(
     if not devices:
         return [], [], [], 0.0
 
-    # How many devices to fire
-    min_count = max(1, defaults.device_count_range[0])
-    max_count = min(len(devices), defaults.device_count_range[1])
-    count = random.randint(min_count, max(min_count, max_count))
+    # How many devices to fire (clamp both ends to available count)
+    available = len(devices)
+    min_count = max(1, min(defaults.device_count_range[0], available))
+    max_count = max(min_count, min(defaults.device_count_range[1], available))
+    count = random.randint(min_count, max_count)
 
     # Pick and shuffle
     selected = random.sample(devices, count)
