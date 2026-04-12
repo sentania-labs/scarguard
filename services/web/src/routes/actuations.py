@@ -17,12 +17,11 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from route_auth import require_viewer
 from starlette.responses import Response
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin/actuations")
+router = APIRouter(prefix="/deterrent-log")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 PAGE_SIZE = 50
@@ -54,10 +53,6 @@ async def actuations_page(
     date_from: str = "",
     date_to: str = "",
 ) -> Response:
-    gate = require_viewer(request)
-    if not isinstance(gate, dict):
-        return gate
-
     offset = (page - 1) * PAGE_SIZE
     events = actuation_db.get_actuations(
         limit=PAGE_SIZE, offset=offset,
@@ -99,10 +94,6 @@ async def actuations_page(
 @router.get("/stream")
 async def actuations_stream(request: Request) -> StreamingResponse:
     """SSE — push new actuation rows as they happen."""
-    gate = require_viewer(request)
-    if not isinstance(gate, dict):
-        return gate  # type: ignore[return-value]
-
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")

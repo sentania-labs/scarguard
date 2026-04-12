@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Actuations — ScarGuard{% endblock %}
+{% block title %}Deterrent Log — ScarGuard{% endblock %}
 {% block content %}
-<h1>Actuation Log</h1>
+<h1>Deterrent Log</h1>
 <p class="muted" style="font-size:0.85rem;margin-bottom:1rem;">
   Deterrent device activations triggered by detections. Newest first.
 </p>
 
-<form method="get" action="/admin/actuations" class="card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
+<form method="get" action="/deterrent-log" class="card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
   <label style="display:flex;flex-direction:column;font-size:0.8rem;">
     <span class="muted">Trigger class</span>
     <input type="text" name="trigger_class" value="{{ trigger_class }}"
@@ -30,7 +30,7 @@
            style="padding:0.3em 0.5em;">
   </label>
   <button type="submit" class="btn">Filter</button>
-  <a href="/admin/actuations" class="btn btn-secondary">Reset</a>
+  <a href="/deterrent-log" class="btn btn-secondary">Reset</a>
 </form>
 
 <section class="card">
@@ -89,7 +89,7 @@
 
 <script>
 (function() {
-  var evtSrc = new EventSource('/admin/actuations/stream');
+  var evtSrc = new EventSource('/deterrent-log/stream');
   evtSrc.addEventListener('actuation', function(e) {
     var tbody = document.getElementById('actuations-body');
     if (!tbody) return;
