@@ -61,6 +61,7 @@ async def login_post(
     lockout_minutes = auth_cfg.get("lockout_duration_minutes", 15)
     session_hours = auth_cfg.get("session_timeout_hours", 24)
 
+    safe_next = _safe_next(next)
     client_ip = request.client.host if request.client else None
 
     db = auth_module.get_db(AUTH_DB_PATH)
@@ -71,7 +72,7 @@ async def login_post(
                 request,
                 "login.html",
                 {
-                    "next": next,
+                    "next": safe_next,
                     "error": (
                         f"Account locked after too many failed attempts. "
                         f"Try again in {lockout_minutes} minutes."
@@ -110,7 +111,7 @@ async def login_post(
             return templates.TemplateResponse(
                 request,
                 "login.html",
-                {"next": next, "error": error_msg},
+                {"next": safe_next, "error": error_msg},
                 status_code=401,
             )
 
@@ -120,8 +121,6 @@ async def login_post(
         auth_module.purge_expired_sessions(db)
     finally:
         db.close()
-
-    safe_next = _safe_next(next)
 
     response = RedirectResponse(safe_next, status_code=302)
     response.set_cookie(

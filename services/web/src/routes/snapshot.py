@@ -13,6 +13,8 @@ import config_store
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import JSONResponse
+from route_auth import require_user
+from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +91,11 @@ async def send_snapshot_to_channel(
     filename: str = Form(...),
     channel: str = Form(...),
     camera_name: str = Form(""),
-) -> JSONResponse:
+) -> JSONResponse | Response:
     """Send an existing snapshot to a notification channel via the notifier."""
+    gate = require_user(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     # Validate the snapshot file exists
     snapshot_path = os.path.join(_SNAPSHOT_DIR, os.path.basename(filename))
     if not os.path.isfile(snapshot_path):

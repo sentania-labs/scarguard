@@ -83,6 +83,17 @@ async def about_page(request: Request) -> HTMLResponse:
     redis_ok = _check_redis(cfg)
     log_streamer_ok = _check_log_streamer(cfg) if redis_ok else False
 
+    # Deterrent status: enabled in config + log-streamer has seen it running
+    deterrent_cfg = cfg.get("deterrent", {})
+    deterrent_enabled = bool(deterrent_cfg.get("enabled", False)) if isinstance(deterrent_cfg, dict) else False
+    deterrent_running = False
+    if redis_ok:
+        try:
+            r = _redis_conn(cfg)
+            deterrent_running = bool(r.exists("scarguard:logs:buffer:deterrent"))
+        except Exception:
+            pass
+
     latest_event = None
     latest_ago: str | None = None
     today_count = 0
@@ -109,6 +120,8 @@ async def about_page(request: Request) -> HTMLResponse:
             "cameras": cfg.get("cameras", []),
             "redis_ok": redis_ok,
             "log_streamer_ok": log_streamer_ok,
+            "deterrent_enabled": deterrent_enabled,
+            "deterrent_running": deterrent_running,
             "latest_event": latest_event,
             "latest_ago": latest_ago,
             "today_count": today_count,

@@ -95,13 +95,11 @@ class EventProcessor:
                 det.confidence,
             )
 
-            # Suppress publishing when action rules exist but none matched.
             if actions_triggered is None:
                 logger.debug(
-                    "[%s] %s suppressed by action_rules — no matching rule",
+                    "[%s] %s no matching action_rule — notifier will suppress",
                     camera_name, det.class_name,
                 )
-                continue
 
             bbox_list = list(det.bbox) if det.bbox else None
             events.append(

@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+import actuation_db
 import redis as redis_lib
 import yaml
 from actuation_models import ActuationConfig, ActuationEvent, DeviceAction
@@ -21,6 +22,7 @@ from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
 from cooldown import CooldownTracker
 from randomizer import build_random_plan
+from request_handler import RequestHandler
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +183,12 @@ def _worker(
         # Publish actuation event to Redis
         _publish_actuation(pub_holder, redis_cfg, actuation_event)
 
+        # Persist to SQLite
+        try:
+            actuation_db.insert_event(actuation_event)
+        except Exception:
+            logger.exception("Failed to persist actuation event")
+
     logger.info("Deterrent worker thread stopped")
 
 
@@ -299,6 +307,9 @@ def main() -> None:
     cooldown = CooldownTracker()
     event_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=64)
 
+    # Initialise actuation event database
+    actuation_db.init_db()
+
     if not act_cfg.enabled:
         logger.info("Actuation disabled in config — service will idle until enabled")
     elif controller is None:
@@ -393,12 +404,17 @@ def main() -> None:
     )
     worker_thread.start()
 
+    # Start request handler (test-fire + device status queries from web UI)
+    req_handler = RequestHandler(redis_cfg, act_cfg_ref, controller_ref)
+    req_handler.start()
+
     # Subscribe loop blocks until shutdown
     subscribe_loop(redis_cfg, event_queue, shutdown_event)
 
     # Cleanup
     event_queue.put(None)  # ensure worker exits
     worker_thread.join(timeout=10)
+    req_handler.stop()
     watcher.stop()
     if battery_monitor is not None:
         battery_monitor.stop()

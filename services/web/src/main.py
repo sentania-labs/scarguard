@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from routes import (
     about,
+    actuations,
     admin,
     audit_log,
     config,
@@ -419,3 +420,4 @@ app.include_router(audit_log.router)
 app.include_router(snapshot.router)
 app.include_router(feedback.router)
 app.include_router(deterrent.router)
+app.include_router(actuations.router)
