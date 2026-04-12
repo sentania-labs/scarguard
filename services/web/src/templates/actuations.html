@@ -102,9 +102,7 @@
     var row = tmp.firstElementChild;
     if (row) tbody.insertBefore(row, tbody.firstChild);
   });
-  evtSrc.onerror = function() {
-    setTimeout(function() { evtSrc.close(); }, 5000);
-  };
+  // EventSource auto-reconnects natively; no need to close on error.
 })();
 </script>
 

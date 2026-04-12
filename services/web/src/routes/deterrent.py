@@ -120,9 +120,17 @@ async def save_deterrent(request: Request) -> Response:
             existing_act.pop("tuya", None)
         # else: one field set, one empty — keep existing tuya unchanged
 
-    # Update devices list
+    # Update devices list — preserve dp_code overrides not exposed in UI
     devices_input = body.get("devices")
     if isinstance(devices_input, list):
+        # Build lookup of existing dp_code by device_id
+        existing_devices = existing_act.get("devices", [])
+        dp_code_lookup: dict[str, str] = {}
+        if isinstance(existing_devices, list):
+            for ed in existing_devices:
+                if isinstance(ed, dict) and ed.get("dp_code") and ed.get("device_id"):
+                    dp_code_lookup[ed["device_id"]] = ed["dp_code"]
+
         clean_devices = []
         for d in devices_input:
             if not isinstance(d, dict):
@@ -131,12 +139,16 @@ async def save_deterrent(request: Request) -> Response:
             device_id = str(d.get("device_id", "")).strip()
             if not name or not device_id:
                 continue
-            clean_devices.append({
+            dev_entry: dict[str, Any] = {
                 "name": name,
                 "device_id": device_id,
                 "type": d.get("type", "sprinkler"),
                 "enabled": bool(d.get("enabled", True)),
-            })
+            }
+            # Carry forward dp_code from existing config
+            if device_id in dp_code_lookup:
+                dev_entry["dp_code"] = dp_code_lookup[device_id]
+            clean_devices.append(dev_entry)
         existing_act["devices"] = clean_devices
 
     # Update defaults

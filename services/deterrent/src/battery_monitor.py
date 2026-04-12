@@ -36,6 +36,10 @@ class BatteryMonitor:
         """Update configuration (called on hot-reload)."""
         self._config = config
 
+    def update_controller(self, controller: TuyaCloudController) -> None:
+        """Replace the Tuya Cloud controller (called when credentials change)."""
+        self._controller = controller
+
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return

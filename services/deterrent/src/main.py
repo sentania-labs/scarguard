@@ -361,7 +361,7 @@ def main() -> None:
             controller_ref.set(new_controller)
             logger.info("Tuya Cloud controller rebuilt (credentials changed)")
 
-            # Create battery monitor if credentials appeared for the first time
+            # Create or update battery monitor with new controller
             if new_controller is not None and battery_monitor is None:
                 redis_password = os.environ.get("REDIS_PASSWORD", "") or None
                 batt_redis = redis_lib.Redis(
@@ -372,6 +372,9 @@ def main() -> None:
                 )
                 battery_monitor = BatteryMonitor(new_controller, batt_redis)
                 logger.info("Battery monitor created (credentials now available)")
+            elif new_controller is not None and battery_monitor is not None:
+                battery_monitor.update_controller(new_controller)
+                logger.info("Battery monitor controller updated (credentials changed)")
 
         act_cfg_ref.set(new_act)
         armed_ref.set(new_armed)
