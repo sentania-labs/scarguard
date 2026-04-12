@@ -85,7 +85,7 @@ DETECTIONS_CHANNEL = "scarguard:detections"
 _SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", "/data/snapshots")
 
 
-@router.post("/snapshot/send")
+@router.post("/snapshot/send", response_model=None)
 async def send_snapshot_to_channel(
     request: Request,
     filename: str = Form(...),
