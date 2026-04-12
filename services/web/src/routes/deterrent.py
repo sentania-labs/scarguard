@@ -77,19 +77,33 @@ async def save_deterrent(request: Request) -> Response:
     if not isinstance(existing_act, dict):
         existing_act = {}
 
-    # Update tuya credentials (skip if redacted)
+    # Update tuya credentials — only persist if both required fields are
+    # present to avoid writing a partial block that breaks service startup.
+    # Redacted placeholder values are ignored (viewer submitted the form).
     tuya_input = body.get("tuya", {})
     if isinstance(tuya_input, dict):
         existing_tuya = existing_act.get("tuya", {})
         if not isinstance(existing_tuya, dict):
             existing_tuya = {}
-        for key in ("api_key", "api_secret", "api_region"):
-            val = tuya_input.get(key, "")
-            if val and val != REDACTED_PLACEHOLDER:
-                existing_tuya[key] = val
-            elif key == "api_region" and val:
-                existing_tuya[key] = val
-        existing_act["tuya"] = existing_tuya
+        api_key = tuya_input.get("api_key", "")
+        api_secret = tuya_input.get("api_secret", "")
+        api_region = tuya_input.get("api_region", "us")
+
+        # Resolve effective values: use input unless it's redacted/empty,
+        # in which case keep the existing value.
+        eff_key = api_key if (api_key and api_key != REDACTED_PLACEHOLDER) else existing_tuya.get("api_key", "")
+        eff_secret = api_secret if (api_secret and api_secret != REDACTED_PLACEHOLDER) else existing_tuya.get("api_secret", "")
+        eff_region = api_region if api_region else existing_tuya.get("api_region", "us")
+
+        if eff_key and eff_secret:
+            existing_tuya["api_key"] = eff_key
+            existing_tuya["api_secret"] = eff_secret
+            existing_tuya["api_region"] = eff_region
+            existing_act["tuya"] = existing_tuya
+        elif not eff_key and not eff_secret:
+            # Both cleared — remove tuya block entirely
+            existing_act.pop("tuya", None)
+        # else: one field set, one empty — keep existing tuya unchanged
 
     # Update devices list
     devices_input = body.get("devices")

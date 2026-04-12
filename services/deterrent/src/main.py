@@ -339,6 +339,7 @@ def main() -> None:
 
     # Config hot-reload
     def _on_config_change(new_cfg: dict[str, Any]) -> None:
+        nonlocal battery_monitor
         new_act = parse_actuation_config(new_cfg)
         new_armed = new_cfg.get("system", {}).get("armed", True)
 
@@ -348,6 +349,18 @@ def main() -> None:
             new_controller = build_controller(new_act)
             controller_ref.set(new_controller)
             logger.info("Tuya Cloud controller rebuilt (credentials changed)")
+
+            # Create battery monitor if credentials appeared for the first time
+            if new_controller is not None and battery_monitor is None:
+                redis_password = os.environ.get("REDIS_PASSWORD", "") or None
+                batt_redis = redis_lib.Redis(
+                    host=redis_cfg.get("host", "redis"),
+                    port=int(redis_cfg.get("port", 6379)),
+                    password=redis_password,
+                    decode_responses=True,
+                )
+                battery_monitor = BatteryMonitor(new_controller, batt_redis)
+                logger.info("Battery monitor created (credentials now available)")
 
         act_cfg_ref.set(new_act)
         armed_ref.set(new_armed)
