@@ -278,6 +278,39 @@ class TLSConfig(BaseModel):
     key_path: str = "/config/certs/key.pem"
 
 
+class TuyaCredentialsConfig(BaseModel):
+    api_key: str = ""
+    api_secret: str = ""
+    api_region: str = "us"
+
+
+class ActuationDeviceConfig(BaseModel):
+    name: str
+    device_id: str
+    type: Literal["sprinkler", "light", "sound", "plug"] = "sprinkler"
+    enabled: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def name_nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Device name must not be empty")
+        return v.strip()
+
+    @field_validator("device_id")
+    @classmethod
+    def device_id_nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Device ID must not be empty")
+        return v.strip()
+
+
+class ActuationConfig(BaseModel):
+    enabled: bool = False
+    tuya: TuyaCredentialsConfig = TuyaCredentialsConfig()
+    devices: list[ActuationDeviceConfig] = []
+
+
 class StructuredConfigPayload(BaseModel):
     """Subset of scarguard.yml written by the structured form editor.
 
@@ -290,3 +323,4 @@ class StructuredConfigPayload(BaseModel):
     detection: DetectionConfig = DetectionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     tls: TLSConfig = TLSConfig()
+    deterrent: ActuationConfig = ActuationConfig()

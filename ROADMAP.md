@@ -3,14 +3,16 @@
 Active and planned features. Each item includes acceptance criteria. Completed features (1–17, 18–22, 23–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 ---
 
-## Actuation — Sprinkler Deterrence (Scar's Revenge)
+## Deterrence — Physical Deterrence (Scar's Revenge)
 
-New `actuator` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya WiFi hose timer valves via `tinytuya` LAN control (no cloud dependency). Randomized spray patterns (valve count, duration, inter-spray delays) to prevent wildlife habituation.
+New `deterrent` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya smart devices via the **Tuya Cloud API** (`tinytuya.Cloud`). Supports sprinklers, lights, sirens, and smart plugs — any device in the Tuya/Smart Life ecosystem. Randomized activation patterns (device selection, duration, delays) to prevent wildlife habituation.
 
-- **Hardware:** Off-the-shelf Tuya/Smart Life WiFi hose timer valves, standard garden hose fittings, battery-powered. No custom wiring or relay boards.
-- **Config:** `actuation` section in `scarguard.yml` — valve definitions (device_id, local_key, IP), randomization ranges, cooldown, battery alert thresholds.
-- **Battery monitoring:** Periodic polling via tinytuya with low-battery alerts through the existing notification system.
-- **Blocked on:** PoC valve hardware arrival and LAN control validation.
+- **v0.13.0 (MVP):** Any detection fires all enabled devices with randomized timing and global cooldown. Opt-in via `deterrent.enabled` in config.
+- **v0.13.x:** Response profiles (species-based routing, time-of-day conditions, device-type filtering). Example: heron = all deterrents ("Global Thermonuclear War"), raccoon at night = lights + sound only.
+- **Hardware:** Off-the-shelf Tuya/Smart Life smart devices — hose timer valves, smart plugs, lights, sirens. Battery-powered devices work via Cloud API (LAN control not viable due to deep sleep).
+- **Config:** `deterrent` section in `scarguard.yml` — Tuya Cloud credentials, device definitions (device_id, type), randomization ranges, cooldown, battery alert thresholds.
+- **Setup guide:** [TUYA_SETUP.md](TUYA_SETUP.md) — step-by-step instructions for creating a Tuya IoT Platform account and obtaining API credentials.
+- **Battery monitoring:** Periodic polling via Tuya Cloud API with low-battery alerts through the existing notification system.
 - **Full specification:** [ACTUATION_SPEC.md](ACTUATION_SPEC.md)
 
 ---
@@ -108,15 +110,17 @@ trail before the big 0.13 feature lands.
 
 ---
 
-## v0.13 — actuator service (planned)
+## v0.13 — deterrent service
 
 The first version in which ScarGuard closes the detect → notify → *deter*
-loop end-to-end. Introduces a new `actuator` service that controls a Tuya
-WiFi valve for sprinkler-based heron deterrence. See
-`ACTUATION_SPEC.md` for the design. Expected to ship as a **beta/opt-in**
-in 0.13.0, with 0.13.x patches hardening based on real-world use. **1.0.0**
-is reserved for "actuator validated in production" — i.e. the first
-version where ScarGuard fully delivers on its name.
+loop end-to-end. Introduces a new `deterrent` service that controls Tuya
+smart devices (sprinklers, lights, sirens, plugs) via the Tuya Cloud API.
+See `ACTUATION_SPEC.md` for the design and `TUYA_SETUP.md` for user-facing
+setup instructions. Ships as **beta/opt-in** in 0.13.0 (MVP: all devices
+fire on any detection with randomization + cooldown). 0.13.x patches add
+response profiles (species → device-type routing, time-of-day conditions).
+**1.0.0** is reserved for "deterrent validated in production" — i.e. the
+first version where ScarGuard fully delivers on its name.
 
 ---
 
@@ -135,3 +139,5 @@ version where ScarGuard fully delivers on its name.
 - Automated Orin runner/self-updates — CI pushes runner updates to Orin via SSH (parked)
 - Isolated benchmark runner — use concurrency groups or dedicated runner labels at release time to ensure CPU inference benchmarks run without competing workloads skewing FPS numbers
 - CI path filtering — skip full CI on docs-only or benchmark-only PRs using `paths-ignore` in workflow triggers. Needs a lightweight "skip" job if CI becomes a required status check.
+- Tuya LAN fallback — for always-on (mains-powered) Tuya devices, offer `tinytuya` local TCP control as a lower-latency alternative to Cloud API. Not viable for battery-powered devices (WiFi radio sleeps between cloud check-ins).
+- Config secrets at rest — encrypt sensitive values (API keys, SMTP passwords, webhook tokens) in `scarguard.yml`. Target v0.14.x or v0.15.x.

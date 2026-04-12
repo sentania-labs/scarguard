@@ -471,6 +471,28 @@
   </div>
 
   {# ── TLS ────────────────────────────────────────────────────────────────── #}
+  <div class="config-section" id="section-deterrent">
+    <div class="config-section-header" onclick="toggleSection('section-deterrent')">
+      <span class="config-section-label">Deterrent</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <p class="hint">
+          Physical deterrence via Tuya smart devices (sprinklers, lights, sirens).
+          {% if not read_only %}Configure devices on the <a href="/admin/deterrent">Deterrent page</a>.{% endif %}
+        </p>
+        <div class="field-group">
+          <label class="toggle-label">
+            <input type="checkbox" id="deterrent-enabled" {% if cfg.deterrent.enabled %}checked{% endif %}>
+            <span class="toggle-track"></span>
+            Enable physical deterrence
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="config-section collapsed expert-only" id="section-tls">
     <div class="config-section-header" onclick="toggleSection('section-tls')">
       <span class="config-section-label">TLS</span>

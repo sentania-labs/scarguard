@@ -64,7 +64,7 @@ None currently identified.
 ## Not Yet Built
 
 - Custom-trained heron model (have the tooling now, need labeled data)
-- Physical deterrence — actuator service with Tuya WiFi valve control (see [ACTUATION_SPEC.md](ACTUATION_SPEC.md)); blocked on PoC hardware
+- Physical deterrence — deterrent service with Tuya Cloud API control (see [ACTUATION_SPEC.md](ACTUATION_SPEC.md) and [TUYA_SETUP.md](TUYA_SETUP.md)); v0.13.0 MVP in progress
 
 See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–27).
 

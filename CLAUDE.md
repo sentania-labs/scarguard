@@ -4,13 +4,13 @@ Named after Scar (aka Kroger), a survivor fish badly injured by a heron who live
 
 ## What This Is
 
-A containerized wildlife detection and notification system. Watches RTSP camera feeds for target species (herons, ducks, raccoons) and sends real-time notifications (Discord, email, webhooks) enabling downstream response to protect a backyard koi pond. ScarGuard is detection and notification only — physical deterrence is handled by downstream systems (future companion project: Scar's Revenge). Works with any RTSP camera and any Docker host with an NVIDIA GPU.
+A containerized wildlife detection and notification system. Watches RTSP camera feeds for target species (herons, ducks, raccoons) and sends real-time notifications (Discord, email, webhooks) enabling downstream response to protect a backyard koi pond. ScarGuard handles detection, notification, and physical deterrence (sprinklers, lights, sirens via Tuya Cloud API). Works with any RTSP camera and any Docker host with an NVIDIA GPU.
 
 ## Tech Stack (Reference Setup)
 
 - **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7) — any NVIDIA GPU host works
 - **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP — any RTSP camera works
-- **Services:** Docker Compose with 4 containers: Redis, Detector, Web (FastAPI + Jinja), Notifier
+- **Services:** Docker Compose with 5 containers: Redis, Detector, Web (FastAPI + Jinja), Notifier, Deterrent
 - **Detection:** YOLO model on GPU, OpenCV RTSP ingestion
 - **IPC:** Redis pub/sub as internal message bus
 - **Database:** SQLite (single writer, no Postgres)
@@ -69,7 +69,7 @@ Run these before considering any code change done (mirrors CI exactly):
 
 ```bash
 # Ruff — all services (detector included; no GPU deps needed)
-ruff check services/detector/src services/web/src services/notifier/src shared
+ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src shared
 
 # mypy — web (detector is excluded from CI: torch/opencv not available outside L4T)
 MYPYPATH=services/web/src:shared \
@@ -78,6 +78,10 @@ MYPYPATH=services/web/src:shared \
 # mypy — notifier
 MYPYPATH=services/notifier/src:shared \
   python3 -m mypy services/notifier/src shared --ignore-missing-imports --explicit-package-bases
+
+# mypy — deterrent
+MYPYPATH=services/deterrent/src:shared \
+  python3 -m mypy services/deterrent/src shared --ignore-missing-imports --explicit-package-bases
 ```
 
 Required packages (if not already installed): `pip install ruff mypy types-PyYAML types-requests types-redis`
