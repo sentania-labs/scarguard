@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Deterrent Log — ScarGuard{% endblock %}
+{% block content %}
+<h1>Deterrent Log</h1>
+<p class="muted" style="font-size:0.85rem;margin-bottom:1rem;">
+  Deterrent device activations triggered by detections. Newest first.
+</p>
+
+<form method="get" action="/deterrent-log" class="card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">Trigger class</span>
+    <input type="text" name="trigger_class" value="{{ trigger_class }}"
+           placeholder="e.g. bird"
+           style="padding:0.3em 0.5em;min-width:8rem;">
+  </label>
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">Camera</span>
+    <input type="text" name="camera" value="{{ camera }}"
+           placeholder="e.g. pond-south"
+           style="padding:0.3em 0.5em;min-width:8rem;">
+  </label>
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">From</span>
+    <input type="date" name="date_from" value="{{ date_from }}"
+           style="padding:0.3em 0.5em;">
+  </label>
+  <label style="display:flex;flex-direction:column;font-size:0.8rem;">
+    <span class="muted">To</span>
+    <input type="date" name="date_to" value="{{ date_to }}"
+           style="padding:0.3em 0.5em;">
+  </label>
+  <button type="submit" class="btn">Filter</button>
+  <a href="/deterrent-log" class="btn btn-secondary">Reset</a>
+</form>
+
+<section class="card">
+  <table id="actuations-table">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Trigger</th>
+        <th>Camera</th>
+        <th>Conf</th>
+        <th>Devices</th>
+        <th>Result</th>
+        <th>Duration</th>
+      </tr>
+    </thead>
+    <tbody id="actuations-body">
+    {% for ev in events %}
+      <tr class="actuation-row" data-event-id="{{ ev.id }}">
+        <td class="muted" style="font-size:0.8rem;white-space:nowrap;">{{ ev.display_ts }}</td>
+        <td>{{ ev.trigger_class.replace("_", " ").title() }}</td>
+        <td>{{ ev.trigger_camera }}</td>
+        <td>{{ "%.0f%%"|format(ev.trigger_confidence * 100) }}</td>
+        <td>
+          {% for a in ev.actions %}
+            <span class="tag {% if a.success %}tag-ok{% else %}tag-err{% endif %}" title="{{ a.device_type }} — {{ '%.1f'|format(a.duration_sec) }}s{% if a.error %} — {{ a.error }}{% endif %}">{{ a.device_name }}</span>
+          {% endfor %}
+        </td>
+        <td>
+          {% set sc = ev.success_count %}
+          {% set dc = ev.device_count %}
+          <span class="{% if sc == dc %}status-ok{% elif sc > 0 %}status-warn{% else %}status-err{% endif %}">{{ sc }}/{{ dc }}</span>
+        </td>
+        <td>{{ "%.1f"|format(ev.total_duration_sec) }}s</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted" style="text-align:center;padding:1rem;">No actuation events{% if trigger_class or camera or date_from or date_to %} match the current filter{% endif %}.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {# Pagination #}
+  {% if total_pages > 1 %}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;font-size:0.85rem;">
+    <span class="muted">{{ total }} event(s) — page {{ page }}/{{ total_pages }}</span>
+    <div style="display:flex;gap:0.5rem;">
+      {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&trigger_class={{ trigger_class }}&camera={{ camera }}&date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-secondary">Newer</a>
+      {% endif %}
+      {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}&trigger_class={{ trigger_class }}&camera={{ camera }}&date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-secondary">Older</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<script>
+(function() {
+  var evtSrc = new EventSource('/deterrent-log/stream');
+  evtSrc.addEventListener('actuation', function(e) {
+    var tbody = document.getElementById('actuations-body');
+    if (!tbody) return;
+    // Remove "no events" placeholder if present
+    var empty = tbody.querySelector('td[colspan]');
+    if (empty) empty.parentElement.remove();
+    // Insert new row at top
+    var tmp = document.createElement('tbody');
+    tmp.innerHTML = e.data;
+    var row = tmp.firstElementChild;
+    if (row) tbody.insertBefore(row, tbody.firstChild);
+  });
+  // EventSource auto-reconnects natively; no need to close on error.
+})();
+</script>
+
+<style>
+.status-ok { color: var(--ok); font-weight: 600; }
+.status-warn { color: var(--warn); font-weight: 600; }
+.status-err { color: var(--danger); font-weight: 600; }
+.tag { display:inline-block; padding:0.15em 0.5em; border-radius:3px; font-size:0.8rem; margin:1px; }
+.tag-ok { background: rgba(var(--ok-rgb, 76,175,80), 0.15); color: var(--ok); }
+.tag-err { background: rgba(var(--danger-rgb, 244,67,54), 0.15); color: var(--danger); }
+.actuation-new { animation: flash 1s ease-out; }
+@keyframes flash { from { background: rgba(var(--accent-rgb, 100,181,246), 0.2); } to { background: transparent; } }
+</style>
+{% endblock %}

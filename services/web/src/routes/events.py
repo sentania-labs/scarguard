@@ -211,7 +211,7 @@ def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
     frame_size = event.get("frame_size")
     snap_html = ""
     if snap:
-        fname = Path(snap).name
+        fname = _html.escape(Path(snap).name)
         data_attrs = ""
         if bbox and frame_size:
             data_attrs = (
@@ -237,9 +237,9 @@ def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
     return (
         f'<tr id="event-live" class="event-unreviewed">'
         f"<td>{display_ts}</td>"
-        f'<td>{event.get("class_name", "").replace("_", " ").title()}</td>'
+        f'<td>{_html.escape(event.get("class_name", "").replace("_", " ").title())}</td>'
         f"<td>{conf:.0%}</td>"
-        f'<td>{event.get("camera_name", "")}</td>'
+        f'<td>{_html.escape(event.get("camera_name", ""))}</td>'
         f'<td class="actions-cell">{actions_html}</td>'
         f"<td>{snap_html}</td>"
         f'<td class="feedback-cell">{feedback_html}</td>'

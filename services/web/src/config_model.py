@@ -305,10 +305,47 @@ class ActuationDeviceConfig(BaseModel):
         return v.strip()
 
 
+class ActuationDefaultsConfig(BaseModel):
+    cooldown_seconds: int = 60
+    device_count_range: list[int] = [1, 4]
+    spray_duration_range: list[float] = [3.0, 8.0]
+    inter_device_delay_range: list[float] = [1.0, 5.0]
+    pre_delay_range: list[float] = [0.0, 3.0]
+
+    @field_validator("cooldown_seconds")
+    @classmethod
+    def cooldown_range(cls, v: int) -> int:
+        if not 5 <= v <= 3600:
+            raise ValueError("cooldown_seconds must be between 5 and 3600")
+        return v
+
+
+class DeterrentBatteryMonitorConfig(BaseModel):
+    enabled: bool = True
+    check_interval_hours: int = 24
+    alert_threshold_percent: int = 20
+
+    @field_validator("check_interval_hours")
+    @classmethod
+    def interval_range(cls, v: int) -> int:
+        if not 1 <= v <= 168:
+            raise ValueError("check_interval_hours must be between 1 and 168")
+        return v
+
+    @field_validator("alert_threshold_percent")
+    @classmethod
+    def threshold_range(cls, v: int) -> int:
+        if not 1 <= v <= 100:
+            raise ValueError("alert_threshold_percent must be between 1 and 100")
+        return v
+
+
 class ActuationConfig(BaseModel):
     enabled: bool = False
     tuya: TuyaCredentialsConfig = TuyaCredentialsConfig()
     devices: list[ActuationDeviceConfig] = []
+    defaults: ActuationDefaultsConfig = ActuationDefaultsConfig()
+    battery_monitor: DeterrentBatteryMonitorConfig = DeterrentBatteryMonitorConfig()
 
 
 class StructuredConfigPayload(BaseModel):

@@ -92,6 +92,19 @@
       </div>
     </div>
 
+    <div class="about-status-item">
+      <span class="status-dot {% if deterrent_enabled and deterrent_running %}dot-ok{% elif deterrent_enabled %}dot-warn{% else %}dot-muted{% endif %}"></span>
+      <div>
+        <div class="about-status-label">Deterrent</div>
+        <div class="about-status-detail">
+          {% if deterrent_enabled and deterrent_running %}Enabled — service running
+          {% elif deterrent_enabled %}Enabled — service not detected
+          {% else %}Disabled
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div class="about-stat-row" style="margin-top:1rem;">

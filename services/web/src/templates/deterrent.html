@@ -46,6 +46,17 @@
   </div>
 </div>
 
+{# ── Device Status ─────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2 style="margin-top:0;font-size:1.1rem;">Device Status</h2>
+  <p class="hint">
+    Live device status from the Tuya Cloud API. Click to query all devices.
+  </p>
+  <button type="button" id="status-btn" class="btn-secondary" onclick="checkDeviceStatus()">Check Status</button>
+  <span id="status-spinner" class="muted" style="display:none;margin-left:0.5rem;">Querying devices...</span>
+  <div id="status-panel" style="margin-top:0.75rem;"></div>
+</div>
+
 {# ── Devices ────────────────────────────────────────────────────────────── #}
 <div class="card" style="margin-bottom:1.5rem;">
   <h2 style="margin-top:0;font-size:1.1rem;">Devices</h2>
@@ -61,6 +72,7 @@
         <th style="padding:0.4rem 0.5rem;">Device ID</th>
         <th style="padding:0.4rem 0.5rem;width:8rem;">Type</th>
         <th style="padding:0.4rem 0.5rem;width:4rem;">Enabled</th>
+        {% if not read_only %}<th style="padding:0.4rem 0.5rem;width:4rem;">Test</th>{% endif %}
         {% if not read_only %}<th style="padding:0.4rem 0.5rem;width:3rem;"></th>{% endif %}
       </tr>
     </thead>
@@ -73,6 +85,103 @@
     + Add device
   </button>
   {% endif %}
+</div>
+
+{# ── Actuation Defaults ──────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2 style="margin-top:0;font-size:1.1rem;">Actuation Defaults</h2>
+  <p class="hint">
+    Randomization ranges and cooldown for deterrent sequences.
+  </p>
+  <div class="field-group" style="max-width:12rem;">
+    <label>Cooldown (seconds)</label>
+    <input type="number" id="def-cooldown" min="5" max="3600" step="1"
+           value="{{ defaults.get('cooldown_seconds', 60) }}"
+           {% if read_only %}disabled{% endif %}>
+  </div>
+  <div class="field-row" style="margin-top:0.75rem;">
+    <div class="field-group">
+      <label>Device count range</label>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <input type="number" id="def-device-min" min="1" max="20" step="1" style="width:5rem;"
+               value="{{ defaults.get('device_count_range', [1,4])[0] }}"
+               {% if read_only %}disabled{% endif %}>
+        <span>to</span>
+        <input type="number" id="def-device-max" min="1" max="20" step="1" style="width:5rem;"
+               value="{{ defaults.get('device_count_range', [1,4])[1] }}"
+               {% if read_only %}disabled{% endif %}>
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Spray duration range (sec)</label>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <input type="number" id="def-spray-min" min="0.5" max="60" step="0.5" style="width:5rem;"
+               value="{{ defaults.get('spray_duration_range', [3.0,8.0])[0] }}"
+               {% if read_only %}disabled{% endif %}>
+        <span>to</span>
+        <input type="number" id="def-spray-max" min="0.5" max="60" step="0.5" style="width:5rem;"
+               value="{{ defaults.get('spray_duration_range', [3.0,8.0])[1] }}"
+               {% if read_only %}disabled{% endif %}>
+      </div>
+    </div>
+  </div>
+  <div class="field-row" style="margin-top:0.75rem;">
+    <div class="field-group">
+      <label>Inter-device delay range (sec)</label>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <input type="number" id="def-delay-min" min="0" max="30" step="0.5" style="width:5rem;"
+               value="{{ defaults.get('inter_device_delay_range', [1.0,5.0])[0] }}"
+               {% if read_only %}disabled{% endif %}>
+        <span>to</span>
+        <input type="number" id="def-delay-max" min="0" max="30" step="0.5" style="width:5rem;"
+               value="{{ defaults.get('inter_device_delay_range', [1.0,5.0])[1] }}"
+               {% if read_only %}disabled{% endif %}>
+      </div>
+    </div>
+    <div class="field-group">
+      <label>Pre-delay range (sec)</label>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <input type="number" id="def-pre-min" min="0" max="30" step="0.5" style="width:5rem;"
+               value="{{ defaults.get('pre_delay_range', [0.0,3.0])[0] }}"
+               {% if read_only %}disabled{% endif %}>
+        <span>to</span>
+        <input type="number" id="def-pre-max" min="0" max="30" step="0.5" style="width:5rem;"
+               value="{{ defaults.get('pre_delay_range', [0.0,3.0])[1] }}"
+               {% if read_only %}disabled{% endif %}>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Battery Monitor ─��─────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2 style="margin-top:0;font-size:1.1rem;">Battery Monitor</h2>
+  <p class="hint">
+    Periodic battery level checks via Tuya Cloud API with low-battery alerts.
+  </p>
+  <div class="field-group">
+    <label class="toggle-label">
+      <input type="checkbox" id="batt-enabled"
+             {% if battery_monitor.get('enabled', True) %}checked{% endif %}
+             {% if read_only %}disabled{% endif %}>
+      <span class="toggle-track"></span>
+      Enable battery monitoring
+    </label>
+  </div>
+  <div class="field-row" style="margin-top:0.75rem;">
+    <div class="field-group" style="max-width:12rem;">
+      <label>Check interval (hours)</label>
+      <input type="number" id="batt-interval" min="1" max="168" step="1"
+             value="{{ battery_monitor.get('check_interval_hours', 24) }}"
+             {% if read_only %}disabled{% endif %}>
+    </div>
+    <div class="field-group" style="max-width:12rem;">
+      <label>Alert threshold (%)</label>
+      <input type="number" id="batt-threshold" min="1" max="100" step="1"
+             value="{{ battery_monitor.get('alert_threshold_percent', 20) }}"
+             {% if read_only %}disabled{% endif %}>
+    </div>
+  </div>
 </div>
 
 {% if not read_only %}
@@ -105,6 +214,7 @@ function renderDevices() {
           }).join('') +
         '</select></td>' +
         '<td style="padding:0.4rem 0.5rem;text-align:center;"><input type="checkbox" data-idx="' + i + '" data-field="enabled"' + (dev.enabled !== false ? ' checked' : '') + '></td>' +
+        '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-secondary" style="font-size:0.75rem;padding:0.2em 0.6em;" onclick="testFire(\'' + esc(dev.device_id) + '\', this)" title="Test-fire for 3 seconds">Fire</button></td>' +
         '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-danger-sm" onclick="removeDevice(' + i + ')" title="Remove">x</button></td>';
     }
     tbody.appendChild(tr);
@@ -179,6 +289,30 @@ async function saveDeterrent() {
       api_region: document.getElementById('tuya-api-region').value,
     },
     devices: devices,
+    defaults: {
+      cooldown_seconds: parseInt(document.getElementById('def-cooldown').value) || 60,
+      device_count_range: [
+        parseInt(document.getElementById('def-device-min').value) || 1,
+        parseInt(document.getElementById('def-device-max').value) || 4,
+      ],
+      spray_duration_range: [
+        parseFloat(document.getElementById('def-spray-min').value) || 3.0,
+        parseFloat(document.getElementById('def-spray-max').value) || 8.0,
+      ],
+      inter_device_delay_range: [
+        parseFloat(document.getElementById('def-delay-min').value) || 1.0,
+        parseFloat(document.getElementById('def-delay-max').value) || 5.0,
+      ],
+      pre_delay_range: [
+        parseFloat(document.getElementById('def-pre-min').value) || 0.0,
+        parseFloat(document.getElementById('def-pre-max').value) || 3.0,
+      ],
+    },
+    battery_monitor: {
+      enabled: document.getElementById('batt-enabled').checked,
+      check_interval_hours: parseInt(document.getElementById('batt-interval').value) || 24,
+      alert_threshold_percent: parseInt(document.getElementById('batt-threshold').value) || 20,
+    },
   };
 
   try {
@@ -211,5 +345,86 @@ function showMsg(text, isError) {
 }
 
 renderDevices();
+
+async function testFire(deviceId, btn) {
+  var origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Firing...';
+  try {
+    var resp = await fetch('/admin/deterrent/test-fire', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+      body: JSON.stringify({device_id: deviceId, duration_sec: 3.0}),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      btn.textContent = 'OK';
+      btn.style.color = 'var(--ok)';
+    } else {
+      btn.textContent = 'Fail';
+      btn.style.color = 'var(--danger)';
+      showMsg('Test-fire failed: ' + (data.error || 'Unknown error'), true);
+    }
+  } catch (e) {
+    btn.textContent = 'Err';
+    btn.style.color = 'var(--danger)';
+    showMsg('Network error: ' + e.message, true);
+  }
+  setTimeout(function() {
+    btn.textContent = origText;
+    btn.style.color = '';
+    btn.disabled = false;
+  }, 3000);
+}
+
+async function checkDeviceStatus() {
+  var btn = document.getElementById('status-btn');
+  var spinner = document.getElementById('status-spinner');
+  var panel = document.getElementById('status-panel');
+  btn.disabled = true;
+  spinner.style.display = '';
+  panel.innerHTML = '';
+  try {
+    var resp = await fetch('/admin/deterrent/device-status');
+    var data = await resp.json();
+    if (data.ok && data.devices) {
+      var html = '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">';
+      html += '<thead><tr style="border-bottom:2px solid var(--border);text-align:left;">';
+      html += '<th style="padding:0.3rem 0.5rem;">Device</th>';
+      html += '<th style="padding:0.3rem 0.5rem;">Type</th>';
+      html += '<th style="padding:0.3rem 0.5rem;">Online</th>';
+      html += '<th style="padding:0.3rem 0.5rem;">Battery</th>';
+      html += '<th style="padding:0.3rem 0.5rem;">Switch</th>';
+      html += '</tr></thead><tbody>';
+      data.devices.forEach(function(d) {
+        html += '<tr style="border-bottom:1px solid var(--border);">';
+        html += '<td style="padding:0.3rem 0.5rem;">' + esc(d.name) + '</td>';
+        html += '<td style="padding:0.3rem 0.5rem;">' + esc(d.type) + '</td>';
+        html += '<td style="padding:0.3rem 0.5rem;">';
+        html += d.online
+          ? '<span style="color:var(--ok);">Online</span>'
+          : '<span style="color:var(--danger);">Offline</span>';
+        html += '</td>';
+        html += '<td style="padding:0.3rem 0.5rem;">';
+        html += d.battery_pct != null ? d.battery_pct + '%' : '<span class="muted">N/A</span>';
+        html += '</td>';
+        html += '<td style="padding:0.3rem 0.5rem;">';
+        if (d.switch_state === true) html += '<span style="color:var(--ok);">ON</span>';
+        else if (d.switch_state === false) html += '<span class="muted">OFF</span>';
+        else html += '<span class="muted">N/A</span>';
+        html += '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      panel.innerHTML = html;
+    } else {
+      panel.innerHTML = '<span class="muted">' + esc(data.error || 'No data') + '</span>';
+    }
+  } catch (e) {
+    panel.innerHTML = '<span style="color:var(--danger);">Network error: ' + esc(e.message) + '</span>';
+  }
+  btn.disabled = false;
+  spinner.style.display = 'none';
+}
 </script>
 {% endblock %}

@@ -105,6 +105,7 @@ services:
       MODELS_DIR: /models
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
+      DETERRENT_DB_PATH: /data/deterrent.db
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
@@ -161,6 +162,7 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETERRENT_DB_PATH: /data/deterrent.db
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s
@@ -169,6 +171,7 @@ services:
       start_period: 15s
     volumes:
       - scarguard-config:/config:ro
+      - scarguard-data:/data
     depends_on:
       redis:
         condition: service_healthy

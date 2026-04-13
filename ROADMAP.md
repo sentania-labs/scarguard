@@ -122,6 +122,29 @@ response profiles (species → device-type routing, time-of-day conditions).
 **1.0.0** is reserved for "deterrent validated in production" — i.e. the
 first version where ScarGuard fully delivers on its name.
 
+### v0.13.1 — deterrent web UI & security fixes (in progress)
+
+1. **Actuation log page.** New `/admin/actuations` page showing every deterrent
+   firing: timestamp, trigger detection (class + camera + confidence), devices
+   fired with per-device success/failure, total duration. SSE live updates,
+   filtering by trigger class/camera/date, pagination. Deterrent service
+   persists events to its own SQLite DB (`/data/deterrent.db`); web reads
+   read-only.
+2. **Device status panel.** "Check Status" button on the deterrent page queries
+   all devices via Tuya Cloud API (through the deterrent service over Redis
+   request/response). Shows online/offline, battery %, and switch state.
+3. **Per-device test-fire.** "Fire" button in the devices table activates a
+   single device for 3 seconds. Uses the same Redis request/response pattern.
+4. **Actuation defaults & battery monitor UI.** Cooldown, randomization ranges,
+   battery monitor settings now configurable on the deterrent page.
+5. **Detection publish fix.** Detector now publishes all detections to Redis
+   regardless of action rules. Notifier already suppresses when no rule
+   matches; deterrent sees everything.
+6. **Security fixes.** XSS in event stream rendering, login redirect
+   sanitization, explicit auth guard on `/snapshot/send`.
+7. **About page.** Deterrent service status indicator.
+8. **Log streaming.** Deterrent service added to log viewer filter.
+
 ---
 
 ## Future Ideas (Unprioritized)

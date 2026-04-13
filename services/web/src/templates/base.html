@@ -18,6 +18,7 @@
     <a href="/">Dashboard</a>
     <a href="/events">Events</a>
     <a href="/events/visits">Visits</a>
+    <a href="/deterrent-log">Deterrent Log</a>
     {% set _user = request.state.user %}
     {% set _role = _user.role if _user and _user.role else ('admin' if _user and _user.is_admin else ('user' if _user else '')) %}
     {% set _is_admin = _role == 'admin' %}
@@ -35,7 +36,7 @@
           <div class="nav-dropdown__sep"></div>
           {% if _is_admin %}<a href="/admin/users">Users</a>{% endif %}
           {% if _is_admin %}<a href="/admin/audit-log">Audit Log</a>{% endif %}
-          {% if request.state.deterrent_enabled %}<a href="/admin/deterrent">Deterrent</a>{% endif %}
+          <a href="/admin/deterrent">Deterrent</a>
           <a href="/admin/training">Training Data</a>
           <a href="/admin/training/evaluate">Model Evaluation</a>
           <a href="/admin/backups">Config Backups</a>
