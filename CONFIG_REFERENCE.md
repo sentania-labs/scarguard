@@ -67,35 +67,16 @@ detection:
   cooldown_seconds: 30
   frame_skip: 2
 
-action_rules:
-  - match:
-      class: great_blue_heron
-    actions: [discord, email, webhook]
-  - match:
-      class: bird
-    actions: [discord]
-  - match:
-      class: human
-    actions: [log]
-  - match:
-      camera: pond-south
-      class: raccoon
-    actions: [discord, webhook]
+  # Per-camera action rules (defined inside each camera block)
+  action_rules:
+    - class_name: great_blue_heron
+      channels: [pond-alerts, owner-email]
+    - class_name: bird
+      channels: [pond-alerts]
+    - class_name: "*"        # catch-all
+      channels: [pond-alerts]
 
 notifications:
-  discord:
-    enabled: true
-    webhook_url: "https://discord.com/api/webhooks/..."
-    mention_role: ""
-    include_snapshot: true
-  email:
-    enabled: false
-    smtp_host: ""
-    smtp_port: 587
-    smtp_user: ""
-    smtp_pass: ""
-    to_addresses: []
-    include_snapshot: true
   channels:
     - name: phone-alerts
       type: ntfy

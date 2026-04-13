@@ -127,13 +127,13 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `redis-data` | redis | rw | Redis persistence |
 
-Additionally, the Docker socket is bind-mounted into the web container for Admin Logs:
+Additionally, the Docker socket is bind-mounted into the `log-streamer` sidecar (not the web container):
 
 | Bind mount | Service | Purpose |
 |------------|---------|---------|
-| `/var/run/docker.sock:/var/run/docker.sock:ro` | web | Docker log streaming for Admin Logs tab |
+| `/var/run/docker.sock:/var/run/docker.sock:ro` | log-streamer | Tails container logs, publishes to Redis for the web Admin Logs tab |
 
-> **Security note:** Mounting `/var/run/docker.sock` gives the web container host-root equivalent access to the Docker daemon. This is gated behind authentication (Feature 9).
+> **Security note:** Mounting `/var/run/docker.sock` gives the log-streamer container host-equivalent Docker daemon access. The web container no longer has this mount (removed in v0.12.6). The sidecar runs as a minimal Python process and communicates only via Redis.
 
 ### Migrating from bind mounts (v0.7 and earlier)
 

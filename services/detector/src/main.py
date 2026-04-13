@@ -17,6 +17,7 @@ import logging
 import os
 import signal
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -393,14 +394,22 @@ def main() -> None:
 
         Uses an explicit lock to prevent concurrent YAML read-modify-write from
         the scheduler thread racing against other in-process config mutations.
+        Atomic write via tempfile + os.replace to prevent partial writes.
         """
         with _config_write_lock:
             try:
                 with open(CONFIG_PATH) as f:
                     file_cfg = yaml.safe_load(f) or {}
                 file_cfg.setdefault("system", {})["armed"] = armed
-                with open(CONFIG_PATH, "w") as f:
-                    yaml.dump(file_cfg, f, default_flow_style=False, sort_keys=False)
+                dir_name = os.path.dirname(CONFIG_PATH) or "."
+                fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".yml.tmp")
+                try:
+                    with os.fdopen(fd, "w") as f:
+                        yaml.dump(file_cfg, f, default_flow_style=False, sort_keys=False)
+                    os.replace(tmp_path, CONFIG_PATH)
+                except BaseException:
+                    os.unlink(tmp_path)
+                    raise
             except Exception:
                 logger.exception("Failed to write armed=%s to config file", armed)
 

@@ -13,6 +13,8 @@ CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "/config/scarguard.yml"))
 # Dead config keys stripped on save.  Add keys here when removing deprecated
 # features — no per-feature migration function needed.
 _STALE_TOP_KEYS: set[str] = {"ssl"}
+# Nested keys under ``notifications`` stripped on save (legacy flat format).
+_STALE_NOTIFICATION_KEYS: set[str] = {"discord", "email"}
 
 _lock = threading.Lock()
 _cache_cfg: dict | None = None
@@ -71,6 +73,10 @@ def save(cfg: dict) -> None:
     import tempfile
     for key in _STALE_TOP_KEYS:
         cfg.pop(key, None)
+    notif = cfg.get("notifications")
+    if isinstance(notif, dict):
+        for key in _STALE_NOTIFICATION_KEYS:
+            notif.pop(key, None)
     with _lock:
         fd, tmp_path = tempfile.mkstemp(
             dir=str(CONFIG_PATH.parent), suffix=".tmp",

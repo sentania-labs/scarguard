@@ -12,7 +12,7 @@ Named after Scar (aka Kroger), a koi who survived a heron attack and lived to te
 
 Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents — plastic owls, reflective tape — lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a response that varies in timing and pattern, triggered only when a bird is actually present.
 
-ScarGuard is the detection and notification layer. It watches the pond around the clock, identifies threats with a YOLO vision model, and sends targeted notifications — to you, to Discord, to webhooks, to any system listening. What happens next is up to you or your automation. A future companion project, **Scar's Revenge**, will serve as the receiving endpoint to control physical deterrent hardware (sprinkler valves, relays) based on ScarGuard's notifications.
+ScarGuard watches the pond around the clock, identifies threats with a YOLO vision model, sends targeted notifications (Discord, email, webhooks, ntfy), and triggers physical deterrent devices (sprinklers, lights, sirens) via the Tuya Cloud API. The detect → notify → deter loop runs end-to-end with no external dependencies.
 
 ---
 
@@ -79,7 +79,7 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 |-----------|----------------|---------------------|
 | Compute | NVIDIA Jetson Orin Nano, JetPack 6.2.1 | Any Docker host with NVIDIA GPU (Jetson or x86 CUDA) |
 | Cameras | 2x UniFi (G3 Flex + G5 Flex) via UniFi Protect RTSP | Any camera with RTSP output |
-| Deterrence (future) | Companion project "Scar's Revenge" — ESP32 + solenoid valves receiving ScarGuard webhooks | — |
+| Deterrence | Tuya/Smart Life WiFi devices (sprinkler valves, lights, sirens) controlled via Cloud API | Any Tuya-compatible smart device |
 | Network | Any network with layer 2 connectivity between host and cameras | Host must reach camera RTSP streams directly |
 
 > **Platform support:** Two detector images are available: `scarguard-detector` for Jetson (ARM64/L4T) and `scarguard-detector-x86` for x86 systems. The x86 image uses CUDA when an NVIDIA GPU is present and falls back to CPU inference when it's not. `setup.sh` auto-detects your platform. See [BENCHMARKS.md](BENCHMARKS.md) for inference performance by platform.
@@ -90,9 +90,11 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 
 | Service | Role | Base Image |
 |---------|------|-----------|
-| `detector` | RTSP ingestion, YOLO inference, event publishing | Jetson: `dustynv/l4t-pytorch:r36.4.0`; x86: `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime` |
+| `detector` | RTSP ingestion, YOLO inference, event publishing | Jetson: `dustynv/l4t-pytorch:r36.4.0`; x86: `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` |
 | `web` | FastAPI + Jinja UI, REST API, SQLite access | `python:3.11-slim` |
-| `notifier` | Redis subscriber, Discord + email + webhook dispatch | `python:3.11-slim` |
+| `notifier` | Redis subscriber, Discord + email + webhook + ntfy dispatch | `python:3.11-slim` |
+| `deterrent` | Tuya Cloud device control (sprinklers, lights, sirens) | `python:3.11-slim` |
+| `log-streamer` | Tails container logs, publishes to Redis for web UI | `python:3.11-slim` |
 | `caddy` | HTTPS reverse proxy | `caddy:2-alpine` |
 | `redis` | Internal message bus | `redis:alpine` |
 

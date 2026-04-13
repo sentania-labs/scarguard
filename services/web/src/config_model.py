@@ -239,33 +239,7 @@ class DetectionConfig(BaseModel):
         return v
 
 
-class DiscordConfig(BaseModel):
-    enabled: bool = False
-    webhook_url: str = ""
-    mention_role: str = ""
-    include_snapshot: bool = True
-
-
-class EmailConfig(BaseModel):
-    enabled: bool = False
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_pass: str = ""
-    to_addresses: list[str] = []
-    include_snapshot: bool = True
-
-    @field_validator("smtp_port")
-    @classmethod
-    def port_range(cls, v: int) -> int:
-        if not 1 <= v <= 65535:
-            raise ValueError("smtp_port must be between 1 and 65535")
-        return v
-
-
 class NotificationsConfig(BaseModel):
-    discord: DiscordConfig = DiscordConfig()
-    email: EmailConfig = EmailConfig()
     channels: list[dict] = []
 
 

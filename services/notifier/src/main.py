@@ -64,68 +64,40 @@ def setup_logging(log_level: str) -> None:
 
 
 def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier]:
-    """Build the list of active notifiers from config.
-
-    Supports two config formats:
-    - New (named channels): notifications.channels: [{name, type, enabled, ...}]
-    - Legacy (flat keys): notifications.discord / notifications.email
-
-    If `channels` is present, it takes precedence.  Legacy keys are used as
-    a fallback for backward compatibility so existing configs keep working.
-    """
+    """Build the list of active notifiers from ``notifications.channels``."""
     notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier] = []
 
     channels: list[dict] = notif_cfg.get("channels") or []
-
-    if channels:
-        # New named-channel format
-        seen_names: set[str] = set()
-        for ch in channels:
-            if not ch.get("enabled", True):
-                continue
-            ch_type = ch.get("type", "").lower()
-            ch_name = ch.get("name", ch_type)
-            if ch_name in seen_names:
-                logger.warning("Duplicate channel name %r — skipping second definition", ch_name)
-                continue
-            try:
-                if ch_type == "discord" and ch.get("webhook_url"):
-                    notifiers.append(DiscordNotifier(ch, tz_name))
-                    logger.info("Discord channel [%s] enabled", ch_name)
-                    seen_names.add(ch_name)
-                elif ch_type == "email" and ch.get("smtp_host"):
-                    notifiers.append(EmailNotifier(ch, tz_name))
-                    logger.info("Email channel [%s] enabled", ch_name)
-                    seen_names.add(ch_name)
-                elif ch_type == "webhook" and ch.get("url"):
-                    notifiers.append(WebhookNotifier(ch, tz_name))
-                    # Log URL but not auth_token
-                    logger.info("Webhook channel [%s] enabled → %s", ch_name, ch["url"])
-                    seen_names.add(ch_name)
-                elif ch_type == "ntfy" and ch.get("topic"):
-                    notifiers.append(NtfyNotifier(ch, tz_name))
-                    logger.info("Ntfy channel [%s] enabled → %s", ch_name, ch.get("server", "https://ntfy.sh"))
-                    seen_names.add(ch_name)
-                elif ch_type:
-                    logger.warning("Unknown channel type %r for [%s], skipping", ch_type, ch_name)
-            except Exception as exc:
-                # Log exc string only — not the full cfg dict to avoid exposing secrets
-                logger.error("Failed to build channel [%s]: %s", ch_name, exc)
-    else:
-        # Legacy flat format — backward compatibility
-        # DEPRECATED: Legacy flat discord/email keys will be removed in x.13.x.
-        # Migrate to named channels under notifications.channels.
-        discord_cfg = notif_cfg.get("discord", {})
-        if discord_cfg.get("enabled") and discord_cfg.get("webhook_url"):
-            notifiers.append(DiscordNotifier(discord_cfg, tz_name))
-            logger.warning("Discord notifier using deprecated legacy config — "
-                           "migrate to notifications.channels (removal in x.13.x)")
-
-        email_cfg = notif_cfg.get("email", {})
-        if email_cfg.get("enabled") and email_cfg.get("smtp_host"):
-            notifiers.append(EmailNotifier(email_cfg, tz_name))
-            logger.warning("Email notifier using deprecated legacy config — "
-                           "migrate to notifications.channels (removal in x.13.x)")
+    seen_names: set[str] = set()
+    for ch in channels:
+        if not ch.get("enabled", True):
+            continue
+        ch_type = ch.get("type", "").lower()
+        ch_name = ch.get("name", ch_type)
+        if ch_name in seen_names:
+            logger.warning("Duplicate channel name %r — skipping second definition", ch_name)
+            continue
+        try:
+            if ch_type == "discord" and ch.get("webhook_url"):
+                notifiers.append(DiscordNotifier(ch, tz_name))
+                logger.info("Discord channel [%s] enabled", ch_name)
+                seen_names.add(ch_name)
+            elif ch_type == "email" and ch.get("smtp_host"):
+                notifiers.append(EmailNotifier(ch, tz_name))
+                logger.info("Email channel [%s] enabled", ch_name)
+                seen_names.add(ch_name)
+            elif ch_type == "webhook" and ch.get("url"):
+                notifiers.append(WebhookNotifier(ch, tz_name))
+                logger.info("Webhook channel [%s] enabled → %s", ch_name, ch["url"])
+                seen_names.add(ch_name)
+            elif ch_type == "ntfy" and ch.get("topic"):
+                notifiers.append(NtfyNotifier(ch, tz_name))
+                logger.info("Ntfy channel [%s] enabled → %s", ch_name, ch.get("server", "https://ntfy.sh"))
+                seen_names.add(ch_name)
+            elif ch_type:
+                logger.warning("Unknown channel type %r for [%s], skipping", ch_type, ch_name)
+        except Exception as exc:
+            logger.error("Failed to build channel [%s]: %s", ch_name, exc)
 
     return notifiers
 

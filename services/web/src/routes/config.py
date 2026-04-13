@@ -113,12 +113,6 @@ def _redact_parsed_cfg(cfg: StructuredConfigPayload) -> None:
     for cam in cfg.cameras:
         if cam.rtsp_url:
             cam.rtsp_url = REDACTED_PLACEHOLDER
-    discord = cfg.notifications.discord
-    if discord.webhook_url:
-        discord.webhook_url = REDACTED_PLACEHOLDER
-    email = cfg.notifications.email
-    if email.smtp_pass:
-        email.smtp_pass = REDACTED_PLACEHOLDER
     tuya = cfg.deterrent.tuya
     if tuya.api_key:
         tuya.api_key = REDACTED_PLACEHOLDER
@@ -223,8 +217,8 @@ async def save_structured_config(request: Request) -> Response:
     Admin only — viewers are blocked at the top of the handler.
 
     Only updates the sections the form knows about (system, cameras, detection,
-    notifications.discord, notifications.email).  All other keys in the existing
-    config (redis, action_rules, webhooks, etc.) are preserved unchanged.
+    notifications.channels).  All other keys in the existing config (redis,
+    action_rules, webhooks, etc.) are preserved unchanged.
 
     For cameras, unknown fields (e.g. exclusion_zones) are preserved by merging
     the form values over the existing entry matched by name.
@@ -291,11 +285,9 @@ async def save_structured_config(request: Request) -> Response:
 
     existing["detection"] = payload.detection.model_dump()
 
-    # Merge notifications: write legacy discord/email; always write channels list
-    # (an empty list from the form intentionally clears all named channels).
+    # Merge notifications: write channels list only (legacy discord/email keys
+    # removed in v0.13.2 — stripped automatically by config_store on save).
     existing.setdefault("notifications", {})
-    existing["notifications"]["discord"] = payload.notifications.discord.model_dump()
-    existing["notifications"]["email"] = payload.notifications.email.model_dump()
     existing["notifications"]["channels"] = payload.notifications.channels
 
     # TLS — detect changes so we can tell the UI that Caddy will reload.
