@@ -152,23 +152,30 @@ def _list_files() -> list[dict]:
 
 
 def _safe_resolve_model(filename: str) -> Path | None:
-    """Resolve *filename* against MODELS_DIR, rejecting traversal + unknown suffixes.
+    """Resolve *filename* to a known model file via whitelist lookup.
 
-    Returns None if the path escapes MODELS_DIR or has a disallowed suffix
-    (blocks e.g. ``../../etc/passwd`` or ``.sh`` poking at model directory).
+    Rather than validate *filename* and then construct a path from it
+    (which CodeQL correctly flags as user-data-in-path-expression even
+    with a regex gate — the taint tracker can't follow sanitisation
+    through Path joins), we enumerate the files actually present in
+    ``MODELS_DIR`` and treat *filename* as a dict key against that
+    known-safe set.  The returned ``Path`` therefore always comes from
+    a trusted directory listing — the user-supplied string never reaches
+    a filesystem sink.
     """
-    if "/" in filename or "\\" in filename or filename in ("", ".", ".."):
+    if not isinstance(filename, str) or not filename:
         return None
-    target = (MODELS_DIR / filename).resolve()
+    # Cheap early-reject of obviously-bad shapes before we do the listing.
+    if "/" in filename or "\\" in filename or filename in (".", ".."):
+        return None
+    known: dict[str, Path] = {}
     try:
-        target.relative_to(MODELS_DIR.resolve())
-    except ValueError:
+        for entry in MODELS_DIR.iterdir():
+            if entry.is_file() and entry.suffix.lower() in ALLOWED_EXTENSIONS:
+                known[entry.name] = entry
+    except OSError:
         return None
-    if target.suffix.lower() not in ALLOWED_EXTENSIONS:
-        return None
-    if not target.is_file():
-        return None
-    return target
+    return known.get(filename)
 
 
 def _redis_params() -> dict[str, Any]:
@@ -200,9 +207,17 @@ async def _fetch_model_classes_via_redis(model_path: str) -> dict[str, Any]:
             msg = await pubsub.get_message(timeout=min(remaining, 2.0))
             if msg and msg["type"] == "message":
                 try:
-                    return json.loads(msg["data"])
+                    reply = json.loads(msg["data"])
                 except (json.JSONDecodeError, TypeError):
                     continue
+                # Defence in depth: the reply channel is already per-request
+                # (``{prefix}{request_id}``), but verify the payload's
+                # request_id matches before trusting it — a stale publisher
+                # or a shared-channel misroute could otherwise poison the
+                # cache with someone else's result.
+                if not isinstance(reply, dict) or reply.get("request_id") != request_id:
+                    continue
+                return reply
         return {
             "ok": False,
             "error": "Request timed out — detector may not be running",
@@ -232,14 +247,36 @@ async def model_classes(request: Request, filename: str) -> Response:
     # Web-side cache by (path, mtime, size) — see comment on _classes_cache.
     try:
         st = target.stat()
-    except OSError as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    except OSError:
+        # Don't surface raw OSError text (CodeQL py/stack-trace-exposure);
+        # log with a request id the operator can grep for.  Same pattern
+        # config.py uses for structured-form errors.
+        req_id = uuid.uuid4().hex[:8]
+        logger.exception("model_classes: stat() failed [%s] for %s", req_id, filename)
+        return JSONResponse(
+            {"ok": False, "error": f"Unable to stat model file (request_id={req_id})"},
+            status_code=500,
+        )
     cache_key = (str(target), st.st_mtime_ns, st.st_size)
     cached = _classes_cache.get(cache_key)
     if cached is not None:
         return JSONResponse({**cached, "cached": True})
 
-    result = await _fetch_model_classes_via_redis(str(target))
+    try:
+        result = await _fetch_model_classes_via_redis(str(target))
+    except Exception:
+        # Redis connection/auth failure, serialisation error, etc.  Return
+        # the route's structured {ok:false,error:...} shape so the UI gets
+        # a graceful error path instead of a 500.
+        req_id = uuid.uuid4().hex[:8]
+        logger.exception(
+            "Redis RPC failed [%s] while introspecting %s", req_id, filename,
+        )
+        return JSONResponse({
+            "ok": False,
+            "error": f"Unable to reach detector for class introspection (request_id={req_id})",
+        })
+
     if result.get("ok"):
         if len(_classes_cache) >= _CLASSES_CACHE_MAX:
             oldest = next(iter(_classes_cache))
