@@ -171,9 +171,24 @@ async def save_deterrent(request: Request) -> Response:
             clean_devices.append(dev_entry)
         existing_act["devices"] = clean_devices
 
+    # Compute the authoritative set of currently-registered device names.
+    # Used to filter out orphaned references in group.devices so a deleted
+    # device can't leave a group silently broken (deterrent worker would
+    # fail to resolve the group and skip firing).  Pulls from the just-
+    # persisted devices list if this request included one, otherwise from
+    # whatever's already on disk.
+    registry_devices = existing_act.get("devices", [])
+    if not isinstance(registry_devices, list):
+        registry_devices = []
+    registered_names: set[str] = {
+        d["name"] for d in registry_devices
+        if isinstance(d, dict) and isinstance(d.get("name"), str)
+    }
+
     # Update groups — list of {name, devices[], cooldown_seconds,
     # optional *_range overrides}.  Validates and coerces types; unknown
-    # extra fields are dropped.
+    # extra fields are dropped; device names unknown to the registry are
+    # filtered out (orphan rejection) with a warning log.
     groups_input = body.get("groups")
     if isinstance(groups_input, list):
         clean_groups: list[dict[str, Any]] = []
@@ -188,9 +203,17 @@ async def save_deterrent(request: Request) -> Response:
             devices_list = g.get("devices", [])
             if not isinstance(devices_list, list):
                 devices_list = []
+            requested_names = [str(d) for d in devices_list if d]
+            known_devices = [n for n in requested_names if n in registered_names]
+            orphaned = [n for n in requested_names if n not in registered_names]
+            if orphaned:
+                log.warning(
+                    "Group %r references unknown device name(s) %s — dropping",
+                    name, orphaned,
+                )
             entry: dict[str, Any] = {
                 "name": name,
-                "devices": [str(d) for d in devices_list if d],
+                "devices": known_devices,
                 "cooldown_seconds": int(g.get("cooldown_seconds", 60)),
             }
             for opt_key in (
