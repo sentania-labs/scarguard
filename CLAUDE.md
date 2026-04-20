@@ -10,7 +10,7 @@ A containerized wildlife detection and notification system. Watches RTSP camera 
 
 - **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7) — any NVIDIA GPU host works
 - **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP — any RTSP camera works
-- **Services:** Docker Compose with 5 containers: Redis, Detector, Web (FastAPI + Jinja), Notifier, Deterrent
+- **Services:** Docker Compose with 7 containers: Redis, Caddy, Detector, Web (FastAPI + Jinja), Notifier, Deterrent, Log-Streamer
 - **Detection:** YOLO model on GPU, OpenCV RTSP ingestion
 - **IPC:** Redis pub/sub as internal message bus
 - **Database:** SQLite (single writer, no Postgres)
@@ -95,7 +95,7 @@ Read these as needed — don't load them all for every task.
 | Document | When to read |
 |---|---|
 | `ROADMAP.md` | Before starting new work, planning, or prioritizing |
-| `ROADMAP_ARCHIVE.md` | When referencing implementation details of completed features (1–15) |
+| `ROADMAP_ARCHIVE.md` | When referencing implementation details of completed features (1–27) |
 | `STATUS.md` | When debugging, assessing what's done, or checking known issues |
 | `CONFIG_REFERENCE.md` | When touching config parsing, detection logic, RTSP, or `scarguard.yml` |
 | `INFRASTRUCTURE.md` | When working on CI/CD, Docker, runners, deployment, or host setup |
