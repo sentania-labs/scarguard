@@ -223,9 +223,6 @@ function readZones(card) {
 // ── Form serialization ────────────────────────────────────────────────────────
 
 function readForm() {
-  const toAddresses = document.getElementById("email-to").value
-    .split("\n").map(s => s.trim()).filter(Boolean);
-
   const targetClasses = document.getElementById("target-classes").value
     .split(",").map(s => s.trim()).filter(Boolean);
 
@@ -286,21 +283,6 @@ function readForm() {
       frame_skip: parseInt(document.getElementById("det-frame-skip").value, 10),
     },
     notifications: {
-      discord: {
-        enabled: document.getElementById("discord-enabled").checked,
-        webhook_url: document.getElementById("discord-url").value.trim(),
-        mention_role: document.getElementById("discord-role").value.trim(),
-        include_snapshot: document.getElementById("discord-snapshot").checked,
-      },
-      email: {
-        enabled: document.getElementById("email-enabled").checked,
-        smtp_host: document.getElementById("email-host").value.trim(),
-        smtp_port: parseInt(document.getElementById("email-port").value, 10) || 587,
-        smtp_user: document.getElementById("email-user").value.trim(),
-        smtp_pass: document.getElementById("email-pass").value,
-        to_addresses: toAddresses,
-        include_snapshot: document.getElementById("email-snapshot").checked,
-      },
       channels: readChannels(),
     },
     tls: {

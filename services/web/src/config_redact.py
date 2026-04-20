@@ -25,8 +25,6 @@ REDACTED_PLACEHOLDER = "***REDACTED***"
 # Handles the known Pydantic model shapes from config_model.py.
 _STRUCTURAL_PATHS: tuple[tuple[str, ...], ...] = (
     ("cameras", "[]", "rtsp_url"),
-    ("notifications", "discord", "webhook_url"),
-    ("notifications", "email", "smtp_pass"),
     ("deterrent", "tuya", "api_key"),
     ("deterrent", "tuya", "api_secret"),
 )

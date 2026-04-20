@@ -22,7 +22,7 @@ New `deterrent` Docker Compose service for automated physical deterrence. Subscr
 Stale config keys are handled by a declarative `_STALE_KEYS` set in `config_store.py`. When removing a deprecated feature, add its YAML keys to the set — they'll be stripped on the next user-initiated save. No per-feature migration functions, no removal tickets for cleanup code.
 
 - ~~**Remove legacy SSL→TLS migration** (target x.12.x)~~ — ✓ Removed in v0.12. Add `"ssl"` to `_STALE_KEYS`.
-- **Remove legacy flat notification keys** (target x.13.x) — `notifications.discord` and `notifications.email` flat config keys. Deprecated in v0.10 with log warnings. Users should migrate to `notifications.channels` named channel format. Code to remove: fallback branch in `build_notifiers()` (notifier `main.py`), `DiscordConfig`/`EmailConfig` models in web `config_model.py`, legacy form sections in `config.html`, legacy write in `routes/config.py`. Add `notifications.discord` and `notifications.email` to stale-key stripping in `save()`.
+- ~~**Remove legacy flat notification keys** (target x.13.x)~~ — ✓ Removed in v0.13.2. Add `"notifications.discord"` and `"notifications.email"` to stale-key stripping in `save()`.
 - **Remove retention_days migration code** (target x.14.x) — auto-rewrite of `snapshot_retention_days`/`metrics_retention_days` → `retention_days` added in v0.11. Safe to remove once enough releases have passed. Add `"snapshot_retention_days"` and `"metrics_retention_days"` to `_STALE_KEYS`.
 
 ---

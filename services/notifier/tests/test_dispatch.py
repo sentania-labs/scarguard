@@ -186,14 +186,17 @@ class TestDispatchRouting:
         dispatch(SAMPLE_EVENT, [failing, ok])
         ok.send.assert_called_once_with(SAMPLE_EVENT)
 
-    def test_build_notifiers_discord_enabled(self):
+    def test_build_notifiers_discord_channel(self):
         from main import build_notifiers
 
         cfg = {
-            "discord": {
-                "enabled": True,
-                "webhook_url": "https://discord.com/api/webhooks/x/y",
-            }
+            "channels": [
+                {
+                    "name": "alerts",
+                    "type": "discord",
+                    "webhook_url": "https://discord.com/api/webhooks/x/y",
+                }
+            ]
         }
         notifiers = build_notifiers(cfg)
         assert len(notifiers) == 1
@@ -201,17 +204,30 @@ class TestDispatchRouting:
 
         assert isinstance(notifiers[0], DiscordNotifier)
 
-    def test_build_notifiers_discord_disabled(self):
+    def test_build_notifiers_discord_channel_disabled(self):
         from main import build_notifiers
 
-        cfg = {"discord": {"enabled": False, "webhook_url": "https://discord.com/..."}}
+        cfg = {
+            "channels": [
+                {
+                    "name": "alerts",
+                    "type": "discord",
+                    "enabled": False,
+                    "webhook_url": "https://discord.com/api/webhooks/x/y",
+                }
+            ]
+        }
         notifiers = build_notifiers(cfg)
         assert notifiers == []
 
-    def test_build_notifiers_no_webhook_url(self):
+    def test_build_notifiers_discord_channel_no_webhook_url(self):
         from main import build_notifiers
 
-        cfg = {"discord": {"enabled": True, "webhook_url": ""}}
+        cfg = {
+            "channels": [
+                {"name": "alerts", "type": "discord", "webhook_url": ""}
+            ]
+        }
         notifiers = build_notifiers(cfg)
         assert notifiers == []
 
