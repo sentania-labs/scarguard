@@ -26,16 +26,6 @@ def full_config() -> dict:
             {"name": "unused", "rtsp_url": "", "enabled": False},
         ],
         "notifications": {
-            "discord": {
-                "enabled": True,
-                "webhook_url": "https://discord.com/api/webhooks/111/TOP_SECRET",
-            },
-            "email": {
-                "enabled": True,
-                "smtp_host": "smtp.example.com",
-                "smtp_user": "ops@example.com",
-                "smtp_pass": "hunter2",
-            },
             "channels": [
                 {
                     "name": "bird-discord",
@@ -76,17 +66,6 @@ class TestRedactConfig:
         assert red["cameras"][1]["rtsp_url"] == REDACTED_PLACEHOLDER
         # Empty rtsp_url stays empty (not masked — nothing to hide)
         assert red["cameras"][2]["rtsp_url"] == ""
-
-    def test_masks_discord_webhook(self, full_config):
-        red = redact_config(full_config)
-        assert red["notifications"]["discord"]["webhook_url"] == REDACTED_PLACEHOLDER
-
-    def test_masks_email_password(self, full_config):
-        red = redact_config(full_config)
-        assert red["notifications"]["email"]["smtp_pass"] == REDACTED_PLACEHOLDER
-        # Non-secret fields stay visible
-        assert red["notifications"]["email"]["smtp_host"] == "smtp.example.com"
-        assert red["notifications"]["email"]["smtp_user"] == "ops@example.com"
 
     def test_masks_named_channels(self, full_config):
         red = redact_config(full_config)
@@ -141,7 +120,7 @@ class TestRedactConfig:
         red = redact_config(full_config)
         # Input still has the secrets
         assert full_config["cameras"][0]["rtsp_url"].startswith("rtsps://")
-        assert full_config["notifications"]["email"]["smtp_pass"] == "hunter2"
+        assert full_config["notifications"]["channels"][1]["smtp_pass"] == "channel-pw"
         assert full_config is not red
         assert id(full_config["cameras"]) != id(red["cameras"])
         # Just a sanity check that the top-level keys are unchanged
@@ -205,9 +184,7 @@ class TestRedactYaml:
         # None of the real secrets should appear in the redacted YAML
         assert "SECRET_A" not in redacted
         assert "SECRET_B" not in redacted
-        assert "TOP_SECRET" not in redacted
         assert "CHANNEL_SECRET" not in redacted
-        assert "hunter2" not in redacted
         assert "bearer-abc" not in redacted
         assert "also-secret" not in redacted
         assert "tk_xyz" not in redacted
