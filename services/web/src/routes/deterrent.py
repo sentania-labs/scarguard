@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import actuation_db
 import config_store
 import redis.asyncio as aioredis
 from config_redact import REDACTED_PLACEHOLDER
@@ -44,6 +45,22 @@ async def deterrent_page(request: Request) -> Response:
     if not isinstance(devices, list):
         devices = []
 
+    groups: list[dict[str, Any]] = act.get("groups", [])
+    if not isinstance(groups, list):
+        groups = []
+
+    # Which cameras reference each group (for "used by" UI chips)?
+    group_usage: dict[str, list[str]] = {}
+    for cam in cfg.get("cameras", []):
+        if not isinstance(cam, dict):
+            continue
+        cam_name = cam.get("name", "")
+        for rule in cam.get("deterrent_rules", []):
+            if not isinstance(rule, dict):
+                continue
+            for g_name in rule.get("groups", []):
+                group_usage.setdefault(g_name, []).append(cam_name)
+
     defaults: dict[str, Any] = act.get("defaults", {})
     if not isinstance(defaults, dict):
         defaults = {}
@@ -67,6 +84,9 @@ async def deterrent_page(request: Request) -> Response:
             "tuya": tuya,
             "devices": devices,
             "devices_json": json.dumps(devices),
+            "groups": groups,
+            "groups_json": json.dumps(groups),
+            "group_usage_json": json.dumps(group_usage),
             "defaults": defaults,
             "defaults_json": json.dumps(defaults),
             "battery_monitor": battery_monitor,
@@ -150,6 +170,39 @@ async def save_deterrent(request: Request) -> Response:
                 dev_entry["dp_code"] = dp_code_lookup[device_id]
             clean_devices.append(dev_entry)
         existing_act["devices"] = clean_devices
+
+    # Update groups — list of {name, devices[], cooldown_seconds,
+    # optional *_range overrides}.  Validates and coerces types; unknown
+    # extra fields are dropped.
+    groups_input = body.get("groups")
+    if isinstance(groups_input, list):
+        clean_groups: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+        for g in groups_input:
+            if not isinstance(g, dict):
+                continue
+            name = str(g.get("name", "")).strip()
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            devices_list = g.get("devices", [])
+            if not isinstance(devices_list, list):
+                devices_list = []
+            entry: dict[str, Any] = {
+                "name": name,
+                "devices": [str(d) for d in devices_list if d],
+                "cooldown_seconds": int(g.get("cooldown_seconds", 60)),
+            }
+            for opt_key in (
+                "device_count_range",
+                "spray_duration_range",
+                "inter_device_delay_range",
+                "pre_delay_range",
+            ):
+                if opt_key in g and g[opt_key]:
+                    entry[opt_key] = g[opt_key]
+            clean_groups.append(entry)
+        existing_act["groups"] = clean_groups
 
     # Update defaults
     defaults_input = body.get("defaults")
@@ -261,6 +314,20 @@ async def test_fire(request: Request) -> Response:
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
+
+
+@router.get("/latency-summary", response_class=JSONResponse)
+async def latency_summary(request: Request) -> Response:
+    """Return p50/p95 latency percentiles over the last N actuations.
+
+    Viewer-accessible — diagnostic data, no secrets.
+    """
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
+    last_n = int(request.query_params.get("last_n", 100))
+    last_n = max(1, min(last_n, 1000))
+    return JSONResponse(actuation_db.get_latency_summary(last_n))
 
 
 @router.get("/device-status", response_class=JSONResponse)

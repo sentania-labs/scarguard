@@ -56,6 +56,8 @@ class CameraState:
     stop_event: threading.Event
     zones_ref: AtomicRef[list[dict]]
     rules_ref: AtomicRef[list[dict]]
+    deterrent_rules_ref: AtomicRef[list[dict]]
+    confidence_ref: AtomicRef[float | None]
     model_path: str | None
     target_classes: set[str] | None
     detector: YOLODetector
@@ -74,8 +76,8 @@ def setup_logging(log_level: str) -> None:
     )
 
 
-def _match_action_rules(class_name: str, rules: list[dict]) -> list[str] | None:
-    """Return channel names for the first matching action rule.
+def _match_notification_rules(class_name: str, rules: list[dict]) -> list[str] | None:
+    """Return channel names for the first matching notification rule.
 
     Rules are evaluated in order; the first rule whose class_name matches
     (or is the wildcard "*") wins.  Returns ``None`` when no rule matches,
@@ -86,6 +88,23 @@ def _match_action_rules(class_name: str, rules: list[dict]) -> list[str] | None:
         if rule_class == "*" or rule_class == class_name:
             return list(rule.get("channels", []))
     return None
+
+
+def _match_deterrent_rules(class_name: str, rules: list[dict]) -> list[str]:
+    """Return deterrent group names for the first matching deterrent rule.
+
+    Rules are evaluated in order; the first rule whose class_name matches
+    (or is the wildcard "*") wins.  Returns ``[]`` when no rule matches —
+    no deterrent action should be taken for this class.  Unlike
+    notifications (which default to "notify all" when no rules exist),
+    deterrents default to "do nothing" per the v0.13.3 explicit-opt-in
+    design.
+    """
+    for rule in rules:
+        rule_class = rule.get("class_name", "*")
+        if rule_class == "*" or rule_class == class_name:
+            return list(rule.get("groups", []))
+    return []
 
 
 def _in_exclusion_zone(
@@ -125,20 +144,43 @@ def _resolve_known_channels(cfg: dict) -> set[str]:
     return channels
 
 
-def _validate_action_rules(
+def _validate_notification_rules(
     camera_name: str,
     rules: list[dict],
     known_channels: set[str],
 ) -> None:
-    """Log warnings for action rules that reference undefined channels."""
+    """Log warnings for notification rules that reference undefined channels."""
     for rule in rules:
         for ch_name in rule.get("channels", []):
             if ch_name not in known_channels:
                 logger.warning(
-                    "[%s] action_rules references unknown channel: %s",
+                    "[%s] notification_rules references unknown channel: %s",
                     camera_name,
                     ch_name,
                 )
+
+
+def _validate_deterrent_rules(
+    camera_name: str,
+    rules: list[dict],
+    known_groups: set[str],
+) -> None:
+    """Log warnings for deterrent rules that reference undefined groups."""
+    for rule in rules:
+        for g_name in rule.get("groups", []):
+            if g_name not in known_groups:
+                logger.warning(
+                    "[%s] deterrent_rules references unknown group: %s",
+                    camera_name,
+                    g_name,
+                )
+
+
+def _resolve_known_groups(cfg: dict) -> set[str]:
+    """Collect all defined deterrent group names from config."""
+    det = cfg.get("deterrent", {})
+    groups = det.get("groups", [])
+    return {g["name"] for g in groups if isinstance(g, dict) and g.get("name")}
 
 
 def _apply_exclusion_zones(
@@ -164,20 +206,45 @@ def _apply_exclusion_zones(
     return filtered
 
 
-def _evaluate_action_rules(
+def _evaluate_notification_rules(
     detections: list,
     rules: list[dict],
 ) -> dict[str, list[str] | None]:
-    """Build a class_name → channel list mapping from action rules."""
+    """Build a class_name → channel list mapping from notification rules."""
     actions_by_class: dict[str, list[str] | None] = {}
     if not rules:
         return actions_by_class
     for det in detections:
         if det.class_name not in actions_by_class:
-            actions_by_class[det.class_name] = _match_action_rules(
+            actions_by_class[det.class_name] = _match_notification_rules(
                 det.class_name, rules
             )
     return actions_by_class
+
+
+def _evaluate_deterrent_rules(
+    detections: list,
+    rules: list[dict],
+) -> dict[str, list[str]]:
+    """Build a class_name → group name list mapping from deterrent rules."""
+    groups_by_class: dict[str, list[str]] = {}
+    if not rules:
+        return groups_by_class
+    for det in detections:
+        if det.class_name not in groups_by_class:
+            groups_by_class[det.class_name] = _match_deterrent_rules(
+                det.class_name, rules
+            )
+    return groups_by_class
+
+
+def _read_camera_rules(camera_cfg: dict) -> list[dict]:
+    """Return the camera's notification_rules, falling back to legacy
+    action_rules (pre-v0.13.3 configs)."""
+    rules = camera_cfg.get("notification_rules")
+    if rules is None:
+        rules = camera_cfg.get("action_rules", [])
+    return list(rules or [])
 
 
 def _publish_detections(
@@ -188,11 +255,13 @@ def _publish_detections(
     publisher: RedisPublisher,
     visit_tracker: VisitTracker | None,
     actions_by_class: dict[str, list[str] | None],
+    groups_by_class: dict[str, list[str]],
 ) -> None:
     """Run cooldown dedup, publish events to Redis, and record visits."""
     events = event_processor.process(
         detections, camera_name, frame,
         actions_by_class=actions_by_class if actions_by_class else None,
+        groups_by_class=groups_by_class if groups_by_class else None,
     )
     for event in events:
         publisher.publish(event)
@@ -215,6 +284,8 @@ def run_camera(
     armed_ref: AtomicRef[bool],
     exclusion_zones_ref: AtomicRef[list[dict]],
     action_rules_ref: AtomicRef[list[dict]],
+    deterrent_rules_ref: AtomicRef[list[dict]],
+    confidence_ref: AtomicRef[float | None],
     stop_event: threading.Event,
     camera_stats: dict[str, dict] | None = None,
     camera_stats_lock: threading.Lock | None = None,
@@ -282,7 +353,11 @@ def run_camera(
 
         t0 = time.monotonic()
         try:
-            detections = detector.predict(frame, target_classes=target_classes)
+            detections = detector.predict(
+                frame,
+                target_classes=target_classes,
+                confidence=confidence_ref.get(),
+            )
         except TimeoutError:
             logger.warning("[%s] Inference lock timed out — skipping frame", name)
             continue
@@ -318,13 +393,17 @@ def run_camera(
         if not detections:
             continue
 
-        actions_by_class = _evaluate_action_rules(
+        actions_by_class = _evaluate_notification_rules(
             detections, action_rules_ref.get(),
+        )
+        groups_by_class = _evaluate_deterrent_rules(
+            detections, deterrent_rules_ref.get(),
         )
         _publish_detections(
             detections, name, frame,
             event_processor, publisher, visit_tracker,
             actions_by_class,
+            groups_by_class,
         )
 
     stream.release()
@@ -449,8 +528,9 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # ---- Channel validation at startup ----------------------------------------
+    # ---- Channel + group validation at startup --------------------------------
     known_channels = _resolve_known_channels(cfg)
+    known_groups = _resolve_known_groups(cfg)
 
     # ---- Per-camera thread management -----------------------------------------
     active_cameras: dict[str, CameraState] = {}
@@ -474,16 +554,19 @@ def main() -> None:
             )
             return False
 
-        # Validate action rule channel references.
-        _validate_action_rules(
-            name,
-            camera_cfg.get("action_rules", []),
-            known_channels,
-        )
+        # Validate notification + deterrent rule references.
+        notif_rules = _read_camera_rules(camera_cfg)
+        _validate_notification_rules(name, notif_rules, known_channels)
+        det_rules = list(camera_cfg.get("deterrent_rules", []))
+        _validate_deterrent_rules(name, det_rules, known_groups)
 
         # Resolve per-camera target classes (None → use model/global default).
         cam_classes_raw: list[str] | None = camera_cfg.get("detect_classes")
         cam_classes: set[str] | None = set(cam_classes_raw) if cam_classes_raw is not None else None
+
+        # Per-camera confidence override (None → inherit global).
+        cam_conf_raw = camera_cfg.get("confidence_threshold")
+        cam_conf: float | None = float(cam_conf_raw) if cam_conf_raw is not None else None
 
         try:
             cam_detector = model_pool.get_detector(cam_model_path)
@@ -493,7 +576,9 @@ def main() -> None:
 
         cam_stop = threading.Event()
         zones_ref: AtomicRef[list[dict]] = AtomicRef(list(camera_cfg.get("exclusion_zones", [])))
-        rules_ref: AtomicRef[list[dict]] = AtomicRef(list(camera_cfg.get("action_rules", [])))
+        rules_ref: AtomicRef[list[dict]] = AtomicRef(notif_rules)
+        det_rules_ref: AtomicRef[list[dict]] = AtomicRef(det_rules)
+        conf_ref: AtomicRef[float | None] = AtomicRef(cam_conf)
         t = threading.Thread(
             target=run_camera,
             args=(
@@ -506,6 +591,8 @@ def main() -> None:
                 armed_ref,
                 zones_ref,
                 rules_ref,
+                det_rules_ref,
+                conf_ref,
                 cam_stop,
                 camera_stats,
                 camera_stats_lock,
@@ -521,6 +608,8 @@ def main() -> None:
             stop_event=cam_stop,
             zones_ref=zones_ref,
             rules_ref=rules_ref,
+            deterrent_rules_ref=det_rules_ref,
+            confidence_ref=conf_ref,
             model_path=effective_model,
             target_classes=cam_classes,
             detector=cam_detector,
@@ -596,7 +685,7 @@ def main() -> None:
 
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:
-        nonlocal known_channels
+        nonlocal known_channels, known_groups
         new_sys = new_cfg.get("system", {})
         new_det = new_cfg.get("detection", {})
         new_cameras_list: list[dict] = [
@@ -646,8 +735,9 @@ def main() -> None:
             frame_skip_ref.set(new_frame_skip)
             changes.append(f"frame_skip={new_frame_skip}")
 
-        # Refresh known channels for validation.
+        # Refresh known channels + groups for validation.
         known_channels = _resolve_known_channels(new_cfg)
+        known_groups = _resolve_known_groups(new_cfg)
 
         # Update snapshot grabber camera list
         snapshot_grabber.update_cameras(new_cameras_list)
@@ -678,16 +768,28 @@ def main() -> None:
                     else:
                         changes.append(f"camera skipped after update (bad model): {cam_name}")
                 else:
-                    # Hot-reload exclusion zones and action rules for running cameras.
+                    # Hot-reload zones, rules, deterrent rules, confidence.
                     new_zones = list(cam_cfg.get("exclusion_zones", []))
                     if new_zones != state.zones_ref.get():
                         state.zones_ref.set(new_zones)
                         changes.append(f"exclusion_zones updated: {cam_name}")
-                    new_rules = list(cam_cfg.get("action_rules", []))
+                    new_rules = _read_camera_rules(cam_cfg)
                     if new_rules != state.rules_ref.get():
-                        _validate_action_rules(cam_name, new_rules, known_channels)
+                        _validate_notification_rules(cam_name, new_rules, known_channels)
                         state.rules_ref.set(new_rules)
-                        changes.append(f"action_rules updated: {cam_name}")
+                        changes.append(f"notification_rules updated: {cam_name}")
+                    new_det_rules = list(cam_cfg.get("deterrent_rules", []))
+                    if new_det_rules != state.deterrent_rules_ref.get():
+                        _validate_deterrent_rules(cam_name, new_det_rules, known_groups)
+                        state.deterrent_rules_ref.set(new_det_rules)
+                        changes.append(f"deterrent_rules updated: {cam_name}")
+                    new_conf_raw = cam_cfg.get("confidence_threshold")
+                    new_conf = float(new_conf_raw) if new_conf_raw is not None else None
+                    if new_conf != state.confidence_ref.get():
+                        state.confidence_ref.set(new_conf)
+                        changes.append(
+                            f"confidence_threshold updated: {cam_name} → {new_conf or 'inherit'}"
+                        )
 
         # cameras removed or disabled
         for name in old_camera_names - new_camera_names:

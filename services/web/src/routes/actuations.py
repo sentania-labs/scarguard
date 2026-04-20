@@ -138,10 +138,12 @@ def _render_actuation_row(event: dict) -> str:
     trigger_class = _html.escape(event.get("trigger_class", "").replace("_", " ").title())
     trigger_camera = _html.escape(event.get("trigger_camera", ""))
     confidence = event.get("trigger_confidence", 0.0)
+    group_name = _html.escape(event.get("group_name") or "\u2014")
     actions = event.get("actions", [])
     device_count = len(actions)
     success_count = sum(1 for a in actions if a.get("success"))
     total_dur = event.get("total_duration_sec", 0.0)
+    trigger_delay_ms = event.get("trigger_delay_ms")
 
     device_names = ", ".join(
         _html.escape(a.get("device_name", "")) for a in actions
@@ -149,14 +151,20 @@ def _render_actuation_row(event: dict) -> str:
 
     status_class = "ok" if success_count == device_count else ("warn" if success_count > 0 else "err")
 
+    delay_cell = (
+        f"{trigger_delay_ms:.0f}ms" if isinstance(trigger_delay_ms, (int, float)) else "\u2014"
+    )
+
     return (
         f'<tr class="actuation-new">'
         f"<td>{display_ts}</td>"
         f"<td>{trigger_class}</td>"
         f"<td>{trigger_camera}</td>"
         f"<td>{confidence:.0%}</td>"
+        f"<td>{group_name}</td>"
         f"<td>{device_names}</td>"
         f'<td class="status-{status_class}">{success_count}/{device_count}</td>'
         f"<td>{total_dur:.1f}s</td>"
+        f'<td class="muted" style="font-size:0.8rem;">{delay_cell}</td>'
         f"</tr>"
     )

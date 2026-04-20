@@ -43,14 +43,14 @@ ScarGuard watches the pond around the clock, identifies threats with a YOLO visi
 - **Email** — SMTP with optional snapshot attachment, multiple recipients
 - **Webhooks** — generic HTTP/HTTPS POST or GET to any URL, with custom headers
 - Named, multi-instance channels — run two Discord webhooks, two email addresses, multiple webhooks side-by-side
-- Action-rule routing — route heron detections to a deterrent webhook, raccoon detections to email only, etc.
+- Per-camera notification rules — route heron detections on pond-south to the heron alert channel, raccoon detections on back-yard to email only, etc. (v0.13.3: renamed from `action_rules`)
 - Retry with exponential backoff on transient failures
 
 ### Web UI
 - **Dashboard** — arm/disarm toggle, latest detection, today's count, schedule status
 - **Events** — paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
 - **Live Feed** — SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
-- **Settings** — full config editor (form-based and raw YAML), cameras, detection, notifications, channels, action rules, schedule, authentication, TLS
+- **Settings** — sub-tabbed config editor (System / Detection / Cameras / Notifications / Advanced), plus raw YAML view. Per-camera model, confidence, classes, exclusion zones, notification rules, and deterrent rules.
 - **System Stats** — real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
 - **Logs** — live service log tail with level filtering and pause/resume
 - **Training Data** — per-class feedback breakdown, dataset quality warnings, YOLO export
@@ -410,42 +410,40 @@ All channels can be added, edited, and enabled/disabled from the **Settings → 
 
 ---
 
-### Action Rules
+### Per-Camera Rules — Notifications and Deterrents
 
-Action rules control which notification channels fire for which detections. Without any rules defined, every detection triggers all enabled channels. With rules, you can route heron detections to a deterrent webhook while routing raccoon detections to Discord only.
+Two parallel rule systems live on each camera.  Both are lists of `{class_name,
+<target>}` entries evaluated top-down — the first rule whose `class_name` matches
+wins (`*` is the wildcard).
 
-Rules are defined at the top level of `scarguard.yml` and matched top-down — the first matching rule wins:
+- **`notification_rules`** — routes detections to specific named channels.
+  Without any rules defined, every detection notifies every enabled channel.
+  *(v0.13.3 renamed this from `action_rules`; old configs are auto-migrated on
+  load.)*
+- **`deterrent_rules`** (v0.13.3+) — fires named deterrent groups.  Empty means
+  *no deterrent action* — deterrents are explicit opt-in.
+
+Example camera block:
 
 ```yaml
-action_rules:
-  # Herons: notify Discord AND send to deterrent webhook
-  - class: great_blue_heron
-    actions: [pond-discord, deterrent-webhook]
-
-  # Green herons: Discord only
-  - class: green_heron
-    actions: [pond-discord]
-
-  # Raccoons: alert the owner, no deterrent notification
-  - class: raccoon
-    actions: [pond-discord, owner-email]
-
-  # Anything else on the pond-north camera: log it only (no notification)
-  - class: "*"
-    camera: pond-north
-    actions: []
-
-  # Catch-all: everything else goes to Discord
-  - class: "*"
-    actions: [pond-discord]
+cameras:
+  - name: pond-south
+    rtsp_url: rtsps://...
+    notification_rules:
+      - class_name: great_blue_heron
+        channels: [pond-discord, owner-email]
+      - class_name: "*"
+        channels: [pond-discord]
+    deterrent_rules:
+      - class_name: great_blue_heron
+        groups: [thermonuclear]        # all deterrents
+      - class_name: raccoon
+        groups: [minor]                # siren only
+      # no wildcard → anything else on this camera fires no deterrent
 ```
 
-Rule fields:
-- `class` — the detected class name, or `"*"` to match any class
-- `camera` — optional; if set, the rule only applies to detections from that camera
-- `actions` — list of channel names to notify; empty list `[]` means log-only (silent)
-
-The channel names in `actions` must match names defined in `notifications.channels`. Action rules are editable in the web UI under **Settings → Action Rules**.
+Both rule tables are edited in the web UI on the **Config → Cameras** sub-tab.
+Deterrent groups themselves live on **/admin/deterrent → Groups**.
 
 ---
 

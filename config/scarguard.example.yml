@@ -94,24 +94,41 @@ cameras:
     enabled: true
     resolution: 720                               # Substream resolution hint (informational)
 
-  # ── Per-camera model & class overrides ──────────────────────────────────
-  # Optional: use a different YOLO model and/or detect different classes.
-  # If omitted, the camera inherits the global detection.model_path and
-  # detection.target_classes settings.
+  # ── Per-camera model, classes & confidence overrides ────────────────────
+  # Optional: use a different YOLO model, detect different classes, or run
+  # a different confidence threshold than the global `detection.*` values.
+  # Any field omitted inherits the global value.
   #
-  # model_path: /models/heron-v2.pt                # override global model
-  # detect_classes: [great_blue_heron, green_heron] # override global target_classes
+  # model_path: /models/heron-v2.pt                 # override global model
+  # detect_classes: [great_blue_heron, green_heron]  # override global target_classes
+  # confidence_threshold: 0.40                      # override global confidence (v0.13.3+)
 
-  # ── Per-camera action rules ─────────────────────────────────────────────
+  # ── Per-camera notification rules ────────────────────────────────────────
   # Optional: route detections to specific notification channels.
   # Rules are evaluated in order; the first match wins.
-  # Use class_name: "*" as a catch-all.  Omit action_rules to notify all channels.
+  # Use class_name: "*" as a catch-all.  Omit notification_rules to notify
+  # all channels.
   #
-  # action_rules:
+  # v0.13.3 renamed this from `action_rules` — legacy key auto-migrated on
+  # load.
+  #
+  # notification_rules:
   #   - class_name: great_blue_heron
   #     channels: [pond-alerts, email-digest]
   #   - class_name: "*"
   #     channels: [pond-alerts]
+
+  # ── Per-camera deterrent rules (v0.13.3+) ────────────────────────────────
+  # Explicit opt-in: only matched classes trigger deterrent actuation.
+  # Group names reference entries in `deterrent.groups` (see Actuation
+  # section further down).  Empty list = no deterrent for any detection on
+  # this camera.
+  #
+  # deterrent_rules:
+  #   - class_name: great_blue_heron
+  #     groups: [thermonuclear]
+  #   - class_name: raccoon
+  #     groups: [minor]
 
   # Add a second camera by uncommenting and editing:
   # - name: pond-south
@@ -213,7 +230,7 @@ redis:
   # ── Named channels (new format) ───────────────────────────────────────────
   # Define multiple named channels; each channel has a unique name and type.
   # When channels are defined, they take precedence over the legacy discord/email
-  # sections above.  Reference channels by name in camera action_rules.
+  # sections above.  Reference channels by name in camera notification_rules.
   #
   # Supported types: discord, email, webhook
   #

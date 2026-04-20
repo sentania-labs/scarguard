@@ -47,12 +47,17 @@ class EventProcessor:
         camera_name: str,
         frame: np.ndarray,
         actions_by_class: dict[str, list[str]] | None = None,
+        groups_by_class: dict[str, list[str]] | None = None,
     ) -> list[dict]:
         """
         Filter detections through cooldown logic and persist passing events.
 
         *actions_by_class* maps class_name → list of channel names to trigger.
         If absent or the class has no entry, all channels are notified (default).
+
+        *groups_by_class* maps class_name → list of deterrent group names to
+        fire.  Empty list or absent entry means "no deterrent action" —
+        deterrents are explicit-opt-in per v0.13.3 and have no "all" default.
 
         Returns a list of event dicts ready to be JSON-serialized and published.
         """
@@ -83,6 +88,10 @@ class EventProcessor:
                 actions_triggered: list[str] | None = []
             else:
                 actions_triggered = actions_by_class.get(det.class_name)
+            matched_groups: list[str] = (
+                list(groups_by_class.get(det.class_name, []))
+                if groups_by_class is not None else []
+            )
             self._persist(
                 timestamp, det, camera_name, snapshot_path,
                 actions_triggered, frame_size, feedback_token,
@@ -97,7 +106,7 @@ class EventProcessor:
 
             if actions_triggered is None:
                 logger.debug(
-                    "[%s] %s no matching action_rule — notifier will suppress",
+                    "[%s] %s no matching notification rule — notifier will suppress",
                     camera_name, det.class_name,
                 )
 
@@ -110,6 +119,7 @@ class EventProcessor:
                     "camera_name": camera_name,
                     "snapshot_path": snapshot_path,
                     "actions_triggered": actions_triggered,
+                    "matched_groups": matched_groups,
                     "bbox": bbox_list,
                     "frame_size": list(frame_size),
                     "feedback_token": feedback_token,

@@ -56,12 +56,24 @@
 - **Redis authentication:** `requirepass` with `REDIS_PASSWORD` env var across all services.
 - **FairLock inference scheduling:** FIFO lock prevents camera thread starvation when multiple cameras share a YOLO model.
 - **Caddy reverse proxy:** TLS termination, automatic HTTPS via Let's Encrypt or manual certs.
-- **Physical deterrence (v0.13.0):** Deterrent service controls Tuya smart devices (sprinklers, lights, sirens, plugs) via Cloud API. Any detection fires all enabled devices with randomized timing and global cooldown. Opt-in via `deterrent.enabled`.
+- **Physical deterrence (v0.13.0):** Deterrent service controls Tuya smart devices (sprinklers, lights, sirens, plugs) via Cloud API. Opt-in via `deterrent.enabled`.
 - **Deterrent web UI (v0.13.1):** Actuation log page with live SSE updates, device status panel (online/battery/switch), per-device test-fire button, actuation defaults and battery monitor config UI. Log streaming includes deterrent service.
+- **Per-camera deterrent scoping (v0.13.3):** Deterrent now fires only groups explicitly referenced by per-camera `deterrent_rules`. Groups are named subsets of the device registry with their own randomization + cooldown. No defaults — users opt-in deliberately per camera/class.
+- **Per-camera confidence override (v0.13.3):** Optional `confidence_threshold` per camera, useful for pairing fine-tuned species models with higher thresholds than a general COCO model. Inherits the global threshold when omitted.
+- **Config + Deterrent UI tabs (v0.13.3):** Config page Settings panel split into System / Detection / Cameras / Notifications / Advanced sub-tabs. Deterrent admin page split into Devices / Groups / Defaults / Battery / Latency tabs. URL-hash deep-linking.
+- **Actuation latency instrumentation (v0.13.3):** Per-event `trigger_delay_ms` (detection → dequeue) and `queue_depth`; per-device `cloud_ack_ms` (ON command → Tuya success). p50/p95 summary on the deterrent Latency tab.
 
 ## Known Issues / Buggy
 
-None currently identified.
+- **Tuya battery-device first-shot latency.** Battery-powered Tuya devices
+  (e.g. hose-timer valves) sleep their WiFi radio between Cloud beacons.
+  First actuation after idle can take seconds to tens of seconds before the
+  valve physically acts, because Tuya Cloud queues the command until the
+  device's next beacon.  The `cloud_ack_ms` field in the actuation log
+  measures the cloud-side ack latency only; actual physical response can
+  be longer.  See `TUYA_SETUP.md` for details.  No mitigation exists for
+  battery devices — the Tuya LAN fallback listed in ROADMAP Future Ideas is
+  explicitly not viable for sleeping devices.
 
 ## Not Yet Built
 
@@ -125,4 +137,5 @@ See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_
 | v0.12.9 | **Follow-up: Caddy probe deny actually works now.** v0.12.8 edited `config/Caddyfile.template`, assuming it was the Caddyfile source of truth — it isn't. The live Caddy config is produced by a Python heredoc inside `config/caddy-entrypoint.sh`. v0.12.9 moves the `@probes` matcher + `respond 404` rule into the real heredoc, annotates `Caddyfile.template` as REFERENCE ONLY with an explicit warning, and adds a pointer comment in the entrypoint so future edits land in the right place. | ✅ Complete |
 | v0.13.0 | **Deterrent service MVP.** New `deterrent` Docker Compose service: subscribes to `scarguard:detections`, triggers Tuya smart devices (sprinklers, lights, sirens, plugs) via Cloud API. Randomized activation patterns, global cooldown, battery monitoring with low-battery alerts. Config hot-reload via ConfigWatcher. | ✅ Complete |
 | v0.13.1 | **Deterrent web UI.** (1) Actuation log page with live SSE updates, filtering, and pagination. (2) Device status panel — online/battery/switch state via Tuya Cloud query. (3) Per-device test-fire button. (4) Actuation defaults + battery monitor config UI. (5) Deterrent in log streaming filter. (6) About page deterrent status. (7) Security fixes: XSS in event stream, login redirect sanitization, /snapshot/send auth guard. (8) Detection publish fix — all detections now reach deterrent service regardless of action rules. | ✅ Complete |
-| v0.13.2 | **Review fixes + deprecation removal.** (1) Atomic config write in detector scheduler. (2) Pin all deps (tinytuya, tzdata, redis image digest). (3) Remove legacy flat notification keys (`notifications.discord` / `notifications.email`). (4) Documentation cleanup: README, CONFIG_REFERENCE, ROADMAP. (5) Redis auth guidance in .env.example. | 🚧 In progress |
+| v0.13.2 | **Review fixes + deprecation removal.** (1) Atomic config write in detector scheduler. (2) Pin all deps (tinytuya, tzdata, redis image digest). (3) Remove legacy flat notification keys (`notifications.discord` / `notifications.email`). (4) Documentation cleanup: README, CONFIG_REFERENCE, ROADMAP. (5) Redis auth guidance in .env.example. | ✅ Complete |
+| v0.13.3 | **Per-camera deterrent scoping + per-camera confidence + UI tab refactor + latency instrumentation.** (1) New `deterrent.groups` primitive — named subsets of devices with their own randomization + cooldown. (2) New per-camera `deterrent_rules` (first-match-wins) replace the fire-on-every-detection default. (3) Per-camera `confidence_threshold` override. (4) `action_rules` renamed to `notification_rules` with auto-migration on load. (5) Config page Settings panel split into sub-tabs; Deterrent page split into tabs + new Groups editor. (6) Latency instrumentation: `trigger_delay_ms`, `queue_depth`, per-device `cloud_ack_ms` with p50/p95 summary. (7) Tuya battery-device deep-sleep latency documented. (8) Dependabot bump: `python-multipart` 0.0.22 → 0.0.26. | 🚧 In progress |

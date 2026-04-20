@@ -447,6 +447,37 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
+/* Settings sub-tabs (inside /config Settings panel) */
+.settings-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0.75rem 0 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.subtab-btn {
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  opacity: 0.7;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.subtab-btn:hover { opacity: 1; }
+.subtab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  opacity: 1;
+}
+.config-section.subtab-hidden { display: none; }
+.det-tab-panel { display: none; }
+.det-tab-panel.active { display: block; }
+/* Expert-mode-only sub-tab button: hidden unless expert mode is on */
+body:not(.expert-mode) .subtab-advanced { display: none; }
+
 /* Camera card */
 .camera-card {
   background: var(--bg);

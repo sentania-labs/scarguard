@@ -1,12 +1,15 @@
 """Read and write scarguard.yml with simple file-level locking."""
 
 import copy
+import logging
 import os
 import threading
 import time
 from pathlib import Path
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "/config/scarguard.yml"))
 
@@ -15,6 +18,35 @@ CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "/config/scarguard.yml"))
 _STALE_TOP_KEYS: set[str] = {"ssl"}
 # Nested keys under ``notifications`` stripped on save (legacy flat format).
 _STALE_NOTIFICATION_KEYS: set[str] = {"discord", "email"}
+# Per-camera keys stripped on save.  action_rules was renamed to
+# notification_rules in v0.13.3 and is migrated on read.
+_STALE_CAMERA_KEYS: set[str] = {"action_rules"}
+
+
+def _migrate_in_place(cfg: dict) -> None:
+    """Apply one-shot renames to *cfg* so older on-disk configs round-trip
+    through the v0.13.3 Pydantic models without losing data.
+
+    - Per-camera ``action_rules`` → ``notification_rules`` (v0.13.3 rename).
+    """
+    cameras = cfg.get("cameras")
+    if not isinstance(cameras, list):
+        return
+    migrated = 0
+    for cam in cameras:
+        if not isinstance(cam, dict):
+            continue
+        if "action_rules" in cam and "notification_rules" not in cam:
+            cam["notification_rules"] = cam.pop("action_rules")
+            migrated += 1
+        elif "action_rules" in cam:
+            # both present → notification_rules wins; legacy action_rules dropped
+            cam.pop("action_rules")
+            migrated += 1
+    if migrated:
+        logger.info(
+            "Migrated %d camera(s) from action_rules → notification_rules", migrated,
+        )
 
 _lock = threading.Lock()
 _cache_cfg: dict | None = None
@@ -31,6 +63,7 @@ def _read_unlocked() -> dict:
 
     if not isinstance(loaded, dict):
         raise ValueError("Config root must be a mapping (YAML dictionary)")
+    _migrate_in_place(loaded)
     return loaded
 
 
@@ -71,12 +104,22 @@ def load_cached(ttl_seconds: float = 1.0) -> dict:
 def save(cfg: dict) -> None:
     global _cache_cfg, _cache_mtime_ns, _cache_loaded_at
     import tempfile
+    # Migrate first so legacy keys become new keys (preserves their data);
+    # THEN strip any still-present stale keys (raw YAML edits only).
+    _migrate_in_place(cfg)
     for key in _STALE_TOP_KEYS:
         cfg.pop(key, None)
     notif = cfg.get("notifications")
     if isinstance(notif, dict):
         for key in _STALE_NOTIFICATION_KEYS:
             notif.pop(key, None)
+    cameras = cfg.get("cameras")
+    if isinstance(cameras, list):
+        for cam in cameras:
+            if not isinstance(cam, dict):
+                continue
+            for key in _STALE_CAMERA_KEYS:
+                cam.pop(key, None)
     with _lock:
         fd, tmp_path = tempfile.mkstemp(
             dir=str(CONFIG_PATH.parent), suffix=".tmp",

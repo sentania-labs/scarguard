@@ -41,9 +41,11 @@
         <th>Trigger</th>
         <th>Camera</th>
         <th>Conf</th>
+        <th>Group</th>
         <th>Devices</th>
         <th>Result</th>
         <th>Duration</th>
+        <th title="Detection timestamp → deterrent dequeue">Trigger delay</th>
       </tr>
     </thead>
     <tbody id="actuations-body">
@@ -53,9 +55,10 @@
         <td>{{ ev.trigger_class.replace("_", " ").title() }}</td>
         <td>{{ ev.trigger_camera }}</td>
         <td>{{ "%.0f%%"|format(ev.trigger_confidence * 100) }}</td>
+        <td>{{ ev.group_name or '—' }}</td>
         <td>
           {% for a in ev.actions %}
-            <span class="tag {% if a.success %}tag-ok{% else %}tag-err{% endif %}" title="{{ a.device_type }} — {{ '%.1f'|format(a.duration_sec) }}s{% if a.error %} — {{ a.error }}{% endif %}">{{ a.device_name }}</span>
+            <span class="tag {% if a.success %}tag-ok{% else %}tag-err{% endif %}" title="{{ a.device_type }} — {{ '%.1f'|format(a.duration_sec) }}s{% if a.cloud_ack_ms is not none %} — ack {{ '%.0f'|format(a.cloud_ack_ms) }}ms{% endif %}{% if a.error %} — {{ a.error }}{% endif %}">{{ a.device_name }}</span>
           {% endfor %}
         </td>
         <td>
@@ -64,9 +67,12 @@
           <span class="{% if sc == dc %}status-ok{% elif sc > 0 %}status-warn{% else %}status-err{% endif %}">{{ sc }}/{{ dc }}</span>
         </td>
         <td>{{ "%.1f"|format(ev.total_duration_sec) }}s</td>
+        <td class="muted" style="font-size:0.8rem;">
+          {% if ev.trigger_delay_ms is not none %}{{ "%.0f"|format(ev.trigger_delay_ms) }}ms{% else %}—{% endif %}
+        </td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="muted" style="text-align:center;padding:1rem;">No actuation events{% if trigger_class or camera or date_from or date_to %} match the current filter{% endif %}.</td></tr>
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:1rem;">No actuation events{% if trigger_class or camera or date_from or date_to %} match the current filter{% endif %}.</td></tr>
     {% endfor %}
     </tbody>
   </table>

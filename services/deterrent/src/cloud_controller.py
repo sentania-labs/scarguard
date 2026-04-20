@@ -40,29 +40,39 @@ class TuyaCloudController:
         """Return the DP code to use for on/off toggling."""
         return device.dp_code or _DEFAULT_DP_CODES.get(device.type, "switch_1")
 
-    def activate_device(self, device: DeviceConfig, duration_sec: float) -> tuple[bool, str | None]:
+    def activate_device(
+        self, device: DeviceConfig, duration_sec: float,
+    ) -> tuple[bool, str | None, float | None]:
         """Turn *device* ON, wait *duration_sec*, then turn it OFF.
 
-        Returns ``(success, error_message)``.  A partial success (ON worked
-        but OFF failed) still returns ``True`` — the device will auto-timeout
-        on most Tuya firmware.
+        Returns ``(success, error_message, cloud_ack_ms)``.  A partial
+        success (ON worked but OFF failed) still returns ``True`` — the
+        device will auto-timeout on most Tuya firmware.  ``cloud_ack_ms``
+        is the elapsed time between sending the ON command to Tuya Cloud
+        and receiving a success response — useful for diagnosing battery-
+        device deep-sleep latency.  ``None`` if the ON call raised.
         """
         dp_code = self._dp_code_for(device)
         error: str | None = None
 
         # --- ON ---
+        t_on = time.monotonic()
         try:
             on_cmd: dict[str, Any] = {"commands": [{"code": dp_code, "value": True}]}
             result = self._cloud.sendcommand(device.device_id, on_cmd)
+            on_ack_ms = (time.monotonic() - t_on) * 1000.0
             if not result.get("success"):
                 msg = f"ON failed: {result}"
                 logger.error("Device %s (%s) — %s", device.name, device.device_id, msg)
-                return False, msg
-            logger.info("Device %s ON (dp=%s)", device.name, dp_code)
+                return False, msg, on_ack_ms
+            logger.info(
+                "Device %s ON (dp=%s) cloud_ack=%.0fms",
+                device.name, dp_code, on_ack_ms,
+            )
         except Exception as exc:
             msg = f"ON exception: {exc}"
             logger.error("Device %s (%s) — %s", device.name, device.device_id, msg)
-            return False, msg
+            return False, msg, None
 
         # --- HOLD ---
         time.sleep(duration_sec)
@@ -80,7 +90,7 @@ class TuyaCloudController:
             error = f"OFF exception (device may auto-timeout): {exc}"
             logger.warning("Device %s (%s) — %s", device.name, device.device_id, error)
 
-        return True, error
+        return True, error, on_ack_ms
 
     def get_device_status(self, device_id: str) -> dict[str, Any] | None:
         """Query device status (battery level, switch state, etc.).

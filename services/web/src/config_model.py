@@ -192,11 +192,18 @@ class ExclusionZoneConfig(BaseModel):
         return v
 
 
-class ActionRuleConfig(BaseModel):
+class NotificationRuleConfig(BaseModel):
     """Maps a detected class (or "*" wildcard) to notification channel names."""
 
     class_name: str = "*"
     channels: list[str] = []
+
+
+class DeterrentRuleConfig(BaseModel):
+    """Maps a detected class (or "*" wildcard) to deterrent group names."""
+
+    class_name: str = "*"
+    groups: list[str] = []
 
 
 class CameraConfig(BaseModel):
@@ -206,8 +213,10 @@ class CameraConfig(BaseModel):
     resolution: int = 720
     model_path: str | None = None
     detect_classes: list[str] | None = None
+    confidence_threshold: float | None = None
     exclusion_zones: list[ExclusionZoneConfig] = []
-    action_rules: list[ActionRuleConfig] = []
+    notification_rules: list[NotificationRuleConfig] = []
+    deterrent_rules: list[DeterrentRuleConfig] = []
 
     @field_validator("name")
     @classmethod
@@ -221,6 +230,15 @@ class CameraConfig(BaseModel):
     def rtsp_url_format(cls, v: str) -> str:
         if v and not v.startswith(("rtsp://", "rtsps://")):
             raise ValueError("RTSP URL must start with rtsp:// or rtsps://")
+        return v
+
+    @field_validator("confidence_threshold")
+    @classmethod
+    def confidence_range(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not 0.0 <= v <= 1.0:
+            raise ValueError("confidence_threshold must be between 0.0 and 1.0")
         return v
 
 
@@ -294,6 +312,40 @@ class ActuationDefaultsConfig(BaseModel):
         return v
 
 
+class DeterrentGroupConfig(BaseModel):
+    """A named subset of registered devices fired as a coordinated sequence.
+
+    ``devices`` is a list of device names from the registry.  A device may
+    appear in multiple groups.  Randomization ranges override
+    ``deterrent.defaults`` for this group only; set any range to null (omit)
+    to inherit.  ``cooldown_seconds`` gates repeat firings of this group
+    only — the top-level ``deterrent.defaults.cooldown_seconds`` still
+    enforces a global cross-group cooldown.
+    """
+
+    name: str
+    devices: list[str] = []
+    cooldown_seconds: int = 60
+    device_count_range: list[int] | None = None
+    spray_duration_range: list[float] | None = None
+    inter_device_delay_range: list[float] | None = None
+    pre_delay_range: list[float] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Group name must not be empty")
+        return v.strip()
+
+    @field_validator("cooldown_seconds")
+    @classmethod
+    def cooldown_range(cls, v: int) -> int:
+        if not 5 <= v <= 3600:
+            raise ValueError("cooldown_seconds must be between 5 and 3600")
+        return v
+
+
 class DeterrentBatteryMonitorConfig(BaseModel):
     enabled: bool = True
     check_interval_hours: int = 24
@@ -318,6 +370,7 @@ class ActuationConfig(BaseModel):
     enabled: bool = False
     tuya: TuyaCredentialsConfig = TuyaCredentialsConfig()
     devices: list[ActuationDeviceConfig] = []
+    groups: list[DeterrentGroupConfig] = []
     defaults: ActuationDefaultsConfig = ActuationDefaultsConfig()
     battery_monitor: DeterrentBatteryMonitorConfig = DeterrentBatteryMonitorConfig()
 
@@ -326,7 +379,7 @@ class StructuredConfigPayload(BaseModel):
     """Subset of scarguard.yml written by the structured form editor.
 
     Only the sections the form knows about.  Other top-level keys (redis,
-    action_rules, webhooks, etc.) are preserved unchanged from the existing config.
+    webhooks, etc.) are preserved unchanged from the existing config.
     """
 
     system: SystemConfig = SystemConfig()

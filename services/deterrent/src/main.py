@@ -15,12 +15,18 @@ from typing import Any
 import actuation_db
 import redis as redis_lib
 import yaml
-from actuation_models import ActuationConfig, ActuationEvent, DeviceAction
+from actuation_models import (
+    ActuationConfig,
+    ActuationEvent,
+    DeterrentGroup,
+    DeviceAction,
+    DeviceConfig,
+)
 from atomic_ref import AtomicRef
 from battery_monitor import BatteryMonitor
 from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
-from cooldown import CooldownTracker
+from cooldown import CooldownTracker, GroupCooldownTracker
 from randomizer import build_random_plan
 from request_handler import RequestHandler
 
@@ -71,24 +77,148 @@ def build_controller(act_cfg: ActuationConfig) -> TuyaCloudController | None:
 # documented as thread-safe, and actuation sequences are inherently serial).
 # ---------------------------------------------------------------------------
 
+def _resolve_group_devices(
+    group: DeterrentGroup,
+    registry: list[DeviceConfig],
+) -> list[DeviceConfig]:
+    """Return the enabled devices referenced by *group*, preserving registry order."""
+    wanted = set(group.devices)
+    return [d for d in registry if d.enabled and d.name in wanted]
+
+
+def _parse_event_timestamp(event: dict[str, Any]) -> float | None:
+    """Return the event timestamp as unix seconds, or None if unparseable."""
+    ts = event.get("timestamp")
+    if not isinstance(ts, str):
+        return None
+    try:
+        return datetime.fromisoformat(ts).timestamp()
+    except ValueError:
+        return None
+
+
+def _fire_group(
+    group: DeterrentGroup,
+    act_cfg: ActuationConfig,
+    controller: TuyaCloudController,
+    event: dict[str, Any],
+    trigger_delay_ms: float | None,
+    queue_depth: int,
+    pub_holder: list[redis_lib.Redis | None],
+    redis_cfg: dict[str, Any],
+) -> bool:
+    """Fire a single deterrent group and persist/publish the resulting event.
+
+    Returns True if the group fired (at least one device was attempted),
+    False if it was skipped (e.g. no devices resolved).
+    """
+    group_devices = _resolve_group_devices(group, act_cfg.devices)
+    if not group_devices:
+        logger.warning(
+            "Group %r has no enabled devices resolvable from registry — skipping",
+            group.name,
+        )
+        return False
+
+    defaults = group.effective_defaults(act_cfg.defaults)
+    selected, durations, inter_delays, pre_delay = build_random_plan(
+        group_devices, defaults,
+    )
+
+    camera_name = event.get("camera_name", "unknown")
+    class_name = event.get("class_name", "")
+    confidence = event.get("confidence", 0.0)
+    logger.info(
+        "Firing group [%s]: %s from %s (conf=%.2f) — %d device(s)",
+        group.name, class_name, camera_name, confidence, len(selected),
+    )
+
+    t_start = time.monotonic()
+    actions: list[DeviceAction] = []
+
+    if pre_delay > 0:
+        logger.debug("Pre-delay: %.1fs", pre_delay)
+        time.sleep(pre_delay)
+
+    for i, device in enumerate(selected):
+        if inter_delays[i] > 0:
+            logger.debug("Inter-device delay: %.1fs", inter_delays[i])
+            time.sleep(inter_delays[i])
+
+        duration = durations[i]
+        logger.info(
+            "Firing device %s (%s) for %.1fs",
+            device.name, device.type, duration,
+        )
+        success, error, cloud_ack_ms = controller.activate_device(device, duration)
+        actions.append(DeviceAction(
+            device_name=device.name,
+            device_id=device.device_id,
+            device_type=device.type,
+            duration_sec=duration,
+            delay_before_sec=inter_delays[i],
+            success=success,
+            error=error,
+            cloud_ack_ms=cloud_ack_ms,
+        ))
+
+    total_duration = time.monotonic() - t_start
+
+    actuation_event = ActuationEvent(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        trigger_class=class_name,
+        trigger_camera=camera_name,
+        trigger_confidence=confidence,
+        group_name=group.name,
+        pre_delay_sec=pre_delay,
+        actions=actions,
+        total_duration_sec=round(total_duration, 2),
+        trigger_delay_ms=trigger_delay_ms,
+        queue_depth=queue_depth,
+    )
+
+    successes = sum(1 for a in actions if a.success)
+    logger.info(
+        "Group [%s] complete: %d/%d devices fired in %.1fs (trigger_delay=%s)",
+        group.name, successes, len(actions), total_duration,
+        f"{trigger_delay_ms:.0f}ms" if trigger_delay_ms is not None else "n/a",
+    )
+
+    _publish_actuation(pub_holder, redis_cfg, actuation_event)
+    try:
+        actuation_db.insert_event(actuation_event)
+    except Exception:
+        logger.exception("Failed to persist actuation event")
+
+    return True
+
+
 def _worker(
     event_queue: queue.Queue[dict[str, Any] | None],
     act_cfg_ref: AtomicRef[ActuationConfig],
     controller_ref: AtomicRef[TuyaCloudController | None],
     armed_ref: AtomicRef[bool],
     cooldown: CooldownTracker,
+    group_cooldown: GroupCooldownTracker,
     redis_cfg: dict[str, Any],
 ) -> None:
-    """Consume detection events and run actuation sequences."""
+    """Consume detection events and run actuation sequences per matched group."""
     logger.info("Deterrent worker thread started")
 
-    # Mutable container so the lazily-created Redis client persists across calls.
     pub_holder: list[redis_lib.Redis | None] = [None]
 
     while True:
         event = event_queue.get()
         if event is None:  # poison pill — shutdown
             break
+
+        # Latency instrumentation — dequeue moment.
+        dequeue_ts = time.time()
+        queue_depth = event_queue.qsize()
+        event_ts = _parse_event_timestamp(event)
+        trigger_delay_ms: float | None = (
+            (dequeue_ts - event_ts) * 1000.0 if event_ts is not None else None
+        )
 
         act_cfg = act_cfg_ref.get()
         controller = controller_ref.get()
@@ -109,85 +239,61 @@ def _worker(
             logger.warning("No Tuya credentials configured — cannot actuate")
             continue
 
-        cooldown_sec = act_cfg.defaults.cooldown_seconds
-        if not cooldown.is_clear(cooldown_sec):
-            remaining = cooldown.seconds_remaining(cooldown_sec)
-            logger.info("Cooldown active (%.0fs remaining) — skipping", remaining)
-            continue
-
-        enabled_devices = [d for d in act_cfg.devices if d.enabled]
-        if not enabled_devices:
-            logger.warning("No enabled devices — cannot actuate")
-            continue
-
-        camera_name = event.get("camera_name", "unknown")
-        confidence = event.get("confidence", 0.0)
-        logger.info(
-            "Actuation triggered: %s from %s (conf=%.2f) — %d device(s) available",
-            class_name, camera_name, confidence, len(enabled_devices),
-        )
-
-        # Build randomised plan
-        selected, durations, inter_delays, pre_delay = build_random_plan(
-            enabled_devices, act_cfg.defaults,
-        )
-
-        # Execute
-        t_start = time.monotonic()
-        actions: list[DeviceAction] = []
-
-        if pre_delay > 0:
-            logger.debug("Pre-delay: %.1fs", pre_delay)
-            time.sleep(pre_delay)
-
-        for i, device in enumerate(selected):
-            if inter_delays[i] > 0:
-                logger.debug("Inter-device delay: %.1fs", inter_delays[i])
-                time.sleep(inter_delays[i])
-
-            duration = durations[i]
-            logger.info(
-                "Firing device %s (%s) for %.1fs",
-                device.name, device.type, duration,
+        # Explicit-opt-in per v0.13.3: only fire groups named in matched_groups.
+        # Absent/empty = no deterrent rule matched = do nothing.
+        matched_groups = event.get("matched_groups") or []
+        if not isinstance(matched_groups, list) or not matched_groups:
+            logger.debug(
+                "Event from %s has no matched deterrent groups — skipping",
+                event.get("camera_name", "unknown"),
             )
-            success, error = controller.activate_device(device, duration)
-            actions.append(DeviceAction(
-                device_name=device.name,
-                device_id=device.device_id,
-                device_type=device.type,
-                duration_sec=duration,
-                delay_before_sec=inter_delays[i],
-                success=success,
-                error=error,
-            ))
+            continue
 
-        total_duration = time.monotonic() - t_start
-        cooldown.record()
+        # Global cooldown gates ALL actuation (cross-group rapid-fire).
+        global_cd = act_cfg.defaults.cooldown_seconds
+        if not cooldown.is_clear(global_cd):
+            remaining = cooldown.seconds_remaining(global_cd)
+            logger.info(
+                "Global cooldown active (%.0fs remaining) — skipping event",
+                remaining,
+            )
+            continue
 
-        actuation_event = ActuationEvent(
-            timestamp=datetime.now(timezone.utc).isoformat(),
-            trigger_class=class_name,
-            trigger_camera=camera_name,
-            trigger_confidence=confidence,
-            pre_delay_sec=pre_delay,
-            actions=actions,
-            total_duration_sec=round(total_duration, 2),
-        )
+        # Index groups by name for quick lookup.
+        groups_by_name = {g.name: g for g in act_cfg.groups}
 
-        successes = sum(1 for a in actions if a.success)
-        logger.info(
-            "Actuation complete: %d/%d devices fired in %.1fs",
-            successes, len(actions), total_duration,
-        )
+        any_fired = False
+        for group_name in matched_groups:
+            group = groups_by_name.get(group_name)
+            if group is None:
+                logger.warning(
+                    "Matched group %r not found in deterrent.groups — skipping",
+                    group_name,
+                )
+                continue
 
-        # Publish actuation event to Redis
-        _publish_actuation(pub_holder, redis_cfg, actuation_event)
+            # Per-group cooldown gate.
+            if not group_cooldown.is_clear(group_name, group.cooldown_seconds):
+                remaining = group_cooldown.seconds_remaining(
+                    group_name, group.cooldown_seconds,
+                )
+                logger.info(
+                    "Group [%s] cooldown active (%.0fs remaining) — skipping group",
+                    group_name, remaining,
+                )
+                continue
 
-        # Persist to SQLite
-        try:
-            actuation_db.insert_event(actuation_event)
-        except Exception:
-            logger.exception("Failed to persist actuation event")
+            fired = _fire_group(
+                group, act_cfg, controller, event,
+                trigger_delay_ms, queue_depth,
+                pub_holder, redis_cfg,
+            )
+            if fired:
+                group_cooldown.record(group_name)
+                any_fired = True
+
+        if any_fired:
+            cooldown.record()
 
     logger.info("Deterrent worker thread stopped")
 
@@ -305,6 +411,7 @@ def main() -> None:
     armed_ref: AtomicRef[bool] = AtomicRef(cfg.get("system", {}).get("armed", True))
 
     cooldown = CooldownTracker()
+    group_cooldown = GroupCooldownTracker()
     event_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=64)
 
     # Initialise actuation event database
@@ -403,7 +510,10 @@ def main() -> None:
         target=_worker,
         name="deterrent-worker",
         daemon=True,
-        args=(event_queue, act_cfg_ref, controller_ref, armed_ref, cooldown, redis_cfg),
+        args=(
+            event_queue, act_cfg_ref, controller_ref, armed_ref,
+            cooldown, group_cooldown, redis_cfg,
+        ),
     )
     worker_thread.start()
 
