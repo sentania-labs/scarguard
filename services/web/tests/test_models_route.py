@@ -113,6 +113,22 @@ class TestClassesEndpoint:
         assert second["cached"] is True
         assert fetch.await_count == 1
 
+    def test_redis_raises_returns_structured_error(self, client, sample_models):
+        from routes import models as models_mod
+        models_mod._classes_cache.clear()
+
+        async def _boom(*_a, **_kw):
+            raise ConnectionError("simulated redis outage")
+
+        with patch("routes.models._fetch_model_classes_via_redis", side_effect=_boom):
+            resp = client.get("/models/yolov8n.pt/classes")
+        # Route must return JSON with the normal {ok:false,error:...} shape,
+        # not a raw 500 — UI depends on the structured error path.
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "detector" in data["error"].lower() or "unable" in data["error"].lower()
+
     def test_cache_invalidates_on_mtime_change(self, client, sample_models):
         from routes import models as models_mod
         models_mod._classes_cache.clear()

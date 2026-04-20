@@ -239,7 +239,18 @@ async def model_classes(request: Request, filename: str) -> Response:
     if cached is not None:
         return JSONResponse({**cached, "cached": True})
 
-    result = await _fetch_model_classes_via_redis(str(target))
+    try:
+        result = await _fetch_model_classes_via_redis(str(target))
+    except Exception:
+        # Redis connection/auth failure, serialization error, etc.  Return
+        # the same structured shape the route always uses so the UI gets a
+        # graceful error path instead of a 500.
+        logger.exception("Redis RPC failed while introspecting %s", filename)
+        return JSONResponse({
+            "ok": False,
+            "error": "Unable to reach detector for class introspection",
+        })
+
     if result.get("ok"):
         if len(_classes_cache) >= _CLASSES_CACHE_MAX:
             oldest = next(iter(_classes_cache))

@@ -28,11 +28,16 @@ function _rebuildChannelRegistry() {
   _refreshChipPickers();
 }
 
-// Fetch class list for a given model path via /models/{file}/classes; cache
-// in window._classesByModel.  Returns the cached array when available.
+// Fetch class list for a given model path via /models/{file}/classes.  Caches
+// only successful responses in window._classesByModel — a transient detector
+// outage or network blip must not permanently poison the cache with `[]`, or
+// autocomplete for that model breaks until page reload.  On failure we return
+// [] but leave the cache untouched so the next call retries.
 async function _loadClassesForModel(modelPath) {
   if (!modelPath) return [];
-  if (window._classesByModel[modelPath]) return window._classesByModel[modelPath];
+  if (Object.prototype.hasOwnProperty.call(window._classesByModel, modelPath)) {
+    return window._classesByModel[modelPath];
+  }
   // Endpoint is keyed on the file's basename regardless of whether MODELS_DIR
   // is `/models` or something custom like `/mnt/models`.  Derive the last
   // path segment (works for absolute paths, bare filenames, or Windows-style
@@ -40,15 +45,14 @@ async function _loadClassesForModel(modelPath) {
   const filename = modelPath.split(/[\\/]/).filter(Boolean).pop() || modelPath;
   try {
     const resp = await fetch("/models/" + encodeURIComponent(filename) + "/classes");
-    if (!resp.ok) { window._classesByModel[modelPath] = []; return []; }
+    if (!resp.ok) return [];  // transient — leave cache unpopulated so we retry
     const data = await resp.json();
-    const classes = (data && data.ok && Array.isArray(data.classes)) ? data.classes : [];
-    window._classesByModel[modelPath] = classes;
+    if (!data || !data.ok || !Array.isArray(data.classes)) return [];
+    window._classesByModel[modelPath] = data.classes;
     _refreshChipPickers();
-    return classes;
+    return data.classes;
   } catch (_) {
-    window._classesByModel[modelPath] = [];
-    return [];
+    return [];  // network error — retry on next call
   }
 }
 
