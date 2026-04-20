@@ -82,7 +82,7 @@ jobs:
       # Trivy first — fail fast on CVEs before spending time on container tests.
       - name: Trivy scan — web
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: scarguard-web:test
           format: table
@@ -160,7 +160,7 @@ jobs:
 
       - name: Trivy scan — notifier
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: scarguard-notifier:test
           format: table
@@ -223,7 +223,7 @@ jobs:
 
       - name: Trivy scan — deterrent
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: scarguard-deterrent:test
           format: table
@@ -299,7 +299,7 @@ jobs:
 
       - name: Trivy scan — log-streamer
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: scarguard-log-streamer:test
           format: table
@@ -389,7 +389,7 @@ jobs:
 
       - name: Trivy scan — detector-x86
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: scarguard-detector-x86:build-validate
           format: table

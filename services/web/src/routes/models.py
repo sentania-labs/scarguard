@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import tempfile
 import time as _time
 import uuid
@@ -151,14 +152,27 @@ def _list_files() -> list[dict]:
     )
 
 
+# Strict allow-list for model filenames — alphanumerics, underscore, hyphen,
+# dot, at most 128 chars.  Covers typical model names (``yolov8n.pt``,
+# ``heron-v2.engine``, ``pond_v3.onnx``) and nothing else.  The regex lets
+# CodeQL see the sanitisation before the value is used in any path
+# expression, so we don't rely solely on Path.relative_to checks that static
+# analysis can't trace through.
+_FILENAME_ALLOWED = re.compile(r"^[A-Za-z0-9_.\-]{1,128}$")
+
+
 def _safe_resolve_model(filename: str) -> Path | None:
     """Resolve *filename* against MODELS_DIR, rejecting traversal + unknown suffixes.
 
     Returns None if the path escapes MODELS_DIR or has a disallowed suffix
     (blocks e.g. ``../../etc/passwd`` or ``.sh`` poking at model directory).
     """
-    if "/" in filename or "\\" in filename or filename in ("", ".", ".."):
+    if not isinstance(filename, str) or not _FILENAME_ALLOWED.fullmatch(filename):
         return None
+    if filename in (".", ".."):
+        return None
+    # Filename passed the allow-list regex — no slashes, dots only as literals
+    # inside the name, ≤128 chars.  Safe to join with MODELS_DIR.
     target = (MODELS_DIR / filename).resolve()
     try:
         target.relative_to(MODELS_DIR.resolve())
@@ -232,8 +246,15 @@ async def model_classes(request: Request, filename: str) -> Response:
     # Web-side cache by (path, mtime, size) — see comment on _classes_cache.
     try:
         st = target.stat()
-    except OSError as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    except OSError:
+        # Don't surface raw OSError text (CodeQL py/stack-trace-exposure).
+        # Log with a request id the operator can grep for; return generic.
+        req_id = uuid.uuid4().hex[:8]
+        logger.exception("model_classes: stat() failed [%s] for %s", req_id, filename)
+        return JSONResponse(
+            {"ok": False, "error": f"Unable to stat model file (request_id={req_id})"},
+            status_code=500,
+        )
     cache_key = (str(target), st.st_mtime_ns, st.st_size)
     cached = _classes_cache.get(cache_key)
     if cached is not None:
