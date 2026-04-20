@@ -37,3 +37,6 @@ build/
 # v0.12.7 PoC scratch — bench harness, results, throwaway diagnostics.
 # Not shipped to GHCR images; lives only in working tree.
 scratch/
+
+# Local PKA comm zone (not shared)
+.pka/
