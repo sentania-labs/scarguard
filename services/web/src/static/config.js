@@ -420,12 +420,6 @@ function validate(data) {
   if (!data.detection.model_path)
     errors.push("Model path is required");
 
-  const ep = data.notifications.email;
-  if (ep.enabled && !ep.smtp_host)
-    errors.push("Email: SMTP host is required when email notifications are enabled");
-  if (ep.smtp_port < 1 || ep.smtp_port > 65535)
-    errors.push("Email: SMTP port must be between 1 and 65535");
-
   const tls = data.tls;
   if (tls.mode === "auto" && !tls.domain)
     errors.push("TLS: Domain name is required for automatic (Let's Encrypt) mode");
