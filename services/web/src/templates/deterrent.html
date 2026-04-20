@@ -434,6 +434,40 @@ function showMsg(text, isError) {
 
 renderDevices();
 
+// ── Device-rename propagation ────────────────────────────────────────────
+// When the operator edits a device name in the Devices table, keep the
+// Groups tab's device references in sync.  Without this, a group's
+// ``devices: [name]`` list can refer to stale pre-rename values after a
+// save, leaving the deterrent worker unable to resolve those devices.
+// Event delegation on the persistent tbody survives renderDevices()
+// re-renders.
+(function wireDeviceRenamePropagation() {
+  var tbody = document.getElementById('devices-body');
+  if (!tbody) return;
+  tbody.addEventListener('change', function(e) {
+    var t = e.target;
+    if (!t || !t.dataset || t.dataset.field !== 'name') return;
+    var idx = parseInt(t.dataset.idx, 10);
+    if (!Number.isFinite(idx) || idx < 0 || idx >= _devices.length) return;
+    var oldName = _devices[idx].name;
+    var newName = t.value.trim();
+    if (oldName === newName) return;
+    _devices[idx].name = newName;
+    if (oldName) {
+      _groups.forEach(function(g) {
+        var gi = g.devices.indexOf(oldName);
+        if (gi < 0) return;
+        if (newName) {
+          g.devices[gi] = newName;
+        } else {
+          g.devices.splice(gi, 1);
+        }
+      });
+    }
+    renderGroups();
+  });
+})();
+
 // ── Groups editor ────────────────────────────────────────────────────────
 
 function _groupUsageChips(name) {
