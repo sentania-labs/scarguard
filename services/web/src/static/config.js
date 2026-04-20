@@ -12,6 +12,35 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   });
 });
 
+// ── Settings sub-tabs ────────────────────────────────────────────────────────
+// Split the long Settings form into focused sub-tabs (System / Detection /
+// Cameras / Notifications / Advanced).  Each config-section carries a
+// data-subtab attribute; we toggle visibility based on the active button.
+// URL hash (e.g. #cameras) deep-links into a sub-tab.
+
+function _activateSubtab(name) {
+  name = name || "system";
+  document.querySelectorAll(".subtab-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.subtab === name);
+  });
+  document.querySelectorAll(".config-section[data-subtab]").forEach(sec => {
+    sec.classList.toggle("subtab-hidden", sec.dataset.subtab !== name);
+  });
+  try {
+    history.replaceState(null, "", "#" + name);
+  } catch (_) { /* older browsers */ }
+}
+
+document.querySelectorAll(".subtab-btn").forEach(btn => {
+  btn.addEventListener("click", () => _activateSubtab(btn.dataset.subtab));
+});
+
+(function initSubtab() {
+  const valid = ["system", "detection", "cameras", "notifications", "advanced"];
+  const hash = (location.hash || "").replace(/^#/, "");
+  _activateSubtab(valid.includes(hash) ? hash : "system");
+})();
+
 // ── Collapsible sections ──────────────────────────────────────────────────────
 
 function toggleSection(id) {
@@ -66,14 +95,51 @@ function _buildRuleRow(rule) {
   return row;
 }
 
-function addActionRule(card) {
-  card.querySelector(".rules-list").appendChild(_buildRuleRow({ class_name: "*", channels: [] }));
+function addNotificationRule(card) {
+  card.querySelector(".notif-rules-list").appendChild(
+    _buildRuleRow({ class_name: "*", channels: [] })
+  );
 }
 
-function readActionRules(card) {
-  return Array.from(card.querySelectorAll(".rule-row")).map(row => ({
+function readNotificationRules(card) {
+  return Array.from(card.querySelectorAll(".notif-rules-list .rule-row")).map(row => ({
     class_name: row.querySelector(".rule-class").value.trim() || "*",
     channels: row.querySelector(".rule-channels").value
+      .split(",").map(s => s.trim()).filter(Boolean),
+  }));
+}
+
+// ── Deterrent rules (per-camera) ────────────────────────────────────────────
+
+function _buildDeterrentRuleRow(rule) {
+  const row = document.createElement("div");
+  row.className = "rule-row det-rule-row";
+  row.innerHTML = `
+    <div class="field-row" style="gap:0.5rem;align-items:flex-end;">
+      <div class="field-group" style="flex:1;">
+        <label>Class (or *)</label>
+        <input type="text" class="drule-class" value="${_esc(rule.class_name || "*")}" placeholder="* or great_blue_heron">
+      </div>
+      <div class="field-group" style="flex:2;">
+        <label>Groups (comma-separated names from /admin/deterrent)</label>
+        <input type="text" class="drule-groups" value="${_esc((rule.groups || []).join(", "))}" placeholder="minor, thermonuclear">
+      </div>
+      <button type="button" class="btn-remove" onclick="this.closest('.rule-row').remove()">✕</button>
+    </div>
+  `;
+  return row;
+}
+
+function addDeterrentRule(card) {
+  card.querySelector(".det-rules-list").appendChild(
+    _buildDeterrentRuleRow({ class_name: "*", groups: [] })
+  );
+}
+
+function readDeterrentRules(card) {
+  return Array.from(card.querySelectorAll(".det-rules-list .rule-row")).map(row => ({
+    class_name: row.querySelector(".drule-class").value.trim() || "*",
+    groups: row.querySelector(".drule-groups").value
       .split(",").map(s => s.trim()).filter(Boolean),
   }));
 }
@@ -98,7 +164,11 @@ function buildCameraCard(cam) {
   const idx = cameraIndex++;
   const enabled = cam.enabled !== false;
   const zones = cam.exclusion_zones || [];
-  const rules = cam.action_rules || [];
+  // notification_rules was renamed from action_rules in v0.13.3; accept
+  // either key on incoming data so the form survives pre-migration configs.
+  const rules = cam.notification_rules || cam.action_rules || [];
+  const detRules = cam.deterrent_rules || [];
+  const camConf = (cam.confidence_threshold != null) ? cam.confidence_threshold : "";
   const snapUrl = cam.snapshot_url || null;
 
   const div = document.createElement("div");
@@ -129,11 +199,12 @@ function buildCameraCard(cam) {
       <input type="text" class="cam-rtsp" value="${_esc(cam.rtsp_url || "")}" placeholder="rtsp:// or rtsps://192.168.1.1:7447/TOKEN">
     </div>
     <details class="expert-only" style="margin-top:0.75rem;">
-      <summary style="cursor:pointer;font-weight:500;">Per-Camera Model & Classes</summary>
+      <summary style="cursor:pointer;font-weight:500;">Per-Camera Model, Classes & Confidence</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
-          Override the global detection model and/or target classes for this camera.
-          Leave blank to use the global settings from the Detection section.
+          Override the global detection model, target classes, and/or confidence
+          threshold for this camera.  Leave blank to inherit the global values
+          from the Detection section.
         </p>
         <div class="field-row">
           <div class="field-group">
@@ -143,6 +214,16 @@ function buildCameraCard(cam) {
           <div class="field-group">
             <label>Detect classes (comma-separated, blank = global)</label>
             <input type="text" class="cam-detect-classes" value="${_esc((cam.detect_classes || []).join(", "))}" placeholder="e.g. great_blue_heron, green_heron">
+          </div>
+        </div>
+        <div class="field-row" style="margin-top:0.5rem;">
+          <div class="field-group" style="flex:1;">
+            <label>Confidence threshold (blank = inherit global)</label>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <input type="number" class="cam-confidence" min="0" max="1" step="0.01"
+                     value="${camConf}" placeholder="inherit" style="max-width:8rem;">
+              <span class="hint">Higher = fewer false positives. Useful for fine-tuned species models.</span>
+            </div>
           </div>
         </div>
       </div>
@@ -162,21 +243,37 @@ function buildCameraCard(cam) {
       </div>
     </details>
     <details class="expert-only" style="margin-top:0.75rem;">
-      <summary style="cursor:pointer;font-weight:500;">Action Rules (${rules.length})</summary>
+      <summary style="cursor:pointer;font-weight:500;">Notification Rules (${rules.length})</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
           Route detections to specific named channels. Rules are evaluated in order — first match wins.
           Use <code>*</code> as a wildcard class to match any detection. Leave empty to notify all channels.
         </p>
-        <div class="rules-list"></div>
-        <button type="button" class="btn-add" style="margin-top:0.4rem;" onclick="addActionRule(this.closest('.camera-card'))">+ Add Rule</button>
+        <div class="notif-rules-list"></div>
+        <button type="button" class="btn-add" style="margin-top:0.4rem;" onclick="addNotificationRule(this.closest('.camera-card'))">+ Add Rule</button>
+      </div>
+    </details>
+    <details class="expert-only" style="margin-top:0.75rem;">
+      <summary style="cursor:pointer;font-weight:500;">Deterrent Rules (${detRules.length})</summary>
+      <div style="margin-top:0.5rem;">
+        <p class="hint">
+          Fire deterrent groups in response to detections from this camera.
+          Rules are evaluated in order — first match wins.  Use <code>*</code>
+          as a wildcard class.  <strong>Empty = no deterrent action</strong> —
+          deterrents are explicit-opt-in.  Create groups on the
+          <a href="/admin/deterrent#groups">Deterrent page</a> first.
+        </p>
+        <div class="det-rules-list"></div>
+        <button type="button" class="btn-add" style="margin-top:0.4rem;" onclick="addDeterrentRule(this.closest('.camera-card'))">+ Add Rule</button>
       </div>
     </details>
   `;
 
-  // Populate initial action rules (synchronous — no layout dependency)
-  const rulesList = div.querySelector(".rules-list");
-  rules.forEach(r => rulesList.appendChild(_buildRuleRow(r)));
+  // Populate initial rules (synchronous — no layout dependency)
+  const notifList = div.querySelector(".notif-rules-list");
+  rules.forEach(r => notifList.appendChild(_buildRuleRow(r)));
+  const detList = div.querySelector(".det-rules-list");
+  detRules.forEach(r => detList.appendChild(_buildDeterrentRuleRow(r)));
 
   // Initialize zone editor after inserting into DOM via microtask
   requestAnimationFrame(() => initZoneEditor(div, zones));
@@ -200,13 +297,21 @@ function readCameras() {
     const detectClasses = detectClassesRaw
       ? detectClassesRaw.split(",").map(s => s.trim()).filter(Boolean)
       : null;
+    const confRaw = card.querySelector(".cam-confidence").value.trim();
+    // Always emit confidence_threshold (possibly null) so clearing the UI
+    // field actually removes the override server-side.  Pydantic accepts
+    // null → field becomes None; the merge in routes/config.py preserves
+    // it correctly via model_dump(exclude_unset=True).
+    const confidence = confRaw === "" ? null : parseFloat(confRaw);
     const cam = {
       name: card.querySelector(".cam-name").value.trim(),
       rtsp_url: card.querySelector(".cam-rtsp").value.trim(),
       enabled: card.querySelector(".cam-enabled").checked,
       resolution: parseInt(card.querySelector(".cam-resolution").value, 10) || 720,
       exclusion_zones: readZones(card),
-      action_rules: readActionRules(card),
+      notification_rules: readNotificationRules(card),
+      deterrent_rules: readDeterrentRules(card),
+      confidence_threshold: (confidence !== null && !Number.isNaN(confidence)) ? confidence : null,
     };
     if (modelPath) cam.model_path = modelPath;
     if (detectClasses) cam.detect_classes = detectClasses;

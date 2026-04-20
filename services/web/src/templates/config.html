@@ -32,8 +32,17 @@
     </label>
   </div>
 
+  {# ── Settings sub-tabs ──────────────────────────────────────────────────── #}
+  <div class="settings-subtabs" role="tablist" aria-label="Settings sections">
+    <button type="button" class="subtab-btn active" data-subtab="system">System</button>
+    <button type="button" class="subtab-btn" data-subtab="detection">Detection</button>
+    <button type="button" class="subtab-btn" data-subtab="cameras">Cameras</button>
+    <button type="button" class="subtab-btn" data-subtab="notifications">Notifications</button>
+    <button type="button" class="subtab-btn subtab-advanced expert-only" data-subtab="advanced">Advanced</button>
+  </div>
+
   {# ── System ───────────────────────────────────────────────────────────────── #}
-  <div class="config-section" id="section-system">
+  <div class="config-section" id="section-system" data-subtab="system">
     <div class="config-section-header" onclick="toggleSection('section-system')">
       <span class="config-section-label">System</span>
       <span class="config-section-chevron">▾</span>
@@ -124,7 +133,7 @@
   </div>
 
   {# ── Summary Reports ──────────────────────────────────────────────────────── #}
-  <div class="config-section expert-only" id="section-summary-report">
+  <div class="config-section expert-only" id="section-summary-report" data-subtab="system">
     <div class="config-section-header" onclick="toggleSection('section-summary-report')">
       <span class="config-section-label">Summary Reports</span>
       <span class="config-section-chevron">▾</span>
@@ -166,7 +175,7 @@
   </div>
 
   {# ── Cameras ──────────────────────────────────────────────────────────────── #}
-  <div class="config-section" id="section-cameras">
+  <div class="config-section" id="section-cameras" data-subtab="cameras">
     <div class="config-section-header" onclick="toggleSection('section-cameras')">
       <span class="config-section-label">Cameras</span>
       <span class="config-section-chevron">▾</span>
@@ -189,7 +198,7 @@
   </div>
 
   {# ── Detection ────────────────────────────────────────────────────────────── #}
-  <div class="config-section" id="section-detection">
+  <div class="config-section" id="section-detection" data-subtab="detection">
     <div class="config-section-header" onclick="toggleSection('section-detection')">
       <span class="config-section-label">Detection</span>
       <span class="config-section-chevron">▾</span>
@@ -239,7 +248,7 @@
   </div>
 
   {# ── Notification Channels (named, multi-instance) ───────────────────────── #}
-  <div class="config-section collapsed" id="section-channels">
+  <div class="config-section" id="section-channels" data-subtab="notifications">
     <div class="config-section-header" onclick="toggleSection('section-channels')">
       <span class="config-section-label">Notification Channels</span>
       <span class="config-section-chevron">▾</span>
@@ -264,7 +273,7 @@
   </div>
 
   {# ── Schedule ─────────────────────────────────────────────────────────────── #}
-  <div class="config-section collapsed expert-only" id="section-schedule">
+  <div class="config-section expert-only" id="section-schedule" data-subtab="advanced">
     <div class="config-section-header" onclick="toggleSection('section-schedule')">
       <span class="config-section-label">Schedule (Auto Arm/Disarm)</span>
       <span class="config-section-chevron">▾</span>
@@ -324,7 +333,7 @@
   </div>
 
   {# ── Auth ─────────────────────────────────────────────────────────────── #}
-  <div class="config-section collapsed expert-only" id="section-auth">
+  <div class="config-section expert-only" id="section-auth" data-subtab="advanced">
     <div class="config-section-header" onclick="toggleSection('section-auth')">
       <span class="config-section-label">Authentication</span>
       <span class="config-section-chevron">▾</span>
@@ -381,7 +390,7 @@
   </div>
 
   {# ── TLS ────────────────────────────────────────────────────────────────── #}
-  <div class="config-section" id="section-deterrent">
+  <div class="config-section" id="section-deterrent" data-subtab="advanced">
     <div class="config-section-header" onclick="toggleSection('section-deterrent')">
       <span class="config-section-label">Deterrent</span>
       <span class="config-section-chevron">▾</span>
@@ -403,7 +412,7 @@
     </div>
   </div>
 
-  <div class="config-section collapsed expert-only" id="section-tls">
+  <div class="config-section expert-only" id="section-tls" data-subtab="advanced">
     <div class="config-section-header" onclick="toggleSection('section-tls')">
       <span class="config-section-label">TLS</span>
       <span class="config-section-chevron">▾</span>

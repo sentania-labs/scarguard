@@ -8,7 +8,7 @@ Active and planned features. Each item includes acceptance criteria. Completed f
 New `deterrent` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya smart devices via the **Tuya Cloud API** (`tinytuya.Cloud`). Supports sprinklers, lights, sirens, and smart plugs — any device in the Tuya/Smart Life ecosystem. Randomized activation patterns (device selection, duration, delays) to prevent wildlife habituation.
 
 - **v0.13.0 (MVP):** Any detection fires all enabled devices with randomized timing and global cooldown. Opt-in via `deterrent.enabled` in config.
-- **v0.13.x:** Response profiles (species-based routing, time-of-day conditions, device-type filtering). Example: heron = all deterrents ("Global Thermonuclear War"), raccoon at night = lights + sound only.
+- ~~**v0.13.x:** Response profiles (species-based routing, time-of-day conditions, device-type filtering).~~ — ✓ Species-based routing shipped in v0.13.3 via deterrent groups + per-camera `deterrent_rules`. Time-of-day conditions remain a Future Idea.
 - **Hardware:** Off-the-shelf Tuya/Smart Life smart devices — hose timer valves, smart plugs, lights, sirens. Battery-powered devices work via Cloud API (LAN control not viable due to deep sleep).
 - **Config:** `deterrent` section in `scarguard.yml` — Tuya Cloud credentials, device definitions (device_id, type), randomization ranges, cooldown, battery alert thresholds.
 - **Setup guide:** [TUYA_SETUP.md](TUYA_SETUP.md) — step-by-step instructions for creating a Tuya IoT Platform account and obtaining API credentials.
@@ -168,6 +168,8 @@ Bundled post-v0.13.1 patch:
 ## Future Ideas (Unprioritized)
 
 - Twilio SMS notifications — paid per-message, but works on any phone without an app
+- Per-rule cooldown override — extend deterrent rules with an optional cooldown override, e.g. "heron: 10s, raccoon: 5min" without creating separate groups. v0.13.3 already supports per-group cooldown; this would add a per-match-row override. Deferred from 0.13.3 to keep scope focused.
+- Time-of-day conditions on deterrent rules — e.g. "raccoon at night only". Originally listed under v0.13.x; scoped out of the v0.13.3 rule engine.
 - Per-class cooldown — different cooldown values per detected species (e.g. 30s for squirrels, 5min for herons)
 - Mobile-friendly layout — basic nav responsiveness added in v0.11 (admin menu touch support, nav wrapping); full responsive CSS for all pages remains a future item
 - UI polish — logo, favicon, login screen branding. Japanese-inspired koi aesthetic. Use AI image generation for assets. Lowest priority.

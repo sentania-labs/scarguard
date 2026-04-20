@@ -158,11 +158,12 @@ class RequestHandler:
             return
 
         logger.info("Test-fire: %s (%s) for %.1fs", device.name, device_id, duration)
-        success, error = controller.activate_device(device, duration)
+        success, error, on_ack_ms = controller.activate_device(device, duration)
         client.publish(result_channel, json.dumps({
             "ok": success,
             "error": error,
             "device_name": device.name,
+            "cloud_ack_ms": on_ack_ms,
         }))
         logger.info(
             "Test-fire result: %s — %s",

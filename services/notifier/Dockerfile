@@ -1,6 +1,8 @@
 # Build context: repo root
 # docker build -f services/notifier/Dockerfile -t scarguard-notifier .
-FROM python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf
+# v0.13.3: pull via Google's public Docker Hub mirror to dodge anon rate
+# limits on GHA shared-runner IPs.
+FROM mirror.gcr.io/library/python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf
 
 WORKDIR /app
 

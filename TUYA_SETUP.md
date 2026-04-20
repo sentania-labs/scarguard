@@ -221,14 +221,44 @@ deterrent:
 
 ---
 
+## Known Latency Caveat — Battery Devices
+
+Battery-powered Tuya devices (hose-timer valves, battery sirens) **sleep
+their WiFi radio between Cloud beacons** to extend battery life.  When
+ScarGuard sends an ON command:
+
+1. Tuya Cloud accepts the command and queues it (fast — returns `success`
+   on the ack channel in ~100–500 ms).
+2. The physical device doesn't act until its next beacon checks in, which
+   can be **seconds to tens of seconds** after the ack.
+
+The Latency tab on `/admin/deterrent` shows `cloud_ack_ms` — the cloud-side
+ack time only.  The actual physical response can be longer.  The actuation
+log also persists `trigger_delay_ms` (detection → deterrent dequeue) for
+full end-to-end diagnosis.
+
+If first-shot latency on a battery valve proves consistently unworkable for
+your pond-protection use case, practical mitigations are limited.  The
+parked "Tuya LAN fallback" idea in the ROADMAP is explicitly NOT viable
+for battery devices — LAN TCP cannot reach a sleeping WiFi radio.  Mains-
+powered devices (light switches, plug-in sirens) do not have this problem.
+
 ## What's Next
 
-Once the deterrent service is running, detections will automatically trigger
-your devices. The MVP fires all enabled devices on any detection. Future
-releases (v0.13.x) will add response profiles for species-based routing:
+From v0.13.3, the deterrent service only fires when you **opt-in per
+camera/class**.  The flow is:
 
-- Heron detected → all deterrents fire (sprinklers + lights + sirens)
-- Raccoon at night → lights and sound only
-- Duck → gentle single-sprinkler deterrence
+1. Register devices on `/admin/deterrent` → **Devices** tab.
+2. Create one or more **groups** on the **Groups** tab — each group is a
+   named subset of devices with its own randomization + cooldown.
+3. On the Config page, open a camera card (Cameras sub-tab) and add
+   **Deterrent Rules** linking a detection class (e.g. `great_blue_heron`)
+   to a group name (e.g. `thermonuclear`).
 
-See [ROADMAP.md](ROADMAP.md) for the full plan.
+Example routing:
+
+- Pond-south + `great_blue_heron` → `thermonuclear` group (sprinklers + lights + sirens)
+- Pond-north + `raccoon` → `minor` group (siren only)
+- Front-door + `person` → *no deterrent rule* (notify only, no actuation)
+
+See [ROADMAP.md](ROADMAP.md) for upcoming work.

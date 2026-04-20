@@ -131,8 +131,8 @@ def test_process_non_matching_rule_suppresses_event(tmp_path):
     processor.close()
 
 
-def _match_action_rules(class_name: str, rules: list[dict]) -> list[str] | None:
-    """Local copy of detector _match_action_rules for testing without cv2."""
+def _match_notification_rules(class_name: str, rules: list[dict]) -> list[str] | None:
+    """Local copy of detector _match_notification_rules for testing without cv2."""
     for rule in rules:
         rule_class = rule.get("class_name", "*")
         if rule_class == "*" or rule_class == class_name:
@@ -140,19 +140,54 @@ def _match_action_rules(class_name: str, rules: list[dict]) -> list[str] | None:
     return None
 
 
-def test_match_action_rules_returns_none_for_no_match():
-    """_match_action_rules returns None when no rule matches the class."""
+def _match_deterrent_rules(class_name: str, rules: list[dict]) -> list[str]:
+    """Local copy of detector _match_deterrent_rules for testing without cv2."""
+    for rule in rules:
+        rule_class = rule.get("class_name", "*")
+        if rule_class == "*" or rule_class == class_name:
+            return list(rule.get("groups", []))
+    return []
+
+
+def test_match_notification_rules_returns_none_for_no_match():
+    """_match_notification_rules returns None when no rule matches the class."""
     rules = [{"class_name": "bird", "channels": ["bird-alerts"]}]
-    assert _match_action_rules("bench", rules) is None
+    assert _match_notification_rules("bench", rules) is None
 
 
-def test_match_action_rules_returns_channels_for_match():
-    """_match_action_rules returns channel list for matching rule."""
+def test_match_notification_rules_returns_channels_for_match():
+    """_match_notification_rules returns channel list for matching rule."""
     rules = [{"class_name": "bird", "channels": ["bird-alerts-email", "bird-alerts-discord"]}]
-    assert _match_action_rules("bird", rules) == ["bird-alerts-email", "bird-alerts-discord"]
+    assert _match_notification_rules("bird", rules) == ["bird-alerts-email", "bird-alerts-discord"]
 
 
-def test_match_action_rules_wildcard_matches_any():
+def test_match_notification_rules_wildcard_matches_any():
     """Wildcard rule matches any class."""
     rules = [{"class_name": "*", "channels": ["all-alerts"]}]
-    assert _match_action_rules("anything", rules) == ["all-alerts"]
+    assert _match_notification_rules("anything", rules) == ["all-alerts"]
+
+
+def test_match_deterrent_rules_returns_empty_for_no_match():
+    """v0.13.3: deterrents default to do-nothing when no rule matches
+    (unlike notifications, which default to notify-all)."""
+    rules = [{"class_name": "bird", "groups": ["thermonuclear"]}]
+    assert _match_deterrent_rules("bench", rules) == []
+
+
+def test_match_deterrent_rules_returns_groups_for_match():
+    rules = [{"class_name": "heron", "groups": ["thermonuclear", "siren"]}]
+    assert _match_deterrent_rules("heron", rules) == ["thermonuclear", "siren"]
+
+
+def test_match_deterrent_rules_wildcard_matches_any():
+    rules = [{"class_name": "*", "groups": ["minor"]}]
+    assert _match_deterrent_rules("anything", rules) == ["minor"]
+
+
+def test_match_deterrent_rules_first_match_wins():
+    rules = [
+        {"class_name": "heron", "groups": ["thermonuclear"]},
+        {"class_name": "*", "groups": ["minor"]},
+    ]
+    assert _match_deterrent_rules("heron", rules) == ["thermonuclear"]
+    assert _match_deterrent_rules("duck", rules) == ["minor"]

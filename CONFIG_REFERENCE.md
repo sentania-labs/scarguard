@@ -78,6 +78,30 @@ detection:
   cooldown_seconds: 30
   frame_skip: 2
 
+  # Per-camera notification rules (defined inside each camera block)
+  # NOTE: v0.13.3 renamed `action_rules` → `notification_rules`.  Pre-v0.13.3
+  # configs are auto-migrated on load.
+  notification_rules:
+    - class_name: great_blue_heron
+      channels: [pond-alerts, owner-email]
+    - class_name: bird
+      channels: [pond-alerts]
+    - class_name: "*"        # catch-all
+      channels: [pond-alerts]
+
+  # Per-camera deterrent rules (v0.13.3+, defined inside each camera block).
+  # First-match-wins on class_name; empty list = no deterrent (explicit opt-in).
+  # Group names reference entries in deterrent.groups (below).
+  deterrent_rules:
+    - class_name: great_blue_heron
+      groups: [thermonuclear]        # the full battery of deterrents
+    - class_name: raccoon
+      groups: [minor]                # single siren
+
+  # Optional per-camera overrides (v0.13.3+).  Any omitted key inherits the
+  # corresponding global `detection.*` value.
+  confidence_threshold: 0.40         # higher than global for this camera's fine-tuned model
+
 notifications:
   channels:
     - name: phone-alerts
@@ -261,6 +285,19 @@ The schedule is entirely optional. If the `schedule` key is missing, `enabled` i
 
 The `deterrent` section configures the deterrent service — automated physical deterrence via Tuya Cloud API. See [TUYA_SETUP.md](TUYA_SETUP.md) for obtaining API credentials.
 
+**v0.13.3 changed the firing model.** Prior to v0.13.3 any detection fired
+every enabled device.  From v0.13.3 onward, the deterrent service fires only
+**groups** explicitly referenced by a per-camera **`deterrent_rules`** entry
+(see the per-camera config section).  There is no default group — users
+deliberately opt-in each camera/class combination that should actuate.
+
+Firing is gated by two cooldown layers:
+
+1. **Per-group cooldown** (`deterrent.groups[].cooldown_seconds`) — prevents
+   the same group from firing twice in rapid succession.
+2. **Global cooldown** (`deterrent.defaults.cooldown_seconds`) — prevents
+   *any* actuation (across all groups) from firing more often than this.
+
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `deterrent.enabled` | bool | `false` | Master toggle for physical deterrence |
@@ -272,11 +309,18 @@ The `deterrent` section configures the deterrent service — automated physical 
 | `deterrent.devices[].type` | str | — | One of: `sprinkler`, `light`, `sound`, `plug` |
 | `deterrent.devices[].enabled` | bool | `true` | Whether this device participates in deterrence |
 | `deterrent.devices[].dp_code` | str | (auto) | Override the default DP code for on/off |
-| `deterrent.defaults.device_count_range` | list[int] | `[1, 4]` | Min/max devices to fire per event |
+| `deterrent.groups[].name` | str | — | **v0.13.3**: Unique group name (referenced from per-camera `deterrent_rules.groups`) |
+| `deterrent.groups[].devices` | list[str] | `[]` | **v0.13.3**: Device names (from the registry) fired by this group. A device may appear in multiple groups. |
+| `deterrent.groups[].cooldown_seconds` | int | `60` | **v0.13.3**: Minimum seconds between firings of this group (on top of the global cooldown). |
+| `deterrent.groups[].device_count_range` | list[int] \| null | inherit | **v0.13.3**: Override `defaults.device_count_range` for this group. `null` to inherit. |
+| `deterrent.groups[].spray_duration_range` | list[float] \| null | inherit | **v0.13.3**: Override spray duration. |
+| `deterrent.groups[].inter_device_delay_range` | list[float] \| null | inherit | **v0.13.3**: Override inter-device delay. |
+| `deterrent.groups[].pre_delay_range` | list[float] \| null | inherit | **v0.13.3**: Override pre-delay. |
+| `deterrent.defaults.device_count_range` | list[int] | `[1, 4]` | Min/max devices to fire per event (group override available) |
 | `deterrent.defaults.spray_duration_range` | list[float] | `[3.0, 8.0]` | Min/max seconds each device stays on |
 | `deterrent.defaults.inter_device_delay_range` | list[float] | `[1.0, 5.0]` | Min/max seconds between device activations |
 | `deterrent.defaults.pre_delay_range` | list[float] | `[0.0, 3.0]` | Min/max seconds before sequence starts |
-| `deterrent.defaults.cooldown_seconds` | int | `60` | Minimum gap between deterrence sequences |
+| `deterrent.defaults.cooldown_seconds` | int | `60` | **Global** cooldown — minimum gap between *any* two actuations across all groups. Group cooldowns stack on top. |
 | `deterrent.battery_monitor.enabled` | bool | `true` | Poll battery levels periodically |
 | `deterrent.battery_monitor.check_interval_hours` | int | `24` | Hours between battery checks |
 | `deterrent.battery_monitor.alert_threshold_percent` | int | `20` | Alert when battery drops below this |

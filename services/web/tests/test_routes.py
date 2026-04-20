@@ -216,7 +216,7 @@ class TestConfig:
         assert saved_cam["exclusion_zones"] == [{"x": 10, "y": 20, "w": 50, "h": 60, "label": "decoy"}]
 
     def test_structured_save_preserves_redis_and_unknown_keys(self, client, monkeypatch):
-        """Keys the form doesn't touch (redis, action_rules) must survive a structured save."""
+        """Keys the form doesn't touch (redis, webhooks) must survive a structured save."""
         existing = {
             "system": {"armed": True, "log_level": "info"},
             "cameras": [],
@@ -229,7 +229,7 @@ class TestConfig:
             },
             "notifications": {},
             "redis": {"host": "redis", "port": 6379},
-            "action_rules": [{"match": {"class": "bird"}, "actions": ["discord"]}],
+            "webhooks": [{"url": "https://example.test/hook", "method": "POST"}],
         }
         saved_cfgs = []
         monkeypatch.setattr("config_store.load", lambda: existing)
@@ -255,7 +255,7 @@ class TestConfig:
         assert resp.json()["ok"] is True
         saved = saved_cfgs[0]
         assert saved["redis"] == {"host": "redis", "port": 6379}
-        assert "action_rules" in saved
+        assert "webhooks" in saved
 
     def test_structured_save_preserves_existing_timezone_when_omitted(self, client, monkeypatch):
         """Structured saves that omit system.timezone must not reset it to UTC."""

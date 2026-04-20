@@ -122,15 +122,15 @@ def dispatch(
 
     # actions_triggered semantics:
     #   absent → legacy event or no action rules; notify all channels
-    #   None   → action rules exist but no rule matched; suppress entirely
-    #   []     → no action rules configured; notify all channels
+    #   None   → notification rules exist but no rule matched; suppress entirely
+    #   []     → no notification rules configured; notify all channels
     #   [...]  → notify only the named channels
     _MISSING = object()
     actions_raw = event.get("actions_triggered", _MISSING)
     if actions_raw is _MISSING:
         actions_triggered: list[str] = []
     elif actions_raw is None:
-        logger.debug("Event suppressed by action_rules — no notifications")
+        logger.debug("Event suppressed by notification rules — no notifications")
         return
     else:
         actions_triggered = actions_raw
@@ -139,7 +139,7 @@ def dispatch(
         if not current:
             logger.warning(
                 "actions_triggered=%s but no matching notifiers found "
-                "(check channel names in action_rules vs notifications.channels)",
+                "(check channel names in notification_rules vs notifications.channels)",
                 actions_triggered,
             )
 

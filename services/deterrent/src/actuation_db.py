@@ -35,7 +35,9 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create tables and indexes if they don't exist."""
+    """Create tables and indexes if they don't exist.  v0.13.3 adds three
+    latency columns + group_name — all additive, migrated with ALTER on
+    pre-existing databases."""
     with _lock:
         conn = _get_conn()
         conn.executescript("""
@@ -69,8 +71,24 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_actions_event
                 ON device_actions(event_id);
         """)
+        # v0.13.3 additive columns — safe to re-run on existing DBs.
+        _add_column_if_missing(conn, "actuation_events", "group_name", "TEXT NOT NULL DEFAULT ''")
+        _add_column_if_missing(conn, "actuation_events", "trigger_delay_ms", "REAL")
+        _add_column_if_missing(conn, "actuation_events", "queue_depth", "INTEGER")
+        _add_column_if_missing(conn, "device_actions", "cloud_ack_ms", "REAL")
         conn.commit()
         logger.info("Actuation database initialised at %s", DB_PATH)
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection, table: str, column: str, type_clause: str,
+) -> None:
+    """Add *column* of *type_clause* to *table* if it doesn't already exist."""
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column in cols:
+        return
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_clause}")
+    logger.info("Added column %s.%s", table, column)
 
 
 def insert_event(event: ActuationEvent) -> int:
@@ -80,8 +98,9 @@ def insert_event(event: ActuationEvent) -> int:
         cur = conn.execute(
             """INSERT INTO actuation_events
                (timestamp, trigger_class, trigger_camera, trigger_confidence,
-                pre_delay_sec, total_duration_sec, device_count, success_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                pre_delay_sec, total_duration_sec, device_count, success_count,
+                group_name, trigger_delay_ms, queue_depth)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.timestamp,
                 event.trigger_class,
@@ -91,6 +110,9 @@ def insert_event(event: ActuationEvent) -> int:
                 event.total_duration_sec,
                 len(event.actions),
                 sum(1 for a in event.actions if a.success),
+                event.group_name,
+                event.trigger_delay_ms,
+                event.queue_depth,
             ),
         )
         event_id = cur.lastrowid
@@ -100,8 +122,8 @@ def insert_event(event: ActuationEvent) -> int:
             conn.execute(
                 """INSERT INTO device_actions
                    (event_id, device_name, device_id, device_type,
-                    duration_sec, delay_before_sec, success, error)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    duration_sec, delay_before_sec, success, error, cloud_ack_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     event_id,
                     action.device_name,
@@ -111,6 +133,7 @@ def insert_event(event: ActuationEvent) -> int:
                     action.delay_before_sec,
                     int(action.success),
                     action.error,
+                    action.cloud_ack_ms,
                 ),
             )
         conn.commit()

@@ -218,7 +218,7 @@ async def save_structured_config(request: Request) -> Response:
 
     Only updates the sections the form knows about (system, cameras, detection,
     notifications.channels).  All other keys in the existing config (redis,
-    action_rules, webhooks, etc.) are preserved unchanged.
+    webhooks, etc.) are preserved unchanged.
 
     For cameras, unknown fields (e.g. exclusion_zones) are preserved by merging
     the form values over the existing entry matched by name.
