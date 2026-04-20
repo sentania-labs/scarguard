@@ -43,3 +43,6 @@ scratch/
 
 # Ad-hoc scratch area (screenshots, throwaway notes)
 tmp/
+
+# Claude Code runtime artifacts (scheduled task locks, etc.)
+.claude/
