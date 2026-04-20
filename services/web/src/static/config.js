@@ -33,8 +33,11 @@ function _rebuildChannelRegistry() {
 async function _loadClassesForModel(modelPath) {
   if (!modelPath) return [];
   if (window._classesByModel[modelPath]) return window._classesByModel[modelPath];
-  // Strip leading /models/ prefix if present — endpoint wants just the basename
-  const filename = modelPath.replace(/^\/?models\//, "");
+  // Endpoint is keyed on the file's basename regardless of whether MODELS_DIR
+  // is `/models` or something custom like `/mnt/models`.  Derive the last
+  // path segment (works for absolute paths, bare filenames, or Windows-style
+  // separators that might sneak in through manual YAML edits).
+  const filename = modelPath.split(/[\\/]/).filter(Boolean).pop() || modelPath;
   try {
     const resp = await fetch("/models/" + encodeURIComponent(filename) + "/classes");
     if (!resp.ok) { window._classesByModel[modelPath] = []; return []; }
@@ -180,11 +183,10 @@ function _attachNotifRulePickers(row, classRegistry) {
 function addNotificationRule(card) {
   const row = _buildRuleRow({ class_name: "*", channels: [] });
   card.querySelector(".notif-rules-list").appendChild(row);
-  // Resolve the camera's model (or fall back to the global model) so the
-  // class-name chip picker has the right registry.
-  const modelPath = _cameraModelPath(card);
-  _loadClassesForModel(modelPath);
-  _attachNotifRulePickers(row, () => _classesFor(modelPath));
+  // Registry callback re-reads the camera's model every render so swapping
+  // the model dropdown updates this picker's class suggestions in place.
+  _loadClassesForModel(_cameraModelPath(card));
+  _attachNotifRulePickers(row, () => _classesFor(_cameraModelPath(card)));
 }
 
 function readNotificationRules(card) {
@@ -247,9 +249,8 @@ function _attachDeterrentRulePickers(row, classRegistry) {
 function addDeterrentRule(card) {
   const row = _buildDeterrentRuleRow({ class_name: "*", groups: [] });
   card.querySelector(".det-rules-list").appendChild(row);
-  const modelPath = _cameraModelPath(card);
-  _loadClassesForModel(modelPath);
-  _attachDeterrentRulePickers(row, () => _classesFor(modelPath));
+  _loadClassesForModel(_cameraModelPath(card));
+  _attachDeterrentRulePickers(row, () => _classesFor(_cameraModelPath(card)));
 }
 
 function _cameraModelPath(card) {
@@ -399,9 +400,13 @@ function buildCameraCard(cam) {
 
   // Chip pickers need the DOM to be in place first, so defer one tick.
   requestAnimationFrame(() => {
-    const modelPath = _cameraModelPath(div);
-    _loadClassesForModel(modelPath);
-    const classReg = () => _classesFor(modelPath);
+    // Registry callback re-reads the camera's current model path every time
+    // a picker calls it.  Swapping the model in the dropdown below will make
+    // every chip picker on this card pick up the new class list on the next
+    // render, so "unknown" chips re-resolve and autocomplete targets the
+    // right registry — no card-rebuild needed.
+    const classReg = () => _classesFor(_cameraModelPath(div));
+    _loadClassesForModel(_cameraModelPath(div));
 
     notifList.querySelectorAll(".rule-row").forEach(row => _attachNotifRulePickers(row, classReg));
     detList.querySelectorAll(".rule-row").forEach(row => _attachDeterrentRulePickers(row, classReg));
@@ -421,13 +426,14 @@ function buildCameraCard(cam) {
       }));
     }
 
-    // When the camera's model changes, re-fetch classes and refresh pickers.
+    // When the camera's model changes, fetch the new class list and refresh
+    // all pickers — registry callbacks re-read the model path, so this pass
+    // resolves unknown chips and retargets autocomplete in place.
     const modelEl = div.querySelector(".cam-model-path");
     if (modelEl && !modelEl.dataset.chipWired) {
       modelEl.dataset.chipWired = "1";
       modelEl.addEventListener("change", () => {
-        const newPath = _cameraModelPath(div);
-        _loadClassesForModel(newPath);
+        _loadClassesForModel(_cameraModelPath(div)).then(() => _refreshChipPickers());
       });
     }
 
