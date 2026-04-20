@@ -1,87 +1,147 @@
 # ScarGuard — Infrastructure
 
-Doc last verified: 2026-04-05
+Doc last verified: 2026-04-20
 
 ## Repository Structure
 
 ```
 scarguard/
 ├── docker-compose.yml
-├── docker-compose.gpu.yml
+├── docker-compose.gpu.yml           # NVIDIA Container Runtime override
 ├── BENCHMARKS.md
 ├── setup.sh
 ├── pyproject.toml
 ├── .env.example
 ├── config/
-│   └── scarguard.example.yml
-├── models/                          # YOLO model files (.pt, .engine)
-├── data/
-│   └── scarguard.db
+│   ├── scarguard.example.yml
+│   ├── Caddyfile.template           # REFERENCE ONLY — active Caddyfile is rendered by caddy-entrypoint.sh
+│   └── caddy-entrypoint.sh          # Reads tls/* from scarguard.yml, generates Caddyfile at runtime
 ├── services/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
 │   │   ├── Dockerfile               # Jetson/L4T (ARM64)
-│   │   ├── Dockerfile.x86           # x86 CUDA+CPU
+│   │   ├── Dockerfile.x86           # x86 CUDA+CPU (PYTORCH_TAG build arg)
 │   │   ├── entrypoint.sh            # Volume ownership fix + gosu drop
 │   │   ├── requirements.txt
-│   │   └── src/
-│   │       ├── main.py
-│   │       ├── stream.py
-│   │       ├── detector.py
-│   │       ├── events.py
-│   │       ├── publisher.py
-│   │       ├── cleanup.py           # Snapshot retention / daily pruning daemon
-│   │       └── config_watcher.py
+│   │   ├── src/
+│   │   │   ├── main.py
+│   │   │   ├── stream.py
+│   │   │   ├── detector.py
+│   │   │   ├── events.py
+│   │   │   ├── publisher.py
+│   │   │   ├── cleanup.py           # Snapshot retention / daily pruning daemon
+│   │   │   ├── camera_health.py     # Online/offline tracking + alerts
+│   │   │   ├── evaluator.py         # Model evaluation runner (SSE)
+│   │   │   ├── fair_lock.py         # FIFO inference lock (cross-camera fairness)
+│   │   │   ├── metrics_store.py     # SQLite system_metrics writer
+│   │   │   ├── model_pool.py        # Ref-counted YOLO model cache
+│   │   │   ├── scheduler.py         # Arm/disarm (fixed-time + solar)
+│   │   │   ├── snapshot_grabber.py  # On-demand RTSP snapshot over Redis req/resp
+│   │   │   ├── stats_collector.py   # CPU/GPU/RAM/FPS collector
+│   │   │   └── visit_tracker.py     # Detection → visit session grouping
+│   │   └── tests/
 │   ├── web/                         # FastAPI + Jinja web UI
 │   │   ├── Dockerfile
 │   │   ├── entrypoint.sh            # Volume ownership fix + gosu drop
 │   │   ├── requirements.txt
-│   │   └── src/
-│   │       ├── start.py             # Startup script: reads ssl config, launches uvicorn
-│   │       ├── config_model.py
-│   │       ├── config_store.py
-│   │       ├── db.py
-│   │       ├── main.py
-│   │       ├── routes/
-│   │       │   ├── __init__.py
-│   │       │   ├── about.py
-│   │       │   ├── admin.py         # Admin logs tab: SSE log stream from Docker containers
-│   │       │   ├── config.py
-│   │       │   ├── dashboard.py
-│   │       │   ├── events.py
-│   │       │   ├── feed.py
-│   │       │   ├── feedback.py
-│   │       │   └── models.py
-│   │       ├── static/
-│   │       │   ├── config.js
-│   │       │   └── style.css
-│   │       └── templates/
-│   │           ├── about.html
-│   │           ├── base.html
-│   │           ├── config.html
-│   │           ├── dashboard.html
-│   │           ├── events.html
-│   │           ├── feed.html
-│   │           ├── logs.html        # Admin logs page (service selector, level filter, SSE)
-│   │           ├── models.html
-│   │           └── partials/
-│   │               ├── arm_badge.html
-│   │               └── event_rows.html
-│   ├── caddy/                       # Reverse proxy (TLS termination)
+│   │   ├── src/
+│   │   │   ├── start.py             # Startup: launches uvicorn on 8080 (Caddy proxies in)
+│   │   │   ├── main.py
+│   │   │   ├── config_model.py      # Pydantic structured config schema
+│   │   │   ├── config_store.py      # Atomic YAML load/save + stale-key stripping
+│   │   │   ├── config_backup.py
+│   │   │   ├── config_redact.py     # Viewer-role secret masking
+│   │   │   ├── actuation_db.py      # Read-only deterrent.db access
+│   │   │   ├── audit.py             # audit_events table + writer
+│   │   │   ├── auth.py              # bcrypt + session + lockout + roles
+│   │   │   ├── route_auth.py        # Login/logout/setup routes
+│   │   │   ├── db.py
+│   │   │   ├── routes/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── about.py
+│   │   │   │   ├── actuations.py    # Deterrent actuation log + SSE
+│   │   │   │   ├── admin.py         # Admin dashboard incl. logs tab
+│   │   │   │   ├── audit_log.py     # /admin/audit-log viewer
+│   │   │   │   ├── auth.py          # Auth-gated helpers
+│   │   │   │   ├── config.py        # Structured + raw YAML config editor
+│   │   │   │   ├── dashboard.py
+│   │   │   │   ├── deterrent.py     # Device status, test-fire, defaults UI
+│   │   │   │   ├── events.py
+│   │   │   │   ├── feedback.py
+│   │   │   │   ├── models.py
+│   │   │   │   ├── snapshot.py      # Token-scoped snapshot serving
+│   │   │   │   ├── stats.py         # System stats SSE
+│   │   │   │   ├── training.py      # Training data dashboard + export
+│   │   │   │   └── users.py         # User CRUD, API tokens
+│   │   │   ├── static/
+│   │   │   │   ├── config.js
+│   │   │   │   └── style.css
+│   │   │   └── templates/
+│   │   │       ├── about.html
+│   │   │       ├── actuations.html
+│   │   │       ├── audit_log.html
+│   │   │       ├── backups.html
+│   │   │       ├── base.html
+│   │   │       ├── config.html
+│   │   │       ├── dashboard.html
+│   │   │       ├── deterrent.html
+│   │   │       ├── evaluate.html
+│   │   │       ├── events.html
+│   │   │       ├── feedback.html
+│   │   │       ├── login.html
+│   │   │       ├── logs.html
+│   │   │       ├── models.html
+│   │   │       ├── setup.html
+│   │   │       ├── stats.html
+│   │   │       ├── training.html
+│   │   │       ├── users.html
+│   │   │       ├── visits.html
+│   │   │       └── partials/
+│   │   │           ├── arm_badge.html
+│   │   │           └── event_rows.html
+│   │   └── tests/
+│   ├── notifier/
 │   │   ├── Dockerfile
-│   │   ├── caddy-entrypoint.sh
-│   │   └── Caddyfile.template
-│   └── notifier/
+│   │   ├── entrypoint.sh
+│   │   ├── requirements.txt
+│   │   ├── src/
+│   │   │   ├── main.py
+│   │   │   ├── discord.py
+│   │   │   ├── email_notifier.py
+│   │   │   ├── webhook.py
+│   │   │   ├── ntfy.py
+│   │   │   ├── notification_queue.py
+│   │   │   ├── snapshot_utils.py
+│   │   │   ├── digest.py            # Daily/weekly/monthly summary formatter
+│   │   │   ├── digest_db.py
+│   │   │   └── digest_scheduler.py
+│   │   └── tests/
+│   ├── deterrent/                   # Physical deterrence via Tuya Cloud API
+│   │   ├── Dockerfile
+│   │   ├── entrypoint.sh
+│   │   ├── requirements.txt
+│   │   ├── src/
+│   │   │   ├── main.py              # Redis subscriber + dispatcher
+│   │   │   ├── cloud_controller.py  # tinytuya.Cloud wrapper
+│   │   │   ├── randomizer.py        # Device selection / timing
+│   │   │   ├── cooldown.py
+│   │   │   ├── battery_monitor.py
+│   │   │   ├── request_handler.py   # Redis req/resp for test-fire + status
+│   │   │   ├── actuation_db.py      # SQLite writer for deterrent.db
+│   │   │   └── actuation_models.py  # Pydantic actuation event schema
+│   │   └── tests/
+│   ├── caddy/                       # Reverse proxy (TLS termination)
+│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
+│   └── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
 │       ├── Dockerfile
-│       ├── entrypoint.sh            # Volume ownership fix + gosu drop
 │       ├── requirements.txt
 │       └── src/
-│           ├── config_watcher.py
-│           ├── discord.py
-│           ├── email_notifier.py
-│           ├── main.py
-│           └── notification_queue.py
-├── shared/
-│   └── models.py                    # Shared Pydantic data models
+│           └── main.py
+├── shared/                          # Code shared across service containers
+│   ├── models.py                    # Pydantic event models
+│   ├── config_watcher.py            # Mtime-based config hot-reload helper
+│   └── atomic_ref.py                # Thread-safe swap for hot-reload targets
+├── training/
+│   └── train.py                     # Standalone YOLO fine-tuning CLI
 ├── infra/
 │   ├── orin-runner/
 │   │   ├── Dockerfile
@@ -100,18 +160,21 @@ scarguard/
 
 - **detector (Jetson):** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`docker-compose.gpu.yml` override).
 - **detector (x86):** `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`. The PyTorch tag is parameterized via `ARG PYTORCH_TAG` in `Dockerfile.x86` — override with `--build-arg PYTORCH_TAG=<tag>` to test a different version. Bump the default when cutting a release.
-- **web and notifier:** `python:3.11-slim` — no GPU needed.
+- **web, notifier, deterrent, log-streamer:** `python:3.11-slim` — no GPU needed.
 - **caddy:** `caddy:2-alpine` + Python for config parsing.
+- **redis:** `redis:7-alpine` (digest-pinned in `docker-compose.yml`).
 
 ### Non-root containers
 
-All application containers (detector, web, notifier) create a `scarguard` system user and run the application as that user for defense in depth. Since `setup.sh` creates Docker volumes as root, each service has an `entrypoint.sh` that:
+The stateful application containers (detector, web, notifier, deterrent) create a `scarguard` system user and run the application as that user for defense in depth. Since `setup.sh` creates Docker volumes as root, each service has an `entrypoint.sh` that:
 
 1. Starts as root
 2. Fixes volume ownership (`chown -R scarguard:scarguard`) on first boot (sentinel file prevents slow re-chown on restarts with large snapshot volumes)
 3. Drops to `scarguard` via `gosu` before executing the application
 
-Each service uses a per-service sentinel file (`.ownership-fixed-{detector,web,notifier}`) so services sharing the same volume don't skip each other's chown.
+Each service uses a per-service sentinel file (`.ownership-fixed-{detector,web,notifier,deterrent}`) so services sharing the same volume don't skip each other's chown.
+
+The `log-streamer` sidecar runs as root because it needs access to `/var/run/docker.sock`; it has no write access to any application volume.
 
 CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
@@ -121,11 +184,12 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
-| `scarguard-config` | all | rw (web), ro (detector, notifier) | `scarguard.yml` config + SSL certs (`certs/` subdirectory) |
-| `scarguard-data` | detector, web, notifier | rw (detector, web), ro (notifier) | SQLite DB (`scarguard.db`, `auth.db`) + snapshots |
-| `scarguard-models` | detector, web | rw (web — model upload), ro (detector) | YOLO model files (`.pt`, `.engine`) |
+| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
+| `scarguard-data` | detector, web, notifier, deterrent | rw (detector, web, deterrent), ro (notifier) | `scarguard.db`, `auth.db`, `deterrent.db`, snapshots |
+| `scarguard-models` | detector, web, notifier | rw (web — model upload), ro (detector, notifier — storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
-| `redis-data` | redis | rw | Redis persistence |
+| `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
+| `scarguard-redis-data` | redis | rw | Redis persistence |
 
 Additionally, the Docker socket is bind-mounted into the `log-streamer` sidecar (not the web container):
 
@@ -174,13 +238,16 @@ All x86 runners are containerized on an ubuntu24 host with Docker socket mount (
 PR to main (ci.yml + build.yml — full validation)
   ├── generic runners (parallel):
   │   ├── Lint (ruff — all services)
-  │   ├── Type check (mypy — web, notifier)
+  │   ├── Type check (mypy — web, notifier, deterrent)
   │   ├── pytest — web
-  │   └── pytest — notifier
+  │   ├── pytest — notifier
+  │   └── pytest — deterrent
   │
   ├── docker runners (parallel, one job per runner):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
+  │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
+  │   ├── Build log-streamer image + Trivy
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy
   │
@@ -197,6 +264,8 @@ Tag push (release.yml)
   ├── docker runners (parallel, one job per runner):
   │   ├── Build + push web to ghcr.io
   │   ├── Build + push notifier to ghcr.io
+  │   ├── Build + push deterrent to ghcr.io
+  │   ├── Build + push log-streamer to ghcr.io
   │   └── Build + push caddy to ghcr.io
   │
   ├── docker runner:

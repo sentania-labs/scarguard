@@ -34,7 +34,7 @@ system:
   # during installation.
   #
   # Disable auth only on fully private networks. Re-enable before any external
-  # access. Always pair with ssl.enabled: true when accessible beyond LAN.
+  # access. Always pair with tls.mode=auto (or manual) when accessible beyond LAN.
   #
   # When require_api_auth is false (default), SSE feeds and webhook callbacks
   # remain open so existing integrations (Home Assistant, etc.) keep working.
@@ -156,34 +156,51 @@ detection:
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────
+# Define one or more named channels under `notifications.channels`.  Each
+# channel has a unique name and a type (`discord`, `email`, `webhook`,
+# `ntfy`).  Reference channel names from per-camera `action_rules` to route
+# specific detections to specific channels.  Without rules, every enabled
+# channel fires for every detection.
+#
+# The legacy flat `notifications.discord` and `notifications.email` blocks
+# were removed in v0.13.2 and are stripped from the file on the next save.
 notifications:
-
-  # DEPRECATED: Legacy flat discord/email keys below will be removed in x.13.x.
-  # Use named channels (notifications.channels) instead — see examples further down.
-  discord:
-    enabled: false                                # Set to true after adding your webhook URL
-
-    # To get a webhook URL:
-    #   Discord server settings → Integrations → Webhooks → New Webhook → Copy URL
-    webhook_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
-
-    # Optional: mention a role when a detection fires. Leave empty to disable.
-    # Find the role ID by enabling Developer Mode in Discord, then right-clicking the role.
-    mention_role: ""
-
-    # Send an annotated snapshot image with each notification.
-    include_snapshot: true
-
-  email:
-    enabled: false                                # Set to true to receive email alerts
-
-    smtp_host: "smtp.example.com"                 # e.g. smtp.gmail.com
-    smtp_port: 587                                # 587 for STARTTLS, 465 for SSL, 25 for plain
-    smtp_user: "you@example.com"
-    smtp_pass: "your-app-password"                # Use an app password, not your main password
-    to_addresses:
-      - "you@example.com"                         # Can list multiple recipients
-    include_snapshot: true
+  channels: []
+  # Example channels — uncomment and adjust:
+  #
+  # channels:
+  #   - name: pond-alerts
+  #     type: discord
+  #     enabled: true
+  #     webhook_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+  #     mention_role: ""           # optional Discord role ID to ping
+  #     include_snapshot: true
+  #
+  #   - name: email-digest
+  #     type: email
+  #     enabled: true
+  #     smtp_host: smtp.gmail.com
+  #     smtp_port: 587             # 587 for STARTTLS, 465 for SSL, 25 for plain
+  #     smtp_user: you@example.com
+  #     smtp_pass: "your-app-password"
+  #     to_addresses: [you@example.com]
+  #     include_snapshot: true
+  #
+  #   - name: phone-push
+  #     type: ntfy
+  #     enabled: true
+  #     server: "https://ntfy.sh"
+  #     topic: "scarguard-alerts"
+  #     # token: "tk_..."          # optional Bearer token for authenticated topics
+  #     priority: 3                # 1 (min) to 5 (max/urgent)
+  #     include_snapshot: true
+  #
+  #   - name: home-assistant
+  #     type: webhook
+  #     enabled: true
+  #     url: "http://homeassistant.local:8123/api/webhook/scarguard"
+  #     method: POST
+  #     # auth_token: "Bearer ..." # optional
 
 
 # ── TLS ───────────────────────────────────────────────────────────────────────
@@ -205,42 +222,10 @@ tls:
 # ── Redis (internal message bus) ──────────────────────────────────────────────
 # These settings match the redis service defined in docker-compose.yml.
 # You should not need to change these unless you run Redis externally.
+# Redis authentication (REDIS_PASSWORD) is configured via .env, not here.
 redis:
   host: redis
   port: 6379
-
-
-  # ── Named channels (new format) ───────────────────────────────────────────
-  # Define multiple named channels; each channel has a unique name and type.
-  # When channels are defined, they take precedence over the legacy discord/email
-  # sections above.  Reference channels by name in camera action_rules.
-  #
-  # Supported types: discord, email, webhook
-  #
-  # channels:
-  #   - name: pond-alerts
-  #     type: discord
-  #     enabled: true
-  #     webhook_url: "https://discord.com/api/webhooks/…"
-  #     mention_role: ""
-  #     include_snapshot: true
-  #
-  #   - name: email-digest
-  #     type: email
-  #     enabled: true
-  #     smtp_host: smtp.gmail.com
-  #     smtp_port: 587
-  #     smtp_user: you@example.com
-  #     smtp_pass: your-app-password
-  #     to_addresses: [you@example.com]
-  #     include_snapshot: true
-  #
-  #   - name: home-assistant
-  #     type: webhook
-  #     enabled: true
-  #     url: "http://homeassistant.local:8123/api/webhook/scarguard"
-  #     method: POST
-  #     # auth_token: "Bearer …"   # optional
 
 
 # ── Physical Deterrence (Tuya Cloud) ──────────────────────────────────────────
