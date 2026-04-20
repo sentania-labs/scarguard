@@ -1,8 +1,9 @@
 # Build context: repo root
-# v0.13.3: pull via Google's public Docker Hub mirror (mirror.gcr.io) to
-# dodge Docker Hub's anonymous rate limit on GHA shared-runner IPs.
-# Same digest, no quota.
-FROM mirror.gcr.io/library/python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf
+# v0.13.4: pull from Docker Hub with authenticated login (DOCKER_HUB_USERNAME /
+# DOCKER_HUB_API_KEY org secrets) so we have the per-user quota (5000/day)
+# instead of the anonymous-IP quota (~100/6h) that kept hitting us on GHA
+# shared runners.
+FROM docker.io/library/python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf
 
 WORKDIR /app
 

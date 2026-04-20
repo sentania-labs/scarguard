@@ -33,6 +33,7 @@ from detector import YOLODetector
 from evaluator import EvaluationRunner
 from events import EventProcessor
 from metrics_store import MetricsStore
+from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
 from publisher import RedisPublisher
 from scheduler import ArmScheduler
@@ -682,6 +683,17 @@ def main() -> None:
         stop_event=global_stop,
     )
     snapshot_grabber.start()
+
+    # ---- Model-class introspection handler -------------------------------------
+    # Answers /models/{path}/classes queries from the web service over Redis
+    # pub/sub.  Caches by (path, mtime, size) and prefers the ModelPool over
+    # spinning a fresh CUDA context — avoids GPU contention with live inference.
+    model_classes_handler = ModelClassesHandler(
+        redis_cfg=redis_cfg,
+        stop_event=global_stop,
+        model_pool=model_pool,
+    )
+    model_classes_handler.start()
 
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:

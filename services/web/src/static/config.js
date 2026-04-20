@@ -1,5 +1,62 @@
 /* ScarGuard — structured config form logic */
 
+// ── Chip-picker shadow registries (v0.13.4) ──────────────────────────────────
+// Each ChipPicker reads its registry via a callback, so the pickers stay in
+// sync as these lists change (channels renamed/added/removed, model swapped).
+window._availableChannels = window._availableChannels || [];
+window._classesByModel = window._classesByModel || {};
+window._chipPickers = window._chipPickers || [];
+
+function _channelsRegistry() { return window._availableChannels || []; }
+function _groupsRegistry() { return window._availableGroups || []; }
+function _classesFor(modelPath) {
+  const key = modelPath || (document.getElementById("det-model-path") || {}).value || "";
+  return window._classesByModel[key] || [];
+}
+
+function _refreshChipPickers() {
+  (window._chipPickers || []).forEach(p => { try { p.refresh(); } catch (_) {} });
+}
+
+// Rebuild _availableChannels from the Notification Channels subtab UI.
+// Called on mutation of the channels list.
+function _rebuildChannelRegistry() {
+  const names = Array.from(document.querySelectorAll("#channels-list .ch-name"))
+    .map(el => el.value.trim())
+    .filter(Boolean);
+  window._availableChannels = Array.from(new Set(names));
+  _refreshChipPickers();
+}
+
+// Fetch class list for a given model path via /models/{file}/classes; cache
+// in window._classesByModel.  Returns the cached array when available.
+async function _loadClassesForModel(modelPath) {
+  if (!modelPath) return [];
+  if (window._classesByModel[modelPath]) return window._classesByModel[modelPath];
+  // Endpoint is keyed on the file's basename regardless of whether MODELS_DIR
+  // is `/models` or something custom like `/mnt/models`.  Derive the last
+  // path segment (works for absolute paths, bare filenames, or Windows-style
+  // separators that might sneak in through manual YAML edits).
+  const filename = modelPath.split(/[\\/]/).filter(Boolean).pop() || modelPath;
+  try {
+    const resp = await fetch("/models/" + encodeURIComponent(filename) + "/classes");
+    if (!resp.ok) { window._classesByModel[modelPath] = []; return []; }
+    const data = await resp.json();
+    const classes = (data && data.ok && Array.isArray(data.classes)) ? data.classes : [];
+    window._classesByModel[modelPath] = classes;
+    _refreshChipPickers();
+    return classes;
+  } catch (_) {
+    window._classesByModel[modelPath] = [];
+    return [];
+  }
+}
+
+function _trackChipPicker(picker) {
+  window._chipPickers.push(picker);
+  return picker;
+}
+
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -95,10 +152,41 @@ function _buildRuleRow(rule) {
   return row;
 }
 
+function _attachNotifRulePickers(row, classRegistry) {
+  const classInput = row.querySelector(".rule-class");
+  const chanInput = row.querySelector(".rule-channels");
+  if (classInput && !classInput.dataset.chipAttached) {
+    classInput.dataset.chipAttached = "1";
+    _trackChipPicker(ChipPicker.create(classInput, {
+      registry: classRegistry || (() => _classesFor()),
+      values: classInput.value.trim() ? [classInput.value.trim()] : [],
+      onChange: (vals) => { classInput.value = (vals[0] || ""); },
+      singleValue: true,
+      alwaysAvailable: ["*"],
+      placeholder: "* or class name",
+      allowCreate: true,  // free-text allowed for class names not yet in model
+    }));
+  }
+  if (chanInput && !chanInput.dataset.chipAttached) {
+    chanInput.dataset.chipAttached = "1";
+    const initial = (chanInput.value || "").split(",").map(s => s.trim()).filter(Boolean);
+    _trackChipPicker(ChipPicker.create(chanInput, {
+      registry: _channelsRegistry,
+      values: initial,
+      onChange: (vals) => { chanInput.value = vals.join(","); },
+      allowCreate: false,
+      placeholder: "Type a channel name…",
+    }));
+  }
+}
+
 function addNotificationRule(card) {
-  card.querySelector(".notif-rules-list").appendChild(
-    _buildRuleRow({ class_name: "*", channels: [] })
-  );
+  const row = _buildRuleRow({ class_name: "*", channels: [] });
+  card.querySelector(".notif-rules-list").appendChild(row);
+  // Registry callback re-reads the camera's model every render so swapping
+  // the model dropdown updates this picker's class suggestions in place.
+  _loadClassesForModel(_cameraModelPath(card));
+  _attachNotifRulePickers(row, () => _classesFor(_cameraModelPath(card)));
 }
 
 function readNotificationRules(card) {
@@ -130,10 +218,45 @@ function _buildDeterrentRuleRow(rule) {
   return row;
 }
 
+function _attachDeterrentRulePickers(row, classRegistry) {
+  const classInput = row.querySelector(".drule-class");
+  const groupInput = row.querySelector(".drule-groups");
+  if (classInput && !classInput.dataset.chipAttached) {
+    classInput.dataset.chipAttached = "1";
+    _trackChipPicker(ChipPicker.create(classInput, {
+      registry: classRegistry || (() => _classesFor()),
+      values: classInput.value.trim() ? [classInput.value.trim()] : [],
+      onChange: (vals) => { classInput.value = (vals[0] || ""); },
+      singleValue: true,
+      alwaysAvailable: ["*"],
+      placeholder: "* or class name",
+      allowCreate: true,
+    }));
+  }
+  if (groupInput && !groupInput.dataset.chipAttached) {
+    groupInput.dataset.chipAttached = "1";
+    const initial = (groupInput.value || "").split(",").map(s => s.trim()).filter(Boolean);
+    _trackChipPicker(ChipPicker.create(groupInput, {
+      registry: _groupsRegistry,
+      values: initial,
+      onChange: (vals) => { groupInput.value = vals.join(","); },
+      allowCreate: false,
+      placeholder: "Type a group name…",
+    }));
+  }
+}
+
 function addDeterrentRule(card) {
-  card.querySelector(".det-rules-list").appendChild(
-    _buildDeterrentRuleRow({ class_name: "*", groups: [] })
-  );
+  const row = _buildDeterrentRuleRow({ class_name: "*", groups: [] });
+  card.querySelector(".det-rules-list").appendChild(row);
+  _loadClassesForModel(_cameraModelPath(card));
+  _attachDeterrentRulePickers(row, () => _classesFor(_cameraModelPath(card)));
+}
+
+function _cameraModelPath(card) {
+  const cam = card && card.querySelector ? card.querySelector(".cam-model-path") : null;
+  const val = cam ? (cam.value || "").trim() : "";
+  return val || (document.getElementById("det-model-path") || {}).value || "";
 }
 
 function readDeterrentRules(card) {
@@ -275,8 +398,47 @@ function buildCameraCard(cam) {
   const detList = div.querySelector(".det-rules-list");
   detRules.forEach(r => detList.appendChild(_buildDeterrentRuleRow(r)));
 
-  // Initialize zone editor after inserting into DOM via microtask
-  requestAnimationFrame(() => initZoneEditor(div, zones));
+  // Chip pickers need the DOM to be in place first, so defer one tick.
+  requestAnimationFrame(() => {
+    // Registry callback re-reads the camera's current model path every time
+    // a picker calls it.  Swapping the model in the dropdown below will make
+    // every chip picker on this card pick up the new class list on the next
+    // render, so "unknown" chips re-resolve and autocomplete targets the
+    // right registry — no card-rebuild needed.
+    const classReg = () => _classesFor(_cameraModelPath(div));
+    _loadClassesForModel(_cameraModelPath(div));
+
+    notifList.querySelectorAll(".rule-row").forEach(row => _attachNotifRulePickers(row, classReg));
+    detList.querySelectorAll(".rule-row").forEach(row => _attachDeterrentRulePickers(row, classReg));
+
+    // Per-camera detect_classes chip picker — registry is the camera's model.
+    const detectInput = div.querySelector(".cam-detect-classes");
+    if (detectInput && !detectInput.dataset.chipAttached) {
+      detectInput.dataset.chipAttached = "1";
+      const initial = (detectInput.value || "")
+        .split(",").map(s => s.trim()).filter(Boolean);
+      _trackChipPicker(ChipPicker.create(detectInput, {
+        registry: classReg,
+        values: initial,
+        onChange: (vals) => { detectInput.value = vals.join(","); },
+        allowCreate: true,       // allow future classes not yet in model
+        placeholder: "Type a class name (blank = inherit global)…",
+      }));
+    }
+
+    // When the camera's model changes, fetch the new class list and refresh
+    // all pickers — registry callbacks re-read the model path, so this pass
+    // resolves unknown chips and retargets autocomplete in place.
+    const modelEl = div.querySelector(".cam-model-path");
+    if (modelEl && !modelEl.dataset.chipWired) {
+      modelEl.dataset.chipWired = "1";
+      modelEl.addEventListener("change", () => {
+        _loadClassesForModel(_cameraModelPath(div)).then(() => _refreshChipPickers());
+      });
+    }
+
+    initZoneEditor(div, zones);
+  });
   return div;
 }
 
@@ -420,12 +582,6 @@ function validate(data) {
   if (!data.detection.model_path)
     errors.push("Model path is required");
 
-  const ep = data.notifications.email;
-  if (ep.enabled && !ep.smtp_host)
-    errors.push("Email: SMTP host is required when email notifications are enabled");
-  if (ep.smtp_port < 1 || ep.smtp_port > 65535)
-    errors.push("Email: SMTP port must be between 1 and 65535");
-
   const tls = data.tls;
   if (tls.mode === "auto" && !tls.domain)
     errors.push("TLS: Domain name is required for automatic (Let's Encrypt) mode");
@@ -448,21 +604,49 @@ function validate(data) {
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
+function _showBanner(kind, text, warnings) {
+  // kind: "ok" | "err" | "warn".  Scrolls into view so the user sees it
+  // regardless of which sub-tab / scroll position they were in (banner lives
+  // at the top of the Settings tab).
+  const banner = document.getElementById("form-banner");
+  if (!banner) return;
+  banner.className = (kind === "err")
+    ? "alert alert-err"
+    : (kind === "warn") ? "alert alert-warn"
+    : (kind === "ok")   ? "alert alert-ok"
+    : "";
+  banner.innerHTML = "";
+  if (text) {
+    const p = document.createElement("div");
+    p.textContent = text;
+    banner.appendChild(p);
+  }
+  if (Array.isArray(warnings) && warnings.length) {
+    const ul = document.createElement("ul");
+    ul.style.margin = "0.4em 0 0";
+    ul.style.paddingLeft = "1.2em";
+    warnings.forEach(w => {
+      const li = document.createElement("li");
+      li.textContent = w;
+      ul.appendChild(li);
+    });
+    banner.appendChild(ul);
+  }
+  try { banner.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
+}
+
 async function saveConfig() {
   // Belt-and-braces read-only guard — the DOM hardening in config.html
   // already hides the Save button, and the server rejects the POST with
   // 403, but this stops a stray onclick or test script from firing a
   // spurious request.
   if (window.SCARGUARD_READ_ONLY) return;
-  const banner = document.getElementById("form-banner");
-  banner.className = "";
-  banner.textContent = "";
+  _showBanner(null, "");
 
   const data = readForm();
   const errors = validate(data);
   if (errors.length) {
-    banner.className = "alert alert-err";
-    banner.textContent = errors.join(" · ");
+    _showBanner("err", errors.join(" · "));
     return;
   }
 
@@ -478,12 +662,11 @@ async function saveConfig() {
     });
     const result = await resp.json();
     if (result.ok) {
-      banner.className = "alert alert-ok";
-      if (result.tls_changed) {
-        banner.textContent = "Config saved. TLS settings changed — Caddy will reload within a few seconds.";
-      } else {
-        banner.textContent = "Config saved. Changes take effect within ~10 seconds.";
-      }
+      const base = result.tls_changed
+        ? "Config saved. TLS settings changed — Caddy will reload within a few seconds."
+        : "Config saved. Changes take effect within ~10 seconds.";
+      const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+      _showBanner(warnings.length ? "warn" : "ok", base, warnings);
       // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
       try {
         const rawRes = await fetch("/config/raw");
@@ -494,16 +677,14 @@ async function saveConfig() {
         }
       } catch (_) { /* non-critical — textarea will update on next page load */ }
     } else {
-      banner.className = "alert alert-err";
       // Server returns a generic message + request_id (issue #95). Surface
       // the request_id so the operator can correlate with web container logs.
       let msg = "Error: " + (result.error || "unknown");
       if (result.request_id) msg += " (request_id=" + result.request_id + ")";
-      banner.textContent = msg;
+      _showBanner("err", msg);
     }
   } catch (e) {
-    banner.className = "alert alert-err";
-    banner.textContent = "Network error: " + e.message;
+    _showBanner("err", "Network error: " + e.message);
   } finally {
     btn.disabled = false;
     btn.textContent = "Save";
@@ -648,7 +829,65 @@ function readChannels() {
       document.getElementById("channels-list").appendChild(buildChannelCard(ch));
     });
   }
+  // Chip-picker wiring (v0.13.4) — run after DOM is populated.
+  requestAnimationFrame(() => _wireGlobalChipPickers());
 })();
+
+function _wireGlobalChipPickers() {
+  // Shadow-channel registry — seeded from the channels list, refreshed via
+  // MutationObserver + change events on channel-name inputs.
+  _rebuildChannelRegistry();
+  const chanList = document.getElementById("channels-list");
+  if (chanList && window.MutationObserver) {
+    new MutationObserver(_rebuildChannelRegistry).observe(chanList, {
+      childList: true, subtree: true,
+    });
+    chanList.addEventListener("input", (e) => {
+      if (e.target && e.target.classList.contains("ch-name")) {
+        _rebuildChannelRegistry();
+      }
+    });
+  }
+
+  // Detection > Target classes
+  const targetEl = document.getElementById("target-classes");
+  if (targetEl && !targetEl.dataset.chipAttached) {
+    targetEl.dataset.chipAttached = "1";
+    const initial = (targetEl.value || "").split(",").map(s => s.trim()).filter(Boolean);
+    _loadClassesForModel((document.getElementById("det-model-path") || {}).value || "");
+    _trackChipPicker(ChipPicker.create(targetEl, {
+      registry: () => _classesFor(),
+      values: initial,
+      onChange: (vals) => { targetEl.value = vals.join(","); },
+      allowCreate: true,
+      placeholder: "Type a class name…",
+    }));
+  }
+
+  // Global model-path change → refresh class registry for pickers that fall
+  // back to the global model.
+  const globalModelEl = document.getElementById("det-model-path");
+  if (globalModelEl && !globalModelEl.dataset.chipWired) {
+    globalModelEl.dataset.chipWired = "1";
+    globalModelEl.addEventListener("change", () => {
+      _loadClassesForModel(globalModelEl.value || "");
+    });
+  }
+
+  // Summary-report channels
+  const sumEl = document.getElementById("summary-report-channels");
+  if (sumEl && !sumEl.dataset.chipAttached) {
+    sumEl.dataset.chipAttached = "1";
+    const initial = (sumEl.value || "").split(",").map(s => s.trim()).filter(Boolean);
+    _trackChipPicker(ChipPicker.create(sumEl, {
+      registry: _channelsRegistry,
+      values: initial,
+      onChange: (vals) => { sumEl.value = vals.join(","); },
+      allowCreate: false,
+      placeholder: "Type a channel name…",
+    }));
+  }
+}
 
 // ── Exclusion zone canvas editor ──────────────────────────────────────────────
 

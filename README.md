@@ -580,6 +580,10 @@ ScarGuard supports three model formats:
 
 Go to **Admin → Models**. Drag and drop or browse for your model file. The file is stored in the `models/` volume and immediately available for selection.
 
+**Inspecting a model's class list (v0.13.4+):**
+
+Each row on the Models page has a **Show classes** button that expands to reveal the class names embedded in the model (`model.names`). Copy-to-clipboard gives you a comma-separated list for pasting into `detection.target_classes` or a camera's `detect_classes`. TensorRT `.engine` files compiled without embedded names show a warning pointing back at the source `.pt`.
+
 **Setting the active model:**
 
 Update `detection.model_path` in `scarguard.yml` (or via **Settings → Detection** in the UI) and click Save. The detector hot-reloads the new model within ~10 seconds — no container restart needed.

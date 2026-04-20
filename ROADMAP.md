@@ -145,6 +145,46 @@ first version where ScarGuard fully delivers on its name.
 7. **About page.** Deterrent service status indicator.
 8. **Log streaming.** Deterrent service added to log viewer filter.
 
+### v0.13.4 — chip autocomplete + model class introspection (released)
+
+Closed-world tokens everywhere + silent-save hotfix + banner UX.
+
+1. **Shared `chip-picker.js` component** — type-ahead chip input replacing
+   the comma-separated text fields for (1) camera `notification_rules[].channels`,
+   (2) camera `deterrent_rules[].groups`, (3) `summary_report.channels`,
+   (4) global `detection.target_classes`, (5) per-camera `detect_classes`,
+   (6) rule `class_name` (single-chip variant with `*` always-available).
+   Unknown chips render with a warning color so typo'd references are
+   visible instead of silent.
+2. **Model class introspection** — detector exposes `model.names` via a
+   Redis-RPC handler (`scarguard:model.classes.request`).  Web service
+   proxies through a new `/models/{filename}/classes` endpoint, cached by
+   `(path, mtime)` on both sides.  The `/models` admin page grew a
+   Classes column with an expandable chip cloud + copy-to-clipboard.
+   TensorRT `.engine` files without embedded names return an empty list
+   + a warning pointing back at the source `.pt`.
+3. **Soft-warn orphan references** — server-side check on both
+   `POST /config` (raw YAML) and `POST /config/structured`.  Save still
+   succeeds; response includes a `warnings` list for any rule or
+   `summary_report.channels` entry that doesn't resolve to a defined
+   channel or group.  Reminds the user until they fix it.
+4. **Banner scroll-into-view** — save feedback scrolls into view so the
+   top-of-form banner is visible regardless of which sub-tab or scroll
+   position the user was editing.
+5. **Hotfix: silent save** — stale `data.notifications.email` reference
+   in `validate()` (left over from v0.13.2's flat-key removal) threw
+   `TypeError` synchronously in `saveConfig()` before the try/catch was
+   set up.  UI-based config saves silently dropped — no banner, no POST,
+   no server logs.  Removed the dead validation block.
+6. **Authenticated Docker Hub pulls** — v0.13.3 switched image bases to
+   `mirror.gcr.io/library/*` as a workaround for Docker Hub's anonymous
+   IP-pool rate limit (~100/6h) hitting GHA shared runners.  Replaced
+   with `docker/login-action@v3` in build.yml using new org secrets
+   `DOCKER_HUB_USERNAME` + `DOCKER_HUB_API_KEY`, and flipped Dockerfile
+   `FROM` lines back to `docker.io/library/*`.  Authenticated pulls get
+   the per-user quota (5000/day), ending our dependency on Google's
+   Docker Hub mirror staying public.
+
 ### v0.13.2 — review fixes + deprecation removal (released)
 
 Bundled post-v0.13.1 patch:
