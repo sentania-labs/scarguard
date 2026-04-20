@@ -102,6 +102,15 @@ detection:
   # corresponding global `detection.*` value.
   confidence_threshold: 0.40         # higher than global for this camera's fine-tuned model
 
+  # Per-camera class filter (v0.13.3+).  When omitted, inherits
+  # detection.target_classes.  In the UI, fields like this and
+  # notification_rules.channels / deterrent_rules.groups use a chip-autocomplete
+  # control (v0.13.4+) that validates entries against the registry — typos
+  # render as amber "unknown" chips rather than silently breaking.  At save
+  # time, entries that don't resolve to a defined channel or group produce
+  # an advisory warning in the response (save still succeeds).
+  # detect_classes: [great_blue_heron, duck]
+
 notifications:
   channels:
     - name: phone-alerts

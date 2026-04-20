@@ -185,8 +185,12 @@
         <script id="cameras-data" type="application/json">
           {{ cameras_json | safe }}
         </script>
+        <script id="groups-data" type="application/json">
+          {{ groups_json | safe }}
+        </script>
         <script>
           window._availableModels = {{ available_models | tojson }};
+          window._availableGroups = JSON.parse(document.getElementById("groups-data").textContent);
           window.SCARGUARD_READ_ONLY = {{ read_only|default(false)|tojson }};
         </script>
         <div id="cameras-list"></div>
@@ -561,6 +565,14 @@
   {% if error %}
   <div class="alert alert-err">Error: {{ error }}</div>
   {% endif %}
+  {% if warnings %}
+  <div class="alert alert-warn">
+    <strong>Warnings:</strong>
+    <ul style="margin:0.3em 0 0;padding-left:1.2em;">
+      {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <p class="hint">
     Direct YAML editor. Changes here are applied immediately on save.
@@ -578,6 +590,7 @@
 </div>{# /tab-advanced #}
 {% endif %}
 
+<script src="/static/chip-picker.js"></script>
 <script src="/static/config.js"></script>
 {% if read_only %}
 <script>

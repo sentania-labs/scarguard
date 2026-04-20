@@ -5,6 +5,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from zoneinfo import available_timezones
 
 import audit
@@ -132,6 +133,20 @@ def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
     return json.dumps(result)
 
 
+def _groups_json(raw_cfg: dict) -> str:
+    """Extract deterrent group names for client-side chip-picker registry."""
+    det = raw_cfg.get("deterrent") if isinstance(raw_cfg, dict) else None
+    groups: list = []
+    if isinstance(det, dict):
+        raw_groups = det.get("groups", [])
+        if isinstance(raw_groups, list):
+            groups = [
+                g.get("name", "") for g in raw_groups
+                if isinstance(g, dict) and g.get("name")
+            ]
+    return json.dumps(groups)
+
+
 def _channels_json(raw_cfg: dict) -> str:
     if not isinstance(raw_cfg, dict):
         return json.dumps([])
@@ -186,6 +201,7 @@ async def config_page(request: Request) -> Response:
             "cfg": cfg,
             "cameras_json": _cameras_json(cfg.cameras),
             "channels_json": _channels_json(raw_cfg_for_render),
+            "groups_json": _groups_json(raw_cfg_for_render),
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
             "read_only": not is_admin,
@@ -315,13 +331,85 @@ async def save_structured_config(request: Request) -> Response:
     existing["deterrent"] = existing_act
 
     config_store.save(existing)
+    warnings = _find_orphan_references(existing)
     audit.record_request(
         request,
         action="config.save",
         resource="scarguard.yml",
-        details={"form": "structured", "tls_changed": tls_changed},
+        details={
+            "form": "structured",
+            "tls_changed": tls_changed,
+            "orphan_warnings": len(warnings),
+        },
     )
-    return JSONResponse({"ok": True, "tls_changed": tls_changed})
+    return JSONResponse({
+        "ok": True,
+        "tls_changed": tls_changed,
+        "warnings": warnings,
+    })
+
+
+def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
+    """Return human-readable warnings for rule/report references that don't
+    resolve to a defined channel or deterrent group.
+
+    The save still succeeds — this is advisory, per the "you edited the
+    YAML, you know what's up" philosophy.  The warnings surface in the
+    save response so the UI can remind the user until they fix it.
+    """
+    if not isinstance(cfg, dict):
+        return []
+    notif = cfg.get("notifications") or {}
+    channel_names: set[str] = set()
+    if isinstance(notif, dict):
+        for ch in notif.get("channels", []) or []:
+            if isinstance(ch, dict) and isinstance(ch.get("name"), str) and ch["name"]:
+                channel_names.add(ch["name"])
+
+    det = cfg.get("deterrent") or {}
+    group_names: set[str] = set()
+    if isinstance(det, dict):
+        for g in det.get("groups", []) or []:
+            if isinstance(g, dict) and isinstance(g.get("name"), str) and g["name"]:
+                group_names.add(g["name"])
+
+    warnings: list[str] = []
+    for cam in cfg.get("cameras", []) or []:
+        if not isinstance(cam, dict):
+            continue
+        cam_name = cam.get("name", "<unnamed camera>")
+        if not isinstance(cam_name, str):
+            cam_name = "<unnamed camera>"
+        for rule in cam.get("notification_rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            for ch_ref in rule.get("channels", []) or []:
+                if isinstance(ch_ref, str) and ch_ref and ch_ref not in channel_names:
+                    warnings.append(
+                        f"Camera '{cam_name}' notification rule references "
+                        f"unknown channel '{ch_ref}'"
+                    )
+        for rule in cam.get("deterrent_rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            for g_ref in rule.get("groups", []) or []:
+                if isinstance(g_ref, str) and g_ref and g_ref not in group_names:
+                    warnings.append(
+                        f"Camera '{cam_name}' deterrent rule references "
+                        f"unknown group '{g_ref}'"
+                    )
+
+    sys_cfg = cfg.get("system") or {}
+    if isinstance(sys_cfg, dict):
+        sr = sys_cfg.get("summary_report") or {}
+        if isinstance(sr, dict):
+            for ch_ref in sr.get("channels", []) or []:
+                if isinstance(ch_ref, str) and ch_ref and ch_ref not in channel_names:
+                    warnings.append(
+                        f"Summary report references unknown channel '{ch_ref}'"
+                    )
+
+    return warnings
 
 
 @router.post("", response_class=HTMLResponse)
@@ -332,6 +420,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
         return gate
     error = None
     saved = False
+    warnings: list[str] = []
     raw_cfg: dict = {}
     try:
         raw_cfg = yaml.safe_load(raw_yaml)
@@ -340,11 +429,12 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
         config_store.save(raw_cfg)
         saved = True
         raw_yaml = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
+        warnings = _find_orphan_references(raw_cfg)
         audit.record_request(
             request,
             action="config.save",
             resource="scarguard.yml",
-            details={"form": "raw_yaml"},
+            details={"form": "raw_yaml", "orphan_warnings": len(warnings)},
         )
     except Exception:
         # Same scrubbing pattern as save_structured_config — don't surface raw
@@ -363,9 +453,11 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             "raw_yaml": raw_yaml,
             "saved": saved,
             "error": error,
+            "warnings": warnings,
             "cfg": cfg,
             "cameras_json": _cameras_json(cfg.cameras),
             "channels_json": _channels_json(raw_cfg),
+            "groups_json": _groups_json(raw_cfg),
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
         },

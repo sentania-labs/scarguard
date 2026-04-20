@@ -145,6 +145,38 @@ first version where ScarGuard fully delivers on its name.
 7. **About page.** Deterrent service status indicator.
 8. **Log streaming.** Deterrent service added to log viewer filter.
 
+### v0.13.4 — chip autocomplete + model class introspection (released)
+
+Closed-world tokens everywhere + silent-save hotfix + banner UX.
+
+1. **Shared `chip-picker.js` component** — type-ahead chip input replacing
+   the comma-separated text fields for (1) camera `notification_rules[].channels`,
+   (2) camera `deterrent_rules[].groups`, (3) `summary_report.channels`,
+   (4) global `detection.target_classes`, (5) per-camera `detect_classes`,
+   (6) rule `class_name` (single-chip variant with `*` always-available).
+   Unknown chips render with a warning color so typo'd references are
+   visible instead of silent.
+2. **Model class introspection** — detector exposes `model.names` via a
+   Redis-RPC handler (`scarguard:model.classes.request`).  Web service
+   proxies through a new `/models/{filename}/classes` endpoint, cached by
+   `(path, mtime)` on both sides.  The `/models` admin page grew a
+   Classes column with an expandable chip cloud + copy-to-clipboard.
+   TensorRT `.engine` files without embedded names return an empty list
+   + a warning pointing back at the source `.pt`.
+3. **Soft-warn orphan references** — server-side check on both
+   `POST /config` (raw YAML) and `POST /config/structured`.  Save still
+   succeeds; response includes a `warnings` list for any rule or
+   `summary_report.channels` entry that doesn't resolve to a defined
+   channel or group.  Reminds the user until they fix it.
+4. **Banner scroll-into-view** — save feedback scrolls into view so the
+   top-of-form banner is visible regardless of which sub-tab or scroll
+   position the user was editing.
+5. **Hotfix: silent save** — stale `data.notifications.email` reference
+   in `validate()` (left over from v0.13.2's flat-key removal) threw
+   `TypeError` synchronously in `saveConfig()` before the try/catch was
+   set up.  UI-based config saves silently dropped — no banner, no POST,
+   no server logs.  Removed the dead validation block.
+
 ### v0.13.2 — review fixes + deprecation removal (released)
 
 Bundled post-v0.13.1 patch:
@@ -184,3 +216,4 @@ Bundled post-v0.13.1 patch:
 - CI path filtering — skip full CI on docs-only or benchmark-only PRs using `paths-ignore` in workflow triggers. Needs a lightweight "skip" job if CI becomes a required status check.
 - Tuya LAN fallback — for always-on (mains-powered) Tuya devices, offer `tinytuya` local TCP control as a lower-latency alternative to Cloud API. Not viable for battery-powered devices (WiFi radio sleeps between cloud check-ins).
 - Config secrets at rest — encrypt sensitive values (API keys, SMTP passwords, webhook tokens) in `scarguard.yml`. Target v0.14.x or v0.15.x.
+- Mirror all base images to GHCR (or add DOCKERHUB_TOKEN secret) — v0.13.3 switched to `mirror.gcr.io/library/*` to sidestep Docker Hub anonymous rate limits; longer-term, pin + mirror ourselves or authenticate so we aren't dependent on Google's mirror staying public.
