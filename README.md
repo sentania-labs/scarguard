@@ -271,17 +271,6 @@ docker compose pull && docker compose up -d
 
 ---
 
-### Changing the Web UI Port
-
-If port 8080 is already in use, edit `.env`:
-
-```bash
-echo "WEB_PORT=9090" >> .env
-docker compose up -d
-```
-
----
-
 ### Enabling HTTPS
 
 ScarGuard uses a Caddy reverse proxy for TLS termination. Three modes are available, configurable via the web UI (Settings > TLS) or `scarguard.yml`:
@@ -406,7 +395,7 @@ notifications:
 
 All channels can be added, edited, and enabled/disabled from the **Settings → Notification Channels** section of the web UI without editing the YAML directly.
 
-> **Legacy keys (deprecated — removal in x.13.x):** `notifications.discord` and `notifications.email` flat keys are still supported for backward compatibility, but named channels under `notifications.channels` are the preferred format. Migrate to named channels before x.13.x — the legacy keys will be removed.
+> **Legacy keys removed (v0.13.2):** The flat `notifications.discord` and `notifications.email` blocks are no longer read by the notifier, and `config_store.save()` strips them on the next save. Named channels under `notifications.channels` are now the only supported format.
 
 ---
 
@@ -562,7 +551,7 @@ python train.py \
   --epochs 100
 ```
 
-See `training/README.md` for the full CLI reference, recommended hyperparameters, and Jetson-specific tips.
+Run `python train.py --help` for the full CLI reference and recommended hyperparameters.
 
 **Step 5 — Upload the trained model**
 
@@ -665,8 +654,10 @@ Include the token as a Bearer header on any API request:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  http://your-orin:8080/events
+  http://your-orin/events
 ```
+
+The Caddy reverse proxy listens on port 80 by default (or your configured `HTTP_PORT` / `HTTPS_PORT`) — there is no need to target the internal web container port directly.
 
 **Key endpoints available with Bearer auth:**
 - `/events` — detection event log (filterable by camera, class, date)
@@ -730,5 +721,13 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 | v0.6 | App security — session auth, first-run setup, user management, API tokens, lockout | Complete |
 | v0.7 | Detection feedback, training data dashboard, YOLO export, training script, model evaluation | Complete |
 | v0.8 | Per-camera models, named Docker volumes, CI PR build validation | Complete |
+| v0.9 | Ntfy, visit tracking, camera health, metrics persistence, training nudge, config backup, on-demand snapshot, CI hardening | Complete |
+| v0.10 | CI/CD pipeline hardening (compose smoke test, GPU/CPU benchmarks); x86/CUDA detector image with CPU fallback | Complete |
+| v0.11 | Unified retention, scheduled digest reports, mobile-friendly admin menu, event pruning | Complete |
+| v0.12 | HTML email, notification feedback tokens, config UI modes, health checks, Caddy TLS reverse proxy (Beta 1) | Complete |
+| v0.12.3–v0.12.10 | Hardening patch cycle (Redis auth, FairLock, log-streamer sidecar, inference perf, viewer role, audit log, CodeQL) | Complete |
+| v0.13.0 | Deterrent service MVP — Tuya Cloud control of sprinklers, lights, sirens, plugs | Complete |
+| v0.13.1 | Deterrent web UI — actuation log, device status, test-fire, config UI | Complete |
+| v0.13.2 | Review fixes, legacy notification key removal, doc cleanup | Complete |
 
 See [ROADMAP.md](ROADMAP.md) for planned features and [STATUS.md](STATUS.md) for a detailed breakdown of what's working.

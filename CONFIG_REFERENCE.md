@@ -44,12 +44,23 @@ cameras:
     resolution: 720
     # model_path: /models/heron-v2.pt         # optional — override global model
     # detect_classes: [great_blue_heron]       # optional — override global target_classes
+    # Exclusion zones use NORMALIZED coordinates (0.0–1.0 relative to frame).
     exclusion_zones:
-      - x: 320
-        y: 180
-        w: 80
-        h: 120
+      - x: 0.50
+        y: 0.40
+        w: 0.12
+        h: 0.18
         label: "heron decoy"
+    # Per-camera action rules — route detections from this camera to specific
+    # named channels.  Rules are evaluated top-down; first match wins.
+    # Omit to notify every enabled channel.
+    action_rules:
+      - class_name: great_blue_heron
+        channels: [pond-alerts, owner-email]
+      - class_name: bird
+        channels: [pond-alerts]
+      - class_name: "*"        # catch-all
+        channels: [pond-alerts]
   - name: pond-south
     rtsp_url: "rtsp://172.16.0.1:7447/STREAM_TOKEN_2"
     enabled: true
@@ -233,14 +244,13 @@ cameras/channels JSON hydration, the Pydantic form data, and the
 backups-diff view:
 
 - `cameras[].rtsp_url` — RTSP URLs with embedded auth tokens
-- `notifications.discord.webhook_url` — Discord webhook (itself a credential)
-- `notifications.email.smtp_pass` — SMTP password
 - `notifications.channels[].webhook_url` — per-channel Discord webhook
 - `notifications.channels[].smtp_pass` — per-channel email password
 - `notifications.channels[].auth_token` — webhook Bearer token
 - `notifications.channels[].token` — ntfy Bearer token
 - `notifications.channels[].password` — ntfy Basic auth password
 - `notifications.channels[].headers` — custom HTTP headers (may carry auth)
+- `deterrent.tuya.api_key` / `deterrent.tuya.api_secret` — Tuya Cloud API credentials
 
 The raw-YAML tab (`GET /config/raw`) is admin-only and returns 403 for
 viewers, because there's no lossless way to redact arbitrary YAML while

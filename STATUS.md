@@ -6,11 +6,11 @@
 - **Email notifications:** SMTP dispatch with snapshot attachment — tested and confirmed.
 - **Discord notifications:** Webhook dispatch with snapshot image — tested and confirmed.
 - **Webhook notifications:** Generic HTTP/HTTPS webhook channel (POST or PUT, optional Bearer auth).
-- **Named notification channels:** Multi-instance per type (`notifications.channels`), each with a unique name. Legacy flat `discord`/`email` keys still work.
+- **Named notification channels:** Multi-instance per type (`notifications.channels`), each with a unique name. Legacy flat `discord`/`email` keys were removed in v0.13.2 and are stripped from `scarguard.yml` on the next save.
 - **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload — functional.
 - **CI/CD:** GitHub Actions workflows build and push images to GHCR. 3 x86 docker runners + 3 generic runners + 1 Orin runner. Web, notifier, caddy, and detector-x86 builds parallelized across docker runners. CI lint/tests run on PRs only; main-push builds warm the GHA cache without re-running tests. Weekly cleanup hits all docker runners via matrix strategy. Compose smoke test, GPU/CPU inference benchmarks in CI.
 - **x86 detector:** CUDA+CPU detector image (`scarguard-detector-x86`) runs on any x86 Linux with or without NVIDIA GPU. CPU fallback via PyTorch.
-- **Docker Compose stack:** All six services (redis, caddy, detector, web, notifier, log-streamer) start and communicate correctly.
+- **Docker Compose stack:** All seven services (redis, caddy, detector, web, notifier, deterrent, log-streamer) start and communicate correctly.
 - **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required).
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
 - **Notifier resilience:** Internet interruptions handled with per-notifier retry queue and exponential backoff.

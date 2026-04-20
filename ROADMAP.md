@@ -1,6 +1,6 @@
 # ScarGuard — Roadmap
 
-Active and planned features. Each item includes acceptance criteria. Completed features (1–17, 18–22, 23–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
+Active and planned features. Each item includes acceptance criteria. Completed features (1–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 ---
 
 ## Deterrence — Physical Deterrence (Scar's Revenge)
@@ -39,7 +39,7 @@ Three workstreams bundled into one patch release:
 2. **Viewer role + sensitive-field redaction.** New third auth tier between `user` and `admin`: can view everything including admin pages but with every plaintext secret masked as `***REDACTED***`, zero write access, raw-YAML tab hidden entirely. Enables oversight-without-risk for family members and sysadmins. First server-side redaction helper in the codebase, closing a pre-existing authz gap where several admin routes (config, training, logs) had no role gating at all.
 3. **Last-admin protection.** Lockout-prevention check on the user-management routes — cannot delete, disable, or demote the last active admin.
 
-## v0.12.10 — CodeQL hardening (in progress)
+## v0.12.10 — CodeQL hardening (released)
 
 Final 0.12.x patch. Clears the three open CodeQL findings deferred from
 the v0.12.7 review (tracked in issue #95) so 0.13 starts with a clean
@@ -122,7 +122,7 @@ response profiles (species → device-type routing, time-of-day conditions).
 **1.0.0** is reserved for "deterrent validated in production" — i.e. the
 first version where ScarGuard fully delivers on its name.
 
-### v0.13.1 — deterrent web UI & security fixes (in progress)
+### v0.13.1 — deterrent web UI & security fixes (released)
 
 1. **Actuation log page.** New `/admin/actuations` page showing every deterrent
    firing: timestamp, trigger detection (class + camera + confidence), devices
@@ -144,6 +144,24 @@ first version where ScarGuard fully delivers on its name.
    sanitization, explicit auth guard on `/snapshot/send`.
 7. **About page.** Deterrent service status indicator.
 8. **Log streaming.** Deterrent service added to log viewer filter.
+
+### v0.13.2 — review fixes + deprecation removal (released)
+
+Bundled post-v0.13.1 patch:
+
+1. **Atomic config write** added to the detector scheduler for the arm/disarm
+   transition writer (matches the pattern already used by `config_store.save()`).
+2. **Deps pinned** — `tinytuya`, `tzdata`, and the Redis image pinned to a
+   SHA256 digest.
+3. **Legacy flat notification keys removed.** `notifications.discord` and
+   `notifications.email` are no longer read by the notifier, and
+   `config_store.save()` strips them via `_STALE_NOTIFICATION_KEYS` on the
+   next user-initiated save. Named channels under `notifications.channels`
+   are the only supported format.
+4. **Documentation cleanup** — README, CONFIG_REFERENCE, and ROADMAP
+   updated to reflect the deprecation removal.
+5. **Redis auth guidance** added to `.env.example` — `setup.sh` now
+   auto-generates a strong random `REDIS_PASSWORD` on first run.
 
 ---
 
