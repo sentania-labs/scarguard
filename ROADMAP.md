@@ -176,6 +176,14 @@ Closed-world tokens everywhere + silent-save hotfix + banner UX.
    `TypeError` synchronously in `saveConfig()` before the try/catch was
    set up.  UI-based config saves silently dropped — no banner, no POST,
    no server logs.  Removed the dead validation block.
+6. **Authenticated Docker Hub pulls** — v0.13.3 switched image bases to
+   `mirror.gcr.io/library/*` as a workaround for Docker Hub's anonymous
+   IP-pool rate limit (~100/6h) hitting GHA shared runners.  Replaced
+   with `docker/login-action@v3` in build.yml using new org secrets
+   `DOCKER_HUB_USERNAME` + `DOCKER_HUB_API_KEY`, and flipped Dockerfile
+   `FROM` lines back to `docker.io/library/*`.  Authenticated pulls get
+   the per-user quota (5000/day), ending our dependency on Google's
+   Docker Hub mirror staying public.
 
 ### v0.13.2 — review fixes + deprecation removal (released)
 
@@ -216,4 +224,3 @@ Bundled post-v0.13.1 patch:
 - CI path filtering — skip full CI on docs-only or benchmark-only PRs using `paths-ignore` in workflow triggers. Needs a lightweight "skip" job if CI becomes a required status check.
 - Tuya LAN fallback — for always-on (mains-powered) Tuya devices, offer `tinytuya` local TCP control as a lower-latency alternative to Cloud API. Not viable for battery-powered devices (WiFi radio sleeps between cloud check-ins).
 - Config secrets at rest — encrypt sensitive values (API keys, SMTP passwords, webhook tokens) in `scarguard.yml`. Target v0.14.x or v0.15.x.
-- Mirror all base images to GHCR (or add DOCKERHUB_TOKEN secret) — v0.13.3 switched to `mirror.gcr.io/library/*` to sidestep Docker Hub anonymous rate limits; longer-term, pin + mirror ourselves or authenticate so we aren't dependent on Google's mirror staying public.
