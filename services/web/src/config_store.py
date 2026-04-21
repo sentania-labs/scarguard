@@ -147,5 +147,10 @@ def set_armed(armed: bool) -> None:
 
 def set_deterrent_enabled(enabled: bool) -> None:
     cfg = load()
-    cfg.setdefault("deterrent", {})["enabled"] = enabled
+    # Tolerate a non-mapping `deterrent:` in YAML (e.g. `false`, null, or
+    # a stray scalar) — coerce to a fresh dict before subscripting,
+    # matching how _deterrent_context() defensively reads it.
+    if not isinstance(cfg.get("deterrent"), dict):
+        cfg["deterrent"] = {}
+    cfg["deterrent"]["enabled"] = enabled
     save(cfg)

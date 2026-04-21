@@ -396,13 +396,17 @@ def _deterrent_context(cfg: dict, *, can_toggle: bool) -> dict[str, Any]:
     """
     det = cfg.get("deterrent", {}) if isinstance(cfg.get("deterrent"), dict) else {}
     enabled = bool(det.get("enabled", False))
-    global_cd = int(det.get("defaults", {}).get("cooldown_seconds", 0) or 0)
+    # Mirror the deterrent service's Pydantic defaults (60s) — see
+    # services/deterrent/src/actuation_models.py ActuationDefaults /
+    # GroupConfig.  A missing value in YAML doesn't mean "no cooldown";
+    # the worker applies 60s, so the widget must match or it lies.
+    global_cd = int(det.get("defaults", {}).get("cooldown_seconds", 60) or 60)
     tz_name = cfg.get("system", {}).get("timezone") or "UTC"
 
     group_cd_by_name: dict[str, int] = {}
     for g in det.get("groups", []) or []:
         if isinstance(g, dict) and g.get("name"):
-            group_cd_by_name[str(g["name"])] = int(g.get("cooldown_seconds", 0) or 0)
+            group_cd_by_name[str(g["name"])] = int(g.get("cooldown_seconds", 60) or 60)
 
     latest = actuation_db.get_latest_event()
     last_fire: dict[str, Any] | None = None
