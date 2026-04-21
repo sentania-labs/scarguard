@@ -143,3 +143,9 @@ def set_armed(armed: bool) -> None:
     cfg = load()
     cfg.setdefault("system", {})["armed"] = armed
     save(cfg)
+
+
+def set_deterrent_enabled(enabled: bool) -> None:
+    cfg = load()
+    cfg.setdefault("deterrent", {})["enabled"] = enabled
+    save(cfg)

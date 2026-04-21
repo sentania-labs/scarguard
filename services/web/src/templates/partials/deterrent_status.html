@@ -1,0 +1,33 @@
+<div id="deterrent-status"
+     hx-get="/deterrent-status" hx-trigger="every 5s" hx-target="this" hx-swap="outerHTML">
+  <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+    {% if deterrent.enabled %}
+    <span class="badge badge-armed">DETERRENT ON</span>
+    {% if deterrent.can_toggle %}
+    <button hx-post="/deterrent-disable" hx-target="#deterrent-status" hx-swap="outerHTML">Disable</button>
+    {% endif %}
+    {% else %}
+    <span class="badge badge-disarmed">DETERRENT OFF</span>
+    {% if deterrent.can_toggle %}
+    <button hx-post="/deterrent-enable" hx-target="#deterrent-status" hx-swap="outerHTML">Enable</button>
+    {% endif %}
+    {% endif %}
+    {% if deterrent.cooldown_remaining > 0 %}
+    <span class="hint" title="Time until the last-fired group is eligible to fire again">
+      Cooldown: <strong>{{ deterrent.cooldown_remaining }}s</strong> remaining
+    </span>
+    {% else %}
+    <span class="hint">Ready to fire</span>
+    {% endif %}
+  </div>
+  {% if deterrent.last_fire %}
+  <p class="hint" style="margin-top:0.5rem;">
+    Last fire: <strong>{{ deterrent.last_fire.relative }}</strong>
+    &mdash; {{ deterrent.last_fire.trigger_class }} from {{ deterrent.last_fire.trigger_camera }}
+    (conf {{ "%.2f" | format(deterrent.last_fire.trigger_confidence) }})
+    {% if deterrent.last_fire.group_name %}&rarr; {{ deterrent.last_fire.group_name }}{% endif %}
+  </p>
+  {% else %}
+  <p class="hint" style="margin-top:0.5rem;">No deterrent actuations recorded yet.</p>
+  {% endif %}
+</div>
