@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import actuation_db
 import config_store
 import db
 from fastapi import APIRouter, Request
@@ -252,6 +253,9 @@ async def dashboard(request: Request):
             if isinstance(ch, dict) and ch.get("enabled", True) and ch.get("name"):
                 notif_channels.append(ch["name"])
 
+    role = current_role(request)
+    deterrent_ctx = _deterrent_context(cfg, can_toggle=role in ("user", "admin"))
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -259,7 +263,7 @@ async def dashboard(request: Request):
             "armed": cfg.get("system", {}).get("armed", True),
             "rearm_at": rearm_at,
             "is_admin": _is_admin(request),
-            "user_role": current_role(request),
+            "user_role": role,
             "cameras": cameras,
             "camera_health": camera_health,
             "total_events": total,
@@ -268,6 +272,7 @@ async def dashboard(request: Request):
             "schedule": _get_schedule_info(cfg),
             "training_nudge": training_nudge,
             "notif_channels": notif_channels,
+            "deterrent": deterrent_ctx,
         },
     )
 
@@ -351,3 +356,125 @@ async def _arm_badge(
         "partials/arm_badge.html",
         {"armed": armed, "rearm_at": rearm_at, "is_admin": is_admin},
     )
+
+
+def _humanize_since(iso_ts: str, tz_name: str) -> str:
+    """Return a terse "Xm ago" / "Xh ago" string for *iso_ts*; falls back to local time."""
+    try:
+        dt = datetime.fromisoformat(iso_ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return iso_ts
+    delta = datetime.now(timezone.utc) - dt
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return f"{secs}s ago"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return _to_local(iso_ts, tz_name)
+
+
+def _deterrent_context(cfg: dict, *, can_toggle: bool) -> dict[str, Any]:
+    """Build the template context for the dashboard deterrent widget.
+
+    Cooldown remaining is the MAX of the global cooldown
+    (``deterrent.defaults.cooldown_seconds``) and the per-group cooldown
+    of the group that fired last.  Both layers gate future actuations of
+    that same group, so showing the effective block is the accurate
+    signal — reporting only the global would say "Ready" while a
+    longer-cooldown group is still blocked.
+
+    Derived from the persisted wall-clock timestamp in actuation_db, not
+    the deterrent service's in-memory monotonic clock.  The sub-second
+    drift between fire and DB write is immaterial for a status readout.
+    Note: the UI reflects file-state immediately on toggle; the
+    deterrent service picks up the change when its config watcher fires
+    (typically <1 s).
+    """
+    det = cfg.get("deterrent", {}) if isinstance(cfg.get("deterrent"), dict) else {}
+    enabled = bool(det.get("enabled", False))
+    # Mirror the deterrent service's Pydantic defaults (60s) — see
+    # services/deterrent/src/actuation_models.py ActuationDefaults /
+    # GroupConfig.  A missing value in YAML doesn't mean "no cooldown";
+    # the worker applies 60s, so the widget must match or it lies.
+    global_cd = int(det.get("defaults", {}).get("cooldown_seconds", 60) or 60)
+    tz_name = cfg.get("system", {}).get("timezone") or "UTC"
+
+    group_cd_by_name: dict[str, int] = {}
+    for g in det.get("groups", []) or []:
+        if isinstance(g, dict) and g.get("name"):
+            group_cd_by_name[str(g["name"])] = int(g.get("cooldown_seconds", 60) or 60)
+
+    latest = actuation_db.get_latest_event()
+    last_fire: dict[str, Any] | None = None
+    cooldown_remaining = 0
+    if latest and latest.get("timestamp"):
+        iso_ts = str(latest["timestamp"])
+        group_name = latest.get("group_name") or ""
+        last_fire = {
+            "iso": iso_ts,
+            "relative": _humanize_since(iso_ts, tz_name),
+            "trigger_class": latest.get("trigger_class", "?"),
+            "trigger_camera": latest.get("trigger_camera", "?"),
+            "trigger_confidence": float(latest.get("trigger_confidence") or 0.0),
+            "group_name": group_name,
+        }
+        effective_cd = max(global_cd, group_cd_by_name.get(group_name, 0))
+        if effective_cd > 0:
+            try:
+                dt = datetime.fromisoformat(iso_ts)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                elapsed = (datetime.now(timezone.utc) - dt).total_seconds()
+                cooldown_remaining = max(0, int(effective_cd - elapsed))
+            except (ValueError, TypeError):
+                cooldown_remaining = 0
+
+    return {
+        "enabled": enabled,
+        "can_toggle": can_toggle,
+        "last_fire": last_fire,
+        "cooldown_remaining": cooldown_remaining,
+    }
+
+
+async def _deterrent_partial(request: Request) -> HTMLResponse:
+    """Render the deterrent status partial for the current user."""
+    cfg = config_store.load()
+    role = current_role(request)
+    can_toggle = role in ("user", "admin")
+    ctx = _deterrent_context(cfg, can_toggle=can_toggle)
+    return templates.TemplateResponse(
+        request, "partials/deterrent_status.html", {"deterrent": ctx},
+    )
+
+
+@router.get("/deterrent-status", response_class=HTMLResponse)
+async def deterrent_status(request: Request) -> Response:
+    """HTMX poll endpoint — returns the deterrent widget fragment."""
+    return await _deterrent_partial(request)
+
+
+@router.post("/deterrent-enable", response_class=HTMLResponse)
+async def deterrent_enable(request: Request) -> Response:
+    """Flip deterrent.enabled=true.  Viewers are rejected; widget re-renders unchanged."""
+    role = current_role(request)
+    if role not in ("user", "admin"):
+        return await _deterrent_partial(request)
+    config_store.set_deterrent_enabled(True)
+    log.info("Deterrent enabled via dashboard (role=%s)", role)
+    return await _deterrent_partial(request)
+
+
+@router.post("/deterrent-disable", response_class=HTMLResponse)
+async def deterrent_disable(request: Request) -> Response:
+    """Flip deterrent.enabled=false.  Viewers are rejected; widget re-renders unchanged."""
+    role = current_role(request)
+    if role not in ("user", "admin"):
+        return await _deterrent_partial(request)
+    config_store.set_deterrent_enabled(False)
+    log.info("Deterrent disabled via dashboard (role=%s)", role)
+    return await _deterrent_partial(request)

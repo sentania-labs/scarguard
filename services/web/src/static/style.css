@@ -927,6 +927,7 @@ body.expert-mode details.expert-only { display: block !important; }
 }
 .chip-picker:focus-within {
   outline: 1px solid var(--accent);
+  z-index: 60;
 }
 .chip-picker-chips {
   display: flex;

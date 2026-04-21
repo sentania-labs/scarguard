@@ -482,6 +482,13 @@ jobs:
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
+          # The self-hosted docker runner co-hosts other web services on
+          # :80/:443 — remap Caddy's host bindings so the smoke stack
+          # doesn't collide.  Health checks hit the web container via
+          # `docker compose exec`, so Caddy's external ports are unused
+          # here; production deploys still bind the defaults.
+          HTTP_PORT: "18080"
+          HTTPS_PORT: "18443"
         run: docker compose up -d
 
       - name: Health checks
@@ -490,6 +497,8 @@ jobs:
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
+          HTTP_PORT: "18080"
+          HTTPS_PORT: "18443"
         run: |
           REDIS_OK=false
           echo "Waiting for Redis..."
@@ -535,6 +544,8 @@ jobs:
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
+          HTTP_PORT: "18080"
+          HTTPS_PORT: "18443"
         run: |
           docker compose down -v || true
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \

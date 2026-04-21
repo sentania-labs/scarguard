@@ -102,6 +102,23 @@ def count_actuations(
         conn.close()
 
 
+def get_latest_event() -> dict[str, Any] | None:
+    """Return the most recent actuation event, or None if none exist."""
+    conn = _connect()
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT * FROM actuation_events ORDER BY id DESC LIMIT 1",
+        ).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        logger.warning("Failed to query latest actuation event", exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+
 def get_actuation_actions(event_id: int) -> list[dict[str, Any]]:
     """Return device actions for a specific actuation event."""
     conn = _connect()
