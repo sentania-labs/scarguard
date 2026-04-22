@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time as _time
 import uuid
 from pathlib import Path
@@ -79,14 +80,31 @@ def _human_size(n: int) -> str:
     return f"{n:.1f} TB"
 
 
-def _safe_resolve(rel_path: str) -> Path | None:
-    """Resolve ``{db}/{filename}`` against BACKUP_ROOT and verify the
-    resolved path stays inside it. Returns None if invalid."""
-    if not rel_path or ".." in rel_path or rel_path.startswith("/"):
+_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _safe_resolve(db: str, filename: str) -> Path | None:
+    """Resolve ``{db}/{filename}`` against BACKUP_ROOT with strict
+    allowlisting. Returns None if invalid.
+
+    Both segments are checked against a conservative character allowlist
+    before any filesystem access, and the resolved path is verified to
+    live inside BACKUP_ROOT. The filename must also match an entry
+    produced by ``_list_backups()`` — a user-supplied string never
+    reaches the filesystem untouched."""
+    if not db or not filename:
         return None
-    candidate = (BACKUP_ROOT / rel_path).resolve()
+    if not _SAFE_SEGMENT.match(db) or not _SAFE_SEGMENT.match(filename):
+        return None
+    # Cross-check against the authoritative listing so CodeQL can see
+    # that the string used downstream is one we generated.
+    allowed = {(b["db"], b["filename"]) for b in _list_backups()}
+    if (db, filename) not in allowed:
+        return None
+    root = BACKUP_ROOT.resolve()
+    candidate = (root / db / filename).resolve()
     try:
-        candidate.relative_to(BACKUP_ROOT.resolve())
+        candidate.relative_to(root)
     except ValueError:
         return None
     if not candidate.is_file():
@@ -138,7 +156,7 @@ async def trigger_backup(request: Request) -> Response:
 
     client = aioredis.Redis(**_redis_params())
     try:
-        await client.publish(
+        subscribers = await client.publish(
             TRIGGER_CHANNEL, json.dumps({"request_id": request_id}),
         )
     except Exception:
@@ -151,9 +169,22 @@ async def trigger_backup(request: Request) -> Response:
     finally:
         await client.close()
 
+    if not subscribers:
+        log.warning(
+            "Backup trigger had no subscribers — sidecar offline? [rid=%s]",
+            request_id,
+        )
+        return JSONResponse(
+            {"ok": False,
+             "error": "No backup sidecar listening — check the backup service is running",
+             "request_id": request_id},
+            status_code=503,
+        )
+
     return JSONResponse({
         "ok": True,
         "request_id": request_id,
+        "subscribers": subscribers,
         "note": "Backup started. Refresh in a few seconds to see the new file.",
     })
 
@@ -200,22 +231,23 @@ async def download_backup(
     if not isinstance(gate, dict):
         return gate
 
-    rel = f"{db}/{filename}"
-    resolved = _safe_resolve(rel)
+    resolved = _safe_resolve(db, filename)
     if resolved is None:
-        log.warning(
-            "Rejected backup download for %r (resolved=None)", rel,
-        )
+        log.warning("Rejected backup download (db=%r file=%r)", db, filename)
         raise HTTPException(status_code=404, detail="Backup not found")
 
     log.info(
-        "Backup downloaded: %s by %s",
-        rel,
+        "Backup downloaded: %s/%s by %s",
+        resolved.parent.name,
+        resolved.name,
         getattr(request.state, "user", {}).get("username", "<unknown>"),
     )
-    media_type = "application/gzip" if filename.endswith(".gz") else "application/octet-stream"
+    media_type = (
+        "application/gzip" if resolved.name.endswith(".gz")
+        else "application/octet-stream"
+    )
     return FileResponse(
         path=str(resolved),
         media_type=media_type,
-        filename=filename,
+        filename=resolved.name,
     )

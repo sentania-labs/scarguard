@@ -65,16 +65,22 @@ docker compose run --rm --entrypoint sh backup -c "
 "
 
 echo "→ Verifying restored DB integrity"
-docker compose run --rm --entrypoint sh backup -c "
-    sqlite3 '${TARGET}' 'PRAGMA integrity_check' | head -1
-" || {
+# SQLite's integrity_check can succeed at the process level (exit 0) while
+# still reporting corruption rows in stdout.  We must inspect the actual
+# output and require a single "ok" line.
+INTEGRITY_OUT=$(docker compose run --rm --entrypoint sh backup -c "
+    sqlite3 '${TARGET}' 'PRAGMA integrity_check'
+" 2>&1) || true
+INTEGRITY_FIRST=$(echo "${INTEGRITY_OUT}" | head -1 | tr -d '\r')
+if [[ "${INTEGRITY_FIRST}" != "ok" ]]; then
     echo "WARNING: integrity_check failed — restoring pre-restore backup"
+    echo "    sqlite3 output: ${INTEGRITY_OUT}"
     docker compose run --rm --entrypoint sh backup -c "
         cp '${TARGET}.pre-restore' '${TARGET}'
     "
     docker compose start "${SERVICES[@]}"
     exit 4
-}
+fi
 
 echo "→ Restarting services: ${SERVICES[*]}"
 docker compose start "${SERVICES[@]}"

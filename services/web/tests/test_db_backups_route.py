@@ -20,16 +20,18 @@ class TestSafeResolve:
         (tmp_path / "scarguard" / "ok.db.gz").write_bytes(b"x")
 
         # Valid
-        assert backups_route._safe_resolve("scarguard/ok.db.gz") is not None
+        assert backups_route._safe_resolve("scarguard", "ok.db.gz") is not None
 
         # Path-traversal attempts — every one of these must return None.
-        assert backups_route._safe_resolve("../etc/passwd") is None
-        assert backups_route._safe_resolve("/etc/passwd") is None
-        assert backups_route._safe_resolve("scarguard/../../etc/passwd") is None
-        assert backups_route._safe_resolve("") is None
+        assert backups_route._safe_resolve("..", "etc/passwd") is None
+        assert backups_route._safe_resolve("/etc", "passwd") is None
+        assert backups_route._safe_resolve("scarguard", "../../etc/passwd") is None
+        assert backups_route._safe_resolve("", "") is None
+        # Characters outside the safe allowlist
+        assert backups_route._safe_resolve("scarguard", "ok;rm.db") is None
 
-        # Non-existent (validates the is_file() check)
-        assert backups_route._safe_resolve("scarguard/missing.db") is None
+        # Unknown filename (not in the listing)
+        assert backups_route._safe_resolve("scarguard", "missing.db") is None
 
     def test_accepts_real_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
@@ -39,7 +41,7 @@ class TestSafeResolve:
         (tmp_path / "auth").mkdir()
         target = tmp_path / "auth" / "2026-04-22T08-00-00.db.gz"
         target.write_bytes(b"\x1f\x8b\x08")  # gzip magic
-        resolved = backups_route._safe_resolve("auth/2026-04-22T08-00-00.db.gz")
+        resolved = backups_route._safe_resolve("auth", "2026-04-22T08-00-00.db.gz")
         assert resolved == target.resolve()
 
 

@@ -46,9 +46,10 @@ def main() -> None:
         "SCARGUARD_TRUSTED_PROXIES",
         "127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16",
     )
+    proxy_count = len([p for p in trusted_proxies.split(",") if p.strip()])
     log.info(
-        "Starting HTTP on port 8080 (TLS handled by Caddy; trusted_proxies=%s)",
-        trusted_proxies,
+        "Starting HTTP on port 8080 (TLS handled by Caddy; %d trusted proxy range(s) configured)",
+        proxy_count,
     )
     uvicorn.run(
         "main:app",
