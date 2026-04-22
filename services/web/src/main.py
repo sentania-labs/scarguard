@@ -59,11 +59,59 @@ async def _startup() -> None:
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _ensure_secret_key()
+    _ensure_bootstrap_token()
     _migrate_retention_fields()
     _migrate_base_url_to_domain()
     _encrypt_plaintext_secrets()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+
+
+def _ensure_bootstrap_token() -> None:
+    """Generate a one-time token gating the /setup route.
+
+    Before v1.14 any network-reachable caller could claim the first admin
+    account on a fresh deployment. The token closes that window: it's
+    generated on the first web startup where no users exist, written to
+    /data/bootstrap_token (chmod 600), and logged to stdout so the
+    operator can grab it from ``docker compose logs web``. /setup POST
+    verifies it and deletes the file on success, making the route
+    permanently inactive afterwards.
+
+    If users already exist, there is nothing to guard — skip."""
+    import logging
+
+    log = logging.getLogger("startup")
+    if auth_module.users_exist(AUTH_DB_PATH):
+        return
+
+    from routes.auth import BOOTSTRAP_TOKEN_PATH
+
+    try:
+        if os.path.exists(BOOTSTRAP_TOKEN_PATH):
+            with open(BOOTSTRAP_TOKEN_PATH) as f:
+                token = f.read().strip()
+        else:
+            token = secrets.token_urlsafe(32)
+            parent = os.path.dirname(BOOTSTRAP_TOKEN_PATH)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            fd = os.open(BOOTSTRAP_TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, token.encode("ascii"))
+            finally:
+                os.close(fd)
+
+        log.warning(
+            "═══════════════════════════════════════════════════════════\n"
+            "  First-run setup — complete within 24 hours:\n"
+            "    Browse to: /setup?token=%s\n"
+            "  Token also stored at %s (chmod 600).\n"
+            "═══════════════════════════════════════════════════════════",
+            token, BOOTSTRAP_TOKEN_PATH,
+        )
+    except Exception as exc:
+        log.error("Failed to generate bootstrap token: %s", exc)
 
 
 def _ensure_secret_key() -> None:
@@ -333,8 +381,44 @@ async def auth_middleware(request: Request, call_next):
 _CSRF_COOKIE = "csrf_token"
 _CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
-# Secret key for HMAC — generated once per process start.
-_csrf_secret: str = secrets.token_hex(32)
+# v1.14: HMAC key persisted to /data so it survives process restart and
+# survives a future scale to >1 web replica. Pre-v1.14 it regenerated each
+# process start, which silently invalidated every active session on every
+# restart and would have broken multi-replica deployments outright.
+_CSRF_SECRET_PATH = os.environ.get("CSRF_SECRET_PATH", "/data/csrf_secret")
+
+
+def _load_or_create_csrf_secret() -> str:
+    if os.path.exists(_CSRF_SECRET_PATH):
+        try:
+            with open(_CSRF_SECRET_PATH) as f:
+                val = f.read().strip()
+            if val:
+                return val
+        except Exception:
+            # fall through and regenerate
+            pass
+    fresh = secrets.token_hex(32)
+    parent = os.path.dirname(_CSRF_SECRET_PATH)
+    if parent:
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except Exception:
+            return fresh
+    try:
+        fd = os.open(_CSRF_SECRET_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, fresh.encode("ascii"))
+        finally:
+            os.close(fd)
+    except Exception:
+        # If /data isn't writable yet, fall back to in-memory — better than
+        # crashing. Subsequent restart will retry persistence.
+        pass
+    return fresh
+
+
+_csrf_secret: str = _load_or_create_csrf_secret()
 
 
 def _generate_csrf_token() -> str:

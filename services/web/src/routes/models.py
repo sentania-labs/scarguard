@@ -9,9 +9,10 @@ from typing import Any
 
 import config_store
 import redis.asyncio as aioredis
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from rate_limit_dep import rate_limit
 from route_auth import require_admin, require_viewer
 from starlette.responses import Response
 
@@ -66,7 +67,10 @@ async def models_page(request: Request, uploaded: str = "") -> Response:
     )
 
 
-@router.post("", response_class=HTMLResponse)
+@router.post(
+    "", response_class=HTMLResponse,
+    dependencies=[Depends(rate_limit("model-upload", capacity=10, window_seconds=3600))],
+)
 async def upload_model(request: Request, file: UploadFile = File(...)) -> Response:
     """Upload a new model file. Admin only — writes to shared /models volume."""
     gate = require_admin(request)

@@ -90,8 +90,11 @@ async def create_user(
 
     if role not in VALID_ROLES:
         return _redirect_err(f"Invalid role: {role}")
-    if len(password) < 8:
-        return _redirect_err("Password must be at least 8 characters.")
+    from routes.auth import MIN_PASSWORD_LEN, _is_common_password
+    if len(password) < MIN_PASSWORD_LEN:
+        return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
+    if _is_common_password(password):
+        return _redirect_err("That password is too common — please pick a less predictable one.")
 
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
@@ -220,8 +223,11 @@ async def change_password(
     if current_role(request) != ROLE_ADMIN and cur.get("user_id") != user_id:
         return RedirectResponse("/", status_code=302)
 
-    if len(new_password) < 8:
-        return _redirect_err("Password must be at least 8 characters.")
+    from routes.auth import MIN_PASSWORD_LEN, _is_common_password
+    if len(new_password) < MIN_PASSWORD_LEN:
+        return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
+    if _is_common_password(new_password):
+        return _redirect_err("That password is too common — please pick a less predictable one.")
 
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)

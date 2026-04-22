@@ -20,9 +20,10 @@ from deterrent_safety import (
     MAX_TEST_FIRE_SEC,
     MIN_ACTUATION_SEC,
 )
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
 
@@ -319,7 +320,10 @@ async def _redis_request(
         await client.close()
 
 
-@router.post("/test-fire", response_class=JSONResponse)
+@router.post(
+    "/test-fire", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("test-fire", capacity=10, window_seconds=60))],
+)
 async def test_fire(request: Request) -> Response:
     """Fire a single device for testing — admin only."""
     gate = require_admin(request, is_api=True)
@@ -368,7 +372,10 @@ async def test_fire(request: Request) -> Response:
     return JSONResponse(result, status_code=status_code)
 
 
-@router.post("/force-off", response_class=JSONResponse)
+@router.post(
+    "/force-off", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("force-off", capacity=5, window_seconds=60))],
+)
 async def force_off(request: Request) -> Response:
     """Emergency OFF — force every configured device OFF regardless of state.
 

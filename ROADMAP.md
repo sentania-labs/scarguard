@@ -290,6 +290,34 @@ silently dropped.
   at CRITICAL/HIGH. pip-audit would add coverage at the `requirements.txt`
   layer but is not a net-new signal. Revisit if Trivy's Python coverage
   weakens.
+- **CSP nonce migration** — v1.14 keeps `'unsafe-inline'` in
+  `script-src` because dropping it requires moving every inline `<script>`
+  block in the Jinja templates to a per-request-nonce mechanism (or out
+  to static .js files). Real defence against template-injection XSS
+  needs this, but the scope is wide. Track for a follow-up release.
+- **Vendor htmx + Chart.js** — v1.14 still loads
+  `https://unpkg.com/htmx.org`, `htmx-ext-sse`, and `chart.js` from the
+  CDN, which means CSP can't drop the unpkg.com host. Vendoring into
+  `services/web/src/static/vendor/` adds ~300 KB to the image but
+  removes the third-party CDN trust boundary.
+- **SSE concurrent-connection caps** — the v1.14 rate limiter is a
+  fixed-window request counter, which is the wrong primitive for SSE
+  (one stream = one long-lived connection). Real SSE protection needs
+  connection tracking (hold a Redis SET of active stream IDs per
+  principal). Defer.
+- **`scripts/rotate-secret-key.sh`** (Workstream C C5) — operator
+  tooling for rotating `/data/secret_key` with re-encryption of every
+  `enc:v1:` field. Plan called for it; deferred to keep C scoped.
+  Manual procedure documented in SECURITY.md will work as a stopgap.
+- **Test-fire actuation_db persistence** (Workstream A polish) —
+  detection-driven actuations are persisted to the audit DB; admin-
+  triggered test-fires are logged but not in the DB. For a fully
+  symmetric audit trail, persist test-fires too. Logged at INFO with
+  `[rid=...]` so the trail is recoverable from logs in the meantime.
+- **Sticky banner for `scarguard:deterrent:stuck` events** (A polish) —
+  events are published to Redis and logged at CRITICAL; the dashboard
+  doesn't yet subscribe to surface them as a banner. Needs a web-side
+  Redis subscriber + SSE push or HTMX refresh hook.
 - **SMS (Twilio), ONVIF auto-discovery, HA MQTT discovery, NVR-lite,
   time-of-day deterrent conditions, per-class cooldown, per-rule cooldown
   override, mobile-responsive CSS, UI polish / branding** — feature work,

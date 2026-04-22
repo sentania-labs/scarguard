@@ -55,12 +55,19 @@ https_port = os.environ.get("HTTPS_PORT", "443").strip()
 # replacing tabs with spaces will resurrect the "Caddyfile input is not
 # formatted" warning v0.12.10 cleared (the v0.12.8 fmt fix was applied to
 # Caddyfile.template by mistake and never reached the active config).
+tls_active = mode in ("auto", "manual")
+hsts_header = (
+    '\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains"\n'
+    if tls_active else ""
+)
+
 snippet = """(scarguard) {
 \theader {
 \t\tX-Frame-Options DENY
 \t\tX-Content-Type-Options nosniff
 \t\tReferrer-Policy strict-origin-when-cross-origin
-\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
+\t\tPermissions-Policy "geolocation=(), camera=(), microphone=(), payment=()"
+""" + hsts_header + """\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
 \t\t-Server
 \t}
 \t# Drop common bot-probe paths at the edge so they never reach FastAPI.

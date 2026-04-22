@@ -5,9 +5,10 @@ from pathlib import Path
 
 import config_store
 import db
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from rate_limit_dep import rate_limit
 
 router = APIRouter(prefix="/feedback")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -73,7 +74,12 @@ async def feedback_page(request: Request, token: str, v: str = "") -> HTMLRespon
     )
 
 
-@router.post("/{token}", response_class=HTMLResponse)
+@router.post(
+    "/{token}", response_class=HTMLResponse,
+    # Unauthenticated route — limit by IP to prevent a spammer hammering
+    # every feedback link they can enumerate.
+    dependencies=[Depends(rate_limit("feedback-submit", capacity=30, window_seconds=3600))],
+)
 async def submit_feedback(
     request: Request,
     token: str,

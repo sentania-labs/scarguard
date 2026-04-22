@@ -10,9 +10,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import actuation_db
 import config_store
 import db
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from rate_limit_dep import rate_limit
 from route_auth import current_role, has_admin_access
 
 log = logging.getLogger(__name__)
@@ -286,7 +287,10 @@ async def arm_status(request: Request):
     return await _arm_badge(request, armed=armed, rearm_at=rearm_at)
 
 
-@router.post("/arm", response_class=HTMLResponse)
+@router.post(
+    "/arm", response_class=HTMLResponse,
+    dependencies=[Depends(rate_limit("arm-toggle", capacity=30, window_seconds=60))],
+)
 async def arm(request: Request) -> Response:
     # Arming is a write action — viewers and unauth'd users are rejected.
     # Regular users (role=user) historically could hit this route; preserve
@@ -303,7 +307,10 @@ async def arm(request: Request) -> Response:
     return await _arm_badge(request, armed=True)
 
 
-@router.post("/disarm", response_class=HTMLResponse)
+@router.post(
+    "/disarm", response_class=HTMLResponse,
+    dependencies=[Depends(rate_limit("arm-toggle", capacity=30, window_seconds=60))],
+)
 async def disarm(request: Request) -> Response:
     # Viewers are read-only — refuse the disarm action outright and render
     # the current arm badge unchanged.  Regular users can still disarm with
@@ -458,7 +465,10 @@ async def deterrent_status(request: Request) -> Response:
     return await _deterrent_partial(request)
 
 
-@router.post("/deterrent-enable", response_class=HTMLResponse)
+@router.post(
+    "/deterrent-enable", response_class=HTMLResponse,
+    dependencies=[Depends(rate_limit("deterrent-toggle", capacity=30, window_seconds=60))],
+)
 async def deterrent_enable(request: Request) -> Response:
     """Flip deterrent.enabled=true.  Viewers are rejected; widget re-renders unchanged."""
     role = current_role(request)
@@ -469,7 +479,10 @@ async def deterrent_enable(request: Request) -> Response:
     return await _deterrent_partial(request)
 
 
-@router.post("/deterrent-disable", response_class=HTMLResponse)
+@router.post(
+    "/deterrent-disable", response_class=HTMLResponse,
+    dependencies=[Depends(rate_limit("deterrent-toggle", capacity=30, window_seconds=60))],
+)
 async def deterrent_disable(request: Request) -> Response:
     """Flip deterrent.enabled=false.  Viewers are rejected; widget re-renders unchanged."""
     role = current_role(request)
