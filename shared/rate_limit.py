@@ -52,20 +52,16 @@ class RateLimiter:
 
         key = f"{KEY_PREFIX}:{scope}:{principal}"
         try:
-            count = self._redis.incr(key)
+            raw: Any = self._redis.incr(key)
+            count = int(raw) if isinstance(raw, (int, float, str, bytes)) else -1
+            if count < 0:
+                return True, 0
             if count == 1:
                 # First hit of this window — set the TTL.
                 self._redis.expire(key, window_seconds)
-        except redis_lib.RedisError as exc:
+        except (redis_lib.RedisError, ValueError, TypeError) as exc:
             logger.warning("Rate limiter Redis error (fail-open): %s", exc)
             return True, 0
-
-        if not isinstance(count, int):
-            # Some redis clients wrap the int; coerce defensively.
-            try:
-                count = int(count)
-            except Exception:
-                return True, 0
 
         if count <= capacity:
             return True, 0

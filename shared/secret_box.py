@@ -81,9 +81,9 @@ def _normalize_key(key: bytes) -> bytes:
     key = key.strip()
     if len(key) == 32:
         return key
-    for decoder in (base64.urlsafe_b64decode, base64.b64decode):
+    for decoder_name in ("urlsafe_b64decode", "b64decode"):
         try:
-            decoded: bytes = decoder(key)  # type: ignore[operator]
+            decoded: bytes = getattr(base64, decoder_name)(key)
             if len(decoded) == 32:
                 return decoded
         except Exception:

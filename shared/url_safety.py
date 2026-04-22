@@ -66,10 +66,10 @@ def _resolve(hostname: str) -> list[str]:
         raise UnsafeURLError(f"DNS resolution failed for {hostname!r}: {exc}") from exc
     addrs: list[str] = []
     for family, _type, _proto, _canon, sockaddr in infos:
-        if family == socket.AF_INET:
-            addrs.append(sockaddr[0])
-        elif family == socket.AF_INET6:
-            addrs.append(sockaddr[0])
+        if family in (socket.AF_INET, socket.AF_INET6):
+            ip = sockaddr[0]
+            if isinstance(ip, str):
+                addrs.append(ip)
     if not addrs:
         raise UnsafeURLError(f"No IPs found for {hostname!r}")
     return addrs
@@ -131,7 +131,9 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
                 )
 
 
-def _ip_is_internal(ip: ipaddress._BaseAddress) -> bool:
+def _ip_is_internal(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
     return (
         ip.is_loopback
         or ip.is_link_local

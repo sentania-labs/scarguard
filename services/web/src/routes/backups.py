@@ -87,29 +87,32 @@ def _safe_resolve(db: str, filename: str) -> Path | None:
     """Resolve ``{db}/{filename}`` against BACKUP_ROOT with strict
     allowlisting. Returns None if invalid.
 
-    Both segments are checked against a conservative character allowlist
-    before any filesystem access, and the resolved path is verified to
-    live inside BACKUP_ROOT. The filename must also match an entry
-    produced by ``_list_backups()`` — a user-supplied string never
-    reaches the filesystem untouched."""
+    Input is first cheap-checked against a conservative character
+    allowlist; then instead of using the user strings to build the
+    filesystem path, we iterate the authoritative directory listing and
+    return the ``Path`` we built ourselves. The user-supplied strings
+    never reach the filesystem — only a ``Path`` we produced via
+    ``iterdir()`` does. This also gives CodeQL a clean break in the
+    taint flow."""
     if not db or not filename:
         return None
     if not _SAFE_SEGMENT.match(db) or not _SAFE_SEGMENT.match(filename):
         return None
-    # Cross-check against the authoritative listing so CodeQL can see
-    # that the string used downstream is one we generated.
-    allowed = {(b["db"], b["filename"]) for b in _list_backups()}
-    if (db, filename) not in allowed:
-        return None
     root = BACKUP_ROOT.resolve()
-    candidate = (root / db / filename).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError:
+    if not root.exists():
         return None
-    if not candidate.is_file():
-        return None
-    return candidate
+    for db_dir in root.iterdir():
+        if not db_dir.is_dir() or db_dir.name != db:
+            continue
+        for f in db_dir.glob("*.db*"):
+            if f.name == filename and f.is_file():
+                resolved = f.resolve()
+                try:
+                    resolved.relative_to(root)
+                except ValueError:
+                    return None
+                return resolved
+    return None
 
 
 @router.get("", response_class=HTMLResponse)
