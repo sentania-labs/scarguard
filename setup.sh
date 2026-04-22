@@ -178,6 +178,17 @@ if [[ -f ".env" ]]; then
         echo "REDIS_PASSWORD=${REDIS_PASS}" >> .env
         info "Backfilled REDIS_PASSWORD (generated random credential)"
     fi
+    # v1.14: detection-event HMAC signing. Missing or empty value triggers
+    # a one-time generation so upgrades start signing without operator action.
+    if ! grep -q '^DETECTION_HMAC_KEY=.\+' .env; then
+        HMAC_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+        if grep -q '^DETECTION_HMAC_KEY=' .env; then
+            sed -i "s|^DETECTION_HMAC_KEY=.*|DETECTION_HMAC_KEY=${HMAC_KEY}|" .env
+        else
+            echo "DETECTION_HMAC_KEY=${HMAC_KEY}" >> .env
+        fi
+        info "Backfilled DETECTION_HMAC_KEY (signs Redis detection events)"
+    fi
     if ! grep -q '^COMPOSE_FILE=' .env; then
         if [[ "$NVIDIA_OK" == "true" ]]; then
             echo "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml" >> .env
@@ -206,6 +217,12 @@ else
     # Generate a random Redis password for inter-service auth
     REDIS_PASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
     sed -i "s/^REDIS_PASSWORD=.*/REDIS_PASSWORD=${REDIS_PASS}/" .env
+
+    # Generate an HMAC key for signing detection events (v1.14+).
+    # Detector signs; deterrent + notifier verify. Without this key, the
+    # internal Redis bus is unauthenticated.
+    HMAC_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+    sed -i "s|^DETECTION_HMAC_KEY=.*|DETECTION_HMAC_KEY=${HMAC_KEY}|" .env
 
     if [[ "$HTTP_PORT_VALUE" != "80" ]]; then
         sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT_VALUE}/" .env

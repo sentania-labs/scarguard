@@ -74,6 +74,11 @@ class ActuationConfig(BaseModel):
     groups: list[DeterrentGroup] = []
     defaults: ActuationDefaults = ActuationDefaults()
     battery_monitor: BatteryMonitorConfig = BatteryMonitorConfig()
+    # v1.14: periodic reconciliation polls device status and force-OFFs any
+    # device that reports ON while not being actively driven. Catches stuck
+    # states surviving a deterrent-service restart or a cloud ack loss.
+    # Set 0 to disable.
+    reconcile_interval_sec: int = 30
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +97,12 @@ class DeviceAction(BaseModel):
     # Tuya Cloud to receiving a success response.  None if the ON call
     # raised before returning.
     cloud_ack_ms: float | None = None
+    # v1.14 OFF reliability instrumentation. ``off_attempts`` is total OFF
+    # cloud calls (1 = first-try success, >1 = retries). ``stuck`` is True
+    # iff ON succeeded but every OFF attempt failed — device may be
+    # physically still-on.
+    off_attempts: int = 1
+    stuck: bool = False
 
 
 class ActuationEvent(BaseModel):
@@ -108,3 +119,8 @@ class ActuationEvent(BaseModel):
     # v0.13.3 latency instrumentation.
     trigger_delay_ms: float | None = None  # detection timestamp → dequeue
     queue_depth: int | None = None         # queue size at dequeue moment
+    # v1.14: trace ID for correlating actuation across logs, audit DB,
+    # and stuck-event Redis channel.
+    request_id: str = ""
+    # v1.14: discriminates detection-driven vs test-fire vs force-off.
+    event_type: str = "detection"

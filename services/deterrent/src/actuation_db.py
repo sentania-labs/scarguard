@@ -76,6 +76,26 @@ def init_db() -> None:
         _add_column_if_missing(conn, "actuation_events", "trigger_delay_ms", "REAL")
         _add_column_if_missing(conn, "actuation_events", "queue_depth", "INTEGER")
         _add_column_if_missing(conn, "device_actions", "cloud_ack_ms", "REAL")
+        # v1.14 additive columns — request_id for trace correlation,
+        # event_type to distinguish detection / test_fire / force_off /
+        # reconcile, off_attempts to surface OFF retry pressure.
+        _add_column_if_missing(
+            conn, "actuation_events", "request_id", "TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "actuation_events", "event_type",
+            "TEXT NOT NULL DEFAULT 'detection'",
+        )
+        _add_column_if_missing(
+            conn, "device_actions", "off_attempts", "INTEGER NOT NULL DEFAULT 1",
+        )
+        _add_column_if_missing(
+            conn, "device_actions", "stuck", "INTEGER NOT NULL DEFAULT 0",
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_actuation_request_id "
+            "ON actuation_events(request_id)",
+        )
         conn.commit()
         logger.info("Actuation database initialised at %s", DB_PATH)
 
@@ -99,8 +119,9 @@ def insert_event(event: ActuationEvent) -> int:
             """INSERT INTO actuation_events
                (timestamp, trigger_class, trigger_camera, trigger_confidence,
                 pre_delay_sec, total_duration_sec, device_count, success_count,
-                group_name, trigger_delay_ms, queue_depth)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                group_name, trigger_delay_ms, queue_depth,
+                request_id, event_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.timestamp,
                 event.trigger_class,
@@ -113,6 +134,8 @@ def insert_event(event: ActuationEvent) -> int:
                 event.group_name,
                 event.trigger_delay_ms,
                 event.queue_depth,
+                event.request_id,
+                event.event_type,
             ),
         )
         event_id = cur.lastrowid
@@ -122,8 +145,9 @@ def insert_event(event: ActuationEvent) -> int:
             conn.execute(
                 """INSERT INTO device_actions
                    (event_id, device_name, device_id, device_type,
-                    duration_sec, delay_before_sec, success, error, cloud_ack_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    duration_sec, delay_before_sec, success, error, cloud_ack_ms,
+                    off_attempts, stuck)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     event_id,
                     action.device_name,
@@ -134,6 +158,8 @@ def insert_event(event: ActuationEvent) -> int:
                     int(action.success),
                     action.error,
                     action.cloud_ack_ms,
+                    action.off_attempts,
+                    int(action.stuck),
                 ),
             )
         conn.commit()

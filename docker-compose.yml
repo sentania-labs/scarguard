@@ -25,6 +25,7 @@ services:
       fi'
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: >-
         sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
@@ -75,6 +76,7 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s
@@ -107,6 +109,7 @@ services:
       AUTH_DB_PATH: /data/auth.db
       DETERRENT_DB_PATH: /data/deterrent.db
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s
@@ -135,6 +138,7 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s
@@ -162,6 +166,7 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
       DETERRENT_DB_PATH: /data/deterrent.db
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
@@ -191,6 +196,7 @@ services:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       # Exec form (JSON array) avoids YAML folded-scalar indentation bugs
       # that broke the previous inline python -c form.

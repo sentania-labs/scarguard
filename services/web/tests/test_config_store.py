@@ -90,6 +90,59 @@ class TestActionRulesMigration:
         ]
 
 
+class TestStaleSystemKeysStrip:
+    """v1.14: snapshot_retention_days and metrics_retention_days were
+    consolidated into retention_days in v0.11. The strip-on-save catches
+    raw-YAML residue and pre-v0.11 configs that haven't been touched."""
+
+    def test_save_strips_snapshot_retention_days(self, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "scarguard.yml"
+        monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
+        config_store.save({
+            "system": {
+                "armed": True,
+                "snapshot_retention_days": 30,
+                "retention_days": 90,
+            },
+        })
+        reloaded = config_store.load()
+        assert "snapshot_retention_days" not in reloaded["system"]
+        assert reloaded["system"]["retention_days"] == 90
+
+    def test_save_strips_metrics_retention_days(self, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "scarguard.yml"
+        monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
+        config_store.save({
+            "system": {"armed": True, "metrics_retention_days": 60},
+        })
+        reloaded = config_store.load()
+        assert "metrics_retention_days" not in reloaded["system"]
+
+    def test_save_strips_both_retention_keys(self, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "scarguard.yml"
+        monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
+        config_store.save({
+            "system": {
+                "armed": True,
+                "snapshot_retention_days": 14,
+                "metrics_retention_days": 60,
+                "retention_days": 90,
+            },
+        })
+        reloaded = config_store.load()
+        assert "snapshot_retention_days" not in reloaded["system"]
+        assert "metrics_retention_days" not in reloaded["system"]
+        assert reloaded["system"]["retention_days"] == 90
+
+    def test_save_does_not_invent_system_section(self, tmp_path, monkeypatch):
+        """If system isn't a mapping, leave it alone — don't crash."""
+        cfg_path = tmp_path / "scarguard.yml"
+        monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
+        config_store.save({"system": "broken-string"})
+        reloaded = config_store.load()
+        assert reloaded["system"] == "broken-string"
+
+
 class TestCameraConfidenceThreshold:
     """v0.13.3 added optional per-camera confidence_threshold override."""
 

@@ -58,10 +58,59 @@ async def _startup() -> None:
     global backup_manager
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
+    _ensure_secret_key()
     _migrate_retention_fields()
     _migrate_base_url_to_domain()
+    _encrypt_plaintext_secrets()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+
+
+def _ensure_secret_key() -> None:
+    """Generate the at-rest encryption key on first boot.
+
+    The web service is the canonical writer of this key — notifier and
+    deterrent only read it. Web has /data RW, so it can create the file
+    with chmod 600. If the key already exists, this is a no-op."""
+    import logging
+
+    import secret_box
+    log = logging.getLogger("startup")
+    try:
+        if secret_box.write_key_if_missing():
+            log.info(
+                "Created %s for at-rest secret encryption (chmod 600)",
+                secret_box.DEFAULT_KEY_PATH,
+            )
+    except Exception as exc:
+        log.error("Failed to create secret key: %s", exc)
+
+
+def _encrypt_plaintext_secrets() -> None:
+    """One-shot migration: if the on-disk config still has plaintext
+    sensitive fields, re-save once so they get encrypted. Subsequent saves
+    do this transparently via config_store.save."""
+    import logging
+
+    import config_store
+    import secret_box
+    log = logging.getLogger("startup")
+    try:
+        key = secret_box.try_load_key()
+        if key is None:
+            log.warning(
+                "No secret key available — secrets remain plaintext on disk",
+            )
+            return
+        cfg = config_store.load()
+        if not secret_box.has_plaintext_secrets(cfg):
+            return
+        log.warning(
+            "Plaintext secrets detected in scarguard.yml — encrypting on disk now",
+        )
+        config_store.save(cfg)
+    except Exception as exc:
+        log.error("Plaintext secret migration failed: %s", exc)
 
 
 def _migrate_retention_fields() -> None:
