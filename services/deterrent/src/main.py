@@ -33,6 +33,7 @@ from deterrent_safety import (
     clamp_duration,
 )
 from event_signing import load_key_from_env, verify_event
+from healthcheck import start_heartbeat
 from randomizer import build_random_plan
 from request_handler import RequestHandler
 
@@ -42,9 +43,16 @@ CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
 CHANNEL = "scarguard:detections"
 ACTUATION_CHANNEL = "scarguard:actuations"
 STUCK_CHANNEL = "scarguard:deterrent:stuck"
+METRICS_CHANNEL = "scarguard:metrics:drops"
 
 _REDIS_RECONNECT_DELAY = 5
 _REDIS_MAX_RECONNECT_DELAY = 60
+
+# v1.14 queue-overflow metric. Counts events dropped because the worker
+# couldn't keep up. Bumped on every drop; published periodically so the
+# web UI can surface non-zero values as a yellow flag.
+_drop_counter_lock = threading.Lock()
+_drop_counter = 0
 
 
 def load_config() -> dict[str, Any]:
@@ -442,6 +450,46 @@ def _reconcile_loop(
     logger.info("Reconciliation loop stopped")
 
 
+def _metrics_publisher(
+    redis_cfg: dict[str, Any],
+    shutdown_event: threading.Event,
+    interval_seconds: int = 60,
+) -> None:
+    """Publish queue-drop counter to Redis once per minute.
+
+    Web UI subscribes to ``scarguard:metrics:drops`` and surfaces a
+    yellow indicator when the cumulative drop count is non-zero.
+    """
+    holder: list[redis_lib.Redis | None] = [None]
+    last_published = -1
+    while not shutdown_event.wait(interval_seconds):
+        with _drop_counter_lock:
+            current = _drop_counter
+        if current == last_published:
+            continue
+        last_published = current
+        try:
+            client = holder[0]
+            if client is None:
+                host = redis_cfg.get("host", "redis")
+                port = int(redis_cfg.get("port", 6379))
+                password = os.environ.get("REDIS_PASSWORD", "") or None
+                client = redis_lib.Redis(
+                    host=host, port=port, password=password,
+                    decode_responses=True,
+                )
+                holder[0] = client
+            client.publish(METRICS_CHANNEL, json.dumps({
+                "service": "deterrent",
+                "metric": "queue_drops_total",
+                "value": current,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }))
+        except Exception:
+            logger.exception("Failed to publish drop metric")
+            holder[0] = None
+
+
 def _publish_actuation(
     holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
@@ -553,7 +601,13 @@ def subscribe_loop(
                 try:
                     event_queue.put_nowait(event)
                 except queue.Full:
-                    logger.warning("Event queue full — dropping event")
+                    global _drop_counter
+                    with _drop_counter_lock:
+                        _drop_counter += 1
+                    logger.warning(
+                        "Event queue full — dropping event (total drops: %d)",
+                        _drop_counter,
+                    )
 
         except redis_lib.RedisError:
             if shutdown_event.is_set():
@@ -585,6 +639,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard deterrent service starting")
+    start_heartbeat()
 
     act_cfg = parse_actuation_config(cfg)
     controller = build_controller(act_cfg)
@@ -717,6 +772,15 @@ def main() -> None:
         ),
     )
     reconcile_thread.start()
+
+    # Start queue-drop metrics publisher
+    metrics_thread = threading.Thread(
+        target=_metrics_publisher,
+        name="deterrent-metrics",
+        daemon=True,
+        args=(redis_cfg, shutdown_event),
+    )
+    metrics_thread.start()
 
     # Subscribe loop blocks until shutdown
     subscribe_loop(redis_cfg, event_queue, shutdown_event)

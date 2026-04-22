@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Database Backups — ScarGuard{% endblock %}
+{% block content %}
+<h1>Database Backups</h1>
+<p class="hint">
+  v1.14+ SQLite online backups of <code>scarguard.db</code>, <code>auth.db</code>,
+  and <code>deterrent.db</code>.  Schedule and retention are configured under
+  <code>backup:</code> in <code>scarguard.yml</code>.  Files live at
+  <code>{{ backup_root }}</code> inside the data volume.
+</p>
+
+<div class="card" style="margin-bottom:1rem;">
+  <p class="form-section-title">Status</p>
+  <div class="field-row">
+    <div class="field-group">
+      <label>Total backups</label>
+      <div class="about-value">{{ total_count }}</div>
+    </div>
+    <div class="field-group">
+      <label>Total on-disk size</label>
+      <div class="about-value">{{ total_size_human }}</div>
+    </div>
+  </div>
+  <button id="trigger-btn" class="btn-primary" onclick="triggerBackup()">
+    Run Backup Now
+  </button>
+  <span id="trigger-status" class="muted" style="display:none;margin-left:0.5rem;"></span>
+</div>
+
+<div id="db-backups-banner" style="display:none;" class="alert" role="alert"></div>
+
+{% if backups %}
+<table id="db-backups-table" style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+  <thead>
+    <tr style="border-bottom:2px solid var(--border);text-align:left;">
+      <th style="padding:0.5rem;">Database</th>
+      <th style="padding:0.5rem;">Filename</th>
+      <th style="padding:0.5rem;">Size</th>
+      <th style="padding:0.5rem;">Created (UTC)</th>
+      <th style="padding:0.5rem;">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for b in backups %}
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:0.4rem 0.5rem;"><code>{{ b.db }}</code></td>
+      <td style="padding:0.4rem 0.5rem;"><code>{{ b.filename }}</code></td>
+      <td style="padding:0.4rem 0.5rem;">{{ b.size_human }}</td>
+      <td style="padding:0.4rem 0.5rem;">{{ b.mtime_iso[:19] }}Z</td>
+      <td style="padding:0.4rem 0.5rem;">
+        <a href="/admin/db-backups/download/{{ b.db }}/{{ b.filename }}"
+           class="btn-secondary" style="font-size:0.8rem;padding:0.2em 0.6em;"
+           download>Download</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">
+  No database backups yet.  The backup sidecar will create them on its
+  configured schedule (default 24 hours).  Click <em>Run Backup Now</em>
+  to trigger one immediately.
+</p>
+{% endif %}
+
+<script>
+function getCsrfToken() {
+  var m = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
+
+async function triggerBackup() {
+  var btn = document.getElementById('trigger-btn');
+  var status = document.getElementById('trigger-status');
+  btn.disabled = true;
+  status.style.display = '';
+  status.textContent = 'Triggering...';
+  status.style.color = '';
+  try {
+    var resp = await fetch('/admin/db-backups/trigger', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      status.textContent = 'Backup started — refreshing in 5s...';
+      status.style.color = 'var(--ok)';
+      setTimeout(function() { location.reload(); }, 5000);
+    } else {
+      status.textContent = 'Failed: ' + (data.error || 'unknown');
+      status.style.color = 'var(--danger)';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    status.textContent = 'Network error: ' + e.message;
+    status.style.color = 'var(--danger)';
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

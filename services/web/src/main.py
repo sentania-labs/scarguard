@@ -19,6 +19,7 @@ from routes import (
     actuations,
     admin,
     audit_log,
+    backups,
     config,
     dashboard,
     deterrent,
@@ -60,11 +61,55 @@ async def _startup() -> None:
     auth_module.init_db(AUTH_DB_PATH)
     _ensure_secret_key()
     _ensure_bootstrap_token()
+    _check_db_integrity()
     _migrate_retention_fields()
     _migrate_base_url_to_domain()
     _encrypt_plaintext_secrets()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+
+
+def _check_db_integrity() -> None:
+    """Run ``PRAGMA integrity_check`` on each SQLite DB at startup.
+
+    A clean ``ok`` reply means the file is structurally sound; anything
+    else surfaces as a loud warning so the operator knows to restore from
+    backup. We do NOT refuse to start — the alternative would brick the
+    deployment, and an integrity failure on auth.db is recoverable
+    (re-run `setup` with the bootstrap token) where a startup refusal
+    isn't.
+    """
+    import logging
+    import sqlite3
+
+    log = logging.getLogger("startup")
+    db_paths = [
+        ("scarguard", os.environ.get("DB_PATH", "/data/scarguard.db")),
+        ("auth", AUTH_DB_PATH),
+        ("deterrent", os.environ.get("DETERRENT_DB_PATH", "/data/deterrent.db")),
+    ]
+    for name, path in db_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+            try:
+                row = conn.execute("PRAGMA integrity_check").fetchone()
+                result = row[0] if row else "(no result)"
+            finally:
+                conn.close()
+        except Exception as exc:
+            log.warning("Integrity check skipped for %s (%s): %s", name, path, exc)
+            continue
+
+        if result == "ok":
+            log.info("Integrity check ok for %s", name)
+        else:
+            log.error(
+                "INTEGRITY CHECK FAILED for %s — restore from backup. "
+                "First failure: %r",
+                name, result,
+            )
 
 
 def _ensure_bootstrap_token() -> None:
@@ -554,3 +599,4 @@ app.include_router(snapshot.router)
 app.include_router(feedback.router)
 app.include_router(deterrent.router)
 app.include_router(actuations.router)
+app.include_router(backups.router)

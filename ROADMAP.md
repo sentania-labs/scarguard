@@ -318,6 +318,15 @@ silently dropped.
   events are published to Redis and logged at CRITICAL; the dashboard
   doesn't yet subscribe to surface them as a banner. Needs a web-side
   Redis subscriber + SSE push or HTMX refresh hook.
+- **Standardised `shared/redis_client.py` retry helper** (Workstream F F7) —
+  every service has its own ad-hoc Redis client with reconnect backoff.
+  The plan called for unifying these behind a single helper, but
+  existing per-service code already retries with backoff; deferred to
+  avoid touching every service's main loop just for tidiness.
+- **Live status SSE for `/admin/db-backups`** — the page currently
+  reloads after a manual trigger to pick up the new file. A proper
+  SSE feed against `scarguard:backup:status` would surface progress
+  live (started → in-progress → completed) without the reload. Polish.
 - **SMS (Twilio), ONVIF auto-discovery, HA MQTT discovery, NVR-lite,
   time-of-day deterrent conditions, per-class cooldown, per-rule cooldown
   override, mobile-responsive CSS, UI polish / branding** — feature work,

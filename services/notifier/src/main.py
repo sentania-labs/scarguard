@@ -18,6 +18,7 @@ from config_watcher import ConfigWatcher
 from digest_scheduler import DigestScheduler
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
+from healthcheck import start_heartbeat
 from notification_queue import WORKER_INTERVAL, NotificationQueue
 from ntfy import NtfyNotifier
 from webhook import WebhookNotifier
@@ -333,6 +334,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard notifier starting")
+    start_heartbeat()
 
     tz_name = cfg.get("system", {}).get("timezone", "UTC")
     notifiers = build_notifiers(cfg.get("notifications", {}), tz_name)

@@ -32,6 +32,7 @@ from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from evaluator import EvaluationRunner
 from events import EventProcessor
+from healthcheck import start_heartbeat
 from metrics_store import MetricsStore
 from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
@@ -415,6 +416,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard detector starting")
+    start_heartbeat()
     Path("/tmp/healthy").touch(exist_ok=True)
 
     # ---- Enabled cameras ------------------------------------------------------
