@@ -327,6 +327,24 @@ silently dropped.
   reloads after a manual trigger to pick up the new file. A proper
   SSE feed against `scarguard:backup:status` would surface progress
   live (started → in-progress → completed) without the reload. Polish.
+- **setup.sh starter-model end-to-end verification** (Workstream I I6) —
+  the README claims setup.sh prompts to download a starter YOLO model
+  for testing the pipeline. v1.14 did not re-verify this path end-to-
+  end. Worth a manual run on a fresh host before the v1.14.0 tag.
+- **TensorRT export verification** (Workstream I I7) — README's
+  `docker compose exec detector python -c "..."` TensorRT export
+  command wasn't re-verified post-non-root-container-fix. If it fails
+  as the `scarguard` user, document `-u root` or fix the write perms
+  on `/models`.
+- **CI sweep of Bearer-auth endpoints** (Workstream I I8) — the README
+  lists endpoints as Bearer-accessible. A CI test that enumerates each
+  and asserts non-401 with a valid token would catch doc/code drift.
+  Net-new CI; defer.
+- **CONFIG_REFERENCE.md ↔ config_model.py full parity pass**
+  (Workstream I I10) — v1.14 added `backup:`, `reconcile_interval_sec`,
+  and the new encrypted-field paths. Spot-check suggests the file is
+  mostly in sync but a full 1:1 sweep is worth doing before the final
+  GA cut.
 - **SMS (Twilio), ONVIF auto-discovery, HA MQTT discovery, NVR-lite,
   time-of-day deterrent conditions, per-class cooldown, per-rule cooldown
   override, mobile-responsive CSS, UI polish / branding** — feature work,

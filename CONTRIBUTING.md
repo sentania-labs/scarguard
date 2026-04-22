@@ -54,8 +54,8 @@ You don't need a Jetson or GPU to work on the web service or notifier — only t
 These must pass before submitting a PR (mirrors CI):
 
 ```bash
-# Ruff
-ruff check services/detector/src services/web/src services/notifier/src shared
+# Ruff — all services
+ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/backup/src shared
 
 # mypy — web
 MYPYPATH=services/web/src:shared \
@@ -64,7 +64,43 @@ MYPYPATH=services/web/src:shared \
 # mypy — notifier
 MYPYPATH=services/notifier/src:shared \
   python3 -m mypy services/notifier/src shared --ignore-missing-imports --explicit-package-bases
+
+# mypy — deterrent
+MYPYPATH=services/deterrent/src:shared \
+  python3 -m mypy services/deterrent/src shared --ignore-missing-imports --explicit-package-bases
+
+# mypy — backup
+MYPYPATH=services/backup/src:shared \
+  python3 -m mypy services/backup/src shared --ignore-missing-imports --explicit-package-bases
 ```
+
+### Self-Review Protocol (AI-assisted changes)
+
+When a non-trivial change is made by an AI collaborator, run a
+self-review via subagent before considering the task done:
+
+1. Run `git diff HEAD` to capture all uncommitted changes.
+2. Spawn a review subagent with this prompt:
+   > "Review the following diff for: correctness, error handling,
+   > consistency with the scarguard Python style (type hints,
+   > Pydantic models, structured logging), and any risks specific to
+   > a Jetson/Docker/RTSP environment. Be direct about issues. Diff:
+   > [paste diff]"
+3. Address any issues flagged before marking the task complete.
+
+**Applies to:**
+
+- Any change to `services/` (detector, web, notifier, deterrent,
+  backup, log-streamer)
+- Any change to `shared/`
+- Any change to `docker-compose.yml` or a Dockerfile
+- Config schema changes
+
+**Doesn't apply to:**
+
+- Documentation-only changes
+- Comment / whitespace changes
+- Dependency bumps with no logic changes
 
 ### PR Process
 
