@@ -13,9 +13,44 @@ name: scarguard
 
 services:
 
+  # ── Volume init (one-shot migration helper) ───────────────────────────────
+  # v1.14.2 upgrade migration: chown the redis-data and caddy-data volumes
+  # to uid 999 so the non-root redis/caddy containers can read pre-existing
+  # files written by the old root-user containers (any install from 0.13.x,
+  # v1.14.0, or v1.14.1). Runs to completion on every `up` — chown is
+  # idempotent, so steady-state is a no-op (~0.5s). Redis and caddy gate on
+  # this via `service_completed_successfully` so they never start ahead of it.
+  #
+  # RETIREMENT: remove in v1.16, and no earlier than 2026-10-23 (six months
+  # after v1.14.2 ship date) — whichever is later. After retirement, the
+  # rare stale-installer upgrading from a pre-v1.14.2 volume gets a
+  # one-time manual chown instruction (see README "Upgrading from a
+  # previous version"). Fresh v1.14.2+ installs never needed this.
+  volume-init:
+    image: alpine:3.19
+    command: >-
+      sh -c 'chown -R 999:999 /redis /caddy 2>/dev/null || true;
+             echo "volume-init: ownership set to 999:999 on /redis and /caddy"'
+    volumes:
+      - redis-data:/redis
+      - scarguard-caddy-data:/caddy
+    restart: "no"
+    mem_limit: 32m
+    pids_limit: 10
+
   # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    # Run as the non-root `redis` user built into the alpine image (uid 999).
+    # The image's entrypoint only drops privileges when arg[0] is
+    # `redis-server`; our `sh -c` wrapper defeats that path, so we pin the
+    # uid explicitly here. Existing deployments must chown the redis-data
+    # volume to 999:999 once before upgrading — handled automatically by
+    # the volume-init service above.
+    user: "999:999"
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     # v1.14: --maxmemory caps Redis at 200MB and evicts least-recently-used
     # keys when full. Pre-v1.14 Redis would grow unbounded; a misbehaving
@@ -60,6 +95,14 @@ services:
       context: .
       dockerfile: services/caddy/Dockerfile
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-caddy:${IMAGE_TAG:-latest}
+    # Run as uid 999 to match scarguard.yml's owner (all other services do
+    # the same). This removes the prior reliance on DAC_OVERRIDE /
+    # DAC_READ_SEARCH to bypass unix perms. The upstream caddy:2-alpine
+    # image already ships /usr/bin/caddy with cap_net_bind_service=ep, so
+    # the non-root user can still bind :80/:443. Existing deployments
+    # must chown the
+    # scarguard-caddy-data volume to 999:999 once before upgrading.
+    user: "999:999"
     ports:
       # Falls back to legacy WEB_PORT / WEB_HTTPS_PORT for in-place upgrades.
       - "${HTTP_PORT:-${WEB_PORT:-80}}:80"
@@ -72,7 +115,10 @@ services:
       HTTPS_PORT: ${HTTPS_PORT:-${WEB_HTTPS_PORT:-443}}
       XDG_CONFIG_HOME: /data/caddy/config
     depends_on:
-      - web
+      web:
+        condition: service_started
+      volume-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.5
@@ -82,7 +128,10 @@ services:
     cap_drop:
       - ALL
     cap_add:
-      # Caddy needs to bind 80/443 — the only privileged ports we use.
+      # Caddy binds 80/443. The upstream caddy:2-alpine image already
+      # ships /usr/bin/caddy with cap_net_bind_service=ep, so the non-root
+      # uid 999 process claims the cap from its bounding set at execve
+      # (this line keeps it in the bounding set after cap_drop: ALL).
       - NET_BIND_SERVICE
 
   # ── Detector ──────────────────────────────────────────────────────────────
