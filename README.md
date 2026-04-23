@@ -341,6 +341,26 @@ docker compose up -d
 
 That's all that's needed. HTTP continues to work on your existing port with no config changes.
 
+#### Breaking change in v1.14.2 — non-root containers (handled automatically)
+
+Starting in v1.14.2 the `redis` and `caddy` containers run as non-root (uid 999) to match every other service in the stack. Installations from **0.13.x, v1.14.0, or v1.14.1** have volume data owned by root that the new non-root containers cannot read on their own.
+
+A `volume-init` sidecar runs on every `docker compose up` to chown the `redis-data` and `scarguard-caddy-data` volumes to uid 999. It's idempotent and adds ~0.5s to startup. The standard upgrade command above handles the migration with no additional steps.
+
+The sidecar is scheduled for removal in **v1.16**, and no earlier than **2026-10-23** (six months after v1.14.2). After that point, upgraders from a pre-v1.14.2 install who missed the automatic migration window will need to run the chown manually:
+
+```bash
+docker compose down
+docker run --rm \
+    -v scarguard-redis-data:/redis \
+    -v scarguard-caddy-data:/caddy \
+    -v scarguard-config:/config \
+    alpine:3 chown -R 999:999 /redis /caddy /config
+docker compose up -d
+```
+
+The `/config` chown is the one manual-TLS users (Mode 3 above) in particular need — copies of `cert.pem`/`key.pem` placed via the documented `docker run … alpine` flow land as root-owned and are otherwise unreadable by the non-root caddy.
+
 ---
 
 ## Feature Guides
