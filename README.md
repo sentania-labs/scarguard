@@ -354,9 +354,12 @@ docker compose down
 docker run --rm \
     -v scarguard-redis-data:/redis \
     -v scarguard-caddy-data:/caddy \
-    alpine:3 chown -R 999:999 /redis /caddy
+    -v scarguard-config:/config \
+    alpine:3 chown -R 999:999 /redis /caddy /config
 docker compose up -d
 ```
+
+The `/config` chown is the one manual-TLS users (Mode 3 above) in particular need — copies of `cert.pem`/`key.pem` placed via the documented `docker run … alpine` flow land as root-owned and are otherwise unreadable by the non-root caddy.
 
 ---
 

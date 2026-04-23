@@ -28,12 +28,25 @@ services:
   # previous version"). Fresh v1.14.2+ installs never needed this.
   volume-init:
     image: alpine:3.19
+    # `set -e` + no error suppression: if chown actually fails (e.g., a
+    # volume backend that rejects the op), the sidecar exits non-zero,
+    # the `service_completed_successfully` gate on redis/caddy fails,
+    # and the stack refuses to start with a clear error — preferable to
+    # redis/caddy booting against unchanged ownership and hitting the
+    # same permission wall the sidecar was meant to prevent.
+    #
+    # /config is included because manual-TLS users (README: Enabling
+    # HTTPS → Mode 3) copy `cert.pem`/`key.pem` into /config/certs via a
+    # root `docker run`, producing root:root mode 600 files that a
+    # non-root caddy can't read. Every service that touches /config
+    # runs as uid 999, so recursive chown is safe.
     command: >-
-      sh -c 'chown -R 999:999 /redis /caddy 2>/dev/null || true;
-             echo "volume-init: ownership set to 999:999 on /redis and /caddy"'
+      sh -euc 'chown -R 999:999 /redis /caddy /config;
+               echo "volume-init: ownership set to 999:999 on /redis, /caddy, /config"'
     volumes:
       - redis-data:/redis
       - scarguard-caddy-data:/caddy
+      - scarguard-config:/config
     restart: "no"
     mem_limit: 32m
     pids_limit: 10
