@@ -251,6 +251,74 @@ jobs:
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-deterrent:test || true
 
+  # ── Build backup (x86 runner) ───────────────────────────────────────────────
+  build-backup:
+    name: Build backup image
+    runs-on: [self-hosted, linux, docker]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
+
+      - name: Build backup (validate only, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/backup/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,scope=backup,mode=max
+
+      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      - name: Build backup (amd64, load for test)
+        if: github.event_name != 'push'
+        run: |
+          docker build \
+            --tag scarguard-backup:test \
+            --file services/backup/Dockerfile \
+            .
+
+      - name: Test backup in container
+        if: github.event_name != 'push'
+        run: |
+          cid=$(docker create --user root --entrypoint "" scarguard-backup:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          docker cp ${{ github.workspace }}/services/backup/tests/. "$cid:/app/tests/"
+          docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
+          docker start -a "$cid"
+          rc=$?
+          docker rm "$cid" > /dev/null
+          exit $rc
+
+      - name: Trivy scan — backup
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: scarguard-backup:test
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-backup:test || true
+
   # ── Build caddy (x86 runner) ────────────────────────────────────────────────
   build-caddy:
     name: Build caddy image
@@ -438,7 +506,7 @@ jobs:
       github.event_name != 'push' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.owner.login == 'sentania-labs')
-    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-caddy, build-log-streamer]
+    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-backup, build-caddy, build-log-streamer]
     runs-on: [self-hosted, linux, docker]
 
     steps:
@@ -464,6 +532,7 @@ jobs:
             --build-arg GIT_COMMIT=${{ github.sha }} .
           docker build -f services/notifier/Dockerfile -t scarguard-notifier:smoke .
           docker build -f services/deterrent/Dockerfile -t scarguard-deterrent:smoke .
+          docker build -f services/backup/Dockerfile -t scarguard-backup:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
           docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
 
@@ -550,4 +619,5 @@ jobs:
           docker compose down -v || true
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
             scarguard-notifier:smoke scarguard-deterrent:smoke \
-            scarguard-caddy:smoke scarguard-log-streamer:smoke 2>/dev/null || true
+            scarguard-backup:smoke scarguard-caddy:smoke \
+            scarguard-log-streamer:smoke 2>/dev/null || true
