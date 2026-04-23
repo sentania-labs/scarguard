@@ -82,6 +82,19 @@ class TestLiteralIPs:
         with pytest.raises(UnsafeURLError):
             validate_external_url("http://169.254.169.254/", allow_internal=True)
 
+    def test_allow_internal_still_rejects_unspecified(self) -> None:
+        # 0.0.0.0 is not a webhook target under any circumstance.
+        with pytest.raises(UnsafeURLError):
+            validate_external_url("http://0.0.0.0/", allow_internal=True)
+
+    def test_allow_internal_still_rejects_multicast(self) -> None:
+        with pytest.raises(UnsafeURLError):
+            validate_external_url("http://224.0.0.1/", allow_internal=True)
+
+    def test_allow_internal_still_rejects_reserved(self) -> None:
+        with pytest.raises(UnsafeURLError):
+            validate_external_url("http://240.0.0.1/", allow_internal=True)
+
 
 class TestHostnameResolution:
     def test_rejects_hostname_resolving_to_loopback(self) -> None:

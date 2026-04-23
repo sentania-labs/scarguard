@@ -84,10 +84,11 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
       the hostname must be a public address. A single private/loopback/
       link-local IP is enough to reject the URL.
 
-    When *allow_internal* is True, loopback and link-local are still
-    rejected (those are never legitimate targets) but RFC1918 is
+    When *allow_internal* is True, only RFC1918 private ranges are
     permitted — for operators who run a home-LAN Home Assistant or
-    similar internal webhook receiver.
+    similar internal webhook receiver. Loopback, link-local, multicast,
+    unspecified (0.0.0.0/::), and reserved ranges remain rejected
+    (those are never legitimate webhook targets).
     """
     if not isinstance(url, str) or not url.strip():
         raise UnsafeURLError("URL must be a non-empty string")
@@ -109,7 +110,7 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
 
     if literal_ip is not None:
         if _ip_is_internal(literal_ip):
-            if not allow_internal or literal_ip.is_loopback or literal_ip.is_link_local:
+            if not allow_internal or not _is_rfc1918_private(literal_ip):
                 raise UnsafeURLError(
                     f"URL resolves to internal address {host}",
                 )
@@ -125,7 +126,7 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
         except ValueError:
             continue
         if _ip_is_internal(ip):
-            if not allow_internal or ip.is_loopback or ip.is_link_local:
+            if not allow_internal or not _is_rfc1918_private(ip):
                 raise UnsafeURLError(
                     f"URL {url!r} resolves to internal address {addr}",
                 )
@@ -138,6 +139,21 @@ def _ip_is_internal(
         ip.is_loopback
         or ip.is_link_local
         or ip.is_private
+        or ip.is_multicast
+        or ip.is_unspecified
+        or ip.is_reserved
+    )
+
+
+def _is_rfc1918_private(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """True iff *ip* is a private-LAN address safe to allow in allow_internal
+    mode. Excludes loopback/link-local (which ``is_private`` considers
+    private) and multicast/reserved/unspecified."""
+    return ip.is_private and not (
+        ip.is_loopback
+        or ip.is_link_local
         or ip.is_multicast
         or ip.is_unspecified
         or ip.is_reserved

@@ -138,9 +138,19 @@ def backup_database(
             src.close()
 
         if compress:
-            with open(tmp, "rb") as f_in:
-                with gzip.open(final_path, "wb", compresslevel=6) as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            # Gzip into a sibling .partial file, then atomically rename
+            # to final_path. Writing gzip directly to final_path would
+            # leave a truncated .db.gz in place on interrupt/failure,
+            # which restore would happily pick up as a valid snapshot.
+            gz_tmp = final_path.with_suffix(final_path.suffix + ".partial")
+            try:
+                with open(tmp, "rb") as f_in:
+                    with gzip.open(gz_tmp, "wb", compresslevel=6) as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.replace(gz_tmp, final_path)
+            finally:
+                if gz_tmp.exists():
+                    gz_tmp.unlink()
             tmp.unlink()
         else:
             os.replace(tmp, final_path)
