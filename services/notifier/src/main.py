@@ -18,6 +18,7 @@ from config_watcher import ConfigWatcher
 from digest_scheduler import DigestScheduler
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
+from healthcheck import start_heartbeat
 from notification_queue import WORKER_INTERVAL, NotificationQueue
 from ntfy import NtfyNotifier
 from webhook import WebhookNotifier
@@ -50,9 +51,26 @@ def _derive_base_url(cfg: dict) -> str:
     return f"https://{domain}"
 
 
+def _decrypt_secrets(cfg: dict) -> None:
+    """Decrypt sensitive channel fields in *cfg* in place if a key is available.
+    No-op if the secret key is absent — operator hasn't run setup yet, or
+    the deployment is mid-upgrade with plaintext secrets still on disk."""
+    import secret_box
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except secret_box.SecretKeyMissing:
+        logger.error("Failed to decrypt notifier secrets — wrong key on disk?")
+
+
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    if isinstance(cfg, dict):
+        _decrypt_secrets(cfg)
+    return cfg
 
 
 def setup_logging(log_level: str) -> None:
@@ -189,9 +207,25 @@ def subscribe_loop(
     queue: NotificationQueue,
     _base_url_ref: AtomicRef[str] | None = None,
 ) -> None:
-    """Connect to Redis and listen for events, reconnecting on failure."""
+    """Connect to Redis and listen for events, reconnecting on failure.
+
+    v1.14 verifies the HMAC signature on detection events before
+    dispatching a notification. Unlike the deterrent, a missing or invalid
+    signature here only suppresses the notification (no physical effect),
+    but we still log loudly — spoofed events would otherwise leak camera
+    snapshots to the attacker's own webhook destinations.
+    """
+    from event_signing import load_key_from_env, verify_event
+
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
+    hmac_key = load_key_from_env()
+    if hmac_key is None:
+        logger.warning(
+            "DETECTION_HMAC_KEY not set — dispatching unsigned events.",
+        )
+    unsigned_warned = False
+    invalid_warned = False
     delay = _REDIS_RECONNECT_DELAY
 
     while not shutdown_event.is_set():
@@ -218,6 +252,29 @@ def subscribe_loop(
                 except json.JSONDecodeError:
                     logger.warning("Received malformed message: %s", message["data"])
                     continue
+
+                # Signature verification (detection channel only — health alerts
+                # come from the detector's health publisher, not the detection
+                # publisher, and aren't signed today).
+                if message["channel"] == CHANNEL and hmac_key is not None:
+                    if not verify_event(event, hmac_key):
+                        if not invalid_warned:
+                            logger.error(
+                                "Rejecting detection event with invalid/missing "
+                                "HMAC signature — NOT notifying. Camera=%s class=%s. "
+                                "Further invalid events at DEBUG.",
+                                event.get("camera_name"),
+                                event.get("class_name"),
+                            )
+                            invalid_warned = True
+                        else:
+                            logger.debug("Invalid-signature event rejected")
+                        continue
+                elif message["channel"] == CHANNEL and hmac_key is None and not unsigned_warned:
+                    unsigned_warned = True
+                    logger.warning(
+                        "Accepting unsigned detection event. Further unsigned events at DEBUG.",
+                    )
 
                 # Health alerts get formatted as notification events
                 if message["channel"] == HEALTH_CHANNEL:
@@ -277,6 +334,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard notifier starting")
+    start_heartbeat()
 
     tz_name = cfg.get("system", {}).get("timezone", "UTC")
     notifiers = build_notifiers(cfg.get("notifications", {}), tz_name)
@@ -310,6 +368,10 @@ def main() -> None:
     signal.signal(signal.SIGINT, _shutdown)
 
     def _on_config_change(new_cfg: dict) -> None:
+        # Decrypt sensitive fields before any consumer sees the dict.
+        # ConfigWatcher reads raw YAML; we own the decrypt step at the
+        # service boundary.
+        _decrypt_secrets(new_cfg)
         new_tz = new_cfg.get("system", {}).get("timezone", "UTC")
         base_url_ref.set(_derive_base_url(new_cfg))
         new_notifiers = build_notifiers(new_cfg.get("notifications", {}), new_tz)

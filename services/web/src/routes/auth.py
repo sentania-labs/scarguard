@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hmac
+import logging
 import os
 
 import audit
@@ -11,12 +13,49 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+log = logging.getLogger(__name__)
+
 _src = os.path.dirname(os.path.dirname(__file__))
 templates = Jinja2Templates(directory=os.path.join(_src, "templates"))
 
 router = APIRouter()
 
 AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
+
+# v1.14 bootstrap-token path. Main.py generates on first boot when no users
+# exist; /setup POST verifies and deletes on successful claim.
+BOOTSTRAP_TOKEN_PATH = os.environ.get(
+    "BOOTSTRAP_TOKEN_PATH", "/data/bootstrap_token",
+)
+
+
+def _read_bootstrap_token() -> str | None:
+    """Return the on-disk bootstrap token, or None if absent/empty.
+
+    Env override ``SCARGUARD_BOOTSTRAP_TOKEN`` takes precedence for ops
+    pipelines that seed the token out-of-band."""
+    override = os.environ.get("SCARGUARD_BOOTSTRAP_TOKEN", "").strip()
+    if override:
+        return override
+    try:
+        with open(BOOTSTRAP_TOKEN_PATH) as f:
+            val = f.read().strip()
+        return val or None
+    except FileNotFoundError:
+        return None
+
+
+def _consume_bootstrap_token() -> None:
+    """Delete the bootstrap token file. Called after successful /setup.
+
+    Idempotent — missing file is not an error."""
+    try:
+        os.unlink(BOOTSTRAP_TOKEN_PATH)
+        log.info("Bootstrap token consumed; /setup is now permanently closed")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        log.warning("Could not delete bootstrap token: %s", exc)
 
 
 def _get_auth_cfg() -> dict:
@@ -161,16 +200,52 @@ async def logout(request: Request) -> RedirectResponse:
 
 # ── First-run setup ───────────────────────────────────────────────────────────
 
-@router.get("/setup", response_class=HTMLResponse)
-async def setup_get(request: Request) -> Response:
-    # If users already exist, redirect to login
-    if auth_module.users_exist(AUTH_DB_PATH):
-        return RedirectResponse("/login", status_code=302)
+MIN_PASSWORD_LEN = 12
+
+
+def _is_common_password(password: str) -> bool:
+    """Reject the top bite-sized set of obviously-common passwords.
+
+    A full zxcvbn check would be ideal but adds a dependency for marginal
+    benefit on what is already an admin-only surface gated by the
+    bootstrap token. This list catches the passwords that appear in
+    every ops post-mortem.
+    """
+    lowered = password.strip().lower()
+    common = {
+        "password", "password1", "password123", "passw0rd",
+        "admin", "administrator", "letmein", "qwerty", "qwerty123",
+        "12345678", "123456789", "1234567890", "changeme", "welcome",
+        "iloveyou", "monkey", "dragon", "baseball", "football",
+        "sunshine", "princess", "scarguard", "scarguard123",
+    }
+    return lowered in common
+
+
+def _render_setup(
+    request: Request,
+    *,
+    token: str = "",
+    error: str | None = None,
+    status_code: int = 200,
+) -> Response:
     return templates.TemplateResponse(
         request,
         "setup.html",
-        {"error": None},
+        {"error": error, "token": token},
+        status_code=status_code,
     )
+
+
+@router.get("/setup", response_class=HTMLResponse)
+async def setup_get(request: Request, token: str = "") -> Response:
+    # If users already exist, the route is permanently closed.
+    if auth_module.users_exist(AUTH_DB_PATH):
+        return RedirectResponse("/login", status_code=302)
+    # Don't pre-validate the token at GET — showing the form with the
+    # token-param-as-hidden-field lets the operator paste the full URL
+    # once. Validation happens at POST time.
+    return _render_setup(request, token=token)
 
 
 @router.post("/setup", response_class=HTMLResponse)
@@ -179,32 +254,55 @@ async def setup_post(
     username: str = Form(...),
     password: str = Form(...),
     confirm_password: str = Form(...),
+    token: str = Form(""),
 ) -> Response:
-    # If users already exist, deny
+    # Closed-route check — users exist.
     if auth_module.users_exist(AUTH_DB_PATH):
         return RedirectResponse("/login", status_code=302)
 
-    # Validate input
-    if not username.strip():
-        return templates.TemplateResponse(
+    # Bootstrap token gate.
+    expected = _read_bootstrap_token()
+    if not expected:
+        log.error("/setup POST attempted but no bootstrap token is available")
+        return _render_setup(
             request,
-            "setup.html",
-            {"error": "Username must not be empty."},
+            error="First-run setup is not available. Check the server logs for the bootstrap URL.",
+            status_code=403,
+        )
+    if not hmac.compare_digest(token.strip(), expected):
+        log.warning(
+            "/setup POST rejected — invalid bootstrap token (client=%s)",
+            request.client.host if request.client else "unknown",
+        )
+        return _render_setup(
+            request,
+            token=token,
+            error="Invalid or missing bootstrap token. Check docker logs for the correct URL.",
+            status_code=403,
+        )
+
+    # Validate user input
+    if not username.strip():
+        return _render_setup(
+            request, token=token,
+            error="Username must not be empty.", status_code=400,
+        )
+    if len(password) < MIN_PASSWORD_LEN:
+        return _render_setup(
+            request, token=token,
+            error=f"Password must be at least {MIN_PASSWORD_LEN} characters.",
             status_code=400,
         )
-    if len(password) < 8:
-        return templates.TemplateResponse(
-            request,
-            "setup.html",
-            {"error": "Password must be at least 8 characters."},
+    if _is_common_password(password):
+        return _render_setup(
+            request, token=token,
+            error="That password is too common — please pick a less predictable one.",
             status_code=400,
         )
     if password != confirm_password:
-        return templates.TemplateResponse(
-            request,
-            "setup.html",
-            {"error": "Passwords do not match."},
-            status_code=400,
+        return _render_setup(
+            request, token=token,
+            error="Passwords do not match.", status_code=400,
         )
 
     auth_cfg = _get_auth_cfg()
@@ -216,6 +314,9 @@ async def setup_post(
         raw_token = auth_module.create_session(db, user_id, timeout_hours=session_hours)
     finally:
         db.close()
+
+    # Consume the bootstrap token — /setup is now permanently closed.
+    _consume_bootstrap_token()
 
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(

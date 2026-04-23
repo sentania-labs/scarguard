@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from snapshot_utils import annotate_snapshot
+from url_safety import UnsafeURLError, validate_external_url
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,30 @@ class DiscordNotifier:
         self._mention_role: str = cfg.get("mention_role", "")
         self._include_snapshot: bool = cfg.get("include_snapshot", True)
         self._tz_name: str = tz_name
+        # SSRF defence-in-depth — Discord's URL is a fixed pattern but we
+        # validate anyway: an admin (or stolen session) could swap in a
+        # private-IP URL and turn the channel into an SSRF probe.
+        try:
+            validate_external_url(self._webhook_url, allow_internal=False)
+            self._enabled = True
+        except UnsafeURLError as exc:
+            logger.error(
+                "Discord [%s] disabled — unsafe webhook URL: %s",
+                self._name, exc,
+            )
+            self._enabled = False
 
     @property
     def name(self) -> str:
         return self._name
 
     def send(self, event: dict) -> None:
+        if not self._enabled:
+            logger.warning(
+                "Discord [%s] suppressed — channel disabled at construction",
+                self._name,
+            )
+            return
         if event.get("_digest"):
             self._send_digest(event)
             return
@@ -94,6 +113,9 @@ class DiscordNotifier:
 
     def _send_digest(self, report: dict) -> None:
         """Send a digest report as a Discord embed."""
+        if not self._enabled:
+            logger.warning("Discord [%s] digest suppressed — disabled", self._name)
+            return
         from digest import format_discord_embed
 
         payload = format_discord_embed(report)

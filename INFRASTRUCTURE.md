@@ -312,3 +312,86 @@ Test with:
 ```bash
 docker run --rm --runtime=nvidia --gpus all dustynv/l4t-pytorch:r36.4.0 python3 -c "import torch; print(torch.cuda.is_available())"
 ```
+
+## v1.14+ Additions
+
+### Resource Limits
+
+`docker-compose.yml` sets `mem_limit`, `cpus`, and `pids_limit` on
+every service so a single misbehaving container can't OOM the host
+(the "detector OOM takes down the deterrent that was supposed to
+protect the pond" failure mode called out in the v1.14 review).
+Defaults are sized for a Jetson Orin Nano:
+
+| Service | mem | cpus | notes |
+|---|---|---|---|
+| detector | 3 GB | 4.0 | largest footprint — model + OpenCV + torch runtime |
+| web | 512 MB | 1.0 | FastAPI + Jinja + CSP/HSTS middleware |
+| notifier | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
+| deterrent | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
+| log-streamer | 128 MB | 0.25 | read_only rootfs + tmpfs /tmp |
+| backup | 128 MB | 0.5 | periodic cycle, mostly idle |
+| redis | 256 MB | 0.5 | + `--maxmemory 200mb --maxmemory-policy allkeys-lru` |
+| caddy | 128 MB | 0.5 | keeps NET_BIND_SERVICE for 80/443 |
+| docker-socket-proxy | 64 MB | 0.25 | tecnativa proxy; exposes only CONTAINERS + EVENTS |
+
+Override via a `docker-compose.override.yml` if you're on beefier hardware.
+
+Every service also runs with `security_opt: no-new-privileges:true`
+and `cap_drop: [ALL]` (Caddy re-adds only `NET_BIND_SERVICE`).
+
+### Trusted Proxies
+
+`web` runs behind Caddy inside the Docker network. `forwarded_allow_ips`
+defaults to the standard Docker bridge ranges:
+`127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16`. Override via the
+`SCARGUARD_TRUSTED_PROXIES` env var if your Docker install uses
+non-default subnets or if you terminate TLS on an upstream proxy
+beyond Caddy.
+
+### Backup Architecture
+
+The `backup` service runs SQLite's online-backup API against
+`scarguard.db`, `auth.db`, and `deterrent.db` on a configurable
+schedule (default 24h), writing gzipped output to
+`/data/backups/{db}/{ISO-timestamp}.db.gz`. Retention is 14 daily +
+8 weekly by default. Manual triggers via Redis or the admin UI at
+`/admin/db-backups`. Full restore procedure lives in `BACKUP.md`.
+
+The backup volume is the same `scarguard-data` Docker volume that
+holds the source databases, so off-device replication is the
+operator's responsibility — see the `BACKUP.md` guidance on rsync /
+rclone / NAS copy.
+
+### Secret Rotation Playbook
+
+`/data/secret_key` (Fernet key used to encrypt sensitive YAML
+fields — Tuya creds, SMTP passwords, webhook URLs, ntfy tokens):
+
+1. `docker compose stop web notifier deterrent`
+2. Back up the current config: copy `scarguard.yml` and
+   `/data/secret_key` somewhere safe — you can't decrypt existing
+   fields once the key is replaced.
+3. Delete `/data/secret_key`. Start `web`; it will generate a new
+   key on first boot.
+4. Re-enter all encrypted fields via the admin UI (Tuya creds,
+   channel secrets). Save each form.
+5. Start `notifier` and `deterrent`.
+
+A proper `scripts/rotate-secret-key.sh` that re-encrypts in place
+is v1.15 work (tracked in ROADMAP.md).
+
+`DETECTION_HMAC_KEY` (signs detection events on Redis) and
+`REDIS_PASSWORD`:
+
+1. Regenerate in `.env` — either re-run `setup.sh` (backfill path)
+   or edit the values directly. See `.env.example` for generation
+   one-liners.
+2. `docker compose down && docker compose up -d`.
+
+### Root CA in repo
+
+`infra/orin-runner/sentania Lab Root 2.crt` is the public root
+certificate for the Sentania Lab internal PKI. It's used by the
+Orin-runner container to validate TLS to internal services. This
+is the certificate *only*, not a private key. Intentional ship.

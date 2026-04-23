@@ -29,21 +29,34 @@
 
       <form method="post" action="/setup">
         <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+        {% if token %}
+        <input type="hidden" name="token" value="{{ token }}">
+        {% endif %}
         <div class="field-group">
           <label for="username">Username</label>
           <input type="text" id="username" name="username" autocomplete="username"
                  autofocus required>
         </div>
         <div class="field-group">
-          <label for="password">Password (min. 8 characters)</label>
+          <label for="password">Password (min. 12 characters)</label>
           <input type="password" id="password" name="password" autocomplete="new-password"
-                 minlength="8" required>
+                 minlength="12" required>
         </div>
         <div class="field-group">
           <label for="confirm_password">Confirm password</label>
           <input type="password" id="confirm_password" name="confirm_password"
-                 autocomplete="new-password" minlength="8" required>
+                 autocomplete="new-password" minlength="12" required>
         </div>
+        {% if not token %}
+        <div class="field-group">
+          <label for="token_input">Bootstrap token</label>
+          <input type="text" id="token_input" name="token" required
+                 placeholder="Paste the token from server logs">
+          <p class="hint" style="margin-top:0.25rem;font-size:0.8rem;">
+            Find this in <code>docker compose logs web</code>.
+          </p>
+        </div>
+        {% endif %}
 
         <button type="submit" style="width:100%;margin-top:0.5rem;">Create admin account</button>
       </form>

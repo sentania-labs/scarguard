@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 
+import secret_box
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,12 @@ _STALE_NOTIFICATION_KEYS: set[str] = {"discord", "email"}
 # Per-camera keys stripped on save.  action_rules was renamed to
 # notification_rules in v0.13.3 and is migrated on read.
 _STALE_CAMERA_KEYS: set[str] = {"action_rules"}
+# Nested keys under ``system`` stripped on save.
+# v1.14: snapshot_retention_days and metrics_retention_days were consolidated
+# into a single retention_days in v0.11. The startup migration in main.py
+# still handles in-memory consolidation; this strips raw-YAML residue and
+# any pre-v0.11 configs that haven't been touched in years.
+_STALE_SYSTEM_KEYS: set[str] = {"snapshot_retention_days", "metrics_retention_days"}
 
 
 def _migrate_in_place(cfg: dict) -> None:
@@ -64,7 +71,28 @@ def _read_unlocked() -> dict:
     if not isinstance(loaded, dict):
         raise ValueError("Config root must be a mapping (YAML dictionary)")
     _migrate_in_place(loaded)
+    _decrypt_secrets_in_place(loaded)
     return loaded
+
+
+def _decrypt_secrets_in_place(cfg: dict) -> None:
+    """Decrypt sensitive fields if a secret key is available.
+
+    Plaintext values pass through unchanged (migration mode). When the key
+    is absent (e.g. /data not yet writable, or a fresh upgrade) we leave
+    encrypted values as-is — the consumer will get the ``enc:v1:`` prefix
+    and surface a configuration error rather than a silently-broken
+    integration.
+    """
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except secret_box.SecretKeyMissing:
+        logger.error(
+            "Failed to decrypt one or more secrets — wrong key on disk?",
+        )
 
 
 def load() -> dict:
@@ -113,6 +141,10 @@ def save(cfg: dict) -> None:
     if isinstance(notif, dict):
         for key in _STALE_NOTIFICATION_KEYS:
             notif.pop(key, None)
+    sys = cfg.get("system")
+    if isinstance(sys, dict):
+        for key in _STALE_SYSTEM_KEYS:
+            sys.pop(key, None)
     cameras = cfg.get("cameras")
     if isinstance(cameras, list):
         for cam in cameras:
@@ -120,6 +152,15 @@ def save(cfg: dict) -> None:
                 continue
             for key in _STALE_CAMERA_KEYS:
                 cam.pop(key, None)
+    # Encrypt sensitive fields before writing to disk. Idempotent — values
+    # already in ``enc:v1:`` form pass through. If no key is available we
+    # write plaintext (migration mode), and a one-shot startup migration in
+    # main.py will re-save once the key is generated.
+    sk = secret_box.try_load_key()
+    if sk is not None:
+        encrypted = secret_box.encrypt_in_place(cfg, sk)
+        if encrypted:
+            logger.info("Encrypted %d sensitive field(s) before save", encrypted)
     with _lock:
         fd, tmp_path = tempfile.mkstemp(
             dir=str(CONFIG_PATH.parent), suffix=".tmp",

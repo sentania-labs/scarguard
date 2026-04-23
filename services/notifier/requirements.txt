@@ -4,3 +4,4 @@ pydantic==2.12.5
 requests==2.33.1
 tzdata==2025.3
 Pillow==12.2.0
+cryptography==46.0.5

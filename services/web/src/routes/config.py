@@ -23,10 +23,11 @@ from config_model import (
     TLSConfig,
 )
 from config_redact import REDACTED_PLACEHOLDER, redact_config
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
 
@@ -226,7 +227,10 @@ async def get_raw_config(request: Request) -> Response:
     return JSONResponse({"yaml": raw})
 
 
-@router.post("/structured", response_class=JSONResponse)
+@router.post(
+    "/structured", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("config-save", capacity=20, window_seconds=60))],
+)
 async def save_structured_config(request: Request) -> Response:
     """Accept JSON from the form-based config editor and write to scarguard.yml.
 
@@ -412,12 +416,34 @@ def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
     return warnings
 
 
-@router.post("", response_class=HTMLResponse)
+_MAX_RAW_YAML_BYTES = 1_000_000  # 1 MB ceiling on raw-YAML uploads
+
+
+@router.post(
+    "", response_class=HTMLResponse,
+    dependencies=[Depends(rate_limit("config-save", capacity=20, window_seconds=60))],
+)
 async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
     """Save raw-YAML config. Admin only."""
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
+    # Size cap before yaml.safe_load — even safe_load can spend significant
+    # CPU on a multi-MB document, and there's no legitimate scarguard.yml
+    # remotely close to this size.
+    raw_bytes = len(raw_yaml.encode("utf-8"))
+    if raw_bytes > _MAX_RAW_YAML_BYTES:
+        log.warning(
+            "Rejecting raw-YAML save of %d bytes (cap %d)",
+            raw_bytes, _MAX_RAW_YAML_BYTES,
+        )
+        return HTMLResponse(
+            f"<h1>413 — Payload too large</h1>"
+            f"<p>Config exceeds {_MAX_RAW_YAML_BYTES // 1000} KB cap "
+            f"(received {raw_bytes // 1000} KB). "
+            f"Keep your scarguard.yml lean.</p>",
+            status_code=413,
+        )
     error = None
     saved = False
     warnings: list[str] = []

@@ -19,6 +19,7 @@ from routes import (
     actuations,
     admin,
     audit_log,
+    backups,
     config,
     dashboard,
     deterrent,
@@ -58,10 +59,151 @@ async def _startup() -> None:
     global backup_manager
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
+    _ensure_secret_key()
+    _ensure_bootstrap_token()
+    _check_db_integrity()
     _migrate_retention_fields()
     _migrate_base_url_to_domain()
+    _encrypt_plaintext_secrets()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+
+
+def _check_db_integrity() -> None:
+    """Run ``PRAGMA integrity_check`` on each SQLite DB at startup.
+
+    A clean ``ok`` reply means the file is structurally sound; anything
+    else surfaces as a loud warning so the operator knows to restore from
+    backup. We do NOT refuse to start — the alternative would brick the
+    deployment, and an integrity failure on auth.db is recoverable
+    (re-run `setup` with the bootstrap token) where a startup refusal
+    isn't.
+    """
+    import logging
+    import sqlite3
+
+    log = logging.getLogger("startup")
+    db_paths = [
+        ("scarguard", os.environ.get("DB_PATH", "/data/scarguard.db")),
+        ("auth", AUTH_DB_PATH),
+        ("deterrent", os.environ.get("DETERRENT_DB_PATH", "/data/deterrent.db")),
+    ]
+    for name, path in db_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+            try:
+                row = conn.execute("PRAGMA integrity_check").fetchone()
+                result = row[0] if row else "(no result)"
+            finally:
+                conn.close()
+        except Exception as exc:
+            log.warning("Integrity check skipped for %s (%s): %s", name, path, exc)
+            continue
+
+        if result == "ok":
+            log.info("Integrity check ok for %s", name)
+        else:
+            log.error(
+                "INTEGRITY CHECK FAILED for %s — restore from backup. "
+                "First failure: %r",
+                name, result,
+            )
+
+
+def _ensure_bootstrap_token() -> None:
+    """Generate a one-time token gating the /setup route.
+
+    Before v1.14 any network-reachable caller could claim the first admin
+    account on a fresh deployment. The token closes that window: it's
+    generated on the first web startup where no users exist, written to
+    /data/bootstrap_token (chmod 600), and logged to stdout so the
+    operator can grab it from ``docker compose logs web``. /setup POST
+    verifies it and deletes the file on success, making the route
+    permanently inactive afterwards.
+
+    If users already exist, there is nothing to guard — skip."""
+    import logging
+
+    log = logging.getLogger("startup")
+    if auth_module.users_exist(AUTH_DB_PATH):
+        return
+
+    from routes.auth import BOOTSTRAP_TOKEN_PATH
+
+    try:
+        if os.path.exists(BOOTSTRAP_TOKEN_PATH):
+            with open(BOOTSTRAP_TOKEN_PATH) as f:
+                token = f.read().strip()
+        else:
+            token = secrets.token_urlsafe(32)
+            parent = os.path.dirname(BOOTSTRAP_TOKEN_PATH)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            fd = os.open(BOOTSTRAP_TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, token.encode("ascii"))
+            finally:
+                os.close(fd)
+
+        log.warning(
+            "═══════════════════════════════════════════════════════════\n"
+            "  First-run setup — complete within 24 hours:\n"
+            "    Browse to: /setup?token=%s\n"
+            "  Token also stored at %s (chmod 600).\n"
+            "═══════════════════════════════════════════════════════════",
+            token, BOOTSTRAP_TOKEN_PATH,
+        )
+    except Exception as exc:
+        log.error("Failed to generate bootstrap token: %s", exc)
+
+
+def _ensure_secret_key() -> None:
+    """Generate the at-rest encryption key on first boot.
+
+    The web service is the canonical writer of this key — notifier and
+    deterrent only read it. Web has /data RW, so it can create the file
+    with chmod 600. If the key already exists, this is a no-op."""
+    import logging
+
+    import secret_box
+    log = logging.getLogger("startup")
+    try:
+        if secret_box.write_key_if_missing():
+            log.info(
+                "Created %s for at-rest secret encryption (chmod 600)",
+                secret_box.DEFAULT_KEY_PATH,
+            )
+    except Exception as exc:
+        log.error("Failed to create secret key: %s", exc)
+
+
+def _encrypt_plaintext_secrets() -> None:
+    """One-shot migration: if the on-disk config still has plaintext
+    sensitive fields, re-save once so they get encrypted. Subsequent saves
+    do this transparently via config_store.save."""
+    import logging
+
+    import config_store
+    import secret_box
+    log = logging.getLogger("startup")
+    try:
+        key = secret_box.try_load_key()
+        if key is None:
+            log.warning(
+                "No secret key available — secrets remain plaintext on disk",
+            )
+            return
+        cfg = config_store.load()
+        if not secret_box.has_plaintext_secrets(cfg):
+            return
+        log.warning(
+            "Plaintext secrets detected in scarguard.yml — encrypting on disk now",
+        )
+        config_store.save(cfg)
+    except Exception as exc:
+        log.error("Plaintext secret migration failed: %s", exc)
 
 
 def _migrate_retention_fields() -> None:
@@ -284,8 +426,44 @@ async def auth_middleware(request: Request, call_next):
 _CSRF_COOKIE = "csrf_token"
 _CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
-# Secret key for HMAC — generated once per process start.
-_csrf_secret: str = secrets.token_hex(32)
+# v1.14: HMAC key persisted to /data so it survives process restart and
+# survives a future scale to >1 web replica. Pre-v1.14 it regenerated each
+# process start, which silently invalidated every active session on every
+# restart and would have broken multi-replica deployments outright.
+_CSRF_SECRET_PATH = os.environ.get("CSRF_SECRET_PATH", "/data/csrf_secret")
+
+
+def _load_or_create_csrf_secret() -> str:
+    if os.path.exists(_CSRF_SECRET_PATH):
+        try:
+            with open(_CSRF_SECRET_PATH) as f:
+                val = f.read().strip()
+            if val:
+                return val
+        except Exception:
+            # fall through and regenerate
+            pass
+    fresh = secrets.token_hex(32)
+    parent = os.path.dirname(_CSRF_SECRET_PATH)
+    if parent:
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except Exception:
+            return fresh
+    try:
+        fd = os.open(_CSRF_SECRET_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, fresh.encode("ascii"))
+        finally:
+            os.close(fd)
+    except Exception:
+        # If /data isn't writable yet, fall back to in-memory — better than
+        # crashing. Subsequent restart will retry persistence.
+        pass
+    return fresh
+
+
+_csrf_secret: str = _load_or_create_csrf_secret()
 
 
 def _generate_csrf_token() -> str:
@@ -421,3 +599,4 @@ app.include_router(snapshot.router)
 app.include_router(feedback.router)
 app.include_router(deterrent.router)
 app.include_router(actuations.router)
+app.include_router(backups.router)

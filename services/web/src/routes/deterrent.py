@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import time as _time
 import uuid
@@ -14,9 +15,15 @@ import actuation_db
 import config_store
 import redis.asyncio as aioredis
 from config_redact import REDACTED_PLACEHOLDER
-from fastapi import APIRouter, Request
+from deterrent_safety import (
+    DEFAULT_TEST_FIRE_SEC,
+    MAX_TEST_FIRE_SEC,
+    MIN_ACTUATION_SEC,
+)
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
 
@@ -264,6 +271,8 @@ TEST_FIRE_CHANNEL = "scarguard:deterrent:test-fire"
 TEST_FIRE_RESULT_PREFIX = "scarguard:deterrent:test-fire:result:"
 STATUS_REQUEST_CHANNEL = "scarguard:deterrent:status-request"
 STATUS_RESULT_PREFIX = "scarguard:deterrent:status:result:"
+FORCE_OFF_CHANNEL = "scarguard:deterrent:force-off"
+FORCE_OFF_RESULT_PREFIX = "scarguard:deterrent:force-off:result:"
 
 
 def _redis_params() -> dict[str, Any]:
@@ -311,7 +320,10 @@ async def _redis_request(
         await client.close()
 
 
-@router.post("/test-fire", response_class=JSONResponse)
+@router.post(
+    "/test-fire", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("test-fire", capacity=10, window_seconds=60))],
+)
 async def test_fire(request: Request) -> Response:
     """Fire a single device for testing — admin only."""
     gate = require_admin(request, is_api=True)
@@ -324,16 +336,60 @@ async def test_fire(request: Request) -> Response:
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
 
     device_id = body.get("device_id", "")
-    try:
-        duration = float(body.get("duration_sec", 3.0))
-    except (TypeError, ValueError):
-        duration = 3.0
     if not device_id:
         return JSONResponse({"ok": False, "error": "device_id is required"}, status_code=400)
+
+    raw_duration = body.get("duration_sec", DEFAULT_TEST_FIRE_SEC)
+    try:
+        duration = float(raw_duration)
+    except (TypeError, ValueError):
+        return JSONResponse(
+            {"ok": False, "error": "duration_sec must be a number"},
+            status_code=400,
+        )
+    if math.isnan(duration) or math.isinf(duration):
+        return JSONResponse(
+            {"ok": False, "error": "duration_sec must be finite"},
+            status_code=400,
+        )
+    if duration < MIN_ACTUATION_SEC or duration > MAX_TEST_FIRE_SEC:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"duration_sec must be between {MIN_ACTUATION_SEC} and "
+                    f"{MAX_TEST_FIRE_SEC} seconds"
+                ),
+            },
+            status_code=400,
+        )
 
     result = await _redis_request(
         TEST_FIRE_CHANNEL, TEST_FIRE_RESULT_PREFIX,
         {"device_id": device_id, "duration_sec": duration},
+    )
+    status_code = 200 if result.get("ok") else 502
+    return JSONResponse(result, status_code=status_code)
+
+
+@router.post(
+    "/force-off", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("force-off", capacity=5, window_seconds=60))],
+)
+async def force_off(request: Request) -> Response:
+    """Emergency OFF — force every configured device OFF regardless of state.
+
+    Admin only. No duration, no retry logic — the deterrent service sends
+    OFF to each device and returns a per-device success map. Use this when
+    a sprinkler is stuck on or you suspect the actuation state has drifted.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+
+    result = await _redis_request(
+        FORCE_OFF_CHANNEL, FORCE_OFF_RESULT_PREFIX, {},
+        timeout_sec=30.0,
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)

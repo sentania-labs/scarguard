@@ -48,6 +48,13 @@ logger = logging.getLogger(__name__)
 
 
 class RTSPStream:
+    # v1.14: after this many consecutive reconnect attempts, jump the
+    # backoff cadence to ``LONG_BACKOFF_SEC``. Catches the "camera is
+    # permanently gone" case (operator removed it from the network) so
+    # we don't fill the logs with one warning every 60 seconds forever.
+    LONG_BACKOFF_AFTER_FAILURES = 20
+    LONG_BACKOFF_SEC = 3600.0
+
     def __init__(
         self,
         name: str,
@@ -62,6 +69,7 @@ class RTSPStream:
         self._max_reconnect_delay = max_reconnect_delay
         self._cap: cv2.VideoCapture | None = None
         self._current_delay = reconnect_delay
+        self._consecutive_failures = 0
         self._stop_event = stop_event or threading.Event()
 
     def _open(self) -> bool:
@@ -74,7 +82,11 @@ class RTSPStream:
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         if self._cap.isOpened():
+            # Reset both the backoff window and the long-backoff counter so
+            # a previously-flaky stream that recovers gets quick reconnects
+            # again.
             self._current_delay = self._reconnect_delay
+            self._consecutive_failures = 0
             logger.info("[%s] Connected to RTSP stream", self.name)
             return True
 
@@ -82,18 +94,30 @@ class RTSPStream:
         return False
 
     def _reconnect(self) -> bool:
-        logger.info(
-            "[%s] Reconnecting in %.1fs (next backoff: %.1fs)",
-            self.name,
-            self._current_delay,
-            min(self._current_delay * 2, self._max_reconnect_delay),
-        )
+        # If we've crossed the long-backoff threshold, hold at the long
+        # cadence instead of the short exponential window. Avoids a noisy
+        # log line every minute when a camera is permanently offline.
+        if self._consecutive_failures >= self.LONG_BACKOFF_AFTER_FAILURES:
+            wait_sec = self.LONG_BACKOFF_SEC
+            logger.warning(
+                "[%s] Stream offline for %d attempts — backing off to %.0f min between retries",
+                self.name, self._consecutive_failures, wait_sec / 60.0,
+            )
+        else:
+            wait_sec = self._current_delay
+            logger.info(
+                "[%s] Reconnecting in %.1fs (next backoff: %.1fs)",
+                self.name,
+                wait_sec,
+                min(self._current_delay * 2, self._max_reconnect_delay),
+            )
         # wait() returns True immediately if stop_event is already set,
         # or when it becomes set during the wait — either way we abort.
-        if self._stop_event.wait(timeout=self._current_delay):
+        if self._stop_event.wait(timeout=wait_sec):
             return False
         success = self._open()
         if not success:
+            self._consecutive_failures += 1
             self._current_delay = min(self._current_delay * 2, self._max_reconnect_delay)
         return success
 

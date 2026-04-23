@@ -9,6 +9,7 @@ import signal
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -27,6 +28,12 @@ from battery_monitor import BatteryMonitor
 from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
 from cooldown import CooldownTracker, GroupCooldownTracker
+from deterrent_safety import (
+    MAX_ACTUATION_SEC,
+    clamp_duration,
+)
+from event_signing import load_key_from_env, verify_event
+from healthcheck import start_heartbeat
 from randomizer import build_random_plan
 from request_handler import RequestHandler
 
@@ -35,14 +42,38 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
 CHANNEL = "scarguard:detections"
 ACTUATION_CHANNEL = "scarguard:actuations"
+STUCK_CHANNEL = "scarguard:deterrent:stuck"
+METRICS_CHANNEL = "scarguard:metrics:drops"
 
 _REDIS_RECONNECT_DELAY = 5
 _REDIS_MAX_RECONNECT_DELAY = 60
 
+# v1.14 queue-overflow metric. Counts events dropped because the worker
+# couldn't keep up. Bumped on every drop; published periodically so the
+# web UI can surface non-zero values as a yellow flag.
+_drop_counter_lock = threading.Lock()
+_drop_counter = 0
+
 
 def load_config() -> dict[str, Any]:
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    if isinstance(cfg, dict):
+        _decrypt_secrets(cfg)
+    return cfg
+
+
+def _decrypt_secrets(cfg: dict[str, Any]) -> None:
+    """Decrypt sensitive fields (Tuya credentials) in place if a key is
+    available. No-op if the secret key is absent."""
+    import secret_box
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except secret_box.SecretKeyMissing:
+        logger.error("Failed to decrypt deterrent secrets — wrong key on disk?")
 
 
 def setup_logging(log_level: str) -> None:
@@ -128,9 +159,10 @@ def _fire_group(
     camera_name = event.get("camera_name", "unknown")
     class_name = event.get("class_name", "")
     confidence = event.get("confidence", 0.0)
+    request_id = uuid.uuid4().hex[:16]
     logger.info(
-        "Firing group [%s]: %s from %s (conf=%.2f) — %d device(s)",
-        group.name, class_name, camera_name, confidence, len(selected),
+        "Firing group [%s]: %s from %s (conf=%.2f) — %d device(s) [rid=%s]",
+        group.name, class_name, camera_name, confidence, len(selected), request_id,
     )
 
     t_start = time.monotonic()
@@ -145,22 +177,37 @@ def _fire_group(
             logger.debug("Inter-device delay: %.1fs", inter_delays[i])
             time.sleep(inter_delays[i])
 
-        duration = durations[i]
-        logger.info(
-            "Firing device %s (%s) for %.1fs",
-            device.name, device.type, duration,
+        # Defence-in-depth clamp — the randomizer reads spray_duration_range
+        # from config; a misconfigured or tampered config can't drive the
+        # physical hold beyond MAX_ACTUATION_SEC. The controller clamps too.
+        duration = clamp_duration(
+            durations[i],
+            max_sec=MAX_ACTUATION_SEC,
+            default=3.0,
         )
-        success, error, cloud_ack_ms = controller.activate_device(device, duration)
+        logger.info(
+            "Firing device %s (%s) for %.1fs [rid=%s]",
+            device.name, device.type, duration, request_id,
+        )
+        result = controller.activate_device(
+            device, duration,
+            request_id=request_id,
+            event_type="detection",
+        )
         actions.append(DeviceAction(
             device_name=device.name,
             device_id=device.device_id,
             device_type=device.type,
             duration_sec=duration,
             delay_before_sec=inter_delays[i],
-            success=success,
-            error=error,
-            cloud_ack_ms=cloud_ack_ms,
+            success=result.success,
+            error=result.error,
+            cloud_ack_ms=result.on_ack_ms,
+            off_attempts=result.off_attempts,
+            stuck=result.stuck,
         ))
+        if result.stuck:
+            _publish_stuck(pub_holder, redis_cfg, device, request_id, result.error or "OFF failed")
 
     total_duration = time.monotonic() - t_start
 
@@ -175,13 +222,16 @@ def _fire_group(
         total_duration_sec=round(total_duration, 2),
         trigger_delay_ms=trigger_delay_ms,
         queue_depth=queue_depth,
+        request_id=request_id,
+        event_type="detection",
     )
 
     successes = sum(1 for a in actions if a.success)
     logger.info(
-        "Group [%s] complete: %d/%d devices fired in %.1fs (trigger_delay=%s)",
+        "Group [%s] complete: %d/%d devices fired in %.1fs (trigger_delay=%s) [rid=%s]",
         group.name, successes, len(actions), total_duration,
         f"{trigger_delay_ms:.0f}ms" if trigger_delay_ms is not None else "n/a",
+        request_id,
     )
 
     _publish_actuation(pub_holder, redis_cfg, actuation_event)
@@ -191,6 +241,41 @@ def _fire_group(
         logger.exception("Failed to persist actuation event")
 
     return True
+
+
+def _publish_stuck(
+    holder: list[redis_lib.Redis | None],
+    redis_cfg: dict[str, Any],
+    device: DeviceConfig,
+    request_id: str,
+    error: str,
+) -> None:
+    """Publish a deterrent:stuck event so the web UI can surface a banner."""
+    payload = {
+        "device_id": device.device_id,
+        "device_name": device.name,
+        "request_id": request_id,
+        "error": error,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        client = holder[0]
+        if client is None:
+            host = redis_cfg.get("host", "redis")
+            port = int(redis_cfg.get("port", 6379))
+            password = os.environ.get("REDIS_PASSWORD", "") or None
+            client = redis_lib.Redis(
+                host=host, port=port, password=password, decode_responses=True,
+            )
+            holder[0] = client
+        client.publish(STUCK_CHANNEL, json.dumps(payload))
+        logger.warning(
+            "Published stuck event for %s (%s) [rid=%s]",
+            device.name, device.device_id, request_id,
+        )
+    except Exception:
+        logger.exception("Failed to publish stuck event for %s", device.name)
+        holder[0] = None
 
 
 def _worker(
@@ -298,6 +383,113 @@ def _worker(
     logger.info("Deterrent worker thread stopped")
 
 
+def _reconcile_loop(
+    controller_ref: AtomicRef[TuyaCloudController | None],
+    act_cfg_ref: AtomicRef[ActuationConfig],
+    shutdown_event: threading.Event,
+    redis_cfg: dict[str, Any],
+    pub_holder: list[redis_lib.Redis | None],
+) -> None:
+    """Periodically poll every enabled device; force-OFF any that report ON
+    while no activation is in flight.
+
+    Catches two scenarios the per-activation watchdog can't:
+
+    1. Deterrent service restarted while a device was energised — no
+       watchdog thread survived the restart.
+    2. The per-activation OFF succeeded from the cloud's perspective but the
+       device's own state machine failed to apply it. A later status poll
+       picks up the mismatch and retries.
+
+    Runs in its own daemon thread; pacing is ``deterrent.reconcile_interval_sec``
+    (default 30s, 0 to disable).
+    """
+    logger.info("Reconciliation loop started")
+
+    while not shutdown_event.is_set():
+        act_cfg = act_cfg_ref.get()
+        interval = act_cfg.reconcile_interval_sec
+        if interval <= 0:
+            # Disabled — check config again in 60s in case it gets re-enabled.
+            shutdown_event.wait(60)
+            continue
+
+        shutdown_event.wait(interval)
+        if shutdown_event.is_set():
+            break
+
+        controller = controller_ref.get()
+        if controller is None:
+            continue
+
+        act_cfg = act_cfg_ref.get()
+        if not act_cfg.enabled:
+            continue
+
+        for device in act_cfg.devices:
+            if not device.enabled:
+                continue
+            if controller.is_device_busy(device.device_id):
+                continue
+            switched_on = controller.is_switched_on(device)
+            if switched_on is not True:
+                continue
+
+            request_id = f"reconcile-{uuid.uuid4().hex[:12]}"
+            logger.critical(
+                "RECONCILE — device %s (%s) reports ON with no activation — forcing OFF [rid=%s]",
+                device.name, device.device_id, request_id,
+            )
+            ok, err = controller.force_off(device, request_id=request_id)
+            if not ok:
+                _publish_stuck(
+                    pub_holder, redis_cfg, device, request_id,
+                    err or "reconcile force_off failed",
+                )
+
+    logger.info("Reconciliation loop stopped")
+
+
+def _metrics_publisher(
+    redis_cfg: dict[str, Any],
+    shutdown_event: threading.Event,
+    interval_seconds: int = 60,
+) -> None:
+    """Publish queue-drop counter to Redis once per minute.
+
+    Web UI subscribes to ``scarguard:metrics:drops`` and surfaces a
+    yellow indicator when the cumulative drop count is non-zero.
+    """
+    holder: list[redis_lib.Redis | None] = [None]
+    last_published = -1
+    while not shutdown_event.wait(interval_seconds):
+        with _drop_counter_lock:
+            current = _drop_counter
+        if current == last_published:
+            continue
+        last_published = current
+        try:
+            client = holder[0]
+            if client is None:
+                host = redis_cfg.get("host", "redis")
+                port = int(redis_cfg.get("port", 6379))
+                password = os.environ.get("REDIS_PASSWORD", "") or None
+                client = redis_lib.Redis(
+                    host=host, port=port, password=password,
+                    decode_responses=True,
+                )
+                holder[0] = client
+            client.publish(METRICS_CHANNEL, json.dumps({
+                "service": "deterrent",
+                "metric": "queue_drops_total",
+                "value": current,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }))
+        except Exception:
+            logger.exception("Failed to publish drop metric")
+            holder[0] = None
+
+
 def _publish_actuation(
     holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
@@ -327,10 +519,28 @@ def subscribe_loop(
     event_queue: queue.Queue[dict[str, Any] | None],
     shutdown_event: threading.Event,
 ) -> None:
-    """Connect to Redis and forward detection events to the worker queue."""
+    """Connect to Redis and forward detection events to the worker queue.
+
+    v1.14 verifies an HMAC signature on every event before enqueuing it.
+    Because the deterrent fires physical devices, unsigned or tampered
+    events are dropped silently at this layer — the detector is the sole
+    authoritative source. Missing key falls back to accept-all with a loud
+    warning so in-place upgrades don't brick actuation.
+    """
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
     delay = _REDIS_RECONNECT_DELAY
+
+    hmac_key = load_key_from_env()
+    if hmac_key is None:
+        logger.warning(
+            "DETECTION_HMAC_KEY not set — accepting unsigned detection events. "
+            "Run setup.sh to generate the key and restart all services.",
+        )
+    else:
+        logger.info("Detection event signatures will be verified")
+    unsigned_warned = False
+    invalid_warned = False
 
     while not shutdown_event.is_set():
         client: redis_lib.Redis | None = None
@@ -361,6 +571,27 @@ def subscribe_loop(
                     logger.warning("Malformed message: %s", message["data"])
                     continue
 
+                if hmac_key is not None:
+                    if not verify_event(event, hmac_key):
+                        if not invalid_warned:
+                            logger.error(
+                                "Rejecting detection event with invalid/missing "
+                                "HMAC signature — NOT firing. Camera=%s class=%s. "
+                                "Further invalid events will be logged at DEBUG.",
+                                event.get("camera_name"),
+                                event.get("class_name"),
+                            )
+                            invalid_warned = True
+                        else:
+                            logger.debug("Invalid-signature event rejected")
+                        continue
+                elif not unsigned_warned:
+                    unsigned_warned = True
+                    logger.warning(
+                        "Accepting unsigned detection event (key not set). "
+                        "Further unsigned events will be logged at DEBUG.",
+                    )
+
                 logger.debug(
                     "Detection: %s from %s (conf=%.2f)",
                     event.get("class_name"),
@@ -370,7 +601,13 @@ def subscribe_loop(
                 try:
                     event_queue.put_nowait(event)
                 except queue.Full:
-                    logger.warning("Event queue full — dropping event")
+                    global _drop_counter
+                    with _drop_counter_lock:
+                        _drop_counter += 1
+                    logger.warning(
+                        "Event queue full — dropping event (total drops: %d)",
+                        _drop_counter,
+                    )
 
         except redis_lib.RedisError:
             if shutdown_event.is_set():
@@ -402,6 +639,7 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard deterrent service starting")
+    start_heartbeat()
 
     act_cfg = parse_actuation_config(cfg)
     controller = build_controller(act_cfg)
@@ -458,6 +696,7 @@ def main() -> None:
     # Config hot-reload
     def _on_config_change(new_cfg: dict[str, Any]) -> None:
         nonlocal battery_monitor
+        _decrypt_secrets(new_cfg)
         new_act = parse_actuation_config(new_cfg)
         new_armed = new_cfg.get("system", {}).get("armed", True)
 
@@ -521,12 +760,35 @@ def main() -> None:
     req_handler = RequestHandler(redis_cfg, act_cfg_ref, controller_ref)
     req_handler.start()
 
+    # Start reconciliation loop (force-OFF stuck devices)
+    reconcile_pub_holder: list[redis_lib.Redis | None] = [None]
+    reconcile_thread = threading.Thread(
+        target=_reconcile_loop,
+        name="deterrent-reconcile",
+        daemon=True,
+        args=(
+            controller_ref, act_cfg_ref, shutdown_event,
+            redis_cfg, reconcile_pub_holder,
+        ),
+    )
+    reconcile_thread.start()
+
+    # Start queue-drop metrics publisher
+    metrics_thread = threading.Thread(
+        target=_metrics_publisher,
+        name="deterrent-metrics",
+        daemon=True,
+        args=(redis_cfg, shutdown_event),
+    )
+    metrics_thread.start()
+
     # Subscribe loop blocks until shutdown
     subscribe_loop(redis_cfg, event_queue, shutdown_event)
 
     # Cleanup
     event_queue.put(None)  # ensure worker exits
     worker_thread.join(timeout=10)
+    reconcile_thread.join(timeout=10)
     req_handler.stop()
     watcher.stop()
     if battery_monitor is not None:

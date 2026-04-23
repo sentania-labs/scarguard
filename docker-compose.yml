@@ -17,14 +17,21 @@ services:
   redis:
     image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
     restart: unless-stopped
+    # v1.14: --maxmemory caps Redis at 200MB and evicts least-recently-used
+    # keys when full. Pre-v1.14 Redis would grow unbounded; a misbehaving
+    # publisher (or a bug in the rate-limit counters) could slowly OOM the
+    # host. The eviction policy is allkeys-lru since none of our keys are
+    # critical (pubsub is ephemeral, rate-limit is best-effort, sessions
+    # live in SQLite not Redis).
     command: >-
       sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
-        exec redis-server --requirepass "$$REDIS_PASSWORD";
+        exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 200mb --maxmemory-policy allkeys-lru;
       else
-        exec redis-server;
+        exec redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru;
       fi'
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: >-
         sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
@@ -37,6 +44,13 @@ services:
       retries: 10
     volumes:
       - redis-data:/data
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   # ── Caddy reverse proxy ───────────────────────────────────────────────────
   # Front door for all HTTP(S) traffic.  Reads tls config from scarguard.yml
@@ -60,6 +74,16 @@ services:
     depends_on:
       - web
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Caddy needs to bind 80/443 — the only privileged ports we use.
+      - NET_BIND_SERVICE
 
   # ── Detector ──────────────────────────────────────────────────────────────
   # GPU support requires the NVIDIA Container Runtime on the host.
@@ -75,8 +99,14 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+    # v1.14: active healthcheck — pre-v1.14 was `test -f /tmp/healthy`,
+    # which a crashed-but-not-exited process passed forever (the file was
+    # touched once at startup). Now we require the file's mtime to be
+    # within the last minute, which means the main loop must keep
+    # touching it.
     healthcheck:
-      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -89,6 +119,22 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 3g
+    cpus: 4.0
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Entrypoint runs as root to chown volume mounts, then gosu-drops to
+    # the scarguard user. Needs CHOWN/FOWNER/DAC_OVERRIDE for the chown
+    # and SETUID/SETGID for the user switch. Everything else stays dropped.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
 
   # ── Web UI ─────────────────────────────────────────────────────────────────
   web:
@@ -107,6 +153,7 @@ services:
       AUTH_DB_PATH: /data/auth.db
       DETERRENT_DB_PATH: /data/deterrent.db
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 30s
@@ -121,6 +168,20 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Entrypoint chowns volume mounts as root then gosu-drops to scarguard.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
 
   # ── Notifier ──────────────────────────────────────────────────────────────
   notifier:
@@ -135,8 +196,9 @@ services:
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
-      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -150,6 +212,23 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Entrypoint chowns volume mounts as root then gosu-drops to scarguard.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
 
   # ── Deterrent ─────────────────────────────────────────────────────────────
   # Physical deterrence via Tuya Cloud API.  Subscribes to detection events
@@ -162,9 +241,10 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
       DETERRENT_DB_PATH: /data/deterrent.db
     healthcheck:
-      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -176,10 +256,83 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Entrypoint chowns volume mounts as root then gosu-drops to scarguard.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    # Deterrent doesn't write anywhere except /data (SQLite) and /tmp
+    # (healthcheck sentinel).
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+
+  # ── Backup sidecar ────────────────────────────────────────────────────────
+  # v1.14: SQLite online-backup sidecar.  Backs up scarguard.db, auth.db,
+  # and deterrent.db to /data/backups/{db}/{timestamp}.db.gz on a
+  # configurable schedule (default 24h).  Manual triggers via Redis from
+  # the admin UI.  Retention: 14 dailies + 8 weeklies by default.
+  backup:
+    build:
+      context: .
+      dockerfile: services/backup/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-backup:${IMAGE_TAG:-latest}
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+      DATA_DIR: /data
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - scarguard-config:/config:ro
+      - scarguard-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 50
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # ── Docker socket proxy (sidecar) ─────────────────────────────────────────
+  # v1.14: tecnativa/docker-socket-proxy mediates Docker API access for the
+  # log-streamer instead of mounting /var/run/docker.sock directly. Pre-v1.14
+  # any code-execution bug in log-streamer would have given an attacker the
+  # full Docker API on the host (start/stop/exec any container). The proxy
+  # exposes only containers/* (read) and events (read), which is what
+  # log-streamer actually needs.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      # Everything else stays at the default (0 = denied).
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    security_opt:
+      - no-new-privileges:true
+    # The proxy itself needs to read the docker socket; it mediates that
+    # capability for downstream consumers. Don't drop capabilities on it.
 
   # ── Log Streamer (sidecar) ────────────────────────────────────────────────
-  # Tails container logs via Docker socket and publishes to Redis.
-  # Replaces the Docker socket mount previously needed by the web container.
+  # Tails container logs via the docker-socket-proxy and publishes to Redis.
+  # No direct socket mount — see docker-socket-proxy above.
   log-streamer:
     build:
       context: .
@@ -191,6 +344,9 @@ services:
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+      # docker.from_env() picks up DOCKER_HOST automatically.
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
     healthcheck:
       # Exec form (JSON array) avoids YAML folded-scalar indentation bugs
       # that broke the previous inline python -c form.
@@ -199,12 +355,22 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       redis:
         condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
     restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 50
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
 
 volumes:
   scarguard-caddy-data:

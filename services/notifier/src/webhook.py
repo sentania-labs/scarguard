@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
+from url_safety import UnsafeURLError, validate_external_url
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +35,31 @@ class WebhookNotifier:
         self._tz_name: str = tz_name
         if self._auth_token:
             self._headers.setdefault("Authorization", f"Bearer {self._auth_token}")
+        # SSRF defence-in-depth — Pydantic validates at config save, but a
+        # raw-YAML edit would bypass that. Validate again here so an
+        # internal-pointing URL never reaches requests.request().
+        allow_internal = bool(cfg.get("allow_internal", False))
+        try:
+            validate_external_url(self._url, allow_internal=allow_internal)
+            self._enabled = True
+        except UnsafeURLError as exc:
+            logger.error(
+                "Webhook [%s] disabled — unsafe URL %r: %s",
+                self._name, self._url, exc,
+            )
+            self._enabled = False
 
     @property
     def name(self) -> str:
         return self._name
 
     def send(self, event: dict) -> None:
+        if not self._enabled:
+            logger.warning(
+                "Webhook [%s] suppressed — channel disabled at construction",
+                self._name,
+            )
+            return
         if event.get("_digest"):
             self._send_digest(event)
             return
@@ -69,6 +89,12 @@ class WebhookNotifier:
 
     def _send_digest(self, report: dict) -> None:
         """Send digest report as structured JSON."""
+        if not self._enabled:
+            logger.warning(
+                "Webhook [%s] digest suppressed — channel disabled",
+                self._name,
+            )
+            return
         payload = {
             "type": "digest",
             "frequency": report.get("frequency"),

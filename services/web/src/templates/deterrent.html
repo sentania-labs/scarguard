@@ -54,6 +54,12 @@
   </p>
   <button type="button" id="status-btn" class="btn-secondary" onclick="checkDeviceStatus()">Check Status</button>
   <span id="status-spinner" class="muted" style="display:none;margin-left:0.5rem;">Querying devices...</span>
+  {% if not read_only %}
+  <button type="button" id="force-off-btn"
+          style="margin-left:1rem;background:var(--danger);color:white;border:none;padding:0.4em 0.9em;border-radius:4px;cursor:pointer;"
+          onclick="forceOffAll()">⚠ Emergency Off</button>
+  <span id="force-off-status" class="muted" style="display:none;margin-left:0.5rem;"></span>
+  {% endif %}
   <div id="status-panel" style="margin-top:0.75rem;"></div>
 </div>
 
@@ -670,6 +676,48 @@ async function testFire(deviceId, btn) {
     btn.style.color = '';
     btn.disabled = false;
   }, 3000);
+}
+
+async function forceOffAll() {
+  if (!confirm(
+    'Emergency Off will send an OFF command to EVERY configured device.\n\n' +
+    'Use this when a sprinkler or siren is stuck on. It will attempt to switch ' +
+    'off every device regardless of current state or armed/disarmed status.\n\n' +
+    'Proceed?'
+  )) return;
+  var btn = document.getElementById('force-off-btn');
+  var status = document.getElementById('force-off-status');
+  btn.disabled = true;
+  status.style.display = '';
+  status.textContent = 'Forcing OFF...';
+  status.style.color = '';
+  try {
+    var resp = await fetch('/admin/deterrent/force-off', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+      body: JSON.stringify({}),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      var n = (data.devices || []).length;
+      status.textContent = 'OFF sent to ' + n + ' device' + (n === 1 ? '' : 's') + '.';
+      status.style.color = 'var(--ok)';
+    } else {
+      var failed = (data.devices || []).filter(function(d) { return !d.ok; });
+      var msg = failed.length > 0
+        ? failed.length + ' device(s) failed: ' + failed.map(function(d) { return d.name; }).join(', ')
+        : (data.error || 'Unknown error');
+      status.textContent = 'Partial: ' + msg;
+      status.style.color = 'var(--danger)';
+    }
+  } catch (e) {
+    status.textContent = 'Network error: ' + e.message;
+    status.style.color = 'var(--danger)';
+  }
+  setTimeout(function() {
+    btn.disabled = false;
+    status.style.display = 'none';
+  }, 8000);
 }
 
 async function checkDeviceStatus() {

@@ -314,3 +314,15 @@ redis:
 #     enabled: true
 #     check_interval_hours: 24
 #     alert_threshold_percent: 20
+
+# ── Backup sidecar (v1.14+) ──────────────────────────────────────────────
+# Periodic SQLite online backups of scarguard.db, auth.db, and
+# deterrent.db.  Output lands in /data/backups/{db_name}/{timestamp}.db.gz
+# inside the scarguard-data volume.  See BACKUP.md for restore procedure.
+#
+backup:
+  enabled: true                  # set false to disable scheduled backups
+  interval_hours: 24             # how often to run a backup
+  retention_daily: 14            # keep last N backups (one per cycle)
+  retention_weekly: 8            # plus N weekly samples beyond the daily window
+  compress: true                 # gzip the backup (recommended)

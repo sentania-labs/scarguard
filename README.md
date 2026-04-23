@@ -733,5 +733,9 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 | v0.13.0 | Deterrent service MVP — Tuya Cloud control of sprinklers, lights, sirens, plugs | Complete |
 | v0.13.1 | Deterrent web UI — actuation log, device status, test-fire, config UI | Complete |
 | v0.13.2 | Review fixes, legacy notification key removal, doc cleanup | Complete |
+| v0.13.3 | Per-camera deterrent scoping, confidence thresholds, UI tabs, latency instrumentation | Complete |
+| v0.13.4 | Chip autocomplete, model-class introspection, Docker Hub auth | Complete |
+| v0.13.5 | Dashboard deterrent widget, chip-picker z-index fix, compose-smoke port remap | Complete |
+| v1.14.0 | GA hardening (Beta 3): actuation watchdog + reconciliation, HMAC Redis bus, encrypted secrets, bootstrap token, SSRF guard, rate limits, compose hardening, SQLite backup sidecar | In progress |
 
 See [ROADMAP.md](ROADMAP.md) for planned features and [STATUS.md](STATUS.md) for a detailed breakdown of what's working.

@@ -22,4 +22,11 @@ COPY services/log-streamer/src/ ./src/
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
+# v1.14: drop to non-root. Docker socket access is mediated by
+# docker-socket-proxy (over TCP), so this container no longer needs the
+# root-uid privilege for the unix-socket file mode.
+RUN addgroup --system --gid 1100 scarguard \
+    && adduser --system --uid 1100 --ingroup scarguard scarguard
+USER scarguard
+
 CMD ["python3", "src/main.py"]
