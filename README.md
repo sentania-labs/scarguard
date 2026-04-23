@@ -736,6 +736,6 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 | v0.13.3 | Per-camera deterrent scoping, confidence thresholds, UI tabs, latency instrumentation | Complete |
 | v0.13.4 | Chip autocomplete, model-class introspection, Docker Hub auth | Complete |
 | v0.13.5 | Dashboard deterrent widget, chip-picker z-index fix, compose-smoke port remap | Complete |
-| v1.14.0 | GA hardening (Beta 3): actuation watchdog + reconciliation, HMAC Redis bus, encrypted secrets, bootstrap token, SSRF guard, rate limits, compose hardening, SQLite backup sidecar | In progress |
+| v1.14.0 | GA hardening: actuation watchdog + reconciliation, HMAC Redis bus, encrypted secrets, bootstrap token, SSRF guard, rate limits, compose hardening, SQLite backup sidecar | In progress |
 
 See [ROADMAP.md](ROADMAP.md) for planned features and [STATUS.md](STATUS.md) for a detailed breakdown of what's working.
