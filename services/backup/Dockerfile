@@ -23,8 +23,11 @@ ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
 # Non-root. Needs to read /config (ro) and read+write /data (rw).
-RUN addgroup --system --gid 1100 scarguard \
-    && adduser --system --uid 1100 --ingroup scarguard scarguard
+# UID/GID must match the other services (web/detector/notifier/deterrent):
+# those chown /data to uid 999 at startup; if this sidecar is a different
+# uid it can't write /data/backups.
+RUN addgroup --system --gid 999 scarguard \
+    && adduser --system --uid 999 --ingroup scarguard scarguard
 USER scarguard
 
 CMD ["python3", "src/main.py"]

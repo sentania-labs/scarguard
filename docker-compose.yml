@@ -126,6 +126,15 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Entrypoint runs as root to chown volume mounts, then gosu-drops to
+    # the scarguard user. Needs CHOWN/FOWNER/DAC_OVERRIDE for the chown
+    # and SETUID/SETGID for the user switch. Everything else stays dropped.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
 
   # ── Web UI ─────────────────────────────────────────────────────────────────
   web:
@@ -166,6 +175,13 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Entrypoint chowns volume mounts as root then gosu-drops to scarguard.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
 
   # ── Notifier ──────────────────────────────────────────────────────────────
   notifier:
@@ -203,6 +219,13 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Entrypoint chowns volume mounts as root then gosu-drops to scarguard.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
     read_only: true
     tmpfs:
       - /tmp:size=64m
@@ -240,6 +263,13 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Entrypoint chowns volume mounts as root then gosu-drops to scarguard.
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
     # Deterrent doesn't write anywhere except /data (SQLite) and /tmp
     # (healthcheck sentinel).
     read_only: true
