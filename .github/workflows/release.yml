@@ -148,6 +148,46 @@ jobs:
         if: always()
         run: docker image prune -f
 
+  # ── Build & push — backup (x86 runner) ─────────────────────────────────────
+  release-backup:
+    name: Release backup image
+    runs-on: [self-hosted, linux, docker]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push — backup
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: services/backup/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/scarguard-backup:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/scarguard-backup:latest
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,scope=backup,mode=max
+
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f
+
   # ── Build & push — caddy (x86 runner) ──────────────────────────────────────
   release-caddy:
     name: Release caddy image
@@ -452,7 +492,7 @@ jobs:
   # with auto-generated notes so there's a visible changelog on the repo.
   create-release:
     name: Create GitHub Release
-    needs: [release-web, release-notifier, release-deterrent, release-caddy, release-log-streamer, release-detector, release-detector-x86]
+    needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-detector, release-detector-x86]
     runs-on: [self-hosted, linux, generic]
     permissions:
       contents: write
@@ -501,6 +541,7 @@ jobs:
           | web | `ghcr.io/{owner}/scarguard-web:{tag}` | amd64, arm64 |
           | notifier | `ghcr.io/{owner}/scarguard-notifier:{tag}` | amd64, arm64 |
           | deterrent | `ghcr.io/{owner}/scarguard-deterrent:{tag}` | amd64, arm64 |
+          | backup | `ghcr.io/{owner}/scarguard-backup:{tag}` | amd64, arm64 |
           | caddy | `ghcr.io/{owner}/scarguard-caddy:{tag}` | amd64, arm64 |
           | log-streamer | `ghcr.io/{owner}/scarguard-log-streamer:{tag}` | amd64, arm64 |
 
