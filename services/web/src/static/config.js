@@ -913,6 +913,17 @@ function initZoneEditor(card, initialZones) {
     syncCanvasSize();
   }
 
+  // The Exclusion Zones section is wrapped in a collapsed <details>, so the
+  // bg image has 0×0 layout at init — without this re-sync, the canvas
+  // keeps its 300×150 HTML default and newly drawn zones land outside the
+  // internal pixel space.  Re-sync on every open.
+  const detailsEl = canvas.closest("details");
+  if (detailsEl) {
+    detailsEl.addEventListener("toggle", () => {
+      if (detailsEl.open) { syncCanvasSize(); drawZones(card); }
+    });
+  }
+
   drawZones(card);
 
   // Draw on mouse drag
