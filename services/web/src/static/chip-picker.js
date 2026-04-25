@@ -178,9 +178,12 @@ window.ChipPicker = (function() {
 
     function _removeIdx(idx) {
       if (idx < 0 || idx >= values.length) return;
+      var dropdownWasOpen = dropEl.style.display !== "none";
       values.splice(idx, 1);
       _renderChips();
-      _renderDropdown();
+      // Only re-render the dropdown if the user already had it open —
+      // clicking ✕ on a chip shouldn't pop a closed dropdown back open.
+      if (dropdownWasOpen) _renderDropdown();
       _emit();
     }
 
@@ -228,8 +231,12 @@ window.ChipPicker = (function() {
           var next = readValues();
           if (Array.isArray(next)) values = next.slice();
         }
+        var dropdownWasOpen = dropEl.style.display !== "none";
         _renderChips();
-        _renderDropdown();
+        // Background registry refreshes (async class-list fetch, channel
+        // mutation observer) shouldn't pop the dropdown open — only
+        // re-render if the user already had it open.
+        if (dropdownWasOpen) _renderDropdown();
       },
       getValues: function() { return values.slice(); },
       setValues: function(next) {
