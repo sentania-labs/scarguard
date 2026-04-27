@@ -6,6 +6,14 @@ Named after Scar (aka Kroger), a survivor fish badly injured by a heron who live
 
 A containerized wildlife detection and notification system. Watches RTSP camera feeds for target species (herons, ducks, raccoons) and sends real-time notifications (Discord, email, webhooks) enabling downstream response to protect a backyard koi pond. ScarGuard handles detection, notification, and physical deterrence (sprinklers, lights, sirens via Tuya Cloud API). Works with any RTSP camera and any Docker host with an NVIDIA GPU.
 
+## Charter
+
+This workspace is software. The "What this is" / product
+scope above is the charter. Software authors don't touch
+infrastructure outside their charter — even with credentials
+available. For work that needs out-of-charter access, use a
+sanctioned cross-system channel.
+
 ## Tech Stack (Reference Setup)
 
 - **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7) — any NVIDIA GPU host works
