@@ -352,6 +352,69 @@ silently dropped.
 
 ---
 
+## v1.14.4 — training-data export tuning (planned)
+
+Organic items surfaced while preparing the first heron-tuned model
+training run (2026-04-29). All three are tweaks to the existing
+labeling/export flow — not new surface — so they fit a 1.14.x patch
+rather than a feature minor.
+
+1. **Export false positives as background samples.** Widen
+   `_EXPORTABLE_WHERE` in `services/web/src/db.py` to include
+   `feedback = 'false_positive'`. In `services/web/src/routes/training.py`
+   export loop, write the image but emit an empty `.txt` label file for
+   those rows. YOLO treats image-with-no-labels as the canonical
+   "background — no target here" signal; the training pipeline currently
+   drops these on the floor even though they're the highest-signal
+   background samples (the model thought it saw something and was
+   wrong). Enables third-party heron/duck/raccoon datasets to train
+   against actual pond/yard backgrounds without manual annotation.
+2. **Training dashboard groups by effective class.**
+   `db.get_feedback_stats` currently groups the per-class chart by the
+   model's `class_name`, so `wrong_class` corrections to "heron" / "duck"
+   / "raccoon" land under whatever the model originally guessed (person,
+   bird, etc.). Group by the same `_effective_class` rule the export
+   uses (corrected_class when feedback is `wrong_class`, else
+   class_name) so corrected labels actually appear in the dashboard, and
+   add a false-positive count column so background-sample volume is
+   visible alongside positive-class counts.
+3. **`training/README.md` updates.** Document the third-party dataset
+   merge workflow (drop `images/` + `labels/` into the extracted zip,
+   reconcile class indices in `data.yaml`); document that false
+   positives become background samples; document the corrected_class
+   bbox gotcha — the bbox stored on a `wrong_class` event is the model's
+   *original* detection, so the corrected label is only useful when the
+   model detected near the right place. UI affordance to redraw the
+   bbox while correcting class is the v1.15 follow-up below.
+
+Plus #131 (camera reconnect notice + flap suppression) bundled into
+the same patch — see GitHub.
+
+---
+
+## v1.15 — exclusion zone editor + label-correction tooling (planned)
+
+Feature work, not hardening — bumps the minor.
+
+1. **Polygon exclusion zones with edit affordance.** Replace the
+   rect-only zone tool with a polygon canvas tool, support editing
+   existing zones (currently delete-and-recreate), and migrate stored
+   rect zones into the polygon representation. Per-zone enable/disable
+   toggle and zone labels (so reports can say "suppressed by 'pump
+   area'") fold in naturally with the editor work. Inclusion zones
+   (the inverse — whitelist regions where detection is active) added
+   if nearly free once polygons exist. Closes #132.
+2. **Redraw bbox on feedback.** Organic follow-up to the v1.14.4
+   training-export tuning. When marking `wrong_class`, allow the user
+   to redraw the bbox so the corrected label is on the right pixels.
+   Currently the stored bbox is the model's original detection, which
+   limits training value when the model boxed the wrong object
+   entirely. Same canvas tooling as the polygon editor — natural
+   pairing, which is why this is bundled here rather than backported
+   to v1.14.x.
+
+---
+
 ## Future Ideas (Unprioritized)
 
 - Twilio SMS notifications — paid per-message, but works on any phone without an app
