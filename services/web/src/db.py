@@ -231,13 +231,25 @@ def get_feedback_stats(
     clause = "WHERE " + " AND ".join(where)
 
     with _connect() as conn:
-        # Per-class feedback counts
+        # Per-class feedback counts.  Group by *effective* class so a
+        # wrong-class correction (e.g. model said 'person', user labelled
+        # 'heron') shows up under the corrected label, matching what the
+        # YOLO export will use as the training class.
         rows = conn.execute(
             f"""
-            SELECT class_name, feedback, COUNT(*) AS cnt
+            SELECT
+                CASE
+                    WHEN feedback = 'wrong_class'
+                         AND corrected_class IS NOT NULL
+                         AND corrected_class != ''
+                    THEN corrected_class
+                    ELSE class_name
+                END AS effective_class,
+                feedback,
+                COUNT(*) AS cnt
             FROM detection_events
             {clause} AND feedback IS NOT NULL
-            GROUP BY class_name, feedback
+            GROUP BY effective_class, feedback
             """,
             params,
         ).fetchall()
@@ -245,7 +257,7 @@ def get_feedback_stats(
         by_class: dict[str, dict[str, int]] = {}
         total_labeled = 0
         for r in rows:
-            cls = r["class_name"]
+            cls = r["effective_class"]
             fb = r["feedback"]
             cnt = r["cnt"]
             total_labeled += cnt
@@ -302,9 +314,12 @@ def count_pruneable_events() -> int:
 
 _EXPORTABLE_WHERE = (
     "camera_name != '_system'"
-    " AND feedback IN ('correct', 'wrong_class')"
-    " AND bbox IS NOT NULL"
+    " AND feedback IN ('correct', 'wrong_class', 'false_positive')"
     " AND snapshot_path IS NOT NULL"
+    " AND ("
+    "feedback = 'false_positive'"
+    " OR bbox IS NOT NULL"
+    ")"
 )
 
 

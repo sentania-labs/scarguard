@@ -49,25 +49,33 @@ async def training_dashboard(
     dto = date_to or None
     stats = db.get_feedback_stats(date_from=dfrom, date_to=dto)
 
-    # Build per-class data for the bar chart
+    # Build per-class data for the bar chart.  Training-positive count =
+    # correct + wrong_class (a wrong_class correction relabels the bbox to
+    # this effective class, so it's a training sample for it).  False
+    # positives are tracked separately — they become background samples in
+    # the export, not labeled instances.
     by_class = stats["by_class"]
-    max_correct = max(
-        (v["correct"] for v in by_class.values()), default=1
+    max_positive = max(
+        (v["correct"] + v["wrong_class"] for v in by_class.values()),
+        default=1,
     ) or 1
 
     class_chart: list[dict] = []
     for cls_name, counts in sorted(by_class.items()):
+        positive = counts["correct"] + counts["wrong_class"]
         class_chart.append({
             "name": cls_name.replace("_", " ").title(),
             "raw_name": cls_name,
             "correct": counts["correct"],
             "false_positive": counts["false_positive"],
             "wrong_class": counts["wrong_class"],
-            "bar_pct": (counts["correct"] / max_correct) * 100,
-            "low_data": counts["correct"] < 500,
+            "positive": positive,
+            "bar_pct": (positive / max_positive) * 100,
+            "low_data": positive < 500,
         })
 
-    # Count exportable events (correct or wrong_class with bbox)
+    # Count exportable events (correct + wrong_class with bbox + false_positive
+    # as background samples)
     exportable = db.count_exportable_events(date_from=dfrom, date_to=dto)
 
     return templates.TemplateResponse(
@@ -108,11 +116,14 @@ async def export_dataset(
             status_code=404,
         )
 
-    # Build class-to-index mapping from distinct labels
+    # Build class-to-index mapping from distinct labels.  Skip false
+    # positives — they become background samples (image with empty label
+    # file) and don't contribute a class to data.yaml.
     class_set: set[str] = set()
     for r in rows:
-        label = _effective_class(r)
-        class_set.add(label)
+        if r["feedback"] == "false_positive":
+            continue
+        class_set.add(_effective_class(r))
     class_names = sorted(class_set)
     class_to_idx = {name: idx for idx, name in enumerate(class_names)}
 
@@ -127,12 +138,10 @@ async def export_dataset(
             row = dict(r)
             event_id = row["id"]
             snapshot_path = row["snapshot_path"]
-            bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
-            frame_size = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
-            label = _effective_class(row)
-            class_idx = class_to_idx[label]
+            is_negative = row["feedback"] == "false_positive"
 
-            # Copy snapshot image
+            # Copy snapshot image (always — positives and negatives both
+            # need the pixels; only the label file differs)
             src_path = Path(snapshot_path)
             if not src_path.exists():
                 # Try in SNAPSHOT_DIR
@@ -144,7 +153,16 @@ async def export_dataset(
             img_name = f"{event_id}.jpg"
             zf.write(str(src_path), f"dataset/images/train/{img_name}")
 
-            # Write YOLO annotation
+            if is_negative:
+                # Background sample: empty label file is YOLO's canonical
+                # "no targets in this image" signal.
+                zf.writestr(f"dataset/labels/train/{event_id}.txt", "")
+                continue
+
+            # Positive (correct / wrong_class): emit YOLO bbox annotation
+            bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
+            frame_size = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
+            class_idx = class_to_idx[_effective_class(row)]
             x1, y1, x2, y2 = bbox
             fw, fh = frame_size
             x_center = ((x1 + x2) / 2) / fw

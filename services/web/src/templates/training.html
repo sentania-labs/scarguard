@@ -50,15 +50,15 @@
       {% if cls.low_data %}<span class="badge badge-warn" title="< 500 correct labels">&lt; 500</span>{% endif %}
     </div>
     <div class="class-chart-bars">
-      <div class="class-chart-bar bar-correct" style="width: {{ cls.bar_pct }}%" title="Correct: {{ cls.correct }}">
-        {{ cls.correct }}
+      <div class="class-chart-bar bar-correct" style="width: {{ cls.bar_pct }}%" title="Training samples: {{ cls.positive }} (correct {{ cls.correct }} + corrected-to {{ cls.wrong_class }})">
+        {{ cls.positive }}
       </div>
     </div>
     <div class="class-chart-meta">
-      <span class="muted">FP: {{ cls.false_positive }}</span>
       {% if cls.wrong_class > 0 %}
-      <span class="muted">WC: {{ cls.wrong_class }}</span>
+      <span class="muted" title="Wrong-class corrections relabelled to this class">WC: {{ cls.wrong_class }}</span>
       {% endif %}
+      <span class="muted" title="False positives — exported as background samples (empty labels)">FP/BG: {{ cls.false_positive }}</span>
     </div>
   </div>
   {% endfor %}
@@ -70,8 +70,8 @@
 <h2>Export</h2>
 
 {% if exportable > 0 %}
-<p>Export <strong>{{ exportable }}</strong> confirmed detections as a YOLO-format dataset (images + annotation .txt files + data.yaml).</p>
-<p class="hint">Only events with feedback (correct or wrong-class with corrected label) and stored bounding box data are included. Pre-migration events without bbox data are excluded.</p>
+<p>Export <strong>{{ exportable }}</strong> labelled detections as a YOLO-format dataset (images + annotation .txt files + data.yaml).</p>
+<p class="hint">Includes correct labels, wrong-class corrections (using the corrected label), and false positives as background samples (image with empty label file — YOLO's "no targets here" signal). Positive events without bbox data (pre-migration) are excluded.</p>
 <a href="/admin/training/export?date_from={{ filter_date_from | urlencode }}&amp;date_to={{ filter_date_to | urlencode }}"
    class="btn-export" download>
   Download Dataset (.zip)
