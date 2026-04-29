@@ -127,6 +127,22 @@ async def export_dataset(
     class_names = sorted(class_set)
     class_to_idx = {name: idx for idx, name in enumerate(class_names)}
 
+    if not class_names:
+        # All matching rows are false positives.  A YOLO dataset with
+        # nc: 0 and only background images can't train anything; reject
+        # the export instead of returning a degenerate zip the user
+        # would only discover at training time.
+        return StreamingResponse(
+            iter([
+                b"No positive labels in the selected range. "
+                b"Exports require at least one Correct or Wrong-Class "
+                b"event with a bounding box; false positives alone are "
+                b"not a trainable dataset.",
+            ]),
+            media_type="text/plain",
+            status_code=404,
+        )
+
     # Stream a zip file
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
