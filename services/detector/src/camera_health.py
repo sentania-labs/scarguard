@@ -17,10 +17,13 @@ class _CameraState:
     last_frame_at: float = 0.0  # monotonic timestamp of last successful frame
     last_failure_at: float = 0.0  # monotonic timestamp of last failure
     offline_since: float | None = None  # monotonic timestamp when camera went offline
+    online_since: float | None = None  # monotonic timestamp of most recent online transition
     reconnect_count: int = 0
     last_reconnect_start: float = 0.0
     last_reconnect_duration: float | None = None
-    alert_sent: bool = False  # True if offline alert already dispatched for this outage
+    alert_sent: bool = False  # offline alert dispatched for current continuous outage
+    outage_alerted: bool = False  # offline alert was sent during this outage cycle (cleared on recovery alert)
+    last_outage_duration: float | None = None  # captured at reconnect, used in the recovery alert payload
 
 
 class CameraHealthTracker:
@@ -47,16 +50,25 @@ class CameraHealthTracker:
             state.last_frame_at = now
             if state.offline_since is not None:
                 # Camera came back online
-                state.last_reconnect_duration = now - state.offline_since
+                duration = now - state.offline_since
+                state.last_reconnect_duration = duration
                 state.reconnect_count += 1
+                if state.outage_alerted:
+                    # Stash for the eventual recovery alert (only fired
+                    # after sustained uptime — see check_alerts).
+                    state.last_outage_duration = duration
+                state.offline_since = None
+                state.online_since = now
+                state.alert_sent = False
                 logger.info(
                     "[%s] Camera back online (was offline %.1fs, reconnect #%d)",
                     camera_name,
-                    state.last_reconnect_duration,
+                    duration,
                     state.reconnect_count,
                 )
-                state.offline_since = None
-                state.alert_sent = False
+            elif state.online_since is None:
+                # First-ever successful frame for this camera
+                state.online_since = now
 
     def record_failure(self, camera_name: str) -> None:
         """Record a failed frame read — camera may be going offline."""
@@ -68,12 +80,20 @@ class CameraHealthTracker:
                 # Only mark offline after debounce period with no frames
                 if state.last_frame_at == 0 or (now - state.last_frame_at) > self._debounce:
                     state.offline_since = now
+                    state.online_since = None
                     state.last_reconnect_start = now
 
     def check_alerts(self) -> list[dict]:
-        """Return alert events for cameras that have been offline beyond threshold.
+        """Return alert events for cameras whose state crossed an alerting threshold.
 
-        Each camera only generates one alert per outage (until it recovers).
+        Two alert types:
+          - ``camera_offline``: emitted once per continuous outage when the
+            camera has been offline >= ``alert_threshold_seconds``.
+          - ``camera_recovered``: emitted after the camera has been back
+            online >= ``alert_threshold_seconds`` *and* an offline alert was
+            sent during the prior outage. The sustained-uptime requirement
+            is the flap suppressor — a camera that reconnects briefly only
+            to fail again does not page the user with a "recovered" notice.
         """
         now = time.monotonic()
         alerts: list[dict] = []
@@ -85,6 +105,7 @@ class CameraHealthTracker:
                     and (now - state.offline_since) >= self._alert_threshold
                 ):
                     state.alert_sent = True
+                    state.outage_alerted = True
                     offline_secs = now - state.offline_since
                     alerts.append({
                         "type": "camera_offline",
@@ -96,6 +117,32 @@ class CameraHealthTracker:
                         "[%s] Camera offline alert — down for %.0fs",
                         name,
                         offline_secs,
+                    )
+
+            for name, state in self._cameras.items():
+                if (
+                    state.outage_alerted
+                    and state.offline_since is None
+                    and state.online_since is not None
+                    and (now - state.online_since) >= self._alert_threshold
+                ):
+                    outage_secs = state.last_outage_duration or 0.0
+                    online_secs = now - state.online_since
+                    alerts.append({
+                        "type": "camera_recovered",
+                        "camera_name": name,
+                        "offline_seconds": round(outage_secs, 1),
+                        "online_seconds": round(online_secs, 1),
+                        "reconnect_count": state.reconnect_count,
+                    })
+                    state.outage_alerted = False
+                    state.last_outage_duration = None
+                    logger.info(
+                        "[%s] Camera recovery alert — was down %.0fs, "
+                        "stable for %.0fs",
+                        name,
+                        outage_secs,
+                        online_secs,
                     )
         return alerts
 

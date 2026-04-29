@@ -278,19 +278,43 @@ def subscribe_loop(
 
                 # Health alerts get formatted as notification events
                 if message["channel"] == HEALTH_CHANNEL:
-                    alert_event = {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "class_name": "camera_offline",
-                        "confidence": 1.0,
-                        "camera_name": event.get("camera_name", "unknown"),
-                        "snapshot_path": None,
-                    }
-                    logger.warning(
-                        "Camera health alert: %s offline for %ss",
-                        event.get("camera_name"),
-                        event.get("offline_seconds"),
-                    )
-                    dispatch(alert_event, notifiers, notifiers_lock, queue)
+                    alert_type = event.get("type")
+                    if alert_type == "camera_offline":
+                        alert_event = {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "class_name": "camera_offline",
+                            "confidence": 1.0,
+                            "camera_name": event.get("camera_name", "unknown"),
+                            "snapshot_path": None,
+                        }
+                        logger.warning(
+                            "Camera health alert: %s offline for %ss",
+                            event.get("camera_name"),
+                            event.get("offline_seconds"),
+                        )
+                        dispatch(alert_event, notifiers, notifiers_lock, queue)
+                    elif alert_type == "camera_recovered":
+                        alert_event = {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "class_name": "camera_recovered",
+                            "confidence": 1.0,
+                            "camera_name": event.get("camera_name", "unknown"),
+                            "snapshot_path": None,
+                            "offline_seconds": event.get("offline_seconds"),
+                            "online_seconds": event.get("online_seconds"),
+                            "reconnect_count": event.get("reconnect_count"),
+                        }
+                        logger.info(
+                            "Camera health alert: %s recovered (was offline %ss)",
+                            event.get("camera_name"),
+                            event.get("offline_seconds"),
+                        )
+                        dispatch(alert_event, notifiers, notifiers_lock, queue)
+                    else:
+                        logger.warning(
+                            "Unknown health alert type %r — dropping",
+                            alert_type,
+                        )
                     continue
 
                 # Inject base_url so notifiers can build feedback links
