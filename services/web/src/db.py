@@ -312,6 +312,18 @@ def count_pruneable_events() -> int:
     return row[0]
 
 
+# Positives drive the dashboard "X exportable" count and the trainable
+# class definitions in data.yaml.
+_EXPORTABLE_POSITIVE_WHERE = (
+    "camera_name != '_system'"
+    " AND feedback IN ('correct', 'wrong_class')"
+    " AND bbox IS NOT NULL"
+    " AND snapshot_path IS NOT NULL"
+)
+
+# Exportable rows = positives + false positives (the latter ride along as
+# YOLO background samples — image + empty label file).  FPs without a
+# bbox are still valid backgrounds, so the bbox filter is positives-only.
 _EXPORTABLE_WHERE = (
     "camera_name != '_system'"
     " AND feedback IN ('correct', 'wrong_class', 'false_positive')"
@@ -327,8 +339,15 @@ def count_exportable_events(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> int:
-    """Count events eligible for YOLO dataset export."""
-    where = _EXPORTABLE_WHERE
+    """Count *positive* events that drive the trainable class definitions
+    in the export.  False positives ride along in the zip as background
+    samples (see ``get_exportable_events``) but they don't contribute a
+    class to data.yaml, so the dashboard "X exportable" headline counts
+    positives only.  Otherwise the UI would advertise an FP-only range as
+    exportable while the export endpoint correctly rejects that case as a
+    degenerate dataset.
+    """
+    where = _EXPORTABLE_POSITIVE_WHERE
     params: list[object] = []
     if date_from:
         where += " AND timestamp >= ?"
