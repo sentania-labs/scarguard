@@ -231,13 +231,25 @@ def get_feedback_stats(
     clause = "WHERE " + " AND ".join(where)
 
     with _connect() as conn:
-        # Per-class feedback counts
+        # Per-class feedback counts.  Group by *effective* class so a
+        # wrong-class correction (e.g. model said 'person', user labelled
+        # 'heron') shows up under the corrected label, matching what the
+        # YOLO export will use as the training class.
         rows = conn.execute(
             f"""
-            SELECT class_name, feedback, COUNT(*) AS cnt
+            SELECT
+                CASE
+                    WHEN feedback = 'wrong_class'
+                         AND corrected_class IS NOT NULL
+                         AND corrected_class != ''
+                    THEN corrected_class
+                    ELSE class_name
+                END AS effective_class,
+                feedback,
+                COUNT(*) AS cnt
             FROM detection_events
             {clause} AND feedback IS NOT NULL
-            GROUP BY class_name, feedback
+            GROUP BY effective_class, feedback
             """,
             params,
         ).fetchall()
@@ -245,7 +257,7 @@ def get_feedback_stats(
         by_class: dict[str, dict[str, int]] = {}
         total_labeled = 0
         for r in rows:
-            cls = r["class_name"]
+            cls = r["effective_class"]
             fb = r["feedback"]
             cnt = r["cnt"]
             total_labeled += cnt
@@ -300,11 +312,26 @@ def count_pruneable_events() -> int:
     return row[0]
 
 
-_EXPORTABLE_WHERE = (
+# Positives drive the dashboard "X exportable" count and the trainable
+# class definitions in data.yaml.
+_EXPORTABLE_POSITIVE_WHERE = (
     "camera_name != '_system'"
     " AND feedback IN ('correct', 'wrong_class')"
     " AND bbox IS NOT NULL"
     " AND snapshot_path IS NOT NULL"
+)
+
+# Exportable rows = positives + false positives (the latter ride along as
+# YOLO background samples — image + empty label file).  FPs without a
+# bbox are still valid backgrounds, so the bbox filter is positives-only.
+_EXPORTABLE_WHERE = (
+    "camera_name != '_system'"
+    " AND feedback IN ('correct', 'wrong_class', 'false_positive')"
+    " AND snapshot_path IS NOT NULL"
+    " AND ("
+    "feedback = 'false_positive'"
+    " OR bbox IS NOT NULL"
+    ")"
 )
 
 
@@ -312,8 +339,15 @@ def count_exportable_events(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> int:
-    """Count events eligible for YOLO dataset export."""
-    where = _EXPORTABLE_WHERE
+    """Count *positive* events that drive the trainable class definitions
+    in the export.  False positives ride along in the zip as background
+    samples (see ``get_exportable_events``) but they don't contribute a
+    class to data.yaml, so the dashboard "X exportable" headline counts
+    positives only.  Otherwise the UI would advertise an FP-only range as
+    exportable while the export endpoint correctly rejects that case as a
+    degenerate dataset.
+    """
+    where = _EXPORTABLE_POSITIVE_WHERE
     params: list[object] = []
     if date_from:
         where += " AND timestamp >= ?"

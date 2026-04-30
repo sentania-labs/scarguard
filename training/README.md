@@ -17,6 +17,37 @@ Fine-tune a YOLO model on detection data collected and labeled through ScarGuard
 4. **Evaluate** the trained model against stored snapshots using the Model Evaluation page
 5. **Promote** the model by copying the `.pt` file to your models directory and selecting it in config
 
+### How feedback maps to training data
+
+| Feedback | What lands in the export |
+|---|---|
+| **Correct** | Image + bbox label using the model's predicted class |
+| **Wrong Class** + corrected label | Image + bbox label using the *corrected* class. The bbox is the model's *original* detection — see the gotcha below. |
+| **False Positive** | Image + **empty** `.txt` label file. YOLO treats this as a background sample ("nothing of interest here") and learns what the *absence* of a target looks like in your specific environment. |
+
+### Gotcha: corrected_class bbox
+
+When you mark an event as **Wrong Class** and provide a corrected label
+(e.g. model said "person", you typed "heron"), the **bbox stored on
+that event is the model's original detection**, not a fresh box around
+the actual heron. So the corrected label is only useful when the model
+detected *near* the right place — i.e. it boxed something that overlaps
+the real target.
+
+For events where the model boxed the wrong thing entirely (heron in the
+upper-right of the frame, model boxed a person in the foreground), the
+corrected label points YOLO at the wrong pixels. Two ways to handle:
+
+- **Skip those events** when labelling — leave them unlabelled rather
+  than corrupting the training set with bad bboxes.
+- **Wait for v1.15** — a "redraw bbox" UI affordance is planned for
+  v1.15 (paired with the polygon zone editor — same canvas tooling) so
+  you can drop a fresh box on the actual target when correcting class.
+
+For the missing-detection case (heron in the frame, model didn't detect
+at all), no event = no training sample. Mix in a third-party heron
+dataset to fill that gap (see "Mixing third-party datasets" below).
+
 ## Usage
 
 ```bash
@@ -70,9 +101,46 @@ dataset/
 └── labels/
     └── train/
         ├── 123.txt    # YOLO annotation: class_id x_center y_center width height
-        ├── 456.txt
+        ├── 456.txt    # (empty file — false-positive event = background sample)
         └── ...
 ```
+
+Empty `.txt` files are intentional: false-positive feedback exports
+the snapshot with a zero-byte label file, which YOLO interprets as
+"no targets in this image." These act as negative / background
+samples during training.
+
+## Mixing third-party datasets
+
+The exported zip is a standard YOLO dataset, so you can extend it
+with public heron / duck / raccoon datasets to bulk up positive
+samples while keeping your captured snapshots as the source of
+*background* truth (what your pond and yard actually look like,
+without targets).
+
+Workflow:
+
+1. Extract the ScarGuard export: `unzip scarguard_dataset.zip -d my_dataset`
+2. Note its `dataset/data.yaml` — list of class names and their
+   indices (e.g. `names: ['heron', 'person', 'raccoon']`).
+3. For each third-party dataset, **renumber its label files** so the
+   class indices match your `data.yaml`. If a third-party heron
+   dataset uses class `0` for heron and your export uses class `0`
+   for heron, no change needed. If indices differ, run `sed` over
+   the `.txt` files: `sed -i 's/^0 /N /' labels/train/*.txt` where
+   `N` is the right index in your data.yaml.
+4. Copy the third-party `images/train/*` into your dataset's
+   `images/train/` and the renumbered `labels/train/*.txt` into
+   `labels/train/`. Filename collisions: rename third-party files
+   with a prefix (e.g. `coco-`, `oid-`) to avoid clashing with
+   ScarGuard's numeric event IDs.
+5. Add any third-party class names to `data.yaml` `names:` if you
+   added new ones. Update `nc:` to match `len(names)`.
+6. Train against the merged `data.yaml`.
+
+Result: model learns heron / duck / raccoon shape from the public
+datasets *plus* learns what's-not-a-target in your specific yard
+from your own false-positive captures.
 
 ## Jetson Orin Tips
 
