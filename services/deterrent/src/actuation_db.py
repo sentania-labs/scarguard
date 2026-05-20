@@ -6,6 +6,8 @@ read-only for the actuation log page.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import sqlite3
@@ -16,6 +18,45 @@ from actuation_models import ActuationEvent
 logger = logging.getLogger(__name__)
 
 DB_PATH: str = os.environ.get("DETERRENT_DB_PATH", "/data/deterrent.db")
+
+# ---------------------------------------------------------------------------
+# HMAC key for tamper-evident hash chain on actuation_events rows.
+# Loaded lazily so the module can import without side-effects.
+# ---------------------------------------------------------------------------
+_hmac_key: bytes | None = None
+_hmac_key_loaded: bool = False
+_hmac_key_warned: bool = False
+
+
+def _get_hmac_key() -> bytes | None:
+    """Return the HMAC key, loading from the environment on first call."""
+    global _hmac_key, _hmac_key_loaded
+    if not _hmac_key_loaded:
+        from event_signing import load_key_from_env
+        _hmac_key = load_key_from_env()
+        _hmac_key_loaded = True
+    return _hmac_key
+
+
+def _compute_row_hash(
+    key: bytes,
+    prev_hash: str,
+    timestamp: str,
+    trigger_class: str,
+    trigger_camera: str,
+    event_type: str,
+    request_id: str,
+) -> str:
+    """Compute HMAC-SHA256 over the canonical pipe-delimited row fields."""
+    canonical = "|".join([
+        prev_hash,
+        timestamp,
+        trigger_class,
+        trigger_camera,
+        event_type,
+        request_id,
+    ])
+    return hmac.new(key, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
 
 _lock = threading.Lock()
 _local = threading.local()
@@ -96,6 +137,13 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_actuation_request_id "
             "ON actuation_events(request_id)",
         )
+        # v1.14.4: tamper-evident HMAC hash chain columns.
+        _add_column_if_missing(
+            conn, "actuation_events", "prev_hash", "TEXT NOT NULL DEFAULT ''",
+        )
+        _add_column_if_missing(
+            conn, "actuation_events", "row_hash", "TEXT NOT NULL DEFAULT ''",
+        )
         conn.commit()
         logger.info("Actuation database initialised at %s", DB_PATH)
 
@@ -113,15 +161,42 @@ def _add_column_if_missing(
 
 def insert_event(event: ActuationEvent) -> int:
     """Persist an actuation event and its device actions.  Returns the row ID."""
+    global _hmac_key_warned
     with _lock:
         conn = _get_conn()
+
+        # --- hash chain: compute prev_hash + row_hash -----------------
+        key = _get_hmac_key()
+        prev_hash = ""
+        row_hash = ""
+        if key is not None:
+            row = conn.execute(
+                "SELECT row_hash FROM actuation_events ORDER BY id DESC LIMIT 1",
+            ).fetchone()
+            prev_hash = row["row_hash"] if row is not None else ""
+            row_hash = _compute_row_hash(
+                key,
+                prev_hash,
+                event.timestamp,
+                event.trigger_class,
+                event.trigger_camera,
+                event.event_type,
+                event.request_id,
+            )
+        elif not _hmac_key_warned:
+            logger.warning(
+                "DETECTION_HMAC_KEY not set — actuation hash chain disabled",
+            )
+            _hmac_key_warned = True
+
         cur = conn.execute(
             """INSERT INTO actuation_events
                (timestamp, trigger_class, trigger_camera, trigger_confidence,
                 pre_delay_sec, total_duration_sec, device_count, success_count,
                 group_name, trigger_delay_ms, queue_depth,
-                request_id, event_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                request_id, event_type,
+                prev_hash, row_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 event.timestamp,
                 event.trigger_class,
@@ -136,6 +211,8 @@ def insert_event(event: ActuationEvent) -> int:
                 event.queue_depth,
                 event.request_id,
                 event.event_type,
+                prev_hash,
+                row_hash,
             ),
         )
         event_id = cur.lastrowid
@@ -165,3 +242,56 @@ def insert_event(event: ActuationEvent) -> int:
         conn.commit()
         logger.debug("Actuation event %d persisted (%d actions)", event_id, len(event.actions))
         return event_id
+
+
+def verify_chain() -> tuple[bool, str]:
+    """Walk the actuation_events table and verify every HMAC hash link.
+
+    Returns ``(True, "N rows verified")`` when the chain is intact, or
+    ``(False, "<reason>")`` on the first broken link or missing key.
+    """
+    key = _get_hmac_key()
+    if key is None:
+        return (False, "HMAC key not available")
+
+    with _lock:
+        conn = _get_conn()
+        rows = conn.execute(
+            "SELECT id, timestamp, trigger_class, trigger_camera, "
+            "event_type, request_id, prev_hash, row_hash "
+            "FROM actuation_events ORDER BY id",
+        ).fetchall()
+
+    expected_prev = ""
+    for row in rows:
+        row_id: int = row["id"]
+        stored_prev: str = row["prev_hash"]
+        stored_hash: str = row["row_hash"]
+
+        # Validate prev_hash links to previous row's row_hash
+        if stored_prev != expected_prev:
+            return (
+                False,
+                f"Chain broken at row ID {row_id}: "
+                f"prev_hash mismatch (expected {expected_prev!r}, "
+                f"got {stored_prev!r})",
+            )
+
+        expected_hash = _compute_row_hash(
+            key,
+            stored_prev,
+            row["timestamp"],
+            row["trigger_class"],
+            row["trigger_camera"],
+            row["event_type"],
+            row["request_id"],
+        )
+        if not hmac.compare_digest(stored_hash, expected_hash):
+            return (
+                False,
+                f"Chain broken at row ID {row_id}: row_hash mismatch",
+            )
+
+        expected_prev = stored_hash
+
+    return (True, f"{len(rows)} rows verified")
