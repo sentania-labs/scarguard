@@ -24,12 +24,15 @@
 
   <div id="form-banner"></div>
 
-  <div class="mode-toggle">
+  <div class="mode-toggle" style="display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap;">
     <label class="toggle-label">
       <input type="checkbox" id="expert-mode-toggle" onchange="toggleExpertMode(this.checked)">
       <span class="toggle-track"></span>
       Expert mode
     </label>
+    {% if not read_only %}
+    <button type="button" id="reveal-secrets-btn" class="btn-secondary" style="font-size:0.85rem;">Reveal secrets</button>
+    {% endif %}
   </div>
 
   {# ── Settings sub-tabs ──────────────────────────────────────────────────── #}
@@ -518,11 +521,16 @@
   <p class="hint">
     Direct YAML editor. Changes here are applied immediately on save.
     Services reload within ~10 seconds — no restart required.
+    Secrets are redacted by default; click "Reveal secrets" to show them.
   </p>
+
+  <div style="margin-bottom:0.5rem;">
+    <button type="button" id="reveal-yaml-btn" class="btn-secondary" style="font-size:0.85rem;">Reveal secrets</button>
+  </div>
 
   <form method="post" action="/config">
     <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-    <textarea name="raw_yaml" rows="40" style="width:100%;font-family:monospace;font-size:0.85rem;">{{ raw_yaml }}</textarea>
+    <textarea name="raw_yaml" id="raw-yaml-textarea" rows="40" style="width:100%;font-family:monospace;font-size:0.85rem;">{{ raw_yaml }}</textarea>
     <div style="margin-top:0.5rem;">
       <button type="submit">Save</button>
     </div>

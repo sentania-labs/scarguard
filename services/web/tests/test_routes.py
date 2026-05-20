@@ -69,7 +69,10 @@ class TestConfig:
     def test_cameras_json_is_not_html_escaped(self, client):
         resp = client.get("/config")
         assert resp.status_code == 200
-        assert '"rtsp_url": "rtsp://localhost/test"' in resp.text
+        # RTSP URLs are now redacted for all roles (admin included) to
+        # prevent XSS amplification.  Verify the JSON block uses the
+        # redacted placeholder and is not HTML-entity-escaped.
+        assert '"rtsp_url": "***REDACTED***"' in resp.text
         assert "&#34;rtsp_url&#34;" not in resp.text
 
     def test_post_valid_yaml(self, client, monkeypatch):

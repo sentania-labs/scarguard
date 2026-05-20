@@ -583,7 +583,9 @@ function validate(data) {
 
   data.cameras.forEach((cam, i) => {
     if (!cam.name) errors.push(`Camera ${i + 1}: name is required`);
-    if (cam.rtsp_url && !cam.rtsp_url.startsWith("rtsp://") && !cam.rtsp_url.startsWith("rtsps://"))
+    // Skip RTSP validation when the value is the redacted placeholder —
+    // the server will preserve the existing secret on save.
+    if (cam.rtsp_url && cam.rtsp_url !== _REDACTED && !cam.rtsp_url.startsWith("rtsp://") && !cam.rtsp_url.startsWith("rtsps://"))
       errors.push(`Camera ${i + 1} (${cam.name || i + 1}): RTSP URL must start with rtsp:// or rtsps://`);
   });
 
@@ -680,14 +682,28 @@ async function saveConfig() {
       const warnings = Array.isArray(result.warnings) ? result.warnings : [];
       _showBanner(warnings.length ? "warn" : "ok", base, warnings);
       // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
+      // (redacted — secrets are never in the default response).
       try {
         const rawRes = await fetch("/config/raw");
         if (rawRes.ok) {
           const rawData = await rawRes.json();
-          const yamlArea = document.querySelector("#tab-advanced textarea[name='raw_yaml']");
-          if (yamlArea) yamlArea.value = rawData.yaml;
+          const yamlArea = document.getElementById("raw-yaml-textarea");
+          if (yamlArea) {
+            yamlArea.value = rawData.yaml;
+            yamlArea.style.borderColor = "";
+          }
+          // Reset YAML reveal state since config was re-saved.
+          _yamlRevealed = false;
+          _redactedYaml = null;
+          var yamlBtn = document.getElementById("reveal-yaml-btn");
+          if (yamlBtn) yamlBtn.textContent = "Reveal secrets";
         }
       } catch (_) { /* non-critical — textarea will update on next page load */ }
+      // Reset secrets reveal state since config may have changed.
+      _secretsRevealed = false;
+      _savedSecrets = null;
+      var revBtn = document.getElementById("reveal-secrets-btn");
+      if (revBtn) revBtn.textContent = "Reveal secrets";
     } else {
       // Server returns a generic message + request_id (issue #95). Surface
       // the request_id so the operator can correlate with web container logs.
@@ -1121,3 +1137,165 @@ async function sendTestNotification(btn) {
     btn.disabled = false;
   }
 }
+
+// \u2500\u2500 Secret reveal / hide (admin only) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Fetches cleartext secrets from /config/secrets (audit-logged) and patches
+// ***REDACTED*** placeholders in form inputs.  Toggle hides them again by
+// restoring the placeholder.
+
+var _REDACTED = "***REDACTED***";
+var _secretsRevealed = false;
+var _savedSecrets = null;   // cached response from /config/secrets
+
+function _markRevealed(input, revealed) {
+  if (revealed) {
+    input.style.borderColor = "var(--accent, #f59e0b)";
+    input.dataset.secretRevealed = "1";
+  } else {
+    input.style.borderColor = "";
+    delete input.dataset.secretRevealed;
+  }
+}
+
+function _applySecrets(secrets) {
+  // Camera RTSP URLs
+  if (Array.isArray(secrets.cameras)) {
+    var camCards = document.querySelectorAll("#cameras-list .camera-card");
+    camCards.forEach(function(card) {
+      var nameEl = card.querySelector(".cam-name");
+      var rtspEl = card.querySelector(".cam-rtsp");
+      if (!nameEl || !rtspEl) return;
+      var camName = nameEl.value.trim();
+      for (var i = 0; i < secrets.cameras.length; i++) {
+        if (secrets.cameras[i].name === camName && secrets.cameras[i].rtsp_url) {
+          rtspEl.value = secrets.cameras[i].rtsp_url;
+          _markRevealed(rtspEl, true);
+          break;
+        }
+      }
+    });
+  }
+
+  // Channel secrets
+  if (Array.isArray(secrets.channels)) {
+    var chCards = document.querySelectorAll("#channels-list .camera-card");
+    chCards.forEach(function(card) {
+      var chNameEl = card.querySelector(".ch-name");
+      if (!chNameEl) return;
+      var chName = chNameEl.value.trim();
+      for (var ci = 0; ci < secrets.channels.length; ci++) {
+        if (secrets.channels[ci].name !== chName) continue;
+        var chSecrets = secrets.channels[ci];
+        card.querySelectorAll(".ch-field").forEach(function(el) {
+          var field = el.dataset.field;
+          if (field && chSecrets[field]) {
+            el.value = chSecrets[field];
+            _markRevealed(el, true);
+          }
+        });
+        break;
+      }
+    });
+  }
+
+  // Tuya API key/secret (deterrent section \u2014 these live on the /admin/deterrent
+  // page, not the config page structured form, so nothing to patch here; they
+  // are included in the secrets response for completeness but the config page
+  // has no inputs for them).
+}
+
+function _hideSecrets() {
+  // Re-mask every input that was revealed.
+  document.querySelectorAll("[data-secret-revealed]").forEach(function(el) {
+    el.value = _REDACTED;
+    _markRevealed(el, false);
+  });
+}
+
+async function _toggleSecrets() {
+  var btn = document.getElementById("reveal-secrets-btn");
+  if (!btn) return;
+
+  if (_secretsRevealed) {
+    _hideSecrets();
+    _secretsRevealed = false;
+    btn.textContent = "Reveal secrets";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Loading\u2026";
+
+  try {
+    var resp = await fetch("/config/secrets", {
+      headers: { "X-CSRF-Token": getCsrfToken() },
+    });
+    if (!resp.ok) {
+      alert("Failed to fetch secrets (HTTP " + resp.status + ")");
+      btn.textContent = "Reveal secrets";
+      return;
+    }
+    _savedSecrets = await resp.json();
+    _applySecrets(_savedSecrets);
+    _secretsRevealed = true;
+    btn.textContent = "Hide secrets";
+  } catch (e) {
+    alert("Network error: " + e.message);
+    btn.textContent = "Reveal secrets";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// \u2500\u2500 Raw YAML reveal / hide \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+var _yamlRevealed = false;
+var _redactedYaml = null;   // original redacted YAML (to restore on hide)
+
+async function _toggleYamlSecrets() {
+  var btn = document.getElementById("reveal-yaml-btn");
+  var textarea = document.getElementById("raw-yaml-textarea");
+  if (!btn || !textarea) return;
+
+  if (_yamlRevealed) {
+    if (_redactedYaml !== null) textarea.value = _redactedYaml;
+    textarea.style.borderColor = "";
+    _yamlRevealed = false;
+    btn.textContent = "Reveal secrets";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Loading\u2026";
+
+  try {
+    // Save the current (redacted) content for restoring later.
+    _redactedYaml = textarea.value;
+    var resp = await fetch("/config/raw-unredacted", {
+      headers: { "X-CSRF-Token": getCsrfToken() },
+    });
+    if (!resp.ok) {
+      alert("Failed to fetch unredacted YAML (HTTP " + resp.status + ")");
+      btn.textContent = "Reveal secrets";
+      return;
+    }
+    var data = await resp.json();
+    textarea.value = data.yaml;
+    textarea.style.borderColor = "var(--accent, #f59e0b)";
+    _yamlRevealed = true;
+    btn.textContent = "Hide secrets";
+  } catch (e) {
+    alert("Network error: " + e.message);
+    btn.textContent = "Reveal secrets";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Wire up reveal buttons when the DOM is ready.
+(function _wireRevealButtons() {
+  var revealBtn = document.getElementById("reveal-secrets-btn");
+  if (revealBtn) revealBtn.addEventListener("click", _toggleSecrets);
+  var yamlBtn = document.getElementById("reveal-yaml-btn");
+  if (yamlBtn) yamlBtn.addEventListener("click", _toggleYamlSecrets);
+})();

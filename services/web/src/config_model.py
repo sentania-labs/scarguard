@@ -228,7 +228,9 @@ class CameraConfig(BaseModel):
     @field_validator("rtsp_url")
     @classmethod
     def rtsp_url_format(cls, v: str) -> str:
-        if v and not v.startswith(("rtsp://", "rtsps://")):
+        # Allow the redacted placeholder through — the save handler strips
+        # it before merging so the existing secret is preserved.
+        if v and v != "***REDACTED***" and not v.startswith(("rtsp://", "rtsps://")):
             raise ValueError("RTSP URL must start with rtsp:// or rtsps://")
         return v
 
