@@ -1,5 +1,17 @@
 /* ScarGuard — structured config form logic */
 
+// ── Page data from server (CSP-safe JSON data block) ────────────────────────
+(function() {
+  var el = document.getElementById('config-page-data');
+  if (el) {
+    var d = JSON.parse(el.textContent);
+    window._availableModels = d.availableModels || [];
+    window.SCARGUARD_READ_ONLY = d.readOnly || false;
+  }
+  var ge = document.getElementById('groups-data');
+  if (ge) window._availableGroups = JSON.parse(ge.textContent);
+})();
+
 // ── Chip-picker shadow registries (v0.13.4) ──────────────────────────────────
 // Each ChipPicker reads its registry via a callback, so the pickers stay in
 // sync as these lists change (channels renamed/added/removed, model swapped).

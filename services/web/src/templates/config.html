@@ -188,11 +188,7 @@
         <script id="groups-data" type="application/json">
           {{ groups_json | safe }}
         </script>
-        <script>
-          window._availableModels = {{ available_models | tojson }};
-          window._availableGroups = JSON.parse(document.getElementById("groups-data").textContent);
-          window.SCARGUARD_READ_ONLY = {{ read_only|default(false)|tojson }};
-        </script>
+        <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}}</script>
         <div id="cameras-list"></div>
         {% if not read_only %}
         <button type="button" class="btn-add" onclick="addCamera()">+ Add Camera</button>
@@ -492,62 +488,7 @@
       </div>
     </div>
   </div>
-  <script>
-    function toggleTlsFields() {
-      var mode = document.getElementById('tls-mode').value;
-      document.getElementById('tls-domain-field').style.display = (mode === 'auto' || mode === 'manual') ? '' : 'none';
-      document.getElementById('tls-domain-hint-auto').style.display = mode === 'auto' ? '' : 'none';
-      document.getElementById('tls-domain-hint-manual').style.display = mode === 'manual' ? '' : 'none';
-      document.getElementById('tls-manual-fields').style.display = mode === 'manual' ? '' : 'none';
-    }
-    toggleTlsFields();
-
-    function switchCertTab(tab, btn) {
-      document.getElementById('cert-tab-upload').style.display = tab === 'upload' ? '' : 'none';
-      document.getElementById('cert-tab-paste').style.display = tab === 'paste' ? '' : 'none';
-      document.querySelectorAll('.cert-tab-btn').forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-    }
-
-    async function uploadCerts() {
-      var status = document.getElementById('cert-upload-status');
-      var btn = document.getElementById('cert-upload-btn');
-      btn.disabled = true;
-      status.textContent = 'Uploading...';
-      status.style.color = '';
-
-      var fd = new FormData();
-      var certFile = document.getElementById('tls-cert-file').files[0];
-      var keyFile = document.getElementById('tls-key-file').files[0];
-      var certPem = document.getElementById('tls-cert-pem').value;
-      var keyPem = document.getElementById('tls-key-pem').value;
-
-      if (certFile) fd.append('cert_file', certFile);
-      if (keyFile) fd.append('key_file', keyFile);
-      if (certPem) fd.append('cert_pem', certPem);
-      if (keyPem) fd.append('key_pem', keyPem);
-
-      try {
-        var resp = await fetch('/config/tls/upload-cert', {
-          method: 'POST',
-          body: fd,
-          headers: {'X-CSRF-Token': getCsrfToken()}
-        });
-        var data = await resp.json();
-        if (data.ok) {
-          status.textContent = 'Uploaded: ' + data.written.join(', ');
-          status.style.color = 'var(--ok)';
-        } else {
-          status.textContent = data.error || 'Upload failed';
-          status.style.color = 'var(--danger)';
-        }
-      } catch (e) {
-        status.textContent = 'Network error: ' + e.message;
-        status.style.color = 'var(--danger)';
-      }
-      btn.disabled = false;
-    }
-  </script>
+  <script src="/static/config-tls.js"></script>
 
   {% if not read_only %}
   <button id="save-btn" type="button" onclick="saveConfig()">Save</button>
@@ -593,56 +534,6 @@
 <script src="/static/chip-picker.js"></script>
 <script src="/static/config.js"></script>
 {% if read_only %}
-<script>
-  // Read-only admin mode: disable every form input inside the settings tab
-  // and hide every "Add", "Save", "Test", "Upload", "Remove" button.  The
-  // server-side guard in route_auth.require_admin still rejects any POST
-  // a determined client might forge, but this keeps the UI obviously
-  // read-only without requiring per-field template branches.
-  (function readOnlyHardening() {
-    function apply() {
-      var panel = document.getElementById('tab-settings');
-      if (!panel) return;
-      // Disable every form control under the settings tab.
-      var controls = panel.querySelectorAll('input, select, textarea');
-      for (var i = 0; i < controls.length; i++) {
-        var el = controls[i];
-        // Leave the expert-mode toggle alone so viewers can still reveal
-        // advanced sections if they want (it's a client-side only flag).
-        if (el.id === 'expert-mode-toggle') continue;
-        el.disabled = true;
-      }
-      // Hide buttons that would trigger writes.  These are all the
-      // button.btn-add, the Save button, and any inline Test/Upload/Remove
-      // buttons that config.js wires up dynamically.
-      var hideSelectors = [
-        '#save-btn',
-        '.btn-add',
-        '.btn-remove',
-        '.btn-test',
-        '.btn-upload',
-        'button[onclick*="Save"]',
-        'button[onclick*="save"]',
-        'button[onclick*="test"]',
-        'button[onclick*="upload"]',
-        'button[onclick*="remove"]',
-        'button[onclick*="add"]',
-      ];
-      for (var j = 0; j < hideSelectors.length; j++) {
-        var matches = panel.querySelectorAll(hideSelectors[j]);
-        for (var k = 0; k < matches.length; k++) matches[k].style.display = 'none';
-      }
-    }
-    // Run on load AND re-run after config.js hydrates the dynamic camera /
-    // channel cards (they get created after DOMContentLoaded).  A simple
-    // MutationObserver on the two lists covers the "card just added"
-    // cases without racing.
-    document.addEventListener('DOMContentLoaded', apply);
-    var target = document.getElementById('tab-settings');
-    if (target && window.MutationObserver) {
-      new MutationObserver(apply).observe(target, { childList: true, subtree: true });
-    }
-  })();
-</script>
+<script src="/static/config-readonly.js"></script>
 {% endif %}
 {% endblock %}
