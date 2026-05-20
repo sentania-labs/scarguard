@@ -620,15 +620,19 @@ detection:
 **Converting to TensorRT** for best performance on the Orin:
 
 ```bash
-# Run inside the detector container
-docker compose exec detector python -c "
+# The detector mounts /models read-only at runtime, so TensorRT export
+# needs a one-off container with rw access and the NVIDIA runtime:
+docker run --rm --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+  -v scarguard-models:/models \
+  ghcr.io/sentania-labs/scarguard-detector:latest \
+  python3 -c "
 from ultralytics import YOLO
-model = YOLO('/models/heron-v2.pt')
+model = YOLO('/models/pond_v1.pt')
 model.export(format='engine', device=0, half=True)
 "
 ```
 
-The exported `.engine` file will appear in `models/` alongside the `.pt`.
+The exported `.engine` file will appear in the models volume alongside the `.pt`.
 
 ---
 
