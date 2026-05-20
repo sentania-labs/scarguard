@@ -27,8 +27,9 @@ class TestRoundTrip:
         twice = secret_box.encrypt(once, key)
         assert once == twice
 
-    def test_decrypt_passthrough_on_plaintext(self, key: bytes) -> None:
-        assert secret_box.decrypt("not encrypted", key) == "not encrypted"
+    def test_decrypt_rejects_plaintext(self, key: bytes) -> None:
+        with pytest.raises(ValueError, match="Unencrypted sensitive value rejected"):
+            secret_box.decrypt("not encrypted", key)
 
     def test_encrypt_passthrough_on_empty(self, key: bytes) -> None:
         assert secret_box.encrypt("", key) == ""

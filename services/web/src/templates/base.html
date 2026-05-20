@@ -6,7 +6,7 @@
   <title>{% block title %}ScarGuard{% endblock %}</title>
   <link rel="icon" href="/static/favicon.ico">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js" defer></script>
+  <script src="/static/vendor/htmx.min.js" defer></script>
   <script>
     function getCsrfToken(){var m=document.cookie.match(/(?:^|; )csrf_token=([^;]*)/);return m?decodeURIComponent(m[1]):"";}
     document.addEventListener("htmx:configRequest",function(e){e.detail.headers["X-CSRF-Token"]=getCsrfToken();});

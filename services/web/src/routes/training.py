@@ -279,9 +279,19 @@ async def start_evaluation(
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
-    # Resolve model paths
-    model_a_path = str(MODELS_DIR / model_a) if model_a else ""
-    model_b_path = str(MODELS_DIR / model_b) if model_b else ""
+    # Resolve model paths — basename-strip to prevent path traversal
+    for raw_name in (model_a, model_b):
+        if not raw_name:
+            continue
+        safe_name = Path(raw_name).name
+        resolved = (MODELS_DIR / safe_name).resolve()
+        if not resolved.is_relative_to(MODELS_DIR.resolve()) or not resolved.is_file():
+            return HTMLResponse(
+                f'<div class="alert alert-err">Invalid model: {_html.escape(safe_name)}</div>',
+                status_code=400,
+            )
+    model_a_path = str(MODELS_DIR / Path(model_a).name) if model_a else ""
+    model_b_path = str(MODELS_DIR / Path(model_b).name) if model_b else ""
 
     eval_request = {
         "model_a": model_a_path,

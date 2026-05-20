@@ -67,7 +67,9 @@ snippet = """(scarguard) {
 \t\tX-Content-Type-Options nosniff
 \t\tReferrer-Policy strict-origin-when-cross-origin
 \t\tPermissions-Policy "geolocation=(), camera=(), microphone=(), payment=()"
-""" + hsts_header + """\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
+""" + hsts_header + """\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+\t\tCross-Origin-Opener-Policy same-origin
+\t\tCross-Origin-Resource-Policy same-origin
 \t\t-Server
 \t}
 \t# Drop common bot-probe paths at the edge so they never reach FastAPI.

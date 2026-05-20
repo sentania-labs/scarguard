@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
+from template_json import safe_json_dumps
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin/deterrent")
@@ -90,14 +91,14 @@ async def deterrent_page(request: Request) -> Response:
             "enabled": act.get("enabled", False),
             "tuya": tuya,
             "devices": devices,
-            "devices_json": json.dumps(devices),
+            "devices_json": safe_json_dumps(devices),
             "groups": groups,
-            "groups_json": json.dumps(groups),
-            "group_usage_json": json.dumps(group_usage),
+            "groups_json": safe_json_dumps(groups),
+            "group_usage_json": safe_json_dumps(group_usage),
             "defaults": defaults,
-            "defaults_json": json.dumps(defaults),
+            "defaults_json": safe_json_dumps(defaults),
             "battery_monitor": battery_monitor,
-            "battery_monitor_json": json.dumps(battery_monitor),
+            "battery_monitor_json": safe_json_dumps(battery_monitor),
         },
     )
 

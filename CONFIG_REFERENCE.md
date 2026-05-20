@@ -7,11 +7,17 @@ system:
   armed: true
   log_level: info
   timezone: "UTC"
-  retention_days: 90             # days; applies to snapshots, events, visits, and metrics; 0 = keep forever (1-365)
+  retention_days: 90             # days; applies to snapshots, events, visits, and metrics; 0 = keep forever (0 or 1-365)
   stats_interval: 5             # seconds between system stats collection (1-60)
   visit_timeout_seconds: 300    # gap before a visit session is closed (60-3600)
   training_nudge_threshold: 100 # labeled events before showing training nudge banner (10-10000)
-  base_url: ""                  # external URL for feedback links in notifications (e.g. "https://scarguard.example.com")
+  auth:
+    enabled: true               # master toggle for authentication (default: true)
+    session_timeout_hours: 24   # session expiry (default: 24)
+    max_login_attempts: 5       # lockout after N failed attempts (default: 5)
+    lockout_duration_minutes: 15 # lockout duration in minutes (default: 15)
+    require_api_auth: false     # require Bearer token for API endpoints (default: false)
+    nonadmin_rearm_minutes: 30  # auto-rearm after non-admin disarm (0 = disabled) (default: 30)
   camera_health:
     alert_threshold_minutes: 10 # minutes offline before alerting (1-1440)
     debounce_seconds: 30        # ignore brief RTSP hiccups shorter than this (5-300)
@@ -42,8 +48,9 @@ cameras:
     rtsp_url: "rtsp://172.16.0.1:7447/STREAM_TOKEN_1"
     enabled: true
     resolution: 720
-    # model_path: /models/heron-v2.pt         # optional — override global model
-    # detect_classes: [great_blue_heron]       # optional — override global target_classes
+    model_path: null              # optional — per-camera model override (default: null = use global detection.model_path)
+    detect_classes: null          # optional — per-camera class filter (default: null = use global detection.target_classes)
+    confidence_threshold: null    # optional — per-camera confidence override (default: null = use global detection.confidence_threshold)
     # Exclusion zones use NORMALIZED coordinates (0.0–1.0 relative to frame).
     exclusion_zones:
       - x: 0.50
@@ -51,10 +58,10 @@ cameras:
         w: 0.12
         h: 0.18
         label: "heron decoy"
-    # Per-camera action rules — route detections from this camera to specific
-    # named channels.  Rules are evaluated top-down; first match wins.
+    # Per-camera notification rules — route detections from this camera to
+    # specific named channels.  Rules are evaluated top-down; first match wins.
     # Omit to notify every enabled channel.
-    action_rules:
+    notification_rules:
       - class_name: great_blue_heron
         channels: [pond-alerts, owner-email]
       - class_name: bird
@@ -98,18 +105,13 @@ detection:
     - class_name: raccoon
       groups: [minor]                # single siren
 
-  # Optional per-camera overrides (v0.13.3+).  Any omitted key inherits the
-  # corresponding global `detection.*` value.
-  confidence_threshold: 0.40         # higher than global for this camera's fine-tuned model
-
-  # Per-camera class filter (v0.13.3+).  When omitted, inherits
-  # detection.target_classes.  In the UI, fields like this and
-  # notification_rules.channels / deterrent_rules.groups use a chip-autocomplete
-  # control (v0.13.4+) that validates entries against the registry — typos
-  # render as amber "unknown" chips rather than silently breaking.  At save
-  # time, entries that don't resolve to a defined channel or group produce
-  # an advisory warning in the response (save still succeeds).
-  # detect_classes: [great_blue_heron, duck]
+  # Per-camera overrides (v0.13.3+): model_path, detect_classes, and
+  # confidence_threshold are defined above in the camera block.  When null
+  # (default), the corresponding global `detection.*` value is inherited.
+  # In the UI, list fields like detect_classes, notification_rules.channels,
+  # and deterrent_rules.groups use a chip-autocomplete control (v0.13.4+) —
+  # typos render as amber "unknown" chips.  Unresolved references produce an
+  # advisory warning on save (save still succeeds).
 
 notifications:
   channels:
@@ -330,6 +332,7 @@ Firing is gated by two cooldown layers:
 | `deterrent.defaults.inter_device_delay_range` | list[float] | `[1.0, 5.0]` | Min/max seconds between device activations |
 | `deterrent.defaults.pre_delay_range` | list[float] | `[0.0, 3.0]` | Min/max seconds before sequence starts |
 | `deterrent.defaults.cooldown_seconds` | int | `60` | **Global** cooldown — minimum gap between *any* two actuations across all groups. Group cooldowns stack on top. |
+| `deterrent.reconcile_interval_sec` | int | `30` | Seconds between reconciliation polls. Detects stuck devices and force-OFFs any that report ON while not actively driven. 0 = disabled. |
 | `deterrent.battery_monitor.enabled` | bool | `true` | Poll battery levels periodically |
 | `deterrent.battery_monitor.check_interval_hours` | int | `24` | Hours between battery checks |
 | `deterrent.battery_monitor.alert_threshold_percent` | int | `20` | Alert when battery drops below this |

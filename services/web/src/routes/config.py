@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
+from template_json import safe_json_dumps
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
         snap_path = latest_snaps.get(cam.name)
         d["snapshot_url"] = ("/snapshots/" + Path(snap_path).name) if snap_path else None
         result.append(d)
-    return json.dumps(result)
+    return safe_json_dumps(result)
 
 
 def _groups_json(raw_cfg: dict) -> str:
@@ -145,15 +146,15 @@ def _groups_json(raw_cfg: dict) -> str:
                 g.get("name", "") for g in raw_groups
                 if isinstance(g, dict) and g.get("name")
             ]
-    return json.dumps(groups)
+    return safe_json_dumps(groups)
 
 
 def _channels_json(raw_cfg: dict) -> str:
     if not isinstance(raw_cfg, dict):
-        return json.dumps([])
+        return safe_json_dumps([])
     raw_notif = raw_cfg.get("notifications", {})
     channels = raw_notif.get("channels", []) if isinstance(raw_notif, dict) else []
-    return json.dumps(channels if isinstance(channels, list) else [])
+    return safe_json_dumps(channels if isinstance(channels, list) else [])
 
 
 @router.get("", response_class=HTMLResponse)
