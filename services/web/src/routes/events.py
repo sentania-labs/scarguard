@@ -138,6 +138,7 @@ async def submit_feedback(
     event_id: int,
     feedback: str = Form(...),
     corrected_class: str = Form(""),
+    corrected_bbox: str = Form(""),
 ):
     """Set or update feedback on a detection event.  Returns the updated row."""
     if feedback not in ("correct", "false_positive", "wrong_class"):
@@ -156,7 +157,20 @@ async def submit_feedback(
             "partials/event_rows.html",
             {"events": events, "target_classes": _get_target_classes()},
         )
-    db.update_feedback(event_id, feedback, corr)
+    # Validate corrected_bbox as JSON [x1, y1, x2, y2] if provided
+    bbox_str: str | None = None
+    if feedback == "wrong_class" and corrected_bbox.strip():
+        try:
+            parsed = json.loads(corrected_bbox.strip())
+            if (
+                isinstance(parsed, list)
+                and len(parsed) == 4
+                and all(isinstance(c, (int, float)) for c in parsed)
+            ):
+                bbox_str = json.dumps(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass  # ignore malformed bbox — keep original
+    db.update_feedback(event_id, feedback, corr, corrected_bbox=bbox_str)
     row = db.get_event(event_id)
     if row is None:
         return HTMLResponse("<tr><td colspan='7'>Event not found</td></tr>")

@@ -66,7 +66,7 @@ def get_events(
             f"""
             SELECT id, timestamp, class_name, confidence, camera_name,
                    snapshot_path, actions_triggered, bbox, frame_size,
-                   feedback, corrected_class
+                   feedback, corrected_class, corrected_bbox
             FROM detection_events
             {clause}
             ORDER BY id DESC
@@ -186,16 +186,17 @@ def update_feedback(
     event_id: int,
     feedback: str,
     corrected_class: str | None = None,
+    corrected_bbox: str | None = None,
 ) -> bool:
     """Set feedback on a detection event.  Returns True on success."""
     with _connect() as conn:
         cur = conn.execute(
             """
             UPDATE detection_events
-            SET feedback = ?, corrected_class = ?
+            SET feedback = ?, corrected_class = ?, corrected_bbox = ?
             WHERE id = ?
             """,
-            (feedback, corrected_class, event_id),
+            (feedback, corrected_class, corrected_bbox, event_id),
         )
         conn.commit()
         return cur.rowcount > 0
@@ -380,7 +381,7 @@ def get_exportable_events(
             f"""
             SELECT id, class_name, confidence, camera_name,
                    snapshot_path, bbox, frame_size,
-                   feedback, corrected_class
+                   feedback, corrected_class, corrected_bbox
             FROM detection_events
             WHERE {where}
             ORDER BY id

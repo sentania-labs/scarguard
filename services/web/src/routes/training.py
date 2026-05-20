@@ -175,8 +175,13 @@ async def export_dataset(
                 zf.writestr(f"dataset/labels/train/{event_id}.txt", "")
                 continue
 
-            # Positive (correct / wrong_class): emit YOLO bbox annotation
-            bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
+            # Positive (correct / wrong_class): emit YOLO bbox annotation.
+            # If the user drew a corrected bbox, prefer it over the original.
+            raw_corrected = row.get("corrected_bbox")
+            if raw_corrected:
+                bbox = json.loads(raw_corrected) if isinstance(raw_corrected, str) else raw_corrected
+            else:
+                bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
             frame_size = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
             class_idx = class_to_idx[_effective_class(row)]
             x1, y1, x2, y2 = bbox

@@ -219,6 +219,7 @@ class EventProcessor:
                 "frame_size": "ALTER TABLE detection_events ADD COLUMN frame_size TEXT",
                 "feedback": "ALTER TABLE detection_events ADD COLUMN feedback TEXT",
                 "corrected_class": "ALTER TABLE detection_events ADD COLUMN corrected_class TEXT",
+                "corrected_bbox": "ALTER TABLE detection_events ADD COLUMN corrected_bbox TEXT",
                 "feedback_token": "ALTER TABLE detection_events ADD COLUMN feedback_token TEXT",
             }
             for col, ddl in migrations.items():

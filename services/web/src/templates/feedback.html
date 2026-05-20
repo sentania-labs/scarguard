@@ -45,11 +45,27 @@
     font-size: 0.85rem;
     margin-bottom: 1.5rem;
   }
+  .snapshot-wrap {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 1rem;
+  }
   .snapshot {
     width: 100%;
     border-radius: 8px;
-    margin-bottom: 1rem;
     border: 1px solid var(--border);
+    display: block;
+  }
+  .fb-bbox-overlay {
+    position: absolute;
+    border: 2px solid #4a9eff;
+    pointer-events: none;
+  }
+  .fb-corrected-bbox {
+    position: absolute;
+    border: 2px solid var(--green);
+    pointer-events: none;
   }
   .details {
     display: flex;
@@ -145,7 +161,11 @@
     {% endif %}
 
     {% if event.snapshot_path %}
-      <img class="snapshot" src="/feedback/{{ token }}/snapshot" alt="Detection snapshot">
+      <div class="snapshot-wrap" id="snapshot-wrap"
+           {% if event.bbox %}data-bbox="{{ event.bbox }}"{% endif %}
+           {% if event.frame_size %}data-frame-size="{{ event.frame_size }}"{% endif %}>
+        <img class="snapshot" id="snapshot-img" src="/feedback/{{ token }}/snapshot" alt="Detection snapshot">
+      </div>
     {% endif %}
 
     <div class="details">
@@ -173,6 +193,7 @@
       </button>
       <form method="post" action="/feedback/{{ token }}" id="wrong-class-form" class="wrong-class-row {{ 'open' if preselect == 'wrong_class' else '' }}">
         <input type="hidden" name="feedback" value="wrong_class">
+        <input type="hidden" name="corrected_bbox" id="corrected-bbox-field" value="">
         <input type="text" name="corrected_class" list="fb-class-options"
                placeholder="Select or type the correct class…"
                value="{{ event.corrected_class or '' }}" required>
@@ -181,6 +202,7 @@
             <option value="{{ cls }}">{{ cls | replace("_", " ") }}</option>
           {% endfor %}
         </datalist>
+        <button type="button" id="btn-redraw-bbox" class="btn btn-wrong" style="font-size:0.85rem;padding:0.5rem 0.75rem">Redraw bbox</button>
         <button type="submit" class="btn btn-wrong">Submit Correction</button>
       </form>
     </div>

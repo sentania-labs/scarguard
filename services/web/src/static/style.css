@@ -681,6 +681,11 @@ input[type="range"] {
   border: 2px solid #ff3333;
   pointer-events: none;
 }
+.snapshot-overlay__corrected-bbox {
+  position: absolute;
+  border: 2px solid #3ecf8e;
+  pointer-events: none;
+}
 .snapshot-overlay__label {
   position: absolute;
   top: -20px; left: 0;
