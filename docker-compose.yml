@@ -434,6 +434,51 @@ services:
     tmpfs:
       - /tmp:size=32m
 
+  # ── Config API (optional — behind "config-api" profile) ──────────────────
+  # v1.15: separate config-write service.  Only starts when launched with
+  #   docker compose --profile config-api up
+  # When inactive, the web service handles all config writes as before.
+  # Enable via system.config_api.enabled: true in scarguard.yml AND the
+  # compose profile flag.
+  config-api:
+    build:
+      context: .
+      dockerfile: services/config-api/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-config-api:${IMAGE_TAG:-latest}
+    profiles: ["config-api"]
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+      DB_PATH: /data/scarguard.db
+      AUTH_DB_PATH: /data/auth.db
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - scarguard-config:/config        # rw — writes scarguard.yml, certs
+      - scarguard-data:/data            # rw — reads auth.db, writes backups
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+
 volumes:
   scarguard-caddy-data:
     name: scarguard-caddy-data

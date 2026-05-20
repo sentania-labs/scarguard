@@ -61,6 +61,36 @@ hsts_header = (
     if tls_active else ""
 )
 
+# v1.15: optional config-api service split.  When system.config_api.enabled
+# is true in scarguard.yml, Caddy routes the 8 config-write POST paths to
+# the config-api container instead of web.  When disabled (default), the
+# snippet contains only the standard reverse_proxy to web:8080.
+sys_cfg = cfg.get("system", {})
+if not isinstance(sys_cfg, dict):
+    sys_cfg = {}
+config_api_cfg = sys_cfg.get("config_api", {})
+if not isinstance(config_api_cfg, dict):
+    config_api_cfg = {}
+config_api_enabled = config_api_cfg.get("enabled", False) is True
+
+if config_api_enabled:
+    config_api_block = """
+\t# Config-API split: route config-write POSTs to the dedicated service.
+\t@config_writes {
+\t\tmethod POST
+\t\tpath /config/structured /config /config/tls/upload-cert /config/test-notification /admin/deterrent /admin/backups/create /admin/db-backups/trigger
+\t}
+\t@config_restore {
+\t\tmethod POST
+\t\tpath_regexp restore ^/admin/backups/[^/]+/restore$
+\t}
+\treverse_proxy @config_writes config-api:8081
+\treverse_proxy @config_restore config-api:8081
+"""
+    print("[caddy-entrypoint] Config-API split enabled — routing write POSTs to config-api:8081", file=sys.stderr)
+else:
+    config_api_block = ""
+
 snippet = """(scarguard) {
 \theader {
 \t\tX-Frame-Options DENY
@@ -79,7 +109,7 @@ snippet = """(scarguard) {
 \t\tpath /.git/* /_ignition/* /aws*config.js /config.js
 \t}
 \trespond @probes 404
-\treverse_proxy web:8080
+""" + config_api_block + """\treverse_proxy web:8080
 }
 """
 

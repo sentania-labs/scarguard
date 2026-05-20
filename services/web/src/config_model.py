@@ -125,6 +125,17 @@ class SummaryReportConfig(BaseModel):
         return f"{h:02d}:{m:02d}"
 
 
+class ConfigApiConfig(BaseModel):
+    """Feature flag for the optional config-API service split.
+
+    When ``enabled`` is True the ``config-api`` compose profile should be
+    active and Caddy routes config-write POSTs to the dedicated service
+    instead of the web monolith.  Default is False (web handles everything).
+    """
+
+    enabled: bool = False
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
@@ -138,6 +149,7 @@ class SystemConfig(BaseModel):
     camera_health: CameraHealthConfig = CameraHealthConfig()
     backup: BackupConfig = BackupConfig()
     summary_report: SummaryReportConfig = SummaryReportConfig()
+    config_api: ConfigApiConfig = ConfigApiConfig()
 
     @field_validator("retention_days")
     @classmethod

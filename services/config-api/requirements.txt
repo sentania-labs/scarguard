@@ -1,0 +1,7 @@
+fastapi==0.135.3
+uvicorn[standard]==0.43.0
+pydantic==2.12.5
+pyyaml==6.0.3
+redis==7.4.0
+cryptography==46.0.7
+python-multipart==0.0.27
