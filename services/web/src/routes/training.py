@@ -284,15 +284,16 @@ async def start_evaluation(
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
-    # Resolve model paths — basename-strip to prevent path traversal
+    # Resolve model paths — validate against directory listing to avoid
+    # path traversal (CodeQL py/path-injection).
+    allowed = {f.name for f in MODELS_DIR.iterdir() if f.is_file()} if MODELS_DIR.is_dir() else set()
     for raw_name in (model_a, model_b):
         if not raw_name:
             continue
-        safe_name = Path(raw_name).name
-        resolved = (MODELS_DIR / safe_name).resolve()
-        if not resolved.is_relative_to(MODELS_DIR.resolve()) or not resolved.is_file():
+        base = Path(raw_name).name
+        if base not in allowed:
             return HTMLResponse(
-                f'<div class="alert alert-err">Invalid model: {_html.escape(safe_name)}</div>',
+                f'<div class="alert alert-err">Invalid model: {_html.escape(base)}</div>',
                 status_code=400,
             )
     model_a_path = str(MODELS_DIR / Path(model_a).name) if model_a else ""

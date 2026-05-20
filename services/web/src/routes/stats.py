@@ -45,7 +45,7 @@ async def stats_stream(request: Request) -> StreamingResponse:
     interval = max(1, int(cfg.get("system", {}).get("stats_interval", 5)))
 
     user = getattr(request.state, "user", None)
-    user_id = user.id if user else "anon"
+    user_id = user["user_id"] if user else "anon"
 
     async def generator():
         client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)

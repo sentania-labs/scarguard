@@ -356,15 +356,18 @@ async def download_backup_post(
 
 
 @router.get("/stream")
-async def backup_status_stream(request: Request) -> StreamingResponse:
+async def backup_status_stream(request: Request) -> Response:
     """SSE stream — pushes backup status events for the live-status panel."""
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
     user = getattr(request.state, "user", None)
-    user_id = user.id if user else "anon"
+    user_id = user["user_id"] if user else "anon"
 
     async def generator():
         client = aioredis.Redis(

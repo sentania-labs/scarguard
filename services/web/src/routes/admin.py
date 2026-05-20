@@ -63,7 +63,7 @@ async def logs_stream(
     tail = max(1, min(tail, 5000))
 
     user = getattr(request.state, "user", None)
-    user_id = user.id if user else "anon"
+    user_id = user["user_id"] if user else "anon"
 
     async def generator():
         client = aioredis.Redis(**_redis_params())

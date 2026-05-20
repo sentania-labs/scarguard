@@ -90,10 +90,8 @@ function readDevicesFromForm() {
 }
 
 function esc(s) {
-  if (!s) return '';
-  var d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 async function saveDeterrent() {
