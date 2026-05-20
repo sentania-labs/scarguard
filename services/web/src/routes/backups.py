@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import audit
 import config_store
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -230,10 +231,20 @@ async def download_backup(
 
     Filename and db come from the URL but are validated against the
     actual directory listing — anything else returns 404. This is
-    audit-logged so manual exfiltration leaves a trail."""
+    audit-logged so manual exfiltration leaves a trail.
+
+    ``auth`` database downloads are blocked via GET — they require the
+    POST endpoint below which enforces password re-authentication.
+    """
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
+
+    if db == "auth":
+        raise HTTPException(
+            status_code=403,
+            detail="auth database downloads require password re-authentication",
+        )
 
     resolved = _safe_resolve(db, filename)
     if resolved is None:
@@ -245,6 +256,93 @@ async def download_backup(
         resolved.parent.name,
         resolved.name,
         getattr(request.state, "user", {}).get("username", "<unknown>"),
+    )
+    media_type = (
+        "application/gzip" if resolved.name.endswith(".gz")
+        else "application/octet-stream"
+    )
+    return FileResponse(
+        path=str(resolved),
+        media_type=media_type,
+        filename=resolved.name,
+    )
+
+
+@router.post("/download/{db}/{filename}")
+async def download_backup_post(
+    request: Request, db: str, filename: str,
+) -> Response:
+    """Download a backup file with password re-authentication.
+
+    Only ``auth`` database backups require re-auth (they contain bcrypt
+    password hashes).  For non-auth databases this endpoint behaves
+    identically to the GET variant — the password field is ignored.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+    user = gate
+
+    resolved = _safe_resolve(db, filename)
+    if resolved is None:
+        log.warning("Rejected backup download (db=%r file=%r)", db, filename)
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    if db == "auth":
+        # Require password re-authentication for auth database backups.
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        password = body.get("password", "") if isinstance(body, dict) else ""
+
+        if not password:
+            raise HTTPException(
+                status_code=403,
+                detail="Password required for auth database download",
+            )
+
+        # Look up the current user's stored hash and verify.
+        import auth as auth_module
+        user_id: int = int(user.get("user_id", 0))
+        auth_db = auth_module.get_db()
+        try:
+            db_user = auth_module.get_user_by_id(auth_db, user_id)
+        finally:
+            auth_db.close()
+
+        if db_user is None or not auth_module.verify_password(
+            password, db_user["password_hash"],
+        ):
+            client_ip = request.client.host if request.client else None
+            audit.record_request(
+                request,
+                action="backup.download.auth.failed",
+                resource=filename,
+            )
+            log.warning(
+                "Auth backup re-auth failed: %s/%s by %s from %s",
+                db, filename,
+                user.get("username", "<unknown>"),
+                client_ip,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Password verification failed",
+            )
+
+        # Re-auth succeeded — audit and serve.
+        audit.record_request(
+            request,
+            action="backup.download.auth",
+            resource=filename,
+        )
+
+    log.info(
+        "Backup downloaded: %s/%s by %s",
+        resolved.parent.name,
+        resolved.name,
+        user.get("username", "<unknown>"),
     )
     media_type = (
         "application/gzip" if resolved.name.endswith(".gz")

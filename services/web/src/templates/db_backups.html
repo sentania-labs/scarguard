@@ -49,9 +49,14 @@
       <td style="padding:0.4rem 0.5rem;">{{ b.size_human }}</td>
       <td style="padding:0.4rem 0.5rem;">{{ b.mtime_iso[:19] }}Z</td>
       <td style="padding:0.4rem 0.5rem;">
+        {% if b.db == "auth" %}
+        <button class="btn-secondary" style="font-size:0.8rem;padding:0.2em 0.6em;"
+                onclick="downloadAuthBackup('{{ b.db }}', '{{ b.filename }}')">Download</button>
+        {% else %}
         <a href="/admin/db-backups/download/{{ b.db }}/{{ b.filename }}"
            class="btn-secondary" style="font-size:0.8rem;padding:0.2em 0.6em;"
            download>Download</a>
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
@@ -64,6 +69,24 @@
   to trigger one immediately.
 </p>
 {% endif %}
+
+<!-- Re-authentication modal for auth.db downloads -->
+<div id="reauth-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
+  <div class="card" style="max-width:400px;margin:auto;padding:1.5rem;">
+    <p class="form-section-title">Re-authenticate to Download</p>
+    <p class="muted" style="margin-bottom:1rem;">
+      <code>auth.db</code> backups contain password hashes.  Enter your
+      current password to confirm this download.
+    </p>
+    <div id="reauth-error" class="alert" role="alert" style="display:none;margin-bottom:0.75rem;color:var(--danger);"></div>
+    <label for="reauth-password">Password</label>
+    <input type="password" id="reauth-password" style="width:100%;margin-bottom:1rem;" autocomplete="current-password">
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+      <button class="btn-secondary" onclick="closeReauthModal()">Cancel</button>
+      <button id="reauth-submit" class="btn-primary" onclick="submitReauth()">Download</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/db_backups.js"></script>
 {% endblock %}
