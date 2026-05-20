@@ -298,7 +298,7 @@ function _buildModelSelect(currentPath) {
 function buildCameraCard(cam) {
   const idx = cameraIndex++;
   const enabled = cam.enabled !== false;
-  const zones = cam.exclusion_zones || [];
+  const zones = (cam.exclusion_zones || []).map(_migrateZone);
   // notification_rules was renamed from action_rules in v0.13.3; accept
   // either key on incoming data so the form survives pre-migration configs.
   const rules = cam.notification_rules || cam.action_rules || [];
@@ -367,8 +367,8 @@ function buildCameraCard(cam) {
       <summary style="cursor:pointer;font-weight:500;">Exclusion Zones (${zones.length})</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
-          Draw rectangles to suppress false positives. Detections whose center falls inside a zone are silently ignored.
-          ${snapUrl ? "Drag on the image to draw a zone. Click a zone to delete it." : "No snapshot available yet — add a zone below or wait for the first detection."}
+          Draw polygons to control detection regions. Exclude zones suppress detections; include zones restrict detections to specific areas.
+          ${snapUrl ? "Click on the image to place polygon vertices. Double-click or click near the first vertex to close. Drag vertex handles to reshape." : "No snapshot available yet — wait for the first detection to draw zones."}
         </p>
         <div class="zone-canvas-wrap" style="position:relative;display:inline-block;max-width:100%;">
           ${snapUrl ? `<img class="zone-bg-img" src="${_esc(snapUrl)}" style="display:block;max-width:100%;border-radius:4px;" draggable="false">` : '<div class="zone-bg-img" style="width:640px;height:360px;background:#1a1a2e;border-radius:4px;"></div>'}
@@ -495,7 +495,8 @@ function readCameras() {
 
 function readZones(card) {
   return (card._zones || []).map(z => ({
-    x: z.x, y: z.y, w: z.w, h: z.h, label: z.label || "",
+    points: z.points, label: z.label || "", enabled: z.enabled !== false,
+    zone_type: z.zone_type || "exclude",
   }));
 }
 
@@ -917,6 +918,20 @@ function _wireGlobalChipPickers() {
   }
 }
 
+// ── Zone format migration ────────────────────────────────────────────────────
+
+function _migrateZone(z) {
+  if (z.points && z.points.length >= 3) {
+    return { points: z.points, label: z.label || "", enabled: z.enabled !== false, zone_type: z.zone_type || "exclude" };
+  }
+  // Legacy rect format
+  if (z.x != null && z.y != null && z.w != null && z.h != null) {
+    const x = z.x, y = z.y, w = z.w, h = z.h;
+    return { points: [[x,y],[x+w,y],[x+w,y+h],[x,y+h]], label: z.label || "", enabled: true, zone_type: "exclude" };
+  }
+  return { points: [], label: z.label || "", enabled: true, zone_type: "exclude" };
+}
+
 // ── Exclusion zone canvas editor ──────────────────────────────────────────────
 
 function initZoneEditor(card, initialZones) {
@@ -924,9 +939,16 @@ function initZoneEditor(card, initialZones) {
   const bg = card.querySelector(".zone-bg-img");
   if (!canvas) return;
 
-  card._zones = initialZones.map(z => Object.assign({}, z));
+  card._zones = initialZones.map(z => ({
+    points: (z.points || []).map(p => [...p]),
+    label: z.label || "",
+    enabled: z.enabled !== false,
+    zone_type: z.zone_type || "exclude",
+  }));
+  card._drawingPts = [];       // vertices being placed for current polygon
+  card._selectedZone = -1;     // index of selected zone (-1 = none)
+  card._dragVertex = null;     // { zoneIdx, ptIdx } while dragging a handle
 
-  // Size the canvas to match the rendered background
   function syncCanvasSize() {
     const rect = bg.getBoundingClientRect();
     if (rect.width > 0) {
@@ -941,10 +963,6 @@ function initZoneEditor(card, initialZones) {
     syncCanvasSize();
   }
 
-  // The Exclusion Zones section is wrapped in a collapsed <details>, so the
-  // bg image has 0×0 layout at init — without this re-sync, the canvas
-  // keeps its 300×150 HTML default and newly drawn zones land outside the
-  // internal pixel space.  Re-sync on every open.
   const detailsEl = canvas.closest("details");
   if (detailsEl) {
     detailsEl.addEventListener("toggle", () => {
@@ -954,86 +972,265 @@ function initZoneEditor(card, initialZones) {
 
   drawZones(card);
 
-  // Draw on mouse drag
-  let dragging = false;
-  let startX = 0, startY = 0;
+  // ── Mouse interaction ──────────────────────────────────────────────────
+  const HANDLE_R = 5;           // vertex handle radius in px
+  const CLOSE_R = 10;           // snap-to-first-vertex radius
+
+  function _findHandle(px, py) {
+    const zones = card._zones || [];
+    for (let zi = zones.length - 1; zi >= 0; zi--) {
+      const pts = zones[zi].points;
+      for (let pi = 0; pi < pts.length; pi++) {
+        const hx = pts[pi][0] * canvas.width, hy = pts[pi][1] * canvas.height;
+        if (Math.hypot(px - hx, py - hy) <= HANDLE_R + 2) return { zoneIdx: zi, ptIdx: pi };
+      }
+    }
+    return null;
+  }
+
+  function _hitPolygon(px, py) {
+    const zones = card._zones || [];
+    for (let i = zones.length - 1; i >= 0; i--) {
+      if (_pointInPoly(px / canvas.width, py / canvas.height, zones[i].points)) return i;
+    }
+    return -1;
+  }
 
   canvas.addEventListener("mousedown", e => {
     if (e.button !== 0) return;
-    // Check if click hits an existing zone (to delete it)
     const pos = _canvasPos(canvas, e);
-    const hitIdx = _hitZone(card, pos.x, pos.y);
-    if (hitIdx >= 0) {
-      card._zones.splice(hitIdx, 1);
+
+    // Are we drawing a new polygon?
+    if (card._drawingPts.length > 0) return;   // clicks handled in 'click'
+
+    // Check for vertex handle drag
+    const handle = _findHandle(pos.x, pos.y);
+    if (handle) {
+      card._dragVertex = handle;
+      card._selectedZone = handle.zoneIdx;
       drawZones(card);
       updateZoneList(card);
       return;
     }
-    dragging = true;
-    startX = pos.x;
-    startY = pos.y;
-  });
 
-  canvas.addEventListener("mousemove", e => {
-    if (!dragging) return;
-    const pos = _canvasPos(canvas, e);
-    drawZones(card, { x: startX, y: startY, ex: pos.x, ey: pos.y });
-  });
+    // Check for polygon body click → select
+    const hit = _hitPolygon(pos.x, pos.y);
+    if (hit >= 0) {
+      card._selectedZone = hit;
+      drawZones(card);
+      updateZoneList(card);
+      return;
+    }
 
-  canvas.addEventListener("mouseup", e => {
-    if (!dragging) return;
-    dragging = false;
-    const pos = _canvasPos(canvas, e);
-    const nx = Math.min(startX, pos.x) / canvas.width;
-    const ny = Math.min(startY, pos.y) / canvas.height;
-    const nw = Math.abs(pos.x - startX) / canvas.width;
-    const nh = Math.abs(pos.y - startY) / canvas.height;
-    if (nw > 0.01 && nh > 0.01) {
-      card._zones.push({ x: nx, y: ny, w: nw, h: nh, label: "" });
+    // Deselect
+    if (card._selectedZone >= 0) {
+      card._selectedZone = -1;
       drawZones(card);
       updateZoneList(card);
     }
   });
 
-  canvas.addEventListener("mouseleave", () => {
-    if (dragging) { dragging = false; drawZones(card); }
+  canvas.addEventListener("mousemove", e => {
+    const pos = _canvasPos(canvas, e);
+    if (card._dragVertex) {
+      const dv = card._dragVertex;
+      const nx = Math.max(0, Math.min(1, pos.x / canvas.width));
+      const ny = Math.max(0, Math.min(1, pos.y / canvas.height));
+      card._zones[dv.zoneIdx].points[dv.ptIdx] = [nx, ny];
+      drawZones(card);
+      return;
+    }
+    // If drawing, redraw to show line from last point to cursor
+    if (card._drawingPts.length > 0) {
+      drawZones(card, pos);
+    }
   });
+
+  canvas.addEventListener("mouseup", () => {
+    if (card._dragVertex) {
+      card._dragVertex = null;
+    }
+  });
+
+  canvas.addEventListener("click", e => {
+    if (card._dragVertex) return;
+    const pos = _canvasPos(canvas, e);
+    const nx = pos.x / canvas.width;
+    const ny = pos.y / canvas.height;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+
+    // If already in drawing mode
+    if (card._drawingPts.length > 0) {
+      // Close polygon when clicking near the first vertex
+      const first = card._drawingPts[0];
+      const fx = first[0] * canvas.width, fy = first[1] * canvas.height;
+      if (card._drawingPts.length >= 3 && Math.hypot(pos.x - fx, pos.y - fy) <= CLOSE_R) {
+        _finishPolygon(card);
+        return;
+      }
+      card._drawingPts.push([nx, ny]);
+      drawZones(card, pos);
+      return;
+    }
+
+    // Not drawing, not on a handle/polygon — start drawing a new polygon
+    const handle = _findHandle(pos.x, pos.y);
+    const hit = _hitPolygon(pos.x, pos.y);
+    if (!handle && hit < 0) {
+      card._drawingPts = [[nx, ny]];
+      card._selectedZone = -1;
+      drawZones(card, pos);
+      updateZoneList(card);
+    }
+  });
+
+  canvas.addEventListener("dblclick", e => {
+    e.preventDefault();
+    if (card._drawingPts.length >= 3) {
+      _finishPolygon(card);
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    if (card._dragVertex) { card._dragVertex = null; drawZones(card); }
+  });
+
+  canvas.addEventListener("keydown", e => {
+    if (e.key === "Escape" && card._drawingPts.length > 0) {
+      card._drawingPts = [];
+      drawZones(card);
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && card._selectedZone >= 0) {
+      card._zones.splice(card._selectedZone, 1);
+      card._selectedZone = -1;
+      drawZones(card);
+      updateZoneList(card);
+    }
+  });
+
+  // Make canvas focusable for keyboard events
+  canvas.setAttribute("tabindex", "0");
+  canvas.style.outline = "none";
 
   updateZoneList(card);
 }
 
-function drawZones(card, drag) {
+function _finishPolygon(card) {
+  card._zones.push({
+    points: card._drawingPts.slice(),
+    label: "",
+    enabled: true,
+    zone_type: "exclude",
+  });
+  card._drawingPts = [];
+  card._selectedZone = card._zones.length - 1;
+  drawZones(card);
+  updateZoneList(card);
+}
+
+function _pointInPoly(px, py, poly) {
+  let inside = false;
+  const n = poly.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function _polygonCentroid(pts) {
+  let sx = 0, sy = 0;
+  for (const p of pts) { sx += p[0]; sy += p[1]; }
+  return [sx / pts.length, sy / pts.length];
+}
+
+function drawZones(card, cursor) {
   const canvas = card.querySelector(".zone-canvas");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const W = canvas.width, H = canvas.height;
 
   const zones = card._zones || [];
   zones.forEach((z, i) => {
-    const px = z.x * canvas.width;
-    const py = z.y * canvas.height;
-    const pw = z.w * canvas.width;
-    const ph = z.h * canvas.height;
-    ctx.fillStyle = "rgba(220,38,38,0.25)";
-    ctx.fillRect(px, py, pw, ph);
-    ctx.strokeStyle = "rgba(220,38,38,0.9)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(px, py, pw, ph);
-    ctx.fillStyle = "rgba(220,38,38,0.9)";
+    if (!z.points || z.points.length < 3) return;
+    const selected = (i === card._selectedZone);
+    const isInclude = z.zone_type === "include";
+    const disabled = z.enabled === false;
+    const fillColor = isInclude ? "rgba(34,197,94,0.20)" : "rgba(220,38,38,0.25)";
+    const strokeColor = isInclude ? "rgba(34,197,94,0.9)" : "rgba(220,38,38,0.9)";
+
+    ctx.beginPath();
+    ctx.moveTo(z.points[0][0] * W, z.points[0][1] * H);
+    for (let p = 1; p < z.points.length; p++) {
+      ctx.lineTo(z.points[p][0] * W, z.points[p][1] * H);
+    }
+    ctx.closePath();
+    ctx.fillStyle = disabled ? "rgba(128,128,128,0.15)" : fillColor;
+    ctx.fill();
+    ctx.strokeStyle = disabled ? "rgba(128,128,128,0.6)" : strokeColor;
+    ctx.lineWidth = selected ? 3 : 2;
+    if (disabled) ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Vertex handles
+    for (const pt of z.points) {
+      ctx.beginPath();
+      ctx.arc(pt[0] * W, pt[1] * H, 4, 0, Math.PI * 2);
+      ctx.fillStyle = selected ? "#fff" : strokeColor;
+      ctx.fill();
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Label at centroid
+    const c = _polygonCentroid(z.points);
+    ctx.fillStyle = disabled ? "rgba(128,128,128,0.8)" : strokeColor;
     ctx.font = "11px sans-serif";
-    ctx.fillText(z.label || `Zone ${i + 1}`, px + 4, py + 13);
+    ctx.fillText(z.label || `Zone ${i + 1}`, c[0] * W + 2, c[1] * H + 4);
   });
 
-  if (drag) {
-    const rx = Math.min(drag.x, drag.ex);
-    const ry = Math.min(drag.y, drag.ey);
-    const rw = Math.abs(drag.ex - drag.x);
-    const rh = Math.abs(drag.ey - drag.y);
-    ctx.setLineDash([4, 4]);
+  // Draw in-progress polygon
+  const dp = card._drawingPts;
+  if (dp && dp.length > 0) {
+    ctx.beginPath();
+    ctx.moveTo(dp[0][0] * W, dp[0][1] * H);
+    for (let p = 1; p < dp.length; p++) {
+      ctx.lineTo(dp[p][0] * W, dp[p][1] * H);
+    }
+    if (cursor) {
+      ctx.lineTo(cursor.x, cursor.y);
+    }
     ctx.strokeStyle = "rgba(255,255,255,0.8)";
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
     ctx.setLineDash([]);
+
+    // Draw vertex dots for in-progress polygon
+    for (const pt of dp) {
+      ctx.beginPath();
+      ctx.arc(pt[0] * W, pt[1] * H, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#4ade80";
+      ctx.fill();
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Highlight first vertex closing target
+    if (dp.length >= 3) {
+      ctx.beginPath();
+      ctx.arc(dp[0][0] * W, dp[0][1] * H, 8, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(74,222,128,0.6)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
   }
 }
 
@@ -1042,25 +1239,45 @@ function updateZoneList(card) {
   if (!list) return;
   list.innerHTML = "";
   const zones = card._zones || [];
-  if (zones.length === 0) {
-    list.innerHTML = '<p class="hint" style="margin:0;">No zones. Drag on the image above to add one.</p>';
+  if (zones.length === 0 && (!card._drawingPts || card._drawingPts.length === 0)) {
+    list.innerHTML = '<p class="hint" style="margin:0;">No zones. Click on the image above to place polygon vertices.</p>';
     return;
   }
   zones.forEach((z, i) => {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:0.5rem;align-items:center;margin-bottom:0.3rem;";
+    const selected = (i === card._selectedZone);
+    if (selected) row.style.background = "rgba(255,255,255,0.05)";
+    const checked = z.enabled !== false ? "checked" : "";
+    const typeOptions = `<option value="exclude"${z.zone_type !== "include" ? " selected" : ""}>Exclude</option>`
+      + `<option value="include"${z.zone_type === "include" ? " selected" : ""}>Include</option>`;
     row.innerHTML = `
-      <span style="flex:0 0 auto;color:var(--muted);">Zone ${i + 1}</span>
+      <input type="checkbox" ${checked} title="Enable/disable zone" style="flex:0 0 auto;">
+      <select style="flex:0 0 auto;min-width:5rem;">${typeOptions}</select>
+      <span style="flex:0 0 auto;color:var(--muted);">${z.points.length} pts</span>
       <input type="text" placeholder="Label (optional)" value="${_esc(z.label || "")}"
              style="flex:1;min-width:0;">
       <button type="button" class="btn-remove" style="flex:0 0 auto;"
-              onclick="deleteZone(this,${i})">✕</button>
+              onclick="deleteZone(this,${i})">&#x2715;</button>
     `;
-    const input = row.querySelector("input");
+    const enableCb = row.querySelector("input[type=checkbox]");
+    const typeSelect = row.querySelector("select");
+    const labelInput = row.querySelector("input[type=text]");
     const zoneIdx = i;
-    input.addEventListener("input", function() {
-      if (card._zones[zoneIdx]) card._zones[zoneIdx].label = this.value;
+    enableCb.addEventListener("change", function() {
+      if (card._zones[zoneIdx]) { card._zones[zoneIdx].enabled = this.checked; drawZones(card); }
+    });
+    typeSelect.addEventListener("change", function() {
+      if (card._zones[zoneIdx]) { card._zones[zoneIdx].zone_type = this.value; drawZones(card); }
+    });
+    labelInput.addEventListener("input", function() {
+      if (card._zones[zoneIdx]) { card._zones[zoneIdx].label = this.value; drawZones(card); }
+    });
+    row.addEventListener("click", (e) => {
+      if (e.target.tagName === "BUTTON" || e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      card._selectedZone = zoneIdx;
       drawZones(card);
+      updateZoneList(card);
     });
     list.appendChild(row);
   });
@@ -1069,6 +1286,7 @@ function updateZoneList(card) {
 function deleteZone(btn, idx) {
   const card = btn.closest(".camera-card");
   card._zones.splice(idx, 1);
+  if (card._selectedZone >= card._zones.length) card._selectedZone = -1;
   drawZones(card);
   updateZoneList(card);
 }
@@ -1076,18 +1294,6 @@ function deleteZone(btn, idx) {
 function _canvasPos(canvas, e) {
   const r = canvas.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
-}
-
-function _hitZone(card, px, py) {
-  const canvas = card.querySelector(".zone-canvas");
-  const zones = card._zones || [];
-  for (let i = zones.length - 1; i >= 0; i--) {
-    const z = zones[i];
-    const zx = z.x * canvas.width, zy = z.y * canvas.height;
-    const zw = z.w * canvas.width, zh = z.h * canvas.height;
-    if (px >= zx && px <= zx + zw && py >= zy && py <= zy + zh) return i;
-  }
-  return -1;
 }
 
 // ── Schedule helpers ──────────────────────────────────────────────────────────

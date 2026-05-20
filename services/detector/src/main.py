@@ -109,6 +109,35 @@ def _match_deterrent_rules(class_name: str, rules: list[dict]) -> list[str]:
     return []
 
 
+def _zone_points(zone: dict) -> list[list[float]]:
+    """Extract polygon points from a zone dict, handling both formats."""
+    pts = zone.get("points")
+    if pts and isinstance(pts, list) and len(pts) >= 3:
+        return pts
+    # Legacy rect format → convert to polygon on the fly.
+    if all(k in zone for k in ("x", "y", "w", "h")):
+        x = float(zone["x"])
+        y = float(zone["y"])
+        w = float(zone["w"])
+        h = float(zone["h"])
+        return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+    return []
+
+
+def _point_in_polygon(px: float, py: float, poly: list[list[float]]) -> bool:
+    """Ray-casting point-in-polygon test."""
+    n = len(poly)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        if ((yi > py) != (yj > py)) and (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
 def _in_exclusion_zone(
     cx: int,
     cy: int,
@@ -122,11 +151,13 @@ def _in_exclusion_zone(
     cx_f = cx / frame_w
     cy_f = cy / frame_h
     for zone in zones:
-        zx = float(zone.get("x", 0))
-        zy = float(zone.get("y", 0))
-        zw = float(zone.get("w", 0))
-        zh = float(zone.get("h", 0))
-        if zx <= cx_f <= zx + zw and zy <= cy_f <= zy + zh:
+        if not zone.get("enabled", True):
+            continue
+        pts = _zone_points(zone)
+        if not pts:
+            continue
+        zone_type = zone.get("zone_type", "exclude")
+        if zone_type == "exclude" and _point_in_polygon(cx_f, cy_f, pts):
             return True
     return False
 
@@ -185,6 +216,32 @@ def _resolve_known_groups(cfg: dict) -> set[str]:
     return {g["name"] for g in groups if isinstance(g, dict) and g.get("name")}
 
 
+def _in_include_zone(
+    cx: int,
+    cy: int,
+    frame_w: int,
+    frame_h: int,
+    zones: list[dict],
+) -> bool:
+    """Return True if the point is inside at least one enabled include zone.
+
+    If no include zones are defined, returns True (no inclusion constraint).
+    """
+    include_zones = [
+        z for z in zones
+        if z.get("zone_type") == "include" and z.get("enabled", True)
+    ]
+    if not include_zones or frame_w == 0 or frame_h == 0:
+        return True
+    cx_f = cx / frame_w
+    cy_f = cy / frame_h
+    for zone in include_zones:
+        pts = _zone_points(zone)
+        if pts and _point_in_polygon(cx_f, cy_f, pts):
+            return True
+    return False
+
+
 def _apply_exclusion_zones(
     detections: list,
     zones: list[dict],
@@ -192,17 +249,18 @@ def _apply_exclusion_zones(
     frame_h: int,
     camera_name: str,
 ) -> list:
-    """Filter detections that fall inside exclusion zones."""
+    """Filter detections using exclusion and inclusion zones."""
     if not zones:
         return detections
-    filtered = [
-        det for det in detections
-        if not _in_exclusion_zone(
-            (det.bbox[0] + det.bbox[2]) // 2,
-            (det.bbox[1] + det.bbox[3]) // 2,
-            frame_w, frame_h, zones,
-        )
-    ]
+    filtered = []
+    for det in detections:
+        cx = (det.bbox[0] + det.bbox[2]) // 2
+        cy = (det.bbox[1] + det.bbox[3]) // 2
+        if _in_exclusion_zone(cx, cy, frame_w, frame_h, zones):
+            continue
+        if not _in_include_zone(cx, cy, frame_w, frame_h, zones):
+            continue
+        filtered.append(det)
     if not filtered and detections:
         logger.debug("[%s] All detections suppressed by exclusion zones", camera_name)
     return filtered
