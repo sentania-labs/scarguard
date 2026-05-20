@@ -1,0 +1,470 @@
+var _pageData = JSON.parse(document.getElementById('stats-page-data').textContent);
+const INTERVAL = _pageData.interval * 1000;
+const MAX_POINTS = Math.ceil(600 / _pageData.interval);  // 10 minutes of history
+const cpuHistory = [];
+const gpuHistory = [];
+const inferHistory = {};  // {camera_name: [values...]}
+const fpsHistory = {};    // {camera_name: [values...]}
+const CAM_COLORS = [
+  'rgba(78,159,255,0.8)',   // blue
+  'rgba(62,207,142,0.8)',   // green
+  'rgba(255,159,67,0.8)',   // orange
+  'rgba(207,62,207,0.8)',   // purple
+  'rgba(255,99,132,0.8)',   // red
+  'rgba(255,205,86,0.8)',   // yellow
+];
+let es = null;
+let backoff = 1000;
+
+function connect() {
+  setStatus("Connecting...", "connecting");
+  es = new EventSource("/admin/stats/stream");
+
+  es.addEventListener("stats", (e) => {
+    backoff = 1000;
+    let d;
+    try { d = JSON.parse(e.data); } catch { return; }
+    if (d.error) {
+      setStatus(d.error, "offline");
+      return;
+    }
+    setStatus("Live", "live");
+    updateGauges(d);
+    updateCharts(d);
+    updateInferenceTable(d.cameras || {});
+  });
+
+  es.onopen = () => { backoff = 1000; };
+
+  es.onerror = () => {
+    setStatus("Connection lost — retrying...", "reconnecting");
+    es.close();
+    setTimeout(connect, Math.min(backoff, 30000));
+    backoff *= 2;
+  };
+}
+
+function setStatus(text, state) {
+  const el = document.getElementById("stats-status");
+  const txt = document.getElementById("stats-status-text");
+  txt.textContent = text;
+  el.className = "feed-status feed-status--" + state;
+}
+
+function updateGauges(d) {
+  // CPU
+  const cpu = d.cpu_usage_pct || 0;
+  document.getElementById("cpu-bar").style.width = cpu + "%";
+  document.getElementById("cpu-val").textContent = cpu.toFixed(1) + "%";
+  colorBar("cpu-bar", cpu);
+
+  // RAM
+  const ramUsed = d.ram_used_mb || 0;
+  const ramTotal = d.ram_total_mb || 1;
+  const ramPct = (ramUsed / ramTotal) * 100;
+  document.getElementById("ram-bar").style.width = ramPct.toFixed(1) + "%";
+  document.getElementById("ram-val").textContent = ramUsed + " / " + ramTotal + " MB";
+  colorBar("ram-bar", ramPct);
+
+  // CPU Temp
+  setTemp("cpu-temp", d.cpu_temp_c);
+
+  // GPU
+  if (d.gpu_available) {
+    document.getElementById("gpu-card").style.display = "";
+    document.getElementById("gpu-chart-container").style.display = "";
+
+    if (d.gpu_usage_pct != null) {
+      const gpu = d.gpu_usage_pct;
+      document.getElementById("gpu-bar").style.width = gpu + "%";
+      document.getElementById("gpu-val").textContent = gpu.toFixed(1) + "%";
+      colorBar("gpu-bar", gpu);
+    }
+
+    if (d.gpu_mem_used_mb != null && d.gpu_mem_total_mb != null) {
+      document.getElementById("gpu-mem-item").style.display = "";
+      const memPct = (d.gpu_mem_used_mb / d.gpu_mem_total_mb) * 100;
+      document.getElementById("gpu-mem-bar").style.width = memPct.toFixed(1) + "%";
+      document.getElementById("gpu-mem-val").textContent = d.gpu_mem_used_mb + " / " + d.gpu_mem_total_mb + " MB";
+      colorBar("gpu-mem-bar", memPct);
+    }
+
+    setTemp("gpu-temp", d.gpu_temp_c);
+  }
+}
+
+function colorBar(id, pct) {
+  const el = document.getElementById(id);
+  if (pct > 90) el.style.background = "var(--danger)";
+  else if (pct > 70) el.style.background = "var(--warn)";
+  else el.style.background = "";
+}
+
+function setTemp(id, val) {
+  const el = document.getElementById(id);
+  if (val == null) { el.textContent = "—"; el.className = "stat-value stat-temp"; return; }
+  el.textContent = val.toFixed(1) + "°C";
+  if (val >= 80) el.className = "stat-value stat-temp temp-danger";
+  else if (val >= 60) el.className = "stat-value stat-temp temp-warn";
+  else el.className = "stat-value stat-temp temp-ok";
+}
+
+function updateCharts(d) {
+  cpuHistory.push(d.cpu_usage_pct || 0);
+  if (cpuHistory.length > MAX_POINTS) cpuHistory.shift();
+  drawChart("cpu-chart", cpuHistory, "rgba(78,159,255,0.8)", "rgba(78,159,255,0.1)");
+
+  if (d.gpu_available && d.gpu_usage_pct != null) {
+    gpuHistory.push(d.gpu_usage_pct);
+    if (gpuHistory.length > MAX_POINTS) gpuHistory.shift();
+    drawChart("gpu-chart", gpuHistory, "rgba(62,207,142,0.8)", "rgba(62,207,142,0.1)");
+  }
+
+  // Per-camera inference and FPS
+  const cameras = d.cameras || {};
+  const names = Object.keys(cameras).sort();
+  for (const name of names) {
+    if (!inferHistory[name]) inferHistory[name] = [];
+    if (!fpsHistory[name]) fpsHistory[name] = [];
+    inferHistory[name].push(cameras[name].avg_inference_ms || 0);
+    if (inferHistory[name].length > MAX_POINTS) inferHistory[name].shift();
+    fpsHistory[name].push(cameras[name].fps || 0);
+    if (fpsHistory[name].length > MAX_POINTS) fpsHistory[name].shift();
+  }
+  if (names.length > 0) {
+    const inferSeries = names.map((n, i) => ({data: inferHistory[n], color: CAM_COLORS[i % CAM_COLORS.length], label: n}));
+    const fpsSeries = names.map((n, i) => ({data: fpsHistory[n], color: CAM_COLORS[i % CAM_COLORS.length], label: n}));
+    drawMultiChart("infer-chart", inferSeries);
+    drawMultiChart("fps-chart", fpsSeries);
+  }
+}
+
+function drawChart(canvasId, data, strokeColor, fillColor) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  // Match canvas resolution to its CSS display size for crisp rendering
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width;
+  const h = rect.height;
+  const pad = { top: 5, bottom: 5, left: 0, right: 0 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid lines at 25%, 50%, 75%
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach(pct => {
+    const y = pad.top + ch * (1 - pct);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(w - pad.right, y);
+    ctx.stroke();
+  });
+
+  // Grid labels
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "right";
+  [25, 50, 75, 100].forEach(v => {
+    const y = pad.top + ch * (1 - v / 100);
+    ctx.fillText(v + "%", w - 2, y + 3);
+  });
+
+  if (data.length < 2) return;
+
+  const step = cw / (MAX_POINTS - 1);
+
+  // Draw filled area + line
+  ctx.beginPath();
+  const startX = pad.left + (MAX_POINTS - data.length) * step;
+  ctx.moveTo(startX, pad.top + ch - (data[0] / 100) * ch);
+  for (let i = 1; i < data.length; i++) {
+    ctx.lineTo(startX + i * step, pad.top + ch - (data[i] / 100) * ch);
+  }
+  // Stroke the line
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Fill below
+  ctx.lineTo(startX + (data.length - 1) * step, pad.top + ch);
+  ctx.lineTo(startX, pad.top + ch);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+}
+
+function drawMultiChart(canvasId, series) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width;
+  const h = rect.height;
+  const pad = { top: 5, bottom: 14, left: 0, right: 0 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Find max value across all series for auto-scaling
+  let maxVal = 0;
+  for (const s of series) {
+    for (const v of s.data) if (v > maxVal) maxVal = v;
+  }
+  maxVal = maxVal > 0 ? maxVal * 1.15 : 1;  // 15% headroom
+
+  // Grid lines at 25%, 50%, 75%
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75].forEach(pct => {
+    const y = pad.top + ch * (1 - pct);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(w - pad.right, y);
+    ctx.stroke();
+  });
+
+  // Grid labels
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "right";
+  [0.25, 0.5, 0.75, 1.0].forEach(pct => {
+    const y = pad.top + ch * (1 - pct);
+    ctx.fillText(Math.round(maxVal * pct).toString(), w - 2, y + 3);
+  });
+
+  const step = cw / (MAX_POINTS - 1);
+
+  // Draw each series line
+  for (const s of series) {
+    if (s.data.length < 2) continue;
+    const startX = pad.left + (MAX_POINTS - s.data.length) * step;
+    ctx.beginPath();
+    ctx.moveTo(startX, pad.top + ch - (s.data[0] / maxVal) * ch);
+    for (let i = 1; i < s.data.length; i++) {
+      ctx.lineTo(startX + i * step, pad.top + ch - (s.data[i] / maxVal) * ch);
+    }
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  // Legend at bottom
+  ctx.font = "9px system-ui";
+  ctx.textAlign = "left";
+  let lx = pad.left + 4;
+  for (let i = 0; i < series.length; i++) {
+    ctx.fillStyle = series[i].color;
+    ctx.fillRect(lx, h - 10, 8, 8);
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillText(series[i].label, lx + 11, h - 3);
+    lx += ctx.measureText(series[i].label).width + 20;
+  }
+}
+
+function updateInferenceTable(cameras) {
+  const tbody = document.getElementById("inference-tbody");
+  const names = Object.keys(cameras).sort();
+  tbody.innerHTML = "";
+  if (names.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3; td.className = "muted"; td.textContent = "No camera data yet";
+    tr.appendChild(td); tbody.appendChild(tr);
+    return;
+  }
+  for (const name of names) {
+    const c = cameras[name];
+    const tr = document.createElement("tr");
+    const tdName = document.createElement("td");
+    tdName.textContent = name;
+    const tdFps = document.createElement("td");
+    tdFps.textContent = (c.fps != null) ? c.fps.toFixed(1) : "—";
+    const tdLat = document.createElement("td");
+    tdLat.textContent = (c.avg_inference_ms != null) ? c.avg_inference_ms.toFixed(1) + " ms" : "—";
+    tr.append(tdName, tdFps, tdLat);
+    tbody.appendChild(tr);
+  }
+}
+
+connect();
+
+/* --- Historical charts (requires Chart.js loaded before this file) --- */
+
+let histCpuChart = null;
+let histGpuChart = null;
+let histInferenceChart = null;
+let histFpsChart = null;
+let currentRange = '1h';
+
+const HIST_CAM_COLORS = [
+  'rgba(78,159,255,0.9)',
+  'rgba(62,207,142,0.9)',
+  'rgba(255,159,67,0.9)',
+  'rgba(207,62,207,0.9)',
+  'rgba(255,99,132,0.9)',
+  'rgba(255,205,86,0.9)',
+];
+
+function loadHistory(range, btn) {
+  currentRange = range;
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('export-link').href = '/admin/stats/export?range=' + range + '&format=csv';
+  document.getElementById('hist-status').textContent = 'Loading...';
+
+  fetch('/admin/stats/history?range=' + range)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.length) {
+        document.getElementById('hist-status').textContent = 'No historical data for this range.';
+        return;
+      }
+      document.getElementById('hist-status').textContent = data.length + ' samples loaded.';
+      renderHistCharts(data);
+    })
+    .catch((err) => {
+      console.error('Historical stats error:', err);
+      document.getElementById('hist-status').textContent = 'Failed to load historical data.';
+    });
+}
+
+function renderHistCharts(data) {
+  // Pick a label format based on the total span of the data: short
+  // ranges show HH:MM only, multi-day ranges include the date so the
+  // x-axis ticks don't all look like the same hour (#93).  Parsing the
+  // first and last timestamps is cheap — server guarantees ascending
+  // order and fills empty buckets, so both endpoints always exist.
+  let spanMs = 0;
+  if (data.length >= 2) {
+    spanMs = new Date(data[data.length - 1].timestamp) - new Date(data[0].timestamp);
+  }
+  const oneDay = 24 * 60 * 60 * 1000;
+  const showDate = spanMs > oneDay;
+  const dateOnly = spanMs > 7 * oneDay;
+  const labels = data.map(d => {
+    const dt = new Date(d.timestamp);
+    if (dateOnly) {
+      return dt.toLocaleDateString([], {month: 'short', day: 'numeric'});
+    }
+    if (showDate) {
+      return dt.toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+    }
+    return dt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  });
+  const cpuVals = data.map(d => d.cpu_pct);
+  const ramVals = data.map(d => {
+    if (d.ram_used_mb && d.ram_total_mb && d.ram_total_mb > 0)
+      return Math.round((d.ram_used_mb / d.ram_total_mb) * 100 * 10) / 10;
+    return null;
+  });
+  const gpuVals = data.map(d => d.gpu_pct);
+  const gpuTempVals = data.map(d => d.gpu_temp);
+
+  if (histCpuChart) histCpuChart.destroy();
+  if (histGpuChart) histGpuChart.destroy();
+  if (histInferenceChart) histInferenceChart.destroy();
+  if (histFpsChart) histFpsChart.destroy();
+
+  const cpuCtx = document.getElementById('hist-cpu-chart').getContext('2d');
+  histCpuChart = new Chart(cpuCtx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {label: 'CPU %', data: cpuVals, borderColor: 'rgba(78,159,255,0.9)', backgroundColor: 'rgba(78,159,255,0.1)', fill: true, tension: 0.3, pointRadius: 0},
+        {label: 'RAM %', data: ramVals, borderColor: 'rgba(62,207,142,0.9)', backgroundColor: 'rgba(62,207,142,0.1)', fill: true, tension: 0.3, pointRadius: 0},
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {display: true, ticks: {maxTicksLimit: 10, color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y: {min: 0, max: 100, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+      },
+      plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
+    },
+  });
+
+  const gpuCtx = document.getElementById('hist-gpu-chart').getContext('2d');
+  histGpuChart = new Chart(gpuCtx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {label: 'GPU %', data: gpuVals, borderColor: 'rgba(62,207,142,0.9)', backgroundColor: 'rgba(62,207,142,0.1)', fill: true, tension: 0.3, pointRadius: 0, yAxisID: 'y'},
+        {label: 'GPU Temp', data: gpuTempVals, borderColor: 'rgba(255,159,67,0.9)', backgroundColor: 'rgba(255,159,67,0.1)', fill: false, tension: 0.3, pointRadius: 0, yAxisID: 'y1'},
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {display: true, ticks: {maxTicksLimit: 10, color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y: {position: 'left', min: 0, max: 100, title: {display: true, text: '%', color: 'rgba(255,255,255,0.4)'}, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y1: {position: 'right', min: 20, max: 100, title: {display: true, text: '°C', color: 'rgba(255,255,255,0.4)'}, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {drawOnChartArea: false}},
+      },
+      plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
+    },
+  });
+
+  // Per-camera inference and FPS historical charts
+  const cameraNames = new Set();
+  data.forEach(d => {
+    if (d.cameras) Object.keys(d.cameras).forEach(n => cameraNames.add(n));
+  });
+  const cameras = [...cameraNames].sort();
+
+  if (cameras.length > 0) {
+    const inferDatasets = cameras.map((cam, i) => ({
+      label: cam,
+      data: data.map(d => d.cameras && d.cameras[cam] ? d.cameras[cam].avg_inference_ms : null),
+      borderColor: HIST_CAM_COLORS[i % HIST_CAM_COLORS.length],
+      fill: false, tension: 0.3, pointRadius: 0, spanGaps: true,
+    }));
+
+    const fpsDatasets = cameras.map((cam, i) => ({
+      label: cam,
+      data: data.map(d => d.cameras && d.cameras[cam] ? d.cameras[cam].fps : null),
+      borderColor: HIST_CAM_COLORS[i % HIST_CAM_COLORS.length],
+      fill: false, tension: 0.3, pointRadius: 0, spanGaps: true,
+    }));
+
+    const camChartOpts = (yLabel) => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {display: true, ticks: {maxTicksLimit: 10, color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+        y: {min: 0, title: {display: true, text: yLabel, color: 'rgba(255,255,255,0.4)'}, ticks: {color: 'rgba(255,255,255,0.4)', font: {size: 10}}, grid: {color: 'rgba(255,255,255,0.06)'}},
+      },
+      plugins: {legend: {labels: {color: 'rgba(255,255,255,0.6)', font: {size: 11}}}},
+    });
+
+    const inferCtx = document.getElementById('hist-inference-chart').getContext('2d');
+    histInferenceChart = new Chart(inferCtx, {
+      type: 'line',
+      data: {labels: labels, datasets: inferDatasets},
+      options: camChartOpts('ms'),
+    });
+
+    const fpsCtx = document.getElementById('hist-fps-chart').getContext('2d');
+    histFpsChart = new Chart(fpsCtx, {
+      type: 'line',
+      data: {labels: labels, datasets: fpsDatasets},
+      options: camChartOpts('fps'),
+    });
+  }
+}
+
+loadHistory('1h', document.querySelector('.range-btn[data-range="1h"]'));
