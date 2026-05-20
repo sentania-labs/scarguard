@@ -21,10 +21,11 @@ from deterrent_safety import (
     MIN_ACTUATION_SEC,
 )
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
+from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
 from template_json import safe_json_dumps
 
@@ -422,3 +423,59 @@ async def device_status(request: Request) -> Response:
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
+
+
+# ── Deterrent stuck-device SSE stream ───────────────────────────────────────
+# Separate router so the endpoint lives at /deterrent-stuck/stream (global,
+# not admin-prefixed — the banner shows on every page via base.html).
+
+STUCK_CHANNEL = "scarguard:deterrent:stuck"
+
+stuck_router = APIRouter(prefix="/deterrent-stuck")
+
+
+@stuck_router.get("/stream")
+async def stuck_stream(request: Request) -> StreamingResponse:
+    """SSE stream — pushes stuck-device events for the global sticky banner."""
+    cfg = config_store.load_cached()
+    redis_cfg = cfg.get("redis", {})
+    host = redis_cfg.get("host", "redis")
+    port = int(redis_cfg.get("port", 6379))
+
+    user = getattr(request.state, "user", None)
+    user_id = user.id if user else "anon"
+
+    async def generator():
+        client = aioredis.Redis(
+            host=host, port=port,
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
+        try:
+            async with sse_connection(client, user_id):
+                pubsub = client.pubsub()
+                await pubsub.subscribe(STUCK_CHANNEL)
+                yield ": connected\n\n"
+                try:
+                    while not await request.is_disconnected():
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=15.0,
+                        )
+                        if message is None:
+                            yield ": keepalive\n\n"
+                            continue
+                        if message["type"] != "message":
+                            continue
+                        try:
+                            payload = json.loads(message["data"])
+                        except json.JSONDecodeError:
+                            continue
+                        yield f"event: stuck\ndata: {json.dumps(payload)}\n\n"
+                finally:
+                    await pubsub.unsubscribe(STUCK_CHANNEL)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
+        finally:
+            await client.aclose()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")

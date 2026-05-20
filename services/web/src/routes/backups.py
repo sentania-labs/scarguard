@@ -22,12 +22,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import config_store
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
 from route_auth import require_admin
+from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
 
 log = logging.getLogger(__name__)
@@ -134,7 +136,6 @@ async def backups_page(request: Request) -> Response:
 
 
 def _redis_params() -> dict[str, Any]:
-    import config_store
     redis_cfg = config_store.load_cached().get("redis", {}) or {}
     return {
         "host": redis_cfg.get("host", "redis"),
@@ -254,3 +255,50 @@ async def download_backup(
         media_type=media_type,
         filename=resolved.name,
     )
+
+
+@router.get("/stream")
+async def backup_status_stream(request: Request) -> StreamingResponse:
+    """SSE stream — pushes backup status events for the live-status panel."""
+    cfg = config_store.load_cached()
+    redis_cfg = cfg.get("redis", {})
+    host = redis_cfg.get("host", "redis")
+    port = int(redis_cfg.get("port", 6379))
+
+    user = getattr(request.state, "user", None)
+    user_id = user.id if user else "anon"
+
+    async def generator():
+        client = aioredis.Redis(
+            host=host, port=port,
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
+        try:
+            async with sse_connection(client, user_id):
+                pubsub = client.pubsub()
+                await pubsub.subscribe(STATUS_CHANNEL)
+                yield ": connected\n\n"
+                try:
+                    while not await request.is_disconnected():
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=15.0,
+                        )
+                        if message is None:
+                            yield ": keepalive\n\n"
+                            continue
+                        if message["type"] != "message":
+                            continue
+                        try:
+                            payload = json.loads(message["data"])
+                        except json.JSONDecodeError:
+                            continue
+                        yield f"event: backup-status\ndata: {json.dumps(payload)}\n\n"
+                finally:
+                    await pubsub.unsubscribe(STATUS_CHANNEL)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
+        finally:
+            await client.aclose()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")

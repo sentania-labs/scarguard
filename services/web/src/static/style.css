@@ -1003,3 +1003,36 @@ body.expert-mode details.expert-only { display: block !important; }
   list-style: none;
   padding: 0;
 }
+
+/* ── Deterrent stuck-device banner ──────────────────────────────────────── */
+.stuck-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  background: var(--danger);
+  color: #fff;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.stuck-banner__dismiss {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.5);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.15em 0.45em;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.stuck-banner__dismiss:hover {
+  background: rgba(255,255,255,0.15);
+  opacity: 1;
+}
