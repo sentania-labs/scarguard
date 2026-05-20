@@ -11,6 +11,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from sse_limiter import SSETooManyStreams, sse_connection
 
 router = APIRouter(prefix="/events")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -175,31 +176,38 @@ async def event_stream(request: Request):
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
+    user = getattr(request.state, "user", None)
+    user_id = user.id if user else "anon"
 
     async def generator():
         client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
-        pubsub = client.pubsub()
-        await pubsub.subscribe(CHANNEL)
-        yield ": connected\n\n"
         try:
-            while not await request.is_disconnected():
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=15.0,
-                )
-                if message is None:
-                    yield ": keepalive\n\n"
-                    continue
-                if message["type"] != "message":
-                    continue
+            async with sse_connection(client, user_id):
+                pubsub = client.pubsub()
+                await pubsub.subscribe(CHANNEL)
+                yield ": connected\n\n"
                 try:
-                    event = json.loads(message["data"])
-                except json.JSONDecodeError:
-                    continue
-                tz = _tz_name()
-                html = _render_event_row(event, tz)
-                yield f"event: detection\ndata: {html}\n\n"
+                    while not await request.is_disconnected():
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=15.0,
+                        )
+                        if message is None:
+                            yield ": keepalive\n\n"
+                            continue
+                        if message["type"] != "message":
+                            continue
+                        try:
+                            event = json.loads(message["data"])
+                        except json.JSONDecodeError:
+                            continue
+                        tz = _tz_name()
+                        html = _render_event_row(event, tz)
+                        yield f"event: detection\ndata: {html}\n\n"
+                finally:
+                    await pubsub.unsubscribe(CHANNEL)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
         finally:
-            await pubsub.unsubscribe(CHANNEL)
             await client.aclose()
 
     return StreamingResponse(generator(), media_type="text/event-stream")

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from route_auth import has_admin_access, require_admin, require_viewer
+from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
 
 log = logging.getLogger(__name__)
@@ -61,41 +62,44 @@ async def logs_stream(
         service = "detector"
     tail = max(1, min(tail, 5000))
 
+    user = getattr(request.state, "user", None)
+    user_id = user.id if user else "anon"
+
     async def generator():
         client = aioredis.Redis(**_redis_params())
         try:
-            # Backfill: read last N lines from the ring buffer.
-            # The buffer is newest-first (LPUSH order); reverse for chronological.
-            buffer_key = f"{_BUFFER_PREFIX}{service}"
-            lines = await client.lrange(buffer_key, 0, tail - 1)
-            if not lines:
-                yield (
-                    "data: [ScarGuard] No log history available yet "
-                    "— waiting for live lines from log-streamer sidecar...\n\n"
-                )
-            else:
-                for line in reversed(lines):
-                    safe = line.replace("\n", "  ")
-                    yield f"data: {safe}\n\n"
-
-            # Live stream: subscribe to the pub/sub channel.
-            channel = f"{_CHANNEL_PREFIX}{service}"
-            pubsub = client.pubsub()
-            await pubsub.subscribe(channel)
-            try:
-                while not await request.is_disconnected():
-                    message = await pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=15.0,
+            async with sse_connection(client, user_id):
+                buffer_key = f"{_BUFFER_PREFIX}{service}"
+                lines = await client.lrange(buffer_key, 0, tail - 1)
+                if not lines:
+                    yield (
+                        "data: [ScarGuard] No log history available yet "
+                        "— waiting for live lines from log-streamer sidecar...\n\n"
                     )
-                    if message is None:
-                        yield ": keepalive\n\n"
-                        continue
-                    if message["type"] != "message":
-                        continue
-                    safe = str(message["data"]).replace("\n", "  ")
-                    yield f"data: {safe}\n\n"
-            finally:
-                await pubsub.unsubscribe(channel)
+                else:
+                    for line in reversed(lines):
+                        safe = line.replace("\n", "  ")
+                        yield f"data: {safe}\n\n"
+
+                channel = f"{_CHANNEL_PREFIX}{service}"
+                pubsub = client.pubsub()
+                await pubsub.subscribe(channel)
+                try:
+                    while not await request.is_disconnected():
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=15.0,
+                        )
+                        if message is None:
+                            yield ": keepalive\n\n"
+                            continue
+                        if message["type"] != "message":
+                            continue
+                        safe = str(message["data"]).replace("\n", "  ")
+                        yield f"data: {safe}\n\n"
+                finally:
+                    await pubsub.unsubscribe(channel)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
         finally:
             await client.aclose()
 
