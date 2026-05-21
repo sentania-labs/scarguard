@@ -6,14 +6,15 @@ with Bearer auth" section and confirms:
      acceptable — the test is about the auth gate, not the endpoint logic).
   2. A missing token yields 401 (confirms auth is actually enforced).
 
-SSE stream endpoints will fail to connect to Redis in the test environment,
-so they may return 500 or similar — that's fine, as long as the auth layer
-lets the request through.
+SSE stream endpoints use ``stream=True`` so the test reads the status code
+without blocking on the infinite event stream.  Non-streaming endpoints use
+a normal request.
 """
 
 from __future__ import annotations
 
 import copy
+import threading
 from typing import Any
 
 import pytest
@@ -84,6 +85,60 @@ def bearer_client(monkeypatch):
     # Ensure users_exist returns True so setup redirect doesn't fire.
     monkeypatch.setattr(auth_module, "users_exist", lambda _p: True)
 
+    # SSE endpoints create aioredis.Redis clients that hang when no Redis
+    # is available.  We only care about the auth gate, so replace Redis
+    # with a stub that raises immediately on any async operation.
+    _redis_err = ConnectionError("test: no Redis")
+
+    class _StubRedis:
+        def __init__(self, **kw: Any) -> None:
+            pass
+
+        def pubsub(self) -> Any:
+            return self
+
+        async def subscribe(self, *a: Any) -> None:
+            raise _redis_err
+
+        async def unsubscribe(self, *a: Any) -> None:
+            pass
+
+        async def get(self, *a: Any) -> None:
+            raise _redis_err
+
+        async def lrange(self, *a: Any) -> list:
+            raise _redis_err
+
+        async def scard(self, *a: Any) -> int:
+            raise _redis_err
+
+        def pipeline(self) -> Any:
+            return self
+
+        async def execute(self) -> list:
+            raise _redis_err
+
+        async def sadd(self, *a: Any) -> None:
+            raise _redis_err
+
+        async def srem(self, *a: Any) -> None:
+            raise _redis_err
+
+        async def expire(self, *a: Any) -> None:
+            raise _redis_err
+
+        async def aclose(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+        async def get_message(self, **kw: Any) -> None:
+            raise _redis_err
+
+    import redis.asyncio as aioredis
+    monkeypatch.setattr(aioredis, "Redis", lambda **kw: _StubRedis(**kw))
+
     from fastapi.testclient import TestClient
     from main import app
 
@@ -101,11 +156,18 @@ def bearer_client(monkeypatch):
 #   /admin/logs/stream  — SSE stream of service logs
 #
 # /health is public (no auth required) — tested separately.
+#
+# SSE endpoints return StreamingResponse — the test client must use
+# ``stream=True`` and close the connection after reading the status code,
+# otherwise the test hangs forever waiting for the generator to finish.
 
 _BEARER_ENDPOINTS: list[tuple[str, str]] = [
     ("GET", "/events"),
     ("GET", "/config"),
     ("GET", "/about"),
+]
+
+_BEARER_SSE_ENDPOINTS: list[tuple[str, str]] = [
     ("GET", "/events/stream"),
     ("GET", "/admin/stats/stream"),
     ("GET", "/admin/logs/stream"),
@@ -135,6 +197,33 @@ class TestBearerAuthAccepted:
             f"{method} {path} returned 401 with a valid Bearer token"
         )
 
+    @pytest.mark.parametrize(
+        "method,path",
+        _BEARER_SSE_ENDPOINTS,
+        ids=[f"{m} {p}" for m, p in _BEARER_SSE_ENDPOINTS],
+    )
+    def test_valid_token_is_not_401_sse(
+        self, bearer_client, method: str, path: str,
+    ) -> None:
+        result: dict[str, Any] = {}
+
+        def _req() -> None:
+            r = bearer_client.request(
+                method, path,
+                headers={"Authorization": f"Bearer {_VALID_TOKEN}"},
+            )
+            result["status"] = r.status_code
+
+        t = threading.Thread(target=_req, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        if "status" in result:
+            assert result["status"] != 401, (
+                f"{method} {path} returned 401 with a valid Bearer token"
+            )
+        # Timeout without a response means the SSE generator started
+        # streaming (auth passed) — that's a pass.
+
 
 class TestBearerAuthEnforced:
     """Without a Bearer token (or session cookie), the same endpoints must return 401."""
@@ -147,8 +236,24 @@ class TestBearerAuthEnforced:
     def test_missing_token_is_401(
         self, bearer_client, method: str, path: str,
     ) -> None:
-        # Send Accept: application/json so the middleware returns 401 JSON
-        # instead of a 302 redirect to /login (which is the HTML-path).
+        resp = bearer_client.request(
+            method,
+            path,
+            headers={"Accept": "application/json"},
+        )
+        assert resp.status_code == 401, (
+            f"{method} {path} returned {resp.status_code} without auth, expected 401"
+        )
+
+    @pytest.mark.parametrize(
+        "method,path",
+        _BEARER_SSE_ENDPOINTS,
+        ids=[f"{m} {p}" for m, p in _BEARER_SSE_ENDPOINTS],
+    )
+    def test_missing_token_is_401_sse(
+        self, bearer_client, method: str, path: str,
+    ) -> None:
+        # Auth rejection returns a plain 401 immediately (no streaming).
         resp = bearer_client.request(
             method,
             path,
