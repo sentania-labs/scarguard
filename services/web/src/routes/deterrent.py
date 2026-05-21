@@ -442,8 +442,8 @@ async def stuck_stream(request: Request) -> StreamingResponse:
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
-    user = getattr(request.state, "user", None)
-    user_id = user["user_id"] if user else "anon"
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("user_id", "anon")
 
     async def generator():
         client = aioredis.Redis(
