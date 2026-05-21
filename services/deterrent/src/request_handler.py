@@ -11,13 +11,19 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Any
 
 import redis as redis_lib
-from actuation_models import ActuationConfig, DeviceConfig
+from actuation_models import (
+    ActuationConfig,
+    ActuationEvent,
+    DeviceAction,
+    DeviceConfig,
+)
 from atomic_ref import AtomicRef
-from cloud_controller import TuyaCloudController
+from cloud_controller import ActivationResult, TuyaCloudController
 from deterrent_safety import (
     DEFAULT_TEST_FIRE_SEC,
     MAX_TEST_FIRE_SEC,
@@ -177,14 +183,20 @@ class RequestHandler:
             "Test-fire: %s (%s) for %.1fs [request_id=%s]",
             device.name, device_id, duration, request_id,
         )
+        t0 = time.monotonic()
         result = controller.activate_device(
             device, duration, request_id=request_id, event_type="test_fire",
         )
+        wall_sec = time.monotonic() - t0
+
         if result.stuck:
             self._publish_stuck(
                 client, device, request_id=request_id,
                 error=result.error or "OFF failed",
             )
+
+        self._persist_test_fire(device, duration, result, wall_sec, request_id)
+
         client.publish(result_channel, json.dumps({
             "ok": result.success,
             "error": result.error,
@@ -196,6 +208,45 @@ class RequestHandler:
             "Test-fire result: %s — %s",
             device.name, "success" if result.success else (result.error or "failed"),
         )
+
+    @staticmethod
+    def _persist_test_fire(
+        device: DeviceConfig,
+        duration: float,
+        result: ActivationResult,
+        wall_sec: float,
+        request_id: str,
+    ) -> None:
+        """Persist a test-fire to the actuation DB for a symmetric audit trail."""
+        import actuation_db
+
+        action = DeviceAction(
+            device_name=device.name,
+            device_id=device.device_id,
+            device_type=device.type,
+            duration_sec=duration,
+            delay_before_sec=0.0,
+            success=result.success,
+            error=result.error,
+            cloud_ack_ms=result.on_ack_ms,
+            off_attempts=result.off_attempts,
+            stuck=result.stuck,
+        )
+        event = ActuationEvent(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            trigger_class="admin",
+            trigger_camera="test-fire",
+            trigger_confidence=0.0,
+            pre_delay_sec=0.0,
+            actions=[action],
+            total_duration_sec=wall_sec,
+            request_id=request_id,
+            event_type="test_fire",
+        )
+        try:
+            actuation_db.insert_event(event)
+        except Exception:
+            logger.exception("Failed to persist test-fire event [rid=%s]", request_id)
 
     def _publish_stuck(
         self,

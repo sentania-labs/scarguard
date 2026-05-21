@@ -14,6 +14,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from sse_limiter import SSETooManyStreams, sse_connection
 
 logger = logging.getLogger(__name__)
 
@@ -43,23 +44,29 @@ async def stats_stream(request: Request) -> StreamingResponse:
     port = int(redis_cfg.get("port", 6379))
     interval = max(1, int(cfg.get("system", {}).get("stats_interval", 5)))
 
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("user_id", "anon")
+
     async def generator():
         client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
-        yield ": connected\n\n"
         try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    data = await client.get(REDIS_KEY)
-                    if data:
-                        yield f"event: stats\ndata: {data}\n\n"
-                    else:
-                        yield "event: stats\ndata: {\"error\": \"No stats available — detector may not be running.\"}\n\n"
-                except Exception:
-                    logger.debug("Failed to read stats from Redis", exc_info=True)
-                    yield ": redis-error\n\n"
-                await asyncio.sleep(interval)
+            async with sse_connection(client, user_id):
+                yield ": connected\n\n"
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        data = await client.get(REDIS_KEY)
+                        if data:
+                            yield f"event: stats\ndata: {data}\n\n"
+                        else:
+                            yield "event: stats\ndata: {\"error\": \"No stats available — detector may not be running.\"}\n\n"
+                    except Exception:
+                        logger.debug("Failed to read stats from Redis", exc_info=True)
+                        yield ": redis-error\n\n"
+                    await asyncio.sleep(interval)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
         finally:
             await client.aclose()
 

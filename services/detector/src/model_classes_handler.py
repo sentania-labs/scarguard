@@ -290,7 +290,7 @@ def _names_from_pt_cpu(abs_path: str) -> Any | None:
     except ImportError:
         return None
     try:
-        ckpt = torch.load(abs_path, map_location="cpu", weights_only=False)
+        ckpt = torch.load(abs_path, map_location="cpu", weights_only=True)
     except Exception:
         logger.debug("CPU-only torch.load failed for %s — falling back", abs_path)
         return None

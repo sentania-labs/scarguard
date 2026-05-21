@@ -105,16 +105,19 @@ def encrypt(plaintext: str, key: bytes) -> str:
 
 
 def decrypt(value: str, key: bytes) -> str:
-    """Decrypt *value* if encrypted, otherwise pass through.
+    """Decrypt *value* if encrypted, reject unencrypted values.
 
-    Plaintext passthrough exists for migration: a deployment upgrading
-    from a pre-v1.14 release will have plaintext values until the first
-    save. v1.15 will remove this branch and reject unencrypted values.
+    Prior to v1.15 a plaintext passthrough existed for one-time migration
+    from pre-v1.14 configs. That branch has been removed — all sensitive
+    fields must be encrypted before loading.
     """
     if not isinstance(value, str):
         return value
     if not is_encrypted(value):
-        return value
+        raise ValueError(
+            f"Unencrypted sensitive value rejected (missing '{PREFIX}' prefix). "
+            "Run a config save to trigger encryption, or rotate the secret key."
+        )
     token = value[len(PREFIX):]
     try:
         return _fernet(key).decrypt(token.encode("ascii")).decode("utf-8")

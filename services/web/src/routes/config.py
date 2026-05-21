@@ -22,7 +22,12 @@ from config_model import (
     SystemConfig,
     TLSConfig,
 )
-from config_redact import REDACTED_PLACEHOLDER, redact_config
+from config_redact import (
+    _CHANNEL_SENSITIVE_KEYS,
+    _STRUCTURAL_PATHS,
+    REDACTED_PLACEHOLDER,
+    redact_config,
+)
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -30,6 +35,7 @@ from pydantic import ValidationError
 from rate_limit_dep import rate_limit
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
+from template_json import safe_json_dumps
 
 log = logging.getLogger(__name__)
 
@@ -131,7 +137,7 @@ def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
         snap_path = latest_snaps.get(cam.name)
         d["snapshot_url"] = ("/snapshots/" + Path(snap_path).name) if snap_path else None
         result.append(d)
-    return json.dumps(result)
+    return safe_json_dumps(result)
 
 
 def _groups_json(raw_cfg: dict) -> str:
@@ -145,15 +151,15 @@ def _groups_json(raw_cfg: dict) -> str:
                 g.get("name", "") for g in raw_groups
                 if isinstance(g, dict) and g.get("name")
             ]
-    return json.dumps(groups)
+    return safe_json_dumps(groups)
 
 
 def _channels_json(raw_cfg: dict) -> str:
     if not isinstance(raw_cfg, dict):
-        return json.dumps([])
+        return safe_json_dumps([])
     raw_notif = raw_cfg.get("notifications", {})
     channels = raw_notif.get("channels", []) if isinstance(raw_notif, dict) else []
-    return json.dumps(channels if isinstance(channels, list) else [])
+    return safe_json_dumps(channels if isinstance(channels, list) else [])
 
 
 @router.get("", response_class=HTMLResponse)
@@ -180,16 +186,14 @@ async def config_page(request: Request) -> Response:
     # `_redact_parsed_cfg` below.
     cfg = _parse_cfg(raw_cfg)
 
-    # For viewers, mask secrets on the parsed cfg (drives the form and
-    # cameras_json hydration) AND on the dict used for the raw-YAML dump
-    # and channels_json.  The Advanced/raw-YAML tab is hidden for viewers
-    # in the template, but we still mask the dumped string as defence in
-    # depth in case a template bug leaks it.
-    if not is_admin:
-        _redact_parsed_cfg(cfg)
-        raw_cfg_for_render = redact_config(raw_cfg)
-    else:
-        raw_cfg_for_render = raw_cfg
+    # Mask secrets for ALL roles (admin included) so cleartext secrets
+    # never appear in rendered HTML.  Admins can reveal secrets on-demand
+    # via the /config/secrets endpoint (audit-logged, fetch-only).
+    # This closes the XSS amplification vector flagged by the red-team
+    # audit: even if an attacker injects script, the DOM contains only
+    # redacted placeholders — not cleartext credentials.
+    _redact_parsed_cfg(cfg)
+    raw_cfg_for_render = redact_config(raw_cfg)
     raw = yaml.dump(raw_cfg_for_render, default_flow_style=False, sort_keys=False)
 
     return templates.TemplateResponse(
@@ -212,19 +216,112 @@ async def config_page(request: Request) -> Response:
 
 @router.get("/raw")
 async def get_raw_config(request: Request) -> Response:
-    """Return the current config as a raw YAML string for the Advanced editor.
+    """Return the current config as a redacted YAML string for the Advanced editor.
 
-    Admin-only: raw YAML is the one form of the config where we can't
-    redact cleanly without breaking round-trip semantics, so viewers are
-    denied this endpoint entirely.  The viewer's structured-form view is
-    built through ``redact_config`` in the /config GET handler instead.
+    Admin-only.  Returns redacted YAML by default so cleartext secrets
+    never travel to the browser.  The unredacted version is available via
+    ``/config/raw-unredacted`` which logs an audit event.
     """
     gate = require_admin(request, is_api=True)
     if not isinstance(gate, dict):
         return gate
     cfg = config_store.load()
+    redacted = redact_config(cfg)
+    raw = yaml.dump(redacted, default_flow_style=False, sort_keys=False)
+    return JSONResponse({"yaml": raw})
+
+
+@router.get("/raw-unredacted")
+async def get_raw_config_unredacted(request: Request) -> Response:
+    """Return the unredacted raw YAML.  Admin-only, audit-logged.
+
+    Used by the "Reveal secrets" button in the raw-YAML tab.  Every call
+    is recorded in the audit log so there is a trail when secrets are
+    viewed in cleartext.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+    audit.record_request(
+        request,
+        action="secret.reveal",
+        resource="config/raw-unredacted",
+    )
+    cfg = config_store.load()
     raw = yaml.dump(cfg, default_flow_style=False, sort_keys=False)
     return JSONResponse({"yaml": raw})
+
+
+@router.get("/secrets")
+async def get_secrets(request: Request) -> Response:
+    """Return unredacted secret field values as JSON.  Admin-only, audit-logged.
+
+    Used by the "Reveal secrets" button in the structured-form tab.  The
+    response includes only the sensitive fields so the client can patch
+    ``***REDACTED***`` placeholders in form inputs without re-fetching the
+    entire config.
+
+    Every call is recorded in the audit log.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+    audit.record_request(
+        request,
+        action="secret.reveal",
+        resource="config/secrets",
+    )
+    cfg = config_store.load()
+
+    result: dict[str, Any] = {}
+
+    # Structural paths — tuya keys
+    for path in _STRUCTURAL_PATHS:
+        val: Any = cfg
+        for seg in path:
+            if seg == "[]":
+                break
+            if isinstance(val, dict):
+                val = val.get(seg)
+            else:
+                val = None
+                break
+        if isinstance(val, str) and val:
+            result[path[-1]] = val
+
+    # Camera RTSP URLs
+    cameras: list[dict[str, str]] = []
+    raw_cameras = cfg.get("cameras", [])
+    if isinstance(raw_cameras, list):
+        for cam in raw_cameras:
+            if isinstance(cam, dict) and cam.get("rtsp_url"):
+                cameras.append({
+                    "name": cam.get("name", ""),
+                    "rtsp_url": cam["rtsp_url"],
+                })
+    if cameras:
+        result["cameras"] = cameras
+
+    # Channel secrets
+    channels: list[dict[str, Any]] = []
+    raw_notif = cfg.get("notifications", {})
+    raw_channels = raw_notif.get("channels", []) if isinstance(raw_notif, dict) else []
+    if isinstance(raw_channels, list):
+        for ch in raw_channels:
+            if not isinstance(ch, dict):
+                continue
+            secrets: dict[str, Any] = {"name": ch.get("name", "")}
+            has_secret = False
+            for key in _CHANNEL_SENSITIVE_KEYS:
+                if key in ch and ch[key]:
+                    secrets[key] = ch[key]
+                    has_secret = True
+            if has_secret:
+                channels.append(secrets)
+    if channels:
+        result["channels"] = channels
+
+    return JSONResponse(result)
 
 
 @router.post(
@@ -276,7 +373,7 @@ async def save_structured_config(request: Request) -> Response:
     if not isinstance(existing_system, dict):
         existing_system = {}
     system_dump = payload.system.model_dump(exclude_unset=True)
-    for nested_key in ("schedule", "auth", "summary_report", "backup"):
+    for nested_key in ("schedule", "auth", "summary_report", "backup", "config_api"):
         if nested_key in system_dump:
             existing_nested = existing_system.get(nested_key, {})
             if not isinstance(existing_nested, dict):
@@ -288,6 +385,9 @@ async def save_structured_config(request: Request) -> Response:
 
     # Merge cameras: start from the existing entry (preserves exclusion_zones and
     # any other fields the form doesn't know about), then overlay the form values.
+    # Drop REDACTED_PLACEHOLDER values so they don't overwrite real secrets —
+    # the form ships redacted placeholders by default; only revealed values
+    # should update the persisted config.
     existing_cameras_by_name: dict[str, dict] = {
         c["name"]: c
         for c in existing.get("cameras", [])
@@ -296,6 +396,11 @@ async def save_structured_config(request: Request) -> Response:
     merged_cameras = []
     for cam in payload.cameras:
         cam_dict = cam.model_dump(exclude_unset=True)
+        # Strip redacted placeholders so the merge keeps the existing secret.
+        cam_dict = {
+            k: v for k, v in cam_dict.items()
+            if v != REDACTED_PLACEHOLDER
+        }
         if cam.name in existing_cameras_by_name:
             merged = {**existing_cameras_by_name[cam.name], **cam_dict}
         else:
@@ -307,8 +412,30 @@ async def save_structured_config(request: Request) -> Response:
 
     # Merge notifications: write channels list only (legacy discord/email keys
     # removed in v0.13.2 — stripped automatically by config_store on save).
+    # Strip redacted placeholders from channel dicts so they don't overwrite
+    # real secrets when secrets are not revealed.
     existing.setdefault("notifications", {})
-    existing["notifications"]["channels"] = payload.notifications.channels
+    existing_channels_by_name: dict[str, dict] = {
+        c["name"]: c
+        for c in (existing.get("notifications", {}).get("channels") or [])
+        if isinstance(c, dict) and "name" in c
+    }
+    merged_channels: list[Any] = []
+    for ch in payload.notifications.channels:
+        if not isinstance(ch, dict):
+            merged_channels.append(ch)
+            continue
+        cleaned = {
+            k: v for k, v in ch.items()
+            if v != REDACTED_PLACEHOLDER
+        }
+        ch_name = cleaned.get("name", "")
+        if ch_name and ch_name in existing_channels_by_name:
+            merged_ch = {**existing_channels_by_name[ch_name], **cleaned}
+        else:
+            merged_ch = cleaned
+        merged_channels.append(merged_ch)
+    existing["notifications"]["channels"] = merged_channels
 
     # TLS — detect changes so we can tell the UI that Caddy will reload.
     def _normalize_tls(raw: dict) -> dict:
@@ -448,29 +575,49 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
     saved = False
     warnings: list[str] = []
     raw_cfg: dict = {}
-    try:
-        raw_cfg = yaml.safe_load(raw_yaml)
-        if not isinstance(raw_cfg, dict):
-            raise ValueError("Config must be a YAML mapping")
-        config_store.save(raw_cfg)
-        saved = True
-        raw_yaml = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
-        warnings = _find_orphan_references(raw_cfg)
-        audit.record_request(
-            request,
-            action="config.save",
-            resource="scarguard.yml",
-            details={"form": "raw_yaml", "orphan_warnings": len(warnings)},
+    # Reject saves that still contain redacted placeholders — the user
+    # must reveal secrets before editing raw YAML, otherwise they would
+    # overwrite real credentials with "***REDACTED***".
+    if REDACTED_PLACEHOLDER in raw_yaml:
+        error = (
+            "Cannot save: the YAML contains redacted placeholders "
+            "(***REDACTED***). Click 'Reveal secrets' first, then edit and save."
         )
-    except Exception:
-        # Same scrubbing pattern as save_structured_config — don't surface raw
-        # exception text in the rendered template. Admin-only endpoint, but
-        # CodeQL flags the sink and the operator gets a request ID to grep.
-        req_id = uuid.uuid4().hex[:8]
-        log.exception("raw YAML config save failed [%s]", req_id)
-        error = f"Unable to save config (request_id={req_id})"
+        try:
+            raw_cfg = yaml.safe_load(raw_yaml) or {}
+        except yaml.YAMLError:
+            raw_cfg = {}
+        if not isinstance(raw_cfg, dict):
+            raw_cfg = {}
+    else:
+        try:
+            raw_cfg = yaml.safe_load(raw_yaml)
+            if not isinstance(raw_cfg, dict):
+                raise ValueError("Config must be a YAML mapping")
+            config_store.save(raw_cfg)
+            saved = True
+            raw_yaml = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
+            warnings = _find_orphan_references(raw_cfg)
+            audit.record_request(
+                request,
+                action="config.save",
+                resource="scarguard.yml",
+                details={"form": "raw_yaml", "orphan_warnings": len(warnings)},
+            )
+        except Exception:
+            # Same scrubbing pattern as save_structured_config — don't surface raw
+            # exception text in the rendered template. Admin-only endpoint, but
+            # CodeQL flags the sink and the operator gets a request ID to grep.
+            req_id = uuid.uuid4().hex[:8]
+            log.exception("raw YAML config save failed [%s]", req_id)
+            error = f"Unable to save config (request_id={req_id})"
 
     cfg = _parse_cfg(raw_cfg)
+
+    # Redact secrets in the template response — same as config_page().
+    _redact_parsed_cfg(cfg)
+    raw_cfg_for_render = redact_config(raw_cfg)
+    raw_yaml = yaml.dump(raw_cfg_for_render, default_flow_style=False, sort_keys=False)
 
     return templates.TemplateResponse(
         request,
@@ -482,8 +629,8 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             "warnings": warnings,
             "cfg": cfg,
             "cameras_json": _cameras_json(cfg.cameras),
-            "channels_json": _channels_json(raw_cfg),
-            "groups_json": _groups_json(raw_cfg),
+            "channels_json": _channels_json(raw_cfg_for_render),
+            "groups_json": _groups_json(raw_cfg_for_render),
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
         },

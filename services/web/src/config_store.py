@@ -23,11 +23,7 @@ _STALE_NOTIFICATION_KEYS: set[str] = {"discord", "email"}
 # notification_rules in v0.13.3 and is migrated on read.
 _STALE_CAMERA_KEYS: set[str] = {"action_rules"}
 # Nested keys under ``system`` stripped on save.
-# v1.14: snapshot_retention_days and metrics_retention_days were consolidated
-# into a single retention_days in v0.11. The startup migration in main.py
-# still handles in-memory consolidation; this strips raw-YAML residue and
-# any pre-v0.11 configs that haven't been touched in years.
-_STALE_SYSTEM_KEYS: set[str] = {"snapshot_retention_days", "metrics_retention_days"}
+_STALE_SYSTEM_KEYS: set[str] = {"snapshot_retention_days", "metrics_retention_days", "base_url"}
 
 
 def _migrate_in_place(cfg: dict) -> None:

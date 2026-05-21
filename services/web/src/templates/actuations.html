@@ -93,24 +93,7 @@
   {% endif %}
 </section>
 
-<script>
-(function() {
-  var evtSrc = new EventSource('/deterrent-log/stream');
-  evtSrc.addEventListener('actuation', function(e) {
-    var tbody = document.getElementById('actuations-body');
-    if (!tbody) return;
-    // Remove "no events" placeholder if present
-    var empty = tbody.querySelector('td[colspan]');
-    if (empty) empty.parentElement.remove();
-    // Insert new row at top
-    var tmp = document.createElement('tbody');
-    tmp.innerHTML = e.data;
-    var row = tmp.firstElementChild;
-    if (row) tbody.insertBefore(row, tbody.firstChild);
-  });
-  // EventSource auto-reconnects natively; no need to close on error.
-})();
-</script>
+<script src="/static/actuations.js" defer></script>
 
 <style>
 .status-ok { color: var(--ok); font-weight: 600; }

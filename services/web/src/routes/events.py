@@ -11,6 +11,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from sse_limiter import SSETooManyStreams, sse_connection
 
 router = APIRouter(prefix="/events")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -137,6 +138,7 @@ async def submit_feedback(
     event_id: int,
     feedback: str = Form(...),
     corrected_class: str = Form(""),
+    corrected_bbox: str = Form(""),
 ):
     """Set or update feedback on a detection event.  Returns the updated row."""
     if feedback not in ("correct", "false_positive", "wrong_class"):
@@ -155,7 +157,20 @@ async def submit_feedback(
             "partials/event_rows.html",
             {"events": events, "target_classes": _get_target_classes()},
         )
-    db.update_feedback(event_id, feedback, corr)
+    # Validate corrected_bbox as JSON [x1, y1, x2, y2] if provided
+    bbox_str: str | None = None
+    if feedback == "wrong_class" and corrected_bbox.strip():
+        try:
+            parsed = json.loads(corrected_bbox.strip())
+            if (
+                isinstance(parsed, list)
+                and len(parsed) == 4
+                and all(isinstance(c, (int, float)) for c in parsed)
+            ):
+                bbox_str = json.dumps(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass  # ignore malformed bbox — keep original
+    db.update_feedback(event_id, feedback, corr, corrected_bbox=bbox_str)
     row = db.get_event(event_id)
     if row is None:
         return HTMLResponse("<tr><td colspan='7'>Event not found</td></tr>")
@@ -175,31 +190,38 @@ async def event_stream(request: Request):
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("user_id", "anon")
 
     async def generator():
         client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
-        pubsub = client.pubsub()
-        await pubsub.subscribe(CHANNEL)
-        yield ": connected\n\n"
         try:
-            while not await request.is_disconnected():
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=15.0,
-                )
-                if message is None:
-                    yield ": keepalive\n\n"
-                    continue
-                if message["type"] != "message":
-                    continue
+            async with sse_connection(client, user_id):
+                pubsub = client.pubsub()
+                await pubsub.subscribe(CHANNEL)
+                yield ": connected\n\n"
                 try:
-                    event = json.loads(message["data"])
-                except json.JSONDecodeError:
-                    continue
-                tz = _tz_name()
-                html = _render_event_row(event, tz)
-                yield f"event: detection\ndata: {html}\n\n"
+                    while not await request.is_disconnected():
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=15.0,
+                        )
+                        if message is None:
+                            yield ": keepalive\n\n"
+                            continue
+                        if message["type"] != "message":
+                            continue
+                        try:
+                            event = json.loads(message["data"])
+                        except json.JSONDecodeError:
+                            continue
+                        tz = _tz_name()
+                        html = _render_event_row(event, tz)
+                        yield f"event: detection\ndata: {html}\n\n"
+                finally:
+                    await pubsub.unsubscribe(CHANNEL)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
         finally:
-            await pubsub.unsubscribe(CHANNEL)
             await client.aclose()
 
     return StreamingResponse(generator(), media_type="text/event-stream")

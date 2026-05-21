@@ -3,7 +3,7 @@ FROM ubuntu:22.04@sha256:eb29ed27b0821dca09c2e28b39135e185fc1302036427d5f4d70a41
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Base deps + Docker CLI (for issuing commands to host Docker via socket mount)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     curl \

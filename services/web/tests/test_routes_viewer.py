@@ -324,10 +324,9 @@ class TestAdminRole:
         r = auth_client.get("/config/raw")
         assert r.status_code == 200
 
-    def test_admin_config_page_shows_plaintext_secrets(self, auth_client):
+    def test_admin_config_page_redacts_secrets(self, auth_client):
         _as(auth_client, "admin")
         body = auth_client.get("/config").text
-        # Admin sees the real values (verifies the read_only branch is gated
-        # correctly on the role, not accidentally applied to everyone).
-        assert "VIEWER_SECRET_123" in body
+        assert "VIEWER_SECRET_123" not in body
+        assert "***REDACTED***" in body
         assert "Read-only view" not in body

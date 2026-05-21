@@ -1,5 +1,6 @@
 """Token-based feedback from notification links (unauthenticated)."""
 
+import json
 import os
 from pathlib import Path
 
@@ -86,6 +87,7 @@ async def submit_feedback(
     v: str = "",
     feedback: str = Form(""),
     corrected_class: str = Form(""),
+    corrected_bbox: str = Form(""),
 ) -> HTMLResponse:
     """Record feedback for a detection event via token.
 
@@ -115,11 +117,25 @@ async def submit_feedback(
     corr = corrected_class.strip()[:64] or None
     if value != "wrong_class":
         corr = None
-    db.update_feedback(event["id"], value, corr)
+    # Validate corrected_bbox as JSON [x1, y1, x2, y2] if provided
+    bbox_str: str | None = None
+    if value == "wrong_class" and corrected_bbox.strip():
+        try:
+            parsed = json.loads(corrected_bbox.strip())
+            if (
+                isinstance(parsed, list)
+                and len(parsed) == 4
+                and all(isinstance(c, (int, float)) for c in parsed)
+            ):
+                bbox_str = json.dumps(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass  # ignore malformed bbox — keep original
+    db.update_feedback(event["id"], value, corr, corrected_bbox=bbox_str)
     # Reflect the saved values back to the template so the success page shows
     # the user's current choice and allows another correction if needed.
     event["feedback"] = value
     event["corrected_class"] = corr
+    event["corrected_bbox"] = bbox_str
     return templates.TemplateResponse(
         request,
         "feedback.html",

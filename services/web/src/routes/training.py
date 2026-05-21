@@ -175,8 +175,13 @@ async def export_dataset(
                 zf.writestr(f"dataset/labels/train/{event_id}.txt", "")
                 continue
 
-            # Positive (correct / wrong_class): emit YOLO bbox annotation
-            bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
+            # Positive (correct / wrong_class): emit YOLO bbox annotation.
+            # If the user drew a corrected bbox, prefer it over the original.
+            raw_corrected = row.get("corrected_bbox")
+            if raw_corrected:
+                bbox = json.loads(raw_corrected) if isinstance(raw_corrected, str) else raw_corrected
+            else:
+                bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
             frame_size = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
             class_idx = class_to_idx[_effective_class(row)]
             x1, y1, x2, y2 = bbox
@@ -279,9 +284,20 @@ async def start_evaluation(
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
-    # Resolve model paths
-    model_a_path = str(MODELS_DIR / model_a) if model_a else ""
-    model_b_path = str(MODELS_DIR / model_b) if model_b else ""
+    # Resolve model paths — validate against directory listing to avoid
+    # path traversal (CodeQL py/path-injection).
+    allowed = {f.name for f in MODELS_DIR.iterdir() if f.is_file()} if MODELS_DIR.is_dir() else set()
+    for raw_name in (model_a, model_b):
+        if not raw_name:
+            continue
+        base = Path(raw_name).name
+        if base not in allowed:
+            return HTMLResponse(
+                f'<div class="alert alert-err">Invalid model: {_html.escape(base)}</div>',
+                status_code=400,
+            )
+    model_a_path = str(MODELS_DIR / Path(model_a).name) if model_a else ""
+    model_b_path = str(MODELS_DIR / Path(model_b).name) if model_b else ""
 
     eval_request = {
         "model_a": model_a_path,

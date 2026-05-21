@@ -23,9 +23,9 @@ Stale config keys are handled by a declarative `_STALE_KEYS` set in `config_stor
 
 - ~~**Remove legacy SSL→TLS migration** (target x.12.x)~~ — ✓ Removed in v0.12. Add `"ssl"` to `_STALE_KEYS`.
 - ~~**Remove legacy flat notification keys** (target x.13.x)~~ — ✓ Removed in v0.13.2. Add `"notifications.discord"` and `"notifications.email"` to stale-key stripping in `save()`.
-- ~~**Remove retention_days migration code** (target x.14.x)~~ — shipping in v1.14.0. Adds `"snapshot_retention_days"` and `"metrics_retention_days"` to `_STALE_KEYS`; they'll be stripped on the next user-initiated save.
-- **Remove secrets-at-rest plaintext passthrough** (target v1.15.x) — v1.14.0 introduced envelope encryption for sensitive YAML fields with a plaintext-passthrough branch in `shared/secret_box.decrypt` for one-time migration. Remove in v1.15 so unencrypted values are rejected at load time.
-- **Remove config schema version sentinel for v1.14 migration** (target v1.15.x) — the one-shot `"upgrade in progress"` warning for plaintext secrets can come out once every active deployment has done one save.
+- ~~**Remove retention_days migration code** (target x.14.x)~~ — ✓ Removed in v1.15.0. Startup migration deleted; `base_url` added to `_STALE_SYSTEM_KEYS`.
+- ~~**Remove secrets-at-rest plaintext passthrough** (target v1.15.x)~~ — ✓ Removed in v1.15.0. `secret_box.decrypt()` now rejects unencrypted values.
+- ~~**Remove config schema version sentinel for v1.14 migration** (target v1.15.x)~~ — ✓ Removed in v1.15.0. `_encrypt_plaintext_secrets()`, `_migrate_retention_fields()`, and `_migrate_base_url_to_domain()` startup functions deleted.
 
 ---
 
@@ -266,8 +266,8 @@ Workstreams (see `.claude/plans/` or the v1.14 PRs for full detail):
 
 ### Deferred from v1.14.0
 
-These items were considered and pushed out. Captured here so they aren't
-silently dropped.
+All items below were pulled into v1.15 scope (2026-05-20). Kept here for
+original context and review provenance.
 
 - **Web-write-config split into a dedicated `config-api` service** (Claude H3) —
   mitigates "FastAPI compromise = full-system compromise" cleanly but is a
@@ -392,9 +392,13 @@ the same patch — see GitHub.
 
 ---
 
-## v1.15 — exclusion zone editor + label-correction tooling (planned)
+## v1.15 — exclusion zones, label tooling, deferred v1.14 hardening (in progress)
 
-Feature work, not hardening — bumps the minor.
+Feature minor: new canvas-based UI tooling plus all items deferred from
+v1.14.0 (see that section for original context). Cleanup items 3–4 close
+the v1.14 migration window.
+
+**Feature work:**
 
 1. **Polygon exclusion zones with edit affordance.** Replace the
    rect-only zone tool with a polygon canvas tool, support editing
@@ -412,6 +416,70 @@ Feature work, not hardening — bumps the minor.
    entirely. Same canvas tooling as the polygon editor — natural
    pairing, which is why this is bundled here rather than backported
    to v1.14.x.
+
+**Cleanup / deprecation:**
+
+3. ~~**Remove secrets-at-rest plaintext passthrough.**~~ ✓ Done.
+4. ~~**Remove config schema version sentinel for v1.14 migration.**~~ ✓ Done.
+   Also removed `_migrate_retention_fields()` and `_migrate_base_url_to_domain()`.
+
+**Security / hardening (from v1.14 deferred):**
+
+5. **CSP nonce migration.** Move every inline `<script>` in Jinja
+   templates to per-request nonces or external `.js` files so
+   `'unsafe-inline'` can be dropped from `script-src`. Real XSS
+   defense layer.
+6. ~~**Vendor htmx + Chart.js.**~~ ✓ Done. Bundled into `static/vendor/`
+   (~260 KB). CSP `unpkg.com` host removed.
+7. **SSE concurrent-connection caps.** Replace the fixed-window request
+   counter with connection tracking (Redis SET of active stream IDs per
+   principal) for long-lived SSE streams. Prevents a single client from
+   exhausting server connections.
+
+**Ops / reliability (from v1.14 deferred):**
+
+8. **Sticky banner for `scarguard:deterrent:stuck` events.** Events
+   already publish to Redis and log at CRITICAL; add a web-side Redis
+   subscriber + SSE push to surface them as a persistent dashboard
+   warning banner.
+9. **Live SSE for `/admin/db-backups`.** SSE feed against
+   `scarguard:backup:status` to show progress live (started →
+   in-progress → completed) without page reload after manual trigger.
+10. ~~**Standardized `shared/redis_client.py` retry helper.**~~ ✓ Done.
+    Factory functions + reconnect loop with exponential backoff.
+
+**CI / docs verification (from v1.14 deferred):**
+
+11. **setup.sh starter-model end-to-end verification.** Manual run on a
+    fresh host to verify the README-claimed starter YOLO download path
+    works post-non-root-container fix.
+12. **TensorRT export verification.** Re-verify the README's
+    `docker compose exec detector python -c "..."` TensorRT export
+    command as the `scarguard` user. Document `-u root` or fix write
+    perms on `/models` if needed.
+13. **CI sweep of Bearer-auth endpoints.** Automated test that every
+    documented Bearer-accessible endpoint returns non-401 with a valid
+    token. Catches doc/code drift.
+14. ~~**CONFIG_REFERENCE.md full parity pass.**~~ ✓ Done. Added `system.auth`
+    section, per-camera overrides, `deterrent.reconcile_interval_sec`,
+    removed stale `base_url`.
+
+**Architecture (from v1.14 deferred):**
+
+15. **Web-write-config split into a dedicated `config-api` service.**
+    Extract config-write paths from the web service. Mitigates "FastAPI
+    compromise = full-system compromise." Largest architectural change
+    in the release.
+16. **Tamper-evident actuation audit chain.** Signed hash-chain per
+    actuation record. v1.14 has `request_id` + standard audit table;
+    this adds cryptographic tamper evidence.
+
+**Polish (from v1.14 deferred):**
+
+17. ~~**Test-fire actuation_db persistence.**~~ ✓ Done. Test-fires now
+    persisted with `event_type="test_fire"`.
+18. ~~**`scripts/rotate-secret-key.sh`.**~~ ✓ Done. Generates new key,
+    re-encrypts config, atomic swap, restarts services.
 
 ---
 

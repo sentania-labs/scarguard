@@ -22,12 +22,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import audit
+import config_store
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
 from route_auth import require_admin
+from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
 
 log = logging.getLogger(__name__)
@@ -134,7 +137,6 @@ async def backups_page(request: Request) -> Response:
 
 
 def _redis_params() -> dict[str, Any]:
-    import config_store
     redis_cfg = config_store.load_cached().get("redis", {}) or {}
     return {
         "host": redis_cfg.get("host", "redis"),
@@ -229,10 +231,20 @@ async def download_backup(
 
     Filename and db come from the URL but are validated against the
     actual directory listing — anything else returns 404. This is
-    audit-logged so manual exfiltration leaves a trail."""
+    audit-logged so manual exfiltration leaves a trail.
+
+    ``auth`` database downloads are blocked via GET — they require the
+    POST endpoint below which enforces password re-authentication.
+    """
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
+
+    if db == "auth":
+        raise HTTPException(
+            status_code=403,
+            detail="auth database downloads require password re-authentication",
+        )
 
     resolved = _safe_resolve(db, filename)
     if resolved is None:
@@ -254,3 +266,140 @@ async def download_backup(
         media_type=media_type,
         filename=resolved.name,
     )
+
+
+@router.post("/download/{db}/{filename}")
+async def download_backup_post(
+    request: Request, db: str, filename: str,
+) -> Response:
+    """Download a backup file with password re-authentication.
+
+    Only ``auth`` database backups require re-auth (they contain bcrypt
+    password hashes).  For non-auth databases this endpoint behaves
+    identically to the GET variant — the password field is ignored.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+    user = gate
+
+    resolved = _safe_resolve(db, filename)
+    if resolved is None:
+        log.warning("Rejected backup download (db=%r file=%r)", db, filename)
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    if db == "auth":
+        # Require password re-authentication for auth database backups.
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        password = body.get("password", "") if isinstance(body, dict) else ""
+
+        if not password:
+            raise HTTPException(
+                status_code=403,
+                detail="Password required for auth database download",
+            )
+
+        # Look up the current user's stored hash and verify.
+        import auth as auth_module
+        user_id: int = int(user.get("user_id", 0))
+        auth_db = auth_module.get_db()
+        try:
+            db_user = auth_module.get_user_by_id(auth_db, user_id)
+        finally:
+            auth_db.close()
+
+        if db_user is None or not auth_module.verify_password(
+            password, db_user["password_hash"],
+        ):
+            client_ip = request.client.host if request.client else None
+            audit.record_request(
+                request,
+                action="backup.download.auth.failed",
+                resource=filename,
+            )
+            log.warning(
+                "Auth backup re-auth failed: %s/%s by %s from %s",
+                db, filename,
+                user.get("username", "<unknown>"),
+                client_ip,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Password verification failed",
+            )
+
+        # Re-auth succeeded — audit and serve.
+        audit.record_request(
+            request,
+            action="backup.download.auth",
+            resource=filename,
+        )
+
+    log.info(
+        "Backup downloaded: %s/%s by %s",
+        resolved.parent.name,
+        resolved.name,
+        user.get("username", "<unknown>"),
+    )
+    media_type = (
+        "application/gzip" if resolved.name.endswith(".gz")
+        else "application/octet-stream"
+    )
+    return FileResponse(
+        path=str(resolved),
+        media_type=media_type,
+        filename=resolved.name,
+    )
+
+
+@router.get("/stream")
+async def backup_status_stream(request: Request) -> Response:
+    """SSE stream — pushes backup status events for the live-status panel."""
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+    cfg = config_store.load_cached()
+    redis_cfg = cfg.get("redis", {})
+    host = redis_cfg.get("host", "redis")
+    port = int(redis_cfg.get("port", 6379))
+
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("user_id", "anon")
+
+    async def generator():
+        client = aioredis.Redis(
+            host=host, port=port,
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
+        try:
+            async with sse_connection(client, user_id):
+                pubsub = client.pubsub()
+                await pubsub.subscribe(STATUS_CHANNEL)
+                yield ": connected\n\n"
+                try:
+                    while not await request.is_disconnected():
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True, timeout=15.0,
+                        )
+                        if message is None:
+                            yield ": keepalive\n\n"
+                            continue
+                        if message["type"] != "message":
+                            continue
+                        try:
+                            payload = json.loads(message["data"])
+                        except json.JSONDecodeError:
+                            continue
+                        yield f"event: backup-status\ndata: {json.dumps(payload)}\n\n"
+                finally:
+                    await pubsub.unsubscribe(STATUS_CHANNEL)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
+        finally:
+            await client.aclose()
+
+    return StreamingResponse(generator(), media_type="text/event-stream")

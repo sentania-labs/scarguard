@@ -27,13 +27,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      TAG: ${{ github.ref_name }}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Derive version from tag
         id: version
-        run: echo "semver=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> "$GITHUB_OUTPUT"
+        run: echo "semver=$(echo "$TAG" | sed 's/^v//')" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
 
@@ -279,6 +281,7 @@ jobs:
       benchmark_json: ${{ steps.benchmark.outputs.json }}
 
     env:
+      TAG: ${{ github.ref_name }}
       DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
 
     steps:
@@ -295,8 +298,8 @@ jobs:
         run: |
           docker build \
             --file services/detector/Dockerfile \
-            --tag ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} \
-            --tag ${{ env.DETECTOR_IMAGE }}:latest \
+            --tag "$DETECTOR_IMAGE:$TAG" \
+            --tag "$DETECTOR_IMAGE:latest" \
             .
 
       - name: GPU smoke test
@@ -304,7 +307,7 @@ jobs:
           docker run --rm \
             --runtime nvidia \
             -e NVIDIA_VISIBLE_DEVICES=all \
-            ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} \
+            "$DETECTOR_IMAGE:$TAG" \
             python3 -c "
           import torch
           assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
@@ -322,8 +325,8 @@ jobs:
         id: benchmark
         run: |
           cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
-            ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }} python3 /ci/smoke_inference.py)
-          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+            "$DETECTOR_IMAGE:$TAG" python3 /ci/smoke_inference.py)
+          docker cp "$GITHUB_WORKSPACE/tests/ci/." "$cid:/ci/"
           OUTPUT=$(docker start -a "$cid")
           rc=$?
           docker rm "$cid" > /dev/null
@@ -334,17 +337,16 @@ jobs:
 
       - name: Push detector image
         run: |
-          docker push ${{ env.DETECTOR_IMAGE }}:${{ github.ref_name }}
-          docker push ${{ env.DETECTOR_IMAGE }}:latest
+          docker push "$DETECTOR_IMAGE:$TAG"
+          docker push "$DETECTOR_IMAGE:latest"
 
       - name: Prune stale detector images
         if: always()
         run: |
           docker image prune -f
-          # Remove old scarguard-detector images, keeping only the just-built tag and latest
           docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
             | grep "scarguard-detector" \
-            | grep -v ":${{ github.ref_name }}" \
+            | grep -v ":$TAG" \
             | grep -v ":latest" \
             | awk '{print $2}' \
             | sort -u \
@@ -361,6 +363,7 @@ jobs:
       benchmark_json: ${{ steps.benchmark.outputs.json }}
 
     env:
+      TAG: ${{ github.ref_name }}
       DETECTOR_X86_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector-x86
 
     steps:
@@ -377,17 +380,17 @@ jobs:
         run: |
           docker build \
             --file services/detector/Dockerfile.x86 \
-            --tag ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
-            --tag ${{ env.DETECTOR_X86_IMAGE }}:latest \
+            --tag "$DETECTOR_X86_IMAGE:$TAG" \
+            --tag "$DETECTOR_X86_IMAGE:latest" \
             .
 
       # Uses docker create + cp instead of bind mounts — self-hosted DinD.
       - name: Inference benchmark (CPU)
         id: benchmark
         run: |
-          cid=$(docker create --user root --entrypoint "" ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }} \
+          cid=$(docker create --user root --entrypoint "" "$DETECTOR_X86_IMAGE:$TAG" \
             python3 /ci/smoke_inference.py)
-          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+          docker cp "$GITHUB_WORKSPACE/tests/ci/." "$cid:/ci/"
           OUTPUT=$(docker start -a "$cid")
           rc=$?
           docker rm "$cid" > /dev/null
@@ -398,8 +401,8 @@ jobs:
 
       - name: Push x86 detector image
         run: |
-          docker push ${{ env.DETECTOR_X86_IMAGE }}:${{ github.ref_name }}
-          docker push ${{ env.DETECTOR_X86_IMAGE }}:latest
+          docker push "$DETECTOR_X86_IMAGE:$TAG"
+          docker push "$DETECTOR_X86_IMAGE:latest"
 
       - name: Prune
         if: always()
@@ -463,28 +466,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="chore/benchmarks-${{ github.ref_name }}"
+          BRANCH="chore/benchmarks-$TAG"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add BENCHMARKS.md
           git diff --cached --quiet && echo "No benchmark changes" && exit 0
-          # Clean up prior branch from a previous run (if any)
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
-          git commit -m "$(cat <<'EOF'
-          chore: update BENCHMARKS.md for ${{ github.ref_name }}
+          git commit -m "chore: update BENCHMARKS.md for $TAG
 
-          Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          EOF
-          )"
+          Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
           git push origin "$BRANCH"
-          # Create PR if one doesn't already exist for this branch
           gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q . \
             || gh pr create \
               --base main \
               --head "$BRANCH" \
-              --title "chore: update BENCHMARKS.md for ${{ github.ref_name }}" \
-              --body "Automated benchmark results from release ${{ github.ref_name }}."
+              --title "chore: update BENCHMARKS.md for $TAG" \
+              --body "Automated benchmark results from release $TAG."
           gh pr edit "$BRANCH" --add-label ci 2>/dev/null || true
 
   # ── Create GitHub Release ──────────────────────────────────────────────────

@@ -3,7 +3,7 @@
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 
 class ScheduleConfig(BaseModel):
@@ -125,6 +125,17 @@ class SummaryReportConfig(BaseModel):
         return f"{h:02d}:{m:02d}"
 
 
+class ConfigApiConfig(BaseModel):
+    """Feature flag for the optional config-API service split.
+
+    When ``enabled`` is True the ``config-api`` compose profile should be
+    active and Caddy routes config-write POSTs to the dedicated service
+    instead of the web monolith.  Default is False (web handles everything).
+    """
+
+    enabled: bool = False
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
@@ -138,6 +149,7 @@ class SystemConfig(BaseModel):
     camera_health: CameraHealthConfig = CameraHealthConfig()
     backup: BackupConfig = BackupConfig()
     summary_report: SummaryReportConfig = SummaryReportConfig()
+    config_api: ConfigApiConfig = ConfigApiConfig()
 
     @field_validator("retention_days")
     @classmethod
@@ -178,17 +190,43 @@ class SystemConfig(BaseModel):
 
 
 class ExclusionZoneConfig(BaseModel):
-    x: float = 0.0
-    y: float = 0.0
-    w: float = 0.0
-    h: float = 0.0
+    points: list[list[float]] = []
     label: str = ""
+    enabled: bool = True
+    zone_type: Literal["exclude", "include"] = "exclude"
 
-    @field_validator("x", "y", "w", "h")
+    @model_validator(mode="before")
     @classmethod
-    def in_unit_range(cls, v: float) -> float:
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("Exclusion zone coordinates must be between 0.0 and 1.0")
+    def migrate_rect_to_polygon(cls, values: dict) -> dict:
+        """Convert legacy {x, y, w, h} rect format to polygon points."""
+        if not isinstance(values, dict):
+            return values
+        if "points" not in values and all(k in values for k in ("x", "y", "w", "h")):
+            x = float(values.pop("x"))
+            y = float(values.pop("y"))
+            w = float(values.pop("w"))
+            h = float(values.pop("h"))
+            values["points"] = [
+                [x, y],
+                [x + w, y],
+                [x + w, y + h],
+                [x, y + h],
+            ]
+        return values
+
+    @field_validator("points")
+    @classmethod
+    def valid_polygon(cls, v: list[list[float]]) -> list[list[float]]:
+        if len(v) < 3:
+            raise ValueError("A polygon requires at least 3 vertices")
+        for i, pt in enumerate(v):
+            if len(pt) != 2:
+                raise ValueError(f"Point {i} must have exactly 2 coordinates, got {len(pt)}")
+            if not (0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0):
+                raise ValueError(
+                    f"Point {i} coordinates must be between 0.0 and 1.0, "
+                    f"got ({pt[0]}, {pt[1]})"
+                )
         return v
 
 
@@ -228,7 +266,9 @@ class CameraConfig(BaseModel):
     @field_validator("rtsp_url")
     @classmethod
     def rtsp_url_format(cls, v: str) -> str:
-        if v and not v.startswith(("rtsp://", "rtsps://")):
+        # Allow the redacted placeholder through — the save handler strips
+        # it before merging so the existing secret is preserved.
+        if v and v != "***REDACTED***" and not v.startswith(("rtsp://", "rtsps://")):
             raise ValueError("RTSP URL must start with rtsp:// or rtsps://")
         return v
 
