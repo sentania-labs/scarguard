@@ -240,16 +240,30 @@ function _appendGroupUsageChips(container, name) {
   });
 }
 
-function _rangeInputs(name, idx, vals, attrs) {
+function _appendRangeInputs(container, name, idx, vals, extraAttrs) {
   vals = vals || [null, null];
-  attrs = attrs || '';
-  return (
-    '<input type="number" data-idx="' + idx + '" data-field="' + name + '_min" ' + attrs +
-    ' value="' + (vals[0] != null ? vals[0] : '') + '" style="width:5rem;" placeholder="inherit">' +
-    ' <span>to</span> ' +
-    '<input type="number" data-idx="' + idx + '" data-field="' + name + '_max" ' + attrs +
-    ' value="' + (vals[1] != null ? vals[1] : '') + '" style="width:5rem;" placeholder="inherit">'
-  );
+  extraAttrs = extraAttrs || {};
+  function makeInput(suffix, val) {
+    var inp = document.createElement('input');
+    inp.type = 'number';
+    inp.dataset.idx = idx;
+    inp.dataset.field = name + '_' + suffix;
+    inp.style.width = '5rem';
+    inp.placeholder = 'inherit';
+    if (val != null) inp.value = val;
+    Object.keys(extraAttrs).forEach(function(k) {
+      if (k === 'disabled') { inp.disabled = true; }
+      else { inp.setAttribute(k, extraAttrs[k]); }
+    });
+    return inp;
+  }
+  container.appendChild(makeInput('min', vals[0]));
+  var sep = document.createElement('span');
+  sep.textContent = 'to';
+  container.appendChild(document.createTextNode(' '));
+  container.appendChild(sep);
+  container.appendChild(document.createTextNode(' '));
+  container.appendChild(makeInput('max', vals[1]));
 }
 
 function renderGroups() {
@@ -263,67 +277,111 @@ function renderGroups() {
     var card = document.createElement('div');
     card.className = 'camera-card';
     card.style.marginBottom = '0.75rem';
-    var devCheckboxes = _devices.map(function(d) {
-      var checked = (g.devices || []).indexOf(d.name) >= 0 ? ' checked' : '';
-      var disabled = _readOnly ? ' disabled' : '';
-      return (
-        '<label style="display:inline-flex;align-items:center;gap:0.25rem;margin-right:0.75rem;font-size:0.85rem;">' +
-        '<input type="checkbox" data-idx="' + i + '" data-field="device" value="' + esc(d.name) + '"' + checked + disabled + '>' +
-        esc(d.name) +
-        '</label>'
-      );
-    }).join('');
-    if (!devCheckboxes) {
-      devCheckboxes = '<span class="muted" style="font-size:0.85rem;">No devices registered yet — add some on the Devices tab.</span>';
-    }
+
+    // Static structure only — no data interpolation in innerHTML.
     card.innerHTML =
       '<div class="camera-card-header">' +
-        '<span class="camera-card-title">Group: ' + esc(g.name || '(unnamed)') + '</span>' +
-        (_readOnly ? '' : '<button type="button" class="btn-remove" onclick="removeGroup(' + i + ')">Remove</button>') +
+        '<span class="camera-card-title"></span>' +
       '</div>' +
       '<div class="field-row">' +
         '<div class="field-group" style="flex:1;">' +
           '<label>Name</label>' +
-          '<input type="text" data-idx="' + i + '" data-field="name" value="' + esc(g.name) + '" placeholder="e.g. minor or thermonuclear"' + (_readOnly ? ' disabled' : '') + '>' +
+          '<input type="text" data-field="name" placeholder="e.g. minor or thermonuclear">' +
         '</div>' +
         '<div class="field-group" style="max-width:10rem;">' +
           '<label>Cooldown (sec)</label>' +
-          '<input type="number" min="5" max="3600" step="1" data-idx="' + i + '" data-field="cooldown_seconds" value="' + (g.cooldown_seconds || 60) + '"' + (_readOnly ? ' disabled' : '') + '>' +
+          '<input type="number" min="5" max="3600" step="1" data-field="cooldown_seconds">' +
         '</div>' +
       '</div>' +
       '<div class="field-group" style="margin-top:0.5rem;">' +
         '<label>Devices in group</label>' +
-        '<div>' + devCheckboxes + '</div>' +
+        '<div class="devices-container"></div>' +
       '</div>' +
       '<details style="margin-top:0.5rem;"><summary style="cursor:pointer;font-size:0.85rem;">Randomization overrides (blank = inherit)</summary>' +
         '<div class="field-row" style="margin-top:0.5rem;">' +
-          '<div class="field-group">' +
-            '<label>Device count</label><div style="display:flex;gap:0.5rem;align-items:center;">' +
-              _rangeInputs('device_count_range', i, g.device_count_range, 'min="1" max="20" step="1"' + (_readOnly ? ' disabled' : '')) +
-            '</div>' +
+          '<div class="field-group"><label>Device count</label>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-device_count_range"></div>' +
           '</div>' +
-          '<div class="field-group">' +
-            '<label>Spray duration (s)</label><div style="display:flex;gap:0.5rem;align-items:center;">' +
-              _rangeInputs('spray_duration_range', i, g.spray_duration_range, 'min="0.5" max="60" step="0.5"' + (_readOnly ? ' disabled' : '')) +
-            '</div>' +
+          '<div class="field-group"><label>Spray duration (s)</label>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-spray_duration_range"></div>' +
           '</div>' +
         '</div>' +
         '<div class="field-row" style="margin-top:0.5rem;">' +
-          '<div class="field-group">' +
-            '<label>Inter-device delay (s)</label><div style="display:flex;gap:0.5rem;align-items:center;">' +
-              _rangeInputs('inter_device_delay_range', i, g.inter_device_delay_range, 'min="0" max="30" step="0.5"' + (_readOnly ? ' disabled' : '')) +
-            '</div>' +
+          '<div class="field-group"><label>Inter-device delay (s)</label>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-inter_device_delay_range"></div>' +
           '</div>' +
-          '<div class="field-group">' +
-            '<label>Pre-delay (s)</label><div style="display:flex;gap:0.5rem;align-items:center;">' +
-              _rangeInputs('pre_delay_range', i, g.pre_delay_range, 'min="0" max="30" step="0.5"' + (_readOnly ? ' disabled' : '')) +
-            '</div>' +
+          '<div class="field-group"><label>Pre-delay (s)</label>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-pre_delay_range"></div>' +
           '</div>' +
         '</div>' +
       '</details>' +
       '<div style="margin-top:0.5rem;font-size:0.85rem;"><span class="muted">Used by:</span> <span class="usage-chips"></span></div>';
-    list.appendChild(card);
+
+    // Populate dynamic values via DOM properties (breaks CodeQL taint).
+    card.querySelector('.camera-card-title').textContent = 'Group: ' + (g.name || '(unnamed)');
+
+    if (!_readOnly) {
+      var rmBtn = document.createElement('button');
+      rmBtn.type = 'button';
+      rmBtn.className = 'btn-remove';
+      rmBtn.textContent = 'Remove';
+      rmBtn.setAttribute('data-group-idx', i);
+      rmBtn.addEventListener('click', function() { removeGroup(i); });
+      card.querySelector('.camera-card-header').appendChild(rmBtn);
+    }
+
+    var nameInput = card.querySelector('[data-field="name"]');
+    nameInput.value = g.name;
+    nameInput.dataset.idx = i;
+    if (_readOnly) nameInput.disabled = true;
+
+    var cdInput = card.querySelector('[data-field="cooldown_seconds"]');
+    cdInput.value = g.cooldown_seconds || 60;
+    cdInput.dataset.idx = i;
+    if (_readOnly) cdInput.disabled = true;
+
+    // Device checkboxes — built entirely via DOM.
+    var devContainer = card.querySelector('.devices-container');
+    if (!_devices.length) {
+      var hint = document.createElement('span');
+      hint.className = 'muted';
+      hint.style.fontSize = '0.85rem';
+      hint.textContent = 'No devices registered yet — add some on the Devices tab.';
+      devContainer.appendChild(hint);
+    } else {
+      _devices.forEach(function(d) {
+        var lbl = document.createElement('label');
+        lbl.style.cssText = 'display:inline-flex;align-items:center;gap:0.25rem;margin-right:0.75rem;font-size:0.85rem;';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.dataset.idx = i;
+        cb.dataset.field = 'device';
+        cb.value = d.name;
+        cb.checked = (g.devices || []).indexOf(d.name) >= 0;
+        if (_readOnly) cb.disabled = true;
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(d.name));
+        devContainer.appendChild(lbl);
+      });
+    }
+
+    // Randomization range inputs.
+    var ranges = [
+      ['device_count_range',         g.device_count_range,         {min:'1',   max:'20', step:'1'}],
+      ['spray_duration_range',       g.spray_duration_range,       {min:'0.5', max:'60', step:'0.5'}],
+      ['inter_device_delay_range',   g.inter_device_delay_range,   {min:'0',   max:'30', step:'0.5'}],
+      ['pre_delay_range',            g.pre_delay_range,            {min:'0',   max:'30', step:'0.5'}],
+    ];
+    ranges.forEach(function(r) {
+      var attrs = Object.assign({}, r[2]);
+      if (_readOnly) attrs.disabled = true;
+      _appendRangeInputs(card.querySelector('.range-' + r[0]), r[0], i, r[1], attrs);
+    });
+
+    // Usage chips.
     _appendGroupUsageChips(card.querySelector('.usage-chips'), g.name);
+
+    list.appendChild(card);
   });
 }
 
