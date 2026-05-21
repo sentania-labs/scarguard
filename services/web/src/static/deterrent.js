@@ -220,12 +220,24 @@ renderDevices();
 
 // ── Groups editor ────────────────────────────────────────────────────────
 
-function _groupUsageChips(name) {
+function _appendGroupUsageChips(container, name) {
   var cams = _groupUsage[name] || [];
-  if (!cams.length) return '<span class="muted" style="font-size:0.8rem;">unassigned</span>';
-  return cams.map(function(c) {
-    return '<span class="tag" style="background:rgba(var(--accent-rgb,100,181,246),0.15);font-size:0.75rem;">' + esc(c) + '</span>';
-  }).join(' ');
+  if (!cams.length) {
+    var empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.style.fontSize = '0.8rem';
+    empty.textContent = 'unassigned';
+    container.appendChild(empty);
+    return;
+  }
+  cams.forEach(function(c, i) {
+    if (i > 0) container.appendChild(document.createTextNode(' '));
+    var chip = document.createElement('span');
+    chip.className = 'tag';
+    chip.style.cssText = 'background:rgba(var(--accent-rgb,100,181,246),0.15);font-size:0.75rem;';
+    chip.textContent = c;
+    container.appendChild(chip);
+  });
 }
 
 function _rangeInputs(name, idx, vals, attrs) {
@@ -309,8 +321,9 @@ function renderGroups() {
           '</div>' +
         '</div>' +
       '</details>' +
-      '<div style="margin-top:0.5rem;font-size:0.85rem;"><span class="muted">Used by:</span> ' + _groupUsageChips(g.name) + '</div>';
+      '<div style="margin-top:0.5rem;font-size:0.85rem;"><span class="muted">Used by:</span> <span class="usage-chips"></span></div>';
     list.appendChild(card);
+    _appendGroupUsageChips(card.querySelector('.usage-chips'), g.name);
   });
 }
 
