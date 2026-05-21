@@ -583,7 +583,10 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             "Cannot save: the YAML contains redacted placeholders "
             "(***REDACTED***). Click 'Reveal secrets' first, then edit and save."
         )
-        raw_cfg = yaml.safe_load(raw_yaml) or {}
+        try:
+            raw_cfg = yaml.safe_load(raw_yaml) or {}
+        except yaml.YAMLError:
+            raw_cfg = {}
         if not isinstance(raw_cfg, dict):
             raw_cfg = {}
     else:
