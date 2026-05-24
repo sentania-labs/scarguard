@@ -2,6 +2,26 @@ var SCARGUARD_TARGET_CLASSES = JSON.parse(
   document.getElementById('events-page-data').textContent
 );
 
+// Delegated handlers for in-row feedback controls (event_rows.html partial,
+// which is swapped in by HTMX so per-element listeners would be lost).
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  if (btn.dataset.action === 'show-feedback-form') {
+    var td = btn.closest('td');
+    if (!td) return;
+    var form = td.querySelector('.feedback-form');
+    if (form) form.style.display = 'block';
+    btn.style.display = 'none';
+    if (btn.previousElementSibling) btn.previousElementSibling.style.display = 'none';
+  } else if (btn.dataset.action === 'show-wrong-class-picker') {
+    var fb = btn.closest('.feedback-form');
+    if (!fb) return;
+    var picker = fb.querySelector('.wrong-class-picker');
+    if (picker) picker.style.display = 'block';
+  }
+});
+
 document.addEventListener('click', function(e) {
   var link = e.target.closest('.snapshot-link');
   if (!link) return;

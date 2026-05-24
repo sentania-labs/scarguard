@@ -52,3 +52,13 @@ async function uploadCerts() {
   }
   btn.disabled = false;
 }
+
+(function wireTlsControls() {
+  var mode = document.getElementById('tls-mode');
+  if (mode) mode.addEventListener('change', toggleTlsFields);
+  document.querySelectorAll('.cert-tab-btn[data-cert-tab]').forEach(function(b) {
+    b.addEventListener('click', function() { switchCertTab(b.dataset.certTab, b); });
+  });
+  var upBtn = document.getElementById('cert-upload-btn');
+  if (upBtn) upBtn.addEventListener('click', uploadCerts);
+})();

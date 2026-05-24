@@ -5,7 +5,7 @@
 <p class="hint">Automatic backups are created when the config file changes. You can also create manual backups and restore previous versions.</p>
 
 <div style="margin-bottom:1rem;">
-  <button onclick="createBackup()" id="create-btn">Create Backup Now</button>
+  <button type="button" id="create-btn">Create Backup Now</button>
 </div>
 
 <div id="backup-banner" style="display:none;" class="alert"></div>
@@ -19,8 +19,8 @@
     <td>{{ "%.1f"|format(b.size_bytes / 1024) }} KB</td>
     <td>{{ b.created }}</td>
     <td>
-      <button onclick="showDiff('{{ b.name }}')" class="btn-sm">Diff</button>
-      <button onclick="restoreBackup('{{ b.name }}')" class="btn-sm btn-danger">Restore</button>
+      <button type="button" data-action="show-diff" data-backup-name="{{ b.name }}" class="btn-sm">Diff</button>
+      <button type="button" data-action="restore-backup" data-backup-name="{{ b.name }}" class="btn-sm btn-danger">Restore</button>
     </td>
   </tr>
   {% endfor %}
@@ -33,7 +33,7 @@
 <div id="diff-modal" style="display:none;margin-top:1rem;">
   <h3>Diff: <span id="diff-name"></span></h3>
   <pre id="diff-content" style="background:var(--bg);padding:1rem;border-radius:4px;overflow-x:auto;font-size:0.85rem;max-height:500px;overflow-y:auto;border:1px solid var(--border);"></pre>
-  <button onclick="document.getElementById('diff-modal').style.display='none'">Close</button>
+  <button type="button" id="close-diff-modal-btn">Close</button>
 </div>
 
 <style>

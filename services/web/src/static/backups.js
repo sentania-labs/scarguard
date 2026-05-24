@@ -62,3 +62,18 @@ function showBanner(msg, type) {
   banner.className = 'alert alert-' + type;
   banner.textContent = msg;
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  const createBtn = document.getElementById('create-btn');
+  if (createBtn) createBtn.addEventListener('click', createBackup);
+  const closeDiff = document.getElementById('close-diff-modal-btn');
+  if (closeDiff) closeDiff.addEventListener('click', function() {
+    document.getElementById('diff-modal').style.display = 'none';
+  });
+  document.querySelectorAll('button[data-action="show-diff"]').forEach(function(btn) {
+    btn.addEventListener('click', function() { showDiff(btn.dataset.backupName); });
+  });
+  document.querySelectorAll('button[data-action="restore-backup"]').forEach(function(btn) {
+    btn.addEventListener('click', function() { restoreBackup(btn.dataset.backupName); });
+  });
+});

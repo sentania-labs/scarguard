@@ -26,7 +26,7 @@
 
   <div class="mode-toggle" style="display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap;">
     <label class="toggle-label">
-      <input type="checkbox" id="expert-mode-toggle" onchange="toggleExpertMode(this.checked)">
+      <input type="checkbox" id="expert-mode-toggle">
       <span class="toggle-track"></span>
       Expert mode
     </label>
@@ -46,7 +46,7 @@
 
   {# ── System ───────────────────────────────────────────────────────────────── #}
   <div class="config-section" id="section-system" data-subtab="system">
-    <div class="config-section-header" onclick="toggleSection('section-system')">
+    <div class="config-section-header" data-toggle-section="section-system">
       <span class="config-section-label">System</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -137,7 +137,7 @@
 
   {# ── Summary Reports ──────────────────────────────────────────────────────── #}
   <div class="config-section expert-only" id="section-summary-report" data-subtab="system">
-    <div class="config-section-header" onclick="toggleSection('section-summary-report')">
+    <div class="config-section-header" data-toggle-section="section-summary-report">
       <span class="config-section-label">Summary Reports</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -179,7 +179,7 @@
 
   {# ── Cameras ──────────────────────────────────────────────────────────────── #}
   <div class="config-section" id="section-cameras" data-subtab="cameras">
-    <div class="config-section-header" onclick="toggleSection('section-cameras')">
+    <div class="config-section-header" data-toggle-section="section-cameras">
       <span class="config-section-label">Cameras</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -194,7 +194,7 @@
         <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}}</script>
         <div id="cameras-list"></div>
         {% if not read_only %}
-        <button type="button" class="btn-add" onclick="addCamera()">+ Add Camera</button>
+        <button type="button" class="btn-add" id="add-camera-btn">+ Add Camera</button>
         {% endif %}
       </div>
     </div>
@@ -202,7 +202,7 @@
 
   {# ── Detection ────────────────────────────────────────────────────────────── #}
   <div class="config-section" id="section-detection" data-subtab="detection">
-    <div class="config-section-header" onclick="toggleSection('section-detection')">
+    <div class="config-section-header" data-toggle-section="section-detection">
       <span class="config-section-label">Detection</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -252,7 +252,7 @@
 
   {# ── Notification Channels (named, multi-instance) ───────────────────────── #}
   <div class="config-section" id="section-channels" data-subtab="notifications">
-    <div class="config-section-header" onclick="toggleSection('section-channels')">
+    <div class="config-section-header" data-toggle-section="section-channels">
       <span class="config-section-label">Notification Channels</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -266,10 +266,10 @@
         <script id="channels-data" type="application/json">{{ channels_json | safe }}</script>
         <div id="channels-list"></div>
         <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <button type="button" class="btn-add" onclick="addChannel('discord')">+ Discord</button>
-          <button type="button" class="btn-add" onclick="addChannel('email')">+ Email</button>
-          <button type="button" class="btn-add" onclick="addChannel('webhook')">+ Webhook</button>
-          <button type="button" class="btn-add" onclick="addChannel('ntfy')">+ Ntfy</button>
+          <button type="button" class="btn-add" data-add-channel="discord">+ Discord</button>
+          <button type="button" class="btn-add" data-add-channel="email">+ Email</button>
+          <button type="button" class="btn-add" data-add-channel="webhook">+ Webhook</button>
+          <button type="button" class="btn-add" data-add-channel="ntfy">+ Ntfy</button>
         </div>
       </div>
     </div>
@@ -277,7 +277,7 @@
 
   {# ── Schedule ─────────────────────────────────────────────────────────────── #}
   <div class="config-section expert-only" id="section-schedule" data-subtab="advanced">
-    <div class="config-section-header" onclick="toggleSection('section-schedule')">
+    <div class="config-section-header" data-toggle-section="section-schedule">
       <span class="config-section-label">Schedule (Auto Arm/Disarm)</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -311,8 +311,7 @@
         <div class="field-group">
           <label class="toggle-label">
             <input type="checkbox" id="sched-use-solar"
-                   {% if cfg.system.schedule.use_solar %}checked{% endif %}
-                   onchange="toggleSolar(this.checked)">
+                   {% if cfg.system.schedule.use_solar %}checked{% endif %}>
             <span class="toggle-track"></span>
             Use sunrise/sunset instead of fixed times
           </label>
@@ -337,7 +336,7 @@
 
   {# ── Auth ─────────────────────────────────────────────────────────────── #}
   <div class="config-section expert-only" id="section-auth" data-subtab="advanced">
-    <div class="config-section-header" onclick="toggleSection('section-auth')">
+    <div class="config-section-header" data-toggle-section="section-auth">
       <span class="config-section-label">Authentication</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -394,7 +393,7 @@
 
   {# ── TLS ────────────────────────────────────────────────────────────────── #}
   <div class="config-section" id="section-deterrent" data-subtab="advanced">
-    <div class="config-section-header" onclick="toggleSection('section-deterrent')">
+    <div class="config-section-header" data-toggle-section="section-deterrent">
       <span class="config-section-label">Deterrent</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -416,7 +415,7 @@
   </div>
 
   <div class="config-section expert-only" id="section-tls" data-subtab="advanced">
-    <div class="config-section-header" onclick="toggleSection('section-tls')">
+    <div class="config-section-header" data-toggle-section="section-tls">
       <span class="config-section-label">TLS</span>
       <span class="config-section-chevron">▾</span>
     </div>
@@ -428,7 +427,7 @@
         </p>
         <div class="field-group">
           <label>TLS Mode</label>
-          <select id="tls-mode" onchange="toggleTlsFields()">
+          <select id="tls-mode">
             <option value="off" {% if cfg.tls.mode == 'off' %}selected{% endif %}>Off (HTTP only &mdash; LAN use)</option>
             <option value="auto" {% if cfg.tls.mode == 'auto' %}selected{% endif %}>Automatic (Let's Encrypt)</option>
             <option value="manual" {% if cfg.tls.mode == 'manual' %}selected{% endif %}>Manual (own certificates)</option>
@@ -460,8 +459,8 @@
             Upload PEM files or paste their contents below. Files are written to <code>/config/certs/</code>.
           </p>
           <div class="cert-upload-tabs" style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
-            <button type="button" class="btn-secondary cert-tab-btn active" onclick="switchCertTab('upload',this)">Upload files</button>
-            <button type="button" class="btn-secondary cert-tab-btn" onclick="switchCertTab('paste',this)">Paste PEM</button>
+            <button type="button" class="btn-secondary cert-tab-btn active" data-cert-tab="upload">Upload files</button>
+            <button type="button" class="btn-secondary cert-tab-btn" data-cert-tab="paste">Paste PEM</button>
           </div>
           <div id="cert-tab-upload">
             <div class="field-row">
@@ -485,7 +484,7 @@
               <textarea id="tls-key-pem" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" style="font-family:var(--mono);font-size:0.8rem;"></textarea>
             </div>
           </div>
-          <button type="button" class="btn-secondary" onclick="uploadCerts()" style="margin-top:0.5rem;" id="cert-upload-btn">Upload certificates</button>
+          <button type="button" class="btn-secondary" style="margin-top:0.5rem;" id="cert-upload-btn">Upload certificates</button>
           <span id="cert-upload-status" class="hint" style="margin-left:0.5rem;"></span>
         </div>
       </div>
@@ -494,7 +493,7 @@
   <script src="/static/config-tls.js"></script>
 
   {% if not read_only %}
-  <button id="save-btn" type="button" onclick="saveConfig()">Save</button>
+  <button id="save-btn" type="button">Save</button>
   {% endif %}
 
 </div>{# /tab-settings #}
