@@ -467,4 +467,8 @@ function renderHistCharts(data) {
   }
 }
 
+document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
+  btn.addEventListener('click', () => loadHistory(btn.dataset.range, btn));
+});
+
 loadHistory('1h', document.querySelector('.range-btn[data-range="1h"]'));

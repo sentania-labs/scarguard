@@ -36,7 +36,7 @@
           <form method="post" action="/admin/users/{{ u.id }}/role"
                 style="display:inline;">
             <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-            <select name="role" onchange="this.form.submit()"
+            <select name="role" data-action="submit-on-change"
                     {% if u.id == current_user_id %}disabled title="Cannot change your own role"{% endif %}
                     style="font-size:0.85rem;padding:0.15em 0.3em;">
               {% for r in valid_roles %}
@@ -62,7 +62,7 @@
             </button>
           </form>
           <form method="post" action="/admin/users/{{ u.id }}/delete" style="display:inline;"
-                onsubmit="return confirm('Delete user {{ u.username }}?');">
+                data-confirm="Delete user {{ u.username }}?">
             <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
             <button type="submit" class="btn-remove" style="font-size:0.78rem;"
                     {% if u.id == current_user_id %}disabled title="Cannot delete your own account"{% endif %}>Delete</button>
@@ -180,4 +180,5 @@
   </form>
 </section>
 
+<script src="/static/users.js"></script>
 {% endblock %}

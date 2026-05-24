@@ -49,8 +49,8 @@ function renderDevices() {
           }).join('') +
         '</select></td>' +
         '<td style="padding:0.4rem 0.5rem;text-align:center;"><input type="checkbox" data-idx="' + i + '" data-field="enabled"' + (dev.enabled !== false ? ' checked' : '') + '></td>' +
-        '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-secondary" style="font-size:0.75rem;padding:0.2em 0.6em;" onclick="testFire(\'' + esc(dev.device_id) + '\', this)" title="Test-fire for 3 seconds">Fire</button></td>' +
-        '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-danger-sm" onclick="removeDevice(' + i + ')" title="Remove">x</button></td>';
+        '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-secondary" data-action="test-fire" data-device-id="' + esc(dev.device_id) + '" style="font-size:0.75rem;padding:0.2em 0.6em;" title="Test-fire for 3 seconds">Fire</button></td>' +
+        '<td style="padding:0.4rem 0.5rem;"><button type="button" class="btn-danger-sm" data-action="remove-device" data-idx="' + i + '" title="Remove">x</button></td>';
     }
     tbody.appendChild(tr);
   });
@@ -216,6 +216,32 @@ renderDevices();
     }
     renderGroups();
   });
+  // Delegation for per-row action buttons (survives renderDevices() re-renders).
+  tbody.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    if (btn.dataset.action === 'test-fire') {
+      testFire(btn.dataset.deviceId, btn);
+    } else if (btn.dataset.action === 'remove-device') {
+      removeDevice(parseInt(btn.dataset.idx, 10));
+    }
+  });
+})();
+
+// ── Static button bindings ───────────────────────────────────────────────
+(function wireStaticButtons() {
+  var statusBtn = document.getElementById('status-btn');
+  if (statusBtn) statusBtn.addEventListener('click', checkDeviceStatus);
+  var forceOffBtn = document.getElementById('force-off-btn');
+  if (forceOffBtn) forceOffBtn.addEventListener('click', forceOffAll);
+  var addDevBtn = document.getElementById('add-device-btn');
+  if (addDevBtn) addDevBtn.addEventListener('click', addDevice);
+  var addGrpBtn = document.getElementById('add-group-btn');
+  if (addGrpBtn) addGrpBtn.addEventListener('click', addGroup);
+  var refreshLatBtn = document.getElementById('refresh-latency-btn');
+  if (refreshLatBtn) refreshLatBtn.addEventListener('click', refreshLatency);
+  var saveBtn = document.getElementById('save-deterrent-btn');
+  if (saveBtn) saveBtn.addEventListener('click', saveDeterrent);
 })();
 
 // ── Groups editor ────────────────────────────────────────────────────────

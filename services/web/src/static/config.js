@@ -158,7 +158,7 @@ function _buildRuleRow(rule) {
         <label>Channels (comma-separated names)</label>
         <input type="text" class="rule-channels" value="${_esc((rule.channels || []).join(", "))}" placeholder="pond-alerts, email-digest">
       </div>
-      <button type="button" class="btn-remove" onclick="this.closest('.rule-row').remove()">✕</button>
+      <button type="button" class="btn-remove" data-action="remove-rule-row">✕</button>
     </div>
   `;
   return row;
@@ -224,7 +224,7 @@ function _buildDeterrentRuleRow(rule) {
         <label>Groups (comma-separated names from /admin/deterrent)</label>
         <input type="text" class="drule-groups" value="${_esc((rule.groups || []).join(", "))}" placeholder="minor, thermonuclear">
       </div>
-      <button type="button" class="btn-remove" onclick="this.closest('.rule-row').remove()">✕</button>
+      <button type="button" class="btn-remove" data-action="remove-rule-row">✕</button>
     </div>
   `;
   return row;
@@ -312,7 +312,7 @@ function buildCameraCard(cam) {
   div.innerHTML = `
     <div class="camera-card-header">
       <span class="camera-card-title">Camera</span>
-      <button type="button" class="btn-remove" onclick="removeCamera(this)">Remove</button>
+      <button type="button" class="btn-remove" data-action="remove-camera">Remove</button>
     </div>
     <label class="toggle-label">
       <input type="checkbox" class="cam-enabled" ${enabled ? "checked" : ""}>
@@ -385,7 +385,7 @@ function buildCameraCard(cam) {
           Use <code>*</code> as a wildcard class to match any detection. Leave empty to notify all channels.
         </p>
         <div class="notif-rules-list"></div>
-        <button type="button" class="btn-add" style="margin-top:0.4rem;" onclick="addNotificationRule(this.closest('.camera-card'))">+ Add Rule</button>
+        <button type="button" class="btn-add" style="margin-top:0.4rem;" data-action="add-notification-rule">+ Add Rule</button>
       </div>
     </details>
     <details class="expert-only" style="margin-top:0.75rem;">
@@ -399,7 +399,7 @@ function buildCameraCard(cam) {
           <a href="/admin/deterrent#groups">Deterrent page</a> first.
         </p>
         <div class="det-rules-list"></div>
-        <button type="button" class="btn-add" style="margin-top:0.4rem;" onclick="addDeterrentRule(this.closest('.camera-card'))">+ Add Rule</button>
+        <button type="button" class="btn-add" style="margin-top:0.4rem;" data-action="add-deterrent-rule">+ Add Rule</button>
       </div>
     </details>
   `;
@@ -785,8 +785,8 @@ function buildChannelCard(ch) {
     <div class="camera-card-header">
       <span class="camera-card-title">${type.charAt(0).toUpperCase() + type.slice(1)} Channel</span>
       <span>
-        <button type="button" class="btn-add" onclick="sendTestNotification(this)" style="margin-right:0.5rem;">Send Test</button>
-        <button type="button" class="btn-remove" onclick="removeChannel(this)">Remove</button>
+        <button type="button" class="btn-add" data-action="send-test-notification" style="margin-right:0.5rem;">Send Test</button>
+        <button type="button" class="btn-remove" data-action="remove-channel">Remove</button>
       </span>
     </div>
     <label class="toggle-label">
@@ -860,7 +860,60 @@ function readChannels() {
   }
   // Chip-picker wiring (v0.13.4) — run after DOM is populated.
   requestAnimationFrame(() => _wireGlobalChipPickers());
+  _wireConfigStaticControls();
+  _wireConfigDelegation();
 })();
+
+function _wireConfigStaticControls() {
+  // Collapsible section headers
+  document.querySelectorAll(".config-section-header[data-toggle-section]").forEach(h => {
+    h.addEventListener("click", () => toggleSection(h.dataset.toggleSection));
+  });
+  // Expert-mode toggle
+  const expert = document.getElementById("expert-mode-toggle");
+  if (expert) expert.addEventListener("change", () => toggleExpertMode(expert.checked));
+  // Solar schedule toggle
+  const solar = document.getElementById("sched-use-solar");
+  if (solar) solar.addEventListener("change", () => toggleSolar(solar.checked));
+  // Add Camera button
+  const addCamBtn = document.getElementById("add-camera-btn");
+  if (addCamBtn) addCamBtn.addEventListener("click", addCamera);
+  // Add Channel buttons (per type)
+  document.querySelectorAll("[data-add-channel]").forEach(btn => {
+    btn.addEventListener("click", () => addChannel(btn.dataset.addChannel));
+  });
+  // Save button
+  const saveBtn = document.getElementById("save-btn");
+  if (saveBtn) saveBtn.addEventListener("click", saveConfig);
+}
+
+function _wireConfigDelegation() {
+  // Delegated handler for buttons inside dynamically-rendered camera/channel
+  // cards.  Survives card rebuilds and avoids per-render rebinding.
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === "remove-rule-row") {
+      const r = btn.closest(".rule-row");
+      if (r) r.remove();
+    } else if (action === "remove-camera") {
+      removeCamera(btn);
+    } else if (action === "add-notification-rule") {
+      const card = btn.closest(".camera-card");
+      if (card) addNotificationRule(card);
+    } else if (action === "add-deterrent-rule") {
+      const card = btn.closest(".camera-card");
+      if (card) addDeterrentRule(card);
+    } else if (action === "send-test-notification") {
+      sendTestNotification(btn);
+    } else if (action === "remove-channel") {
+      removeChannel(btn);
+    } else if (action === "delete-zone") {
+      deleteZone(btn, parseInt(btn.dataset.zoneIdx, 10));
+    }
+  });
+}
 
 function _wireGlobalChipPickers() {
   // Shadow-channel registry — seeded from the channels list, refreshed via
@@ -1258,7 +1311,7 @@ function updateZoneList(card) {
       <input type="text" placeholder="Label (optional)" value="${_esc(z.label || "")}"
              style="flex:1;min-width:0;">
       <button type="button" class="btn-remove" style="flex:0 0 auto;"
-              onclick="deleteZone(this,${i})">&#x2715;</button>
+              data-action="delete-zone" data-zone-idx="${i}">&#x2715;</button>
     `;
     const enableCb = row.querySelector("input[type=checkbox]");
     const typeSelect = row.querySelector("select");

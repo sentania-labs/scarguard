@@ -106,6 +106,17 @@ document.addEventListener('DOMContentLoaded', function() {
       if (e.key === 'Enter') { e.preventDefault(); submitReauth(); }
     });
   }
+  var triggerBtn = document.getElementById('trigger-btn');
+  if (triggerBtn) triggerBtn.addEventListener('click', triggerBackup);
+  var cancelBtn = document.getElementById('reauth-cancel-btn');
+  if (cancelBtn) cancelBtn.addEventListener('click', closeReauthModal);
+  var submitBtn = document.getElementById('reauth-submit');
+  if (submitBtn) submitBtn.addEventListener('click', submitReauth);
+  document.querySelectorAll('button[data-action="download-auth-backup"]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      downloadAuthBackup(btn.dataset.db, btn.dataset.filename);
+    });
+  });
 });
 
 /* ── Live backup status (SSE) ────────────────────────────────────────────── */

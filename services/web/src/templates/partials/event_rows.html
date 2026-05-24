@@ -30,16 +30,13 @@
   <td class="feedback-cell">
     {% if e.feedback == 'correct' %}
       <span class="badge badge-correct">Correct</span>
-      <button class="btn-edit-feedback"
-              onclick="this.closest('td').querySelector('.feedback-form').style.display='block';this.style.display='none';this.previousElementSibling.style.display='none'">edit</button>
+      <button type="button" class="btn-edit-feedback" data-action="show-feedback-form">edit</button>
     {% elif e.feedback == 'false_positive' %}
       <span class="badge badge-fp">False Positive</span>
-      <button class="btn-edit-feedback"
-              onclick="this.closest('td').querySelector('.feedback-form').style.display='block';this.style.display='none';this.previousElementSibling.style.display='none'">edit</button>
+      <button type="button" class="btn-edit-feedback" data-action="show-feedback-form">edit</button>
     {% elif e.feedback == 'wrong_class' %}
       <span class="badge badge-wrong">Wrong: {{ (e.corrected_class or '?').replace("_"," ").title() }}</span>
-      <button class="btn-edit-feedback"
-              onclick="this.closest('td').querySelector('.feedback-form').style.display='block';this.style.display='none';this.previousElementSibling.style.display='none'">edit</button>
+      <button type="button" class="btn-edit-feedback" data-action="show-feedback-form">edit</button>
     {% endif %}
     <div class="feedback-form" {% if e.feedback %}style="display:none"{% endif %}>
       <div class="feedback-btns">
@@ -59,8 +56,7 @@
           <input type="hidden" name="feedback" value="false_positive">
           <button type="submit" class="btn-fb btn-fb-fp" title="False positive">&#10007;</button>
         </form>
-        <button type="button" class="btn-fb btn-fb-wrong" title="Wrong class"
-                onclick="this.closest('.feedback-form').querySelector('.wrong-class-picker').style.display='block'">?</button>
+        <button type="button" class="btn-fb btn-fb-wrong" title="Wrong class" data-action="show-wrong-class-picker">?</button>
       </div>
       <div class="wrong-class-picker" style="display:none">
         <form method="post"

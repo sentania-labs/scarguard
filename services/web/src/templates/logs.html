@@ -11,7 +11,7 @@
     <div class="log-svc-btns">
       {% for svc in services %}
       <button class="log-svc-btn {% if loop.first %}active{% endif %}"
-              data-service="{{ svc }}" onclick="selectService('{{ svc }}', this)">
+              data-service="{{ svc }}">
         {{ svc }}
       </button>
       {% endfor %}
@@ -20,7 +20,7 @@
 
   <div class="log-toolbar-group">
     <label for="level-filter">Level</label>
-    <select id="level-filter" onchange="applyFilter()">
+    <select id="level-filter">
       <option value="all">All</option>
       <option value="debug">Debug+</option>
       <option value="info">Info+</option>
@@ -31,7 +31,7 @@
 
   <div class="log-toolbar-group">
     <label for="tail-lines">Tail</label>
-    <select id="tail-lines" onchange="reconnect()">
+    <select id="tail-lines">
       <option value="200">200 lines</option>
       <option value="500" selected>500 lines</option>
       <option value="1000">1000 lines</option>
@@ -41,12 +41,12 @@
 
   <div class="log-toolbar-right">
     <label class="toggle-label" title="Scroll to bottom as new lines arrive">
-      <input type="checkbox" id="autoscroll-toggle" checked onchange="onAutoScrollChange()">
+      <input type="checkbox" id="autoscroll-toggle" checked>
       <span class="toggle-track"></span>
       Auto-scroll
     </label>
-    <button class="btn-secondary" id="pause-btn" onclick="togglePause()">Pause</button>
-    <button class="btn-secondary" onclick="clearLog()">Clear</button>
+    <button class="btn-secondary" id="pause-btn">Pause</button>
+    <button class="btn-secondary" id="clear-log-btn">Clear</button>
   </div>
 
 </div>

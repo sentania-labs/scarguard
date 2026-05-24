@@ -52,12 +52,11 @@
   <p class="hint">
     Live device status from the Tuya Cloud API. Click to query all devices.
   </p>
-  <button type="button" id="status-btn" class="btn-secondary" onclick="checkDeviceStatus()">Check Status</button>
+  <button type="button" id="status-btn" class="btn-secondary">Check Status</button>
   <span id="status-spinner" class="muted" style="display:none;margin-left:0.5rem;">Querying devices...</span>
   {% if not read_only %}
   <button type="button" id="force-off-btn"
-          style="margin-left:1rem;background:var(--danger);color:white;border:none;padding:0.4em 0.9em;border-radius:4px;cursor:pointer;"
-          onclick="forceOffAll()">⚠ Emergency Off</button>
+          style="margin-left:1rem;background:var(--danger);color:white;border:none;padding:0.4em 0.9em;border-radius:4px;cursor:pointer;">⚠ Emergency Off</button>
   <span id="force-off-status" class="muted" style="display:none;margin-left:0.5rem;"></span>
   {% endif %}
   <div id="status-panel" style="margin-top:0.75rem;"></div>
@@ -97,7 +96,7 @@
   </table>
 
   {% if not read_only %}
-  <button type="button" class="btn-secondary" onclick="addDevice()" style="margin-top:0.75rem;">
+  <button type="button" id="add-device-btn" class="btn-secondary" style="margin-top:0.75rem;">
     + Add device
   </button>
   {% endif %}
@@ -116,7 +115,7 @@
   </p>
   <div id="groups-list"></div>
   {% if not read_only %}
-  <button type="button" class="btn-secondary" onclick="addGroup()" style="margin-top:0.75rem;">
+  <button type="button" id="add-group-btn" class="btn-secondary" style="margin-top:0.75rem;">
     + Add group
   </button>
   {% endif %}
@@ -233,7 +232,7 @@
     device deep-sleep latency.  See the
     <a href="/deterrent-log">deterrent log</a> for per-event timing.
   </p>
-  <button type="button" class="btn-secondary" onclick="refreshLatency()">Refresh</button>
+  <button type="button" id="refresh-latency-btn" class="btn-secondary">Refresh</button>
   <table id="latency-table" style="width:100%;border-collapse:collapse;font-size:0.9rem;margin-top:0.75rem;">
     <thead>
       <tr style="text-align:left;border-bottom:2px solid var(--border);">
@@ -251,7 +250,7 @@
 </div>{# /latency tab #}
 
 {% if not read_only %}
-<button type="button" id="save-deterrent-btn" onclick="saveDeterrent()">Save</button>
+<button type="button" id="save-deterrent-btn">Save</button>
 {% endif %}
 
 <script type="application/json" id="devices-data">{{ devices_json|safe }}</script>

@@ -145,5 +145,22 @@ function setStatus(msg, style) {
   el.className = "log-status-text " + (style || "");
 }
 
+// ── Control wiring ──────────────────────────────────────────────────────────
+(function wireLogControls() {
+  document.querySelectorAll(".log-svc-btn[data-service]").forEach(btn => {
+    btn.addEventListener("click", () => selectService(btn.dataset.service, btn));
+  });
+  const level = document.getElementById("level-filter");
+  if (level) level.addEventListener("change", applyFilter);
+  const tail = document.getElementById("tail-lines");
+  if (tail) tail.addEventListener("change", reconnect);
+  const autoscroll = document.getElementById("autoscroll-toggle");
+  if (autoscroll) autoscroll.addEventListener("change", onAutoScrollChange);
+  const pauseBtn = document.getElementById("pause-btn");
+  if (pauseBtn) pauseBtn.addEventListener("click", togglePause);
+  const clearBtn = document.getElementById("clear-log-btn");
+  if (clearBtn) clearBtn.addEventListener("click", clearLog);
+})();
+
 // Start streaming the first service on page load
 startStream();

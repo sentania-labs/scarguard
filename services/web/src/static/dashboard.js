@@ -77,3 +77,23 @@ async function sendSnapshotToChannel() {
 function closeSnapshotModal() {
   document.getElementById('snapshot-modal').style.display = 'none';
 }
+
+(function wireDashboardButtons() {
+  var dismissBtn = document.getElementById('dismiss-training-nudge-btn');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', function() {
+      var nudge = document.getElementById('training-nudge');
+      if (nudge) nudge.style.display = 'none';
+    });
+  }
+  var closeBtn = document.getElementById('close-snapshot-modal-btn');
+  if (closeBtn) closeBtn.addEventListener('click', closeSnapshotModal);
+  var sendBtn = document.getElementById('snapshot-send-btn');
+  if (sendBtn) sendBtn.addEventListener('click', sendSnapshotToChannel);
+  // Per-camera Snapshot buttons (delegation on the table)
+  document.querySelectorAll('button[data-action="grab-snapshot"]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      grabSnapshot(btn.dataset.cameraName);
+    });
+  });
+})();
