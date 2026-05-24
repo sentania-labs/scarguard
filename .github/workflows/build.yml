@@ -42,19 +42,19 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build web (validate only, no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/web/Dockerfile
@@ -87,7 +87,7 @@ jobs:
       # Trivy first — fail fast on CVEs before spending time on container tests.
       - name: Trivy scan — web
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-web:test
           format: table
@@ -126,19 +126,19 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build notifier (validate only, no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/notifier/Dockerfile
@@ -170,7 +170,7 @@ jobs:
 
       - name: Trivy scan — notifier
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-notifier:test
           format: table
@@ -194,19 +194,19 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build deterrent (validate only, no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/deterrent/Dockerfile
@@ -238,7 +238,7 @@ jobs:
 
       - name: Trivy scan — deterrent
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-deterrent:test
           format: table
@@ -262,19 +262,19 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build backup (validate only, no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/backup/Dockerfile
@@ -306,7 +306,7 @@ jobs:
 
       - name: Trivy scan — backup
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-backup:test
           format: table
@@ -328,19 +328,19 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build caddy (validate only, no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/caddy/Dockerfile
@@ -360,19 +360,19 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build log-streamer (validate only, no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/log-streamer/Dockerfile
@@ -392,7 +392,7 @@ jobs:
 
       - name: Trivy scan — log-streamer
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-log-streamer:test
           format: table
@@ -412,7 +412,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Build detector image (validate only, no push)
         run: |
@@ -460,7 +460,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Build x86 detector image
         run: |
@@ -482,7 +482,7 @@ jobs:
 
       - name: Trivy scan — detector-x86
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-detector-x86:build-validate
           format: table
@@ -510,7 +510,7 @@ jobs:
     runs-on: [self-hosted, linux, docker]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Ensure docker compose plugin
         run: |
