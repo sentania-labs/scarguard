@@ -1,0 +1,52 @@
+{% for j in jobs %}
+<tr>
+  <td>{{ j.type }}</td>
+  <td>
+    {% if j.status == 'completed' %}<span class="badge badge-armed">{{ j.status }}</span>
+    {% elif j.status == 'failed' %}<span class="badge badge-disarmed">{{ j.status }}</span>
+    {% elif j.status == 'running' %}<span class="badge" style="background:var(--warn);color:#000;">{{ j.status }}</span>
+    {% elif j.status == 'cancelled' %}<span class="badge">{{ j.status }}</span>
+    {% else %}<span class="badge">{{ j.status }}</span>
+    {% endif %}
+  </td>
+  <td>{{ j.created_at[:16] }}</td>
+  <td>
+    {% if j.started_at and j.completed_at %}
+      {{ j.completed_at[:16] }}
+    {% elif j.started_at %}
+      running...
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>
+    {% if j.result %}
+      {% set r = j.result %}
+      {% if r is string %}
+        <span class="muted" title="{{ r }}">{{ r[:60] }}{% if r|length > 60 %}...{% endif %}</span>
+      {% endif %}
+    {% else %}
+      <span class="muted">—</span>
+    {% endif %}
+  </td>
+  <td>
+    {% if j.status == 'running' and _is_admin %}
+    <form method="post" action="/admin/training/jobs/{{ j.id }}/cancel" style="display:inline;">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Cancel this job?')">Cancel</button>
+    </form>
+    {% elif j.status == 'queued' and _is_admin %}
+    <form method="post" action="/admin/training/jobs/{{ j.id }}/cancel" style="display:inline;">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="btn btn-small btn-danger">Cancel</button>
+    </form>
+    {% endif %}
+    {% if j.status == 'running' %}
+    <button class="btn btn-small" onclick="startJobStream('{{ j.id }}')">Watch</button>
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+{% if not jobs %}
+<tr><td colspan="6" class="muted" style="text-align:center;padding:2rem;">No jobs yet</td></tr>
+{% endif %}
