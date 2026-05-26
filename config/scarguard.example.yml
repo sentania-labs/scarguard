@@ -326,3 +326,37 @@ backup:
   retention_daily: 14            # keep last N backups (one per cycle)
   retention_weekly: 8            # plus N weekly samples beyond the daily window
   compress: true                 # gzip the backup (recommended)
+
+# ── Training pipeline (v1.16+) ───────────────────────────────────────────
+# Configuration for the video-upload training pipeline.  The trainer
+# service reads these values when running prepare_dataset + train jobs.
+#
+# training:
+#   sources:
+#     roboflow:
+#       api_key: ""                   # SENSITIVE — encrypted at rest
+#       datasets:
+#         - workspace: "your-workspace"
+#           project: "your-project"
+#     open_images:
+#       max_per_class: 1500
+#       workers: 16
+#     local:
+#       enabled: true                 # Include detection_events feedback
+#     training_uploads:
+#       enabled: true                 # Include video upload annotations
+#
+#   defaults:
+#     base_model: "yolov8n.pt"
+#     epochs: 100
+#     batch_size: 2                   # Orin 8GB safe
+#     image_size: 480                 # Orin 8GB safe
+#     patience: 20
+#     val_split: 0.15
+#
+#   video:
+#     low_confidence: 0.05
+#     dedupe_iou: 0.85
+#     dedupe_window: 5
+#     max_duration_seconds: 60
+#     background_sample_interval: 10

@@ -1038,3 +1038,118 @@ def get_exportable_training_events() -> list[sqlite3.Row]:
             ORDER BY te.upload_id, te.frame_idx
             """
         ).fetchall()
+
+
+# ── Training jobs ────────────────────────────────────────────────────────────
+
+
+def create_training_job(
+    job_id: str,
+    job_type: str,
+    params: str,
+) -> None:
+    """INSERT a new training_jobs row with status='queued'."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO training_jobs (id, type, params, status, created_at)
+            VALUES (?, ?, ?, 'queued', ?)
+            """,
+            (job_id, job_type, params, now),
+        )
+        conn.commit()
+
+
+def get_training_jobs(
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+) -> list[sqlite3.Row]:
+    where: list[str] = []
+    params: list[object] = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    params += [limit, offset]
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT * FROM training_jobs
+            {clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        ).fetchall()
+
+
+def count_training_jobs(status: str | None = None) -> int:
+    where: list[str] = []
+    params: list[object] = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM training_jobs {clause}", params
+        ).fetchone()
+        return row[0] if row else 0
+
+
+def get_training_job(job_id: str) -> sqlite3.Row | None:
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM training_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+
+
+def get_oldest_queued_job() -> sqlite3.Row | None:
+    """Return the oldest queued training job, or None."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM training_jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+
+
+def update_training_job_status(
+    job_id: str,
+    status: str,
+    *,
+    result: str | None = None,
+) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    sets = ["status = ?"]
+    params: list[object] = [status]
+    if status == "running":
+        sets.append("started_at = ?")
+        params.append(now)
+    if status in ("completed", "failed", "cancelled"):
+        sets.append("completed_at = ?")
+        params.append(now)
+    if result is not None:
+        sets.append("result = ?")
+        params.append(result)
+    params.append(job_id)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE training_jobs SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def mark_stale_running_jobs_failed() -> int:
+    """Mark any running jobs as failed (crash recovery on trainer restart)."""
+    now = datetime.now(timezone.utc).isoformat()
+    result_json = __import__("json").dumps({"error": "Trainer restarted — job interrupted (possible OOM)"})
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE training_jobs SET status = 'failed', completed_at = ?, result = ? WHERE status = 'running'",
+            (now, result_json),
+        )
+        conn.commit()
+        return cur.rowcount

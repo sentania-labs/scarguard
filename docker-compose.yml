@@ -479,6 +479,41 @@ services:
       - SETUID
       - SETGID
 
+  # ── Trainer (idle until a training job is submitted) ──────────────────────
+  trainer:
+    build:
+      context: .
+      dockerfile: services/trainer/Dockerfile
+    container_name: scarguard-trainer
+    restart: unless-stopped
+    user: "0:0"
+    volumes:
+      - scarguard-config:/config:ro
+      - scarguard-models:/models
+      - scarguard-data:/data
+    environment:
+      - CONFIG_PATH=/config/scarguard.yml
+      - DB_PATH=/data/scarguard.db
+      - MODELS_DIR=/models
+      - TRAINING_UPLOADS_DIR=/data/training_uploads
+      - TRAINING_WORKSPACE_DIR=/data/training_workspace
+    depends_on:
+      - redis
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 volumes:
   scarguard-caddy-data:
     name: scarguard-caddy-data

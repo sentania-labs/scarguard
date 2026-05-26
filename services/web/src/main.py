@@ -29,6 +29,7 @@ from routes import (
     snapshot,
     stats,
     training,
+    training_jobs,
     training_uploads,
 )
 from routes import auth as auth_routes
@@ -477,6 +478,7 @@ app.include_router(about.router)
 app.include_router(admin.router)
 app.include_router(stats.router)
 app.include_router(training.router)
+app.include_router(training_jobs.router)
 app.include_router(training_uploads.router)
 app.include_router(audit_log.router)
 app.include_router(snapshot.router)
