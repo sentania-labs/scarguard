@@ -114,8 +114,12 @@ def _process_job(job: dict, cfg: dict, stop_event: threading.Event) -> None:
     _set_job_status(job_id, "running")
     try:
         result = run_job(job, cfg, stop_event)
-        _set_job_status(job_id, "completed", result=json.dumps(result))
-        logger.info("Job %s completed", job_id)
+        if "error" in result:
+            _set_job_status(job_id, "failed", result=json.dumps(result))
+            logger.warning("Job %s failed: %s", job_id, result["error"])
+        else:
+            _set_job_status(job_id, "completed", result=json.dumps(result))
+            logger.info("Job %s completed", job_id)
     except Exception as e:
         logger.exception("Job %s failed", job_id)
         _set_job_status(job_id, "failed", result=json.dumps({"error": str(e)}))
@@ -155,16 +159,15 @@ def main() -> None:
             pubsub.subscribe(JOB_NOTIFY_CHANNEL)
 
             last_poll = time.monotonic()
-            for message in pubsub.listen():
-                if stop_event.is_set():
-                    break
+            while not stop_event.is_set():
+                message = pubsub.get_message(timeout=POLL_INTERVAL)
 
                 Path("/tmp/healthy").touch(exist_ok=True)
 
                 should_check = False
-                if message["type"] == "message":
+                if message and message["type"] == "message":
                     should_check = True
-                elif time.monotonic() - last_poll >= POLL_INTERVAL:
+                if time.monotonic() - last_poll >= POLL_INTERVAL:
                     should_check = True
                     last_poll = time.monotonic()
 

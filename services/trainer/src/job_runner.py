@@ -321,10 +321,29 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
     return _run_subprocess(ctx, cmd, phase="prepare_dataset")
 
 
+_SECRET_ARGS = {"--roboflow-key"}
+
+
+def _redact_cmd(cmd: list[str]) -> str:
+    """Redact secret values from a command line for logging."""
+    parts: list[str] = []
+    skip_next = False
+    for arg in cmd:
+        if skip_next:
+            parts.append("***")
+            skip_next = False
+        elif arg in _SECRET_ARGS:
+            parts.append(arg)
+            skip_next = True
+        else:
+            parts.append(arg)
+    return " ".join(parts)
+
+
 def _run_subprocess(ctx: JobContext, cmd: list[str], phase: str) -> dict:
     """Run a subprocess, streaming stdout/stderr to job log and Redis."""
     ctx.publish_progress(phase, 0, f"Starting {phase}")
-    ctx.append_log(f"$ {' '.join(cmd)}")
+    ctx.append_log(f"$ {_redact_cmd(cmd)}")
 
     proc = subprocess.Popen(
         cmd,

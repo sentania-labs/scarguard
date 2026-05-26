@@ -164,10 +164,10 @@ async def job_stream(request: Request, job_id: str) -> Response:
         progress_key = f"scarguard:training:job:{job_id}:progress"
         log_key = f"scarguard:training:job:{job_id}:log"
         last_log_len = 0
-        timeout = 600
+        max_iterations = 43200  # 12 hours at 1s intervals
 
         try:
-            for _ in range(timeout):
+            for _ in range(max_iterations):
                 raw = client.get(progress_key)
                 if raw:
                     yield f"event: progress\ndata: {raw}\n\n"
