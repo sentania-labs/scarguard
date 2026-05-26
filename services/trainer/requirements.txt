@@ -1,0 +1,6 @@
+ultralytics>=8.3.0
+opencv-python-headless>=4.8.0
+roboflow>=1.1.0
+redis>=5.0.0
+pyyaml>=6.0
+requests>=2.31.0
