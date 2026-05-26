@@ -1041,3 +1041,61 @@ body.expert-mode details.expert-only { display: block !important; }
   background: rgba(255,255,255,0.15);
   opacity: 1;
 }
+
+/* ── Training labeling queue ─────────────────────────────────────────────── */
+
+.training-stats-row {
+  display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;
+}
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.6rem 1rem; text-align: center; min-width: 80px;
+}
+.stat-value { font-size: 1.4rem; font-weight: 700; }
+.stat-label { font-size: 0.75rem; color: var(--muted); }
+
+.label-viewer {
+  display: grid; grid-template-columns: 1fr 340px; gap: 1.25rem;
+  align-items: start; margin-bottom: 1rem;
+}
+@media (max-width: 900px) {
+  .label-viewer { grid-template-columns: 1fr; }
+}
+.label-frame-wrap {
+  position: relative; line-height: 0; background: #000; border-radius: 6px;
+  overflow: hidden;
+}
+.label-frame-wrap img {
+  width: 100%; height: auto; display: block;
+}
+.label-bbox {
+  position: absolute; border: 2px solid #ff3333; pointer-events: none;
+  display: none;
+}
+
+.label-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+.label-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+.label-class { font-weight: 700; font-size: 1.1rem; }
+.label-conf { font-size: 0.9rem; color: var(--muted); }
+.label-actions { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.label-correct-form { margin-bottom: 0.75rem; }
+.label-stats { font-size: 0.8rem; margin-top: 0.5rem; }
+
+.badge-pass-low { background: var(--warn); color: #000; }
+.badge-pass-normal { background: var(--accent); color: #fff; }
+.badge-review-approved { background: var(--ok); color: #0a1a12; }
+.badge-review-rejected { background: var(--danger); color: #fff; }
+.badge-review-corrected { background: var(--warn); color: #000; }
+
+.btn-small { font-size: 0.78rem; padding: 0.2em 0.6em; }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: rgba(229,62,62,0.15); }
+
+.kbd-legend {
+  font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem;
+  padding: 0.5rem 0; border-top: 1px solid var(--border);
+}
+kbd {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.1em 0.4em; font-family: inherit; font-size: 0.85em;
+}

@@ -8,7 +8,7 @@ FROM docker.io/library/python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8
 WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends gosu && \
+    apt-get install -y --no-install-recommends gosu ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 COPY services/web/requirements.txt ./requirements.txt

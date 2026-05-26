@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Label: {{ upload.filename }}
+  {% if upload.target_class_hint %}<span class="badge">{{ upload.target_class_hint }}</span>{% endif %}
+</h1>
+
+<div class="training-stats-row">
+  <div class="stat-card"><div class="stat-value">{{ stats.pending }}</div><div class="stat-label">Pending</div></div>
+  <div class="stat-card"><div class="stat-value">{{ stats.approved }}</div><div class="stat-label">Approved</div></div>
+  <div class="stat-card"><div class="stat-value">{{ stats.rejected }}</div><div class="stat-label">Rejected</div></div>
+  <div class="stat-card"><div class="stat-value">{{ stats.corrected }}</div><div class="stat-label">Corrected</div></div>
+  <div class="stat-card"><div class="stat-value">{{ stats.total }}</div><div class="stat-label">Total</div></div>
+</div>
+
+{% if upload.target_class_hint == 'background' %}
+<div class="alert alert-warn">Background upload — sampled frames will be exported as negative samples. Review detections below to reject false alarms.</div>
+{% endif %}
+
+{% if _is_admin %}
+<div class="card" style="display:flex;gap:0.5rem;align-items:center;">
+  <form method="post" action="/admin/training/uploads/{{ upload.id }}/bulk-review" style="display:inline;">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+    <input type="hidden" name="action" value="approved">
+    <input type="hidden" name="filter_pass" value="normal">
+    <button type="submit" class="btn" onclick="return confirm('Approve all normal-confidence pending detections?')">Approve All Normal</button>
+  </form>
+  <form method="post" action="/admin/training/uploads/{{ upload.id }}/bulk-review" style="display:inline;">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+    <input type="hidden" name="action" value="rejected">
+    <button type="submit" class="btn btn-danger" onclick="return confirm('Reject all pending detections?')">Reject All Pending</button>
+  </form>
+  <span class="muted" style="margin-left:auto;">
+    <a href="/admin/training/uploads/{{ upload.id }}?review_state=pending">Pending only</a> |
+    <a href="/admin/training/uploads/{{ upload.id }}?detection_pass=low">Low-conf only</a> |
+    <a href="/admin/training/uploads/{{ upload.id }}">All</a>
+  </span>
+</div>
+{% endif %}
+
+{% if event %}
+<div class="label-viewer">
+  <div class="label-frame-wrap">
+    <img id="label-frame"
+         src="/admin/training/uploads/{{ upload.id }}/frames/{{ event.frame_idx }}"
+         alt="Frame {{ event.frame_idx }}">
+    <div id="label-bbox" class="label-bbox"></div>
+  </div>
+  <div id="label-card">
+    {% include "partials/training_label_card.html" %}
+  </div>
+</div>
+
+<div class="kbd-legend">
+  <kbd>a</kbd> Approve &nbsp;
+  <kbd>x</kbd> Reject &nbsp;
+  <kbd>c</kbd> Correct &nbsp;
+  <kbd>j</kbd> / <kbd>&rarr;</kbd> Next &nbsp;
+  <kbd>k</kbd> / <kbd>&larr;</kbd> Prev
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:3rem;">
+  <p class="muted">No detections to review{% if filter_review_state or filter_detection_pass %} with current filters{% endif %}.</p>
+  {% if filter_review_state or filter_detection_pass %}
+  <a href="/admin/training/uploads/{{ upload.id }}" class="btn">Clear filters</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<script>
+  var _labelData = {
+    uploadId: {{ upload.id | tojson }},
+    csrfToken: {{ request.state.csrf_token | tojson }},
+    filterReviewState: {{ filter_review_state | tojson }},
+    filterDetectionPass: {{ filter_detection_pass | tojson }},
+    targetClasses: {{ target_classes | tojson }}
+  };
+</script>
+<script src="/static/training_label.js"></script>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Training Uploads <span class="muted">({{ total }})</span></h1>
+
+{% if error %}
+<div class="alert alert-err">{{ error }}</div>
+{% endif %}
+
+{% if _is_admin %}
+<section class="card">
+  <h2>Upload Video</h2>
+  <form method="post" action="/admin/training/uploads" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+    <div class="field-row">
+      <div class="field-group">
+        <label>Video file <span class="muted">(max 60s, mp4/avi/mkv/mov)</span></label>
+        <input type="file" name="file" accept=".mp4,.avi,.mkv,.mov" required>
+      </div>
+      <div class="field-group">
+        <label>Target class hint</label>
+        <select name="target_class_hint">
+          <option value="">None</option>
+          <option value="duck">Duck</option>
+          <option value="heron">Heron</option>
+          <option value="raccoon">Raccoon</option>
+          <option value="background">Background (empty/negative)</option>
+        </select>
+      </div>
+    </div>
+    <button type="submit" class="btn">Upload</button>
+  </form>
+</section>
+{% endif %}
+
+<form method="get" action="/admin/training/uploads" class="filter-form">
+  <div class="filter-row">
+    <label>
+      Status
+      <select name="status">
+        <option value="">All</option>
+        <option value="uploaded" {% if filter_status == 'uploaded' %}selected{% endif %}>Uploaded</option>
+        <option value="processing" {% if filter_status == 'processing' %}selected{% endif %}>Processing</option>
+        <option value="processed" {% if filter_status == 'processed' %}selected{% endif %}>Processed</option>
+        <option value="failed" {% if filter_status == 'failed' %}selected{% endif %}>Failed</option>
+      </select>
+    </label>
+    <button type="submit" class="btn">Filter</button>
+    {% if filter_status %}
+    <a href="/admin/training/uploads" class="btn-secondary">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<table>
+  <thead>
+    <tr>
+      <th>Filename</th>
+      <th>Hint</th>
+      <th>Frames</th>
+      <th>Detections</th>
+      <th>Status</th>
+      <th>Created</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% include "partials/training_upload_rows.html" %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}
+  <a href="/admin/training/uploads?page={{ page - 1 }}&amp;status={{ filter_status | urlencode }}">&laquo; Newer</a>
+  {% endif %}
+  <span>Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="/admin/training/uploads?page={{ page + 1 }}&amp;status={{ filter_status | urlencode }}">Older &raquo;</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

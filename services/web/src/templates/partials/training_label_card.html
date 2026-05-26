@@ -1,0 +1,66 @@
+<div class="label-detail"
+     id="label-detail"
+     data-event-id="{{ event.id if event else '' }}"
+     data-frame-idx="{{ event.frame_idx if event else '' }}"
+     data-bbox="{{ event.bbox if event else '[]' }}"
+     data-next-id="{{ next_event.id if next_event else '' }}"
+     data-prev-id="{{ prev_event.id if prev_event else '' }}"
+     {% if auto_advance is defined and auto_advance %}data-auto-advance="1"{% endif %}>
+
+  {% if event %}
+  <div class="label-meta">
+    <span class="badge badge-pass-{{ event.detection_pass }}">{{ event.detection_pass }}</span>
+    <span class="label-class">{{ event.predicted_class }}</span>
+    <span class="label-conf">{{ "%.1f" | format(event.confidence * 100) }}%</span>
+    <span class="muted">Frame {{ event.frame_idx }}</span>
+    {% if event.review_state != 'pending' %}
+    <span class="badge badge-review-{{ event.review_state }}">{{ event.review_state }}{% if event.corrected_class %}: {{ event.corrected_class }}{% endif %}</span>
+    {% endif %}
+  </div>
+
+  {% if _is_admin %}
+  <div class="label-actions">
+    <button id="btn-approve" class="btn btn-correct"
+            hx-post="/admin/training/uploads/{{ upload.id }}/events/{{ event.id }}/review?review_state={{ filter_review_state }}&amp;detection_pass={{ filter_detection_pass }}"
+            hx-vals='{"action": "approved", "_csrf_token": "{{ request.state.csrf_token }}"}'
+            hx-target="#label-card"
+            hx-swap="innerHTML">Approve</button>
+    <button id="btn-reject" class="btn btn-fp"
+            hx-post="/admin/training/uploads/{{ upload.id }}/events/{{ event.id }}/review?review_state={{ filter_review_state }}&amp;detection_pass={{ filter_detection_pass }}"
+            hx-vals='{"action": "rejected", "_csrf_token": "{{ request.state.csrf_token }}"}'
+            hx-target="#label-card"
+            hx-swap="innerHTML">Reject</button>
+    <button id="btn-show-correct" class="btn btn-wrong" onclick="document.getElementById('correct-form').style.display='block';document.getElementById('corrected-class').focus();">Correct</button>
+  </div>
+
+  <div id="correct-form" class="label-correct-form" style="display:none;">
+    <form hx-post="/admin/training/uploads/{{ upload.id }}/events/{{ event.id }}/review?review_state={{ filter_review_state }}&amp;detection_pass={{ filter_detection_pass }}"
+          hx-target="#label-card"
+          hx-swap="innerHTML">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+      <input type="hidden" name="action" value="corrected">
+      <div class="field-group">
+        <label>Corrected class</label>
+        <input id="corrected-class" type="text" name="corrected_class" list="class-options"
+               value="{{ upload.target_class_hint if upload.target_class_hint and upload.target_class_hint != 'background' else '' }}"
+               required autocomplete="off">
+        <datalist id="class-options">
+          {% for cls in target_classes %}<option value="{{ cls }}">{% endfor %}
+        </datalist>
+      </div>
+      <button type="submit" class="btn">Submit Correction</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="label-stats muted">
+    {{ stats.pending }} pending &middot;
+    {{ stats.approved }} approved &middot;
+    {{ stats.rejected }} rejected &middot;
+    {{ stats.corrected }} corrected
+  </div>
+
+  {% else %}
+  <div class="muted" style="padding:1rem;">No more detections to review.</div>
+  {% endif %}
+</div>
