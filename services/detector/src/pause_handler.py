@@ -115,7 +115,10 @@ class PauseHandler:
                 self._stop_heartbeat_watcher()
             else:
                 self._watcher_stop.set()
-            self._model_pool.reload_all()
+            try:
+                self._model_pool.reload_all()
+            except Exception:
+                logger.exception("Model reload failed during resume — inference will retry on next frame")
             self._paused_ref.set(False)
             self._publish_state("running", request_id=request_id)
             logger.info("Detector resumed — inference active")

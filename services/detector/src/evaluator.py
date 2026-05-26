@@ -231,6 +231,10 @@ class EvaluationRunner:
             self._publish_error(client, f"Missing dependency: {e}")
             return None
 
+        if self._paused_ref is not None and self._paused_ref.get():
+            self._publish_error(client, "Detector paused — aborting evaluation before model load")
+            return None
+
         try:
             model = YOLO(model_path)
         except Exception as e:
