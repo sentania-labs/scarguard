@@ -101,6 +101,26 @@ class ModelPool:
                 det.confidence_threshold = confidence
                 det.target_classes = set(target_classes)
 
+    def unload_all(self) -> None:
+        """Unload all models to free GPU memory (pause support).
+
+        The detector objects remain in the pool with their refcounts
+        intact, but the YOLO model is released from each one.  Call
+        :meth:`reload_all` to restore them.
+        """
+        with self._lock:
+            for path, det in self._models.items():
+                det.unload()
+                logger.info("ModelPool: unloaded %s (pause)", path)
+            _clear_gpu_cache()
+
+    def reload_all(self) -> None:
+        """Reload all models after a pause (resume support)."""
+        with self._lock:
+            for path, det in self._models.items():
+                logger.info("ModelPool: reloading %s (resume)", path)
+                det.reload()
+
     @staticmethod
     def validate_model_exists(model_path: str) -> bool:
         """Return True if *model_path* is a readable file on disk."""

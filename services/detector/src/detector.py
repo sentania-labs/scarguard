@@ -43,6 +43,18 @@ class YOLODetector:
         # production logs.  See INFERENCE_INVESTIGATION.md.
         logger.info("Inference save_dir pinned to /tmp/runs/predict (exist_ok=True)")
 
+    def unload(self) -> None:
+        """Release the YOLO model to free GPU memory.
+
+        Caller must ensure no threads are mid-predict (e.g. paused_ref is
+        set and in-flight inference has drained).
+        """
+        self._model = None
+
+    def reload(self) -> None:
+        """Reload the model from disk after an unload."""
+        self._load()
+
     def predict(
         self,
         frame: np.ndarray,
@@ -63,6 +75,8 @@ class YOLODetector:
         conf = confidence if confidence is not None else self.confidence_threshold
         wait_seconds = self._lock.acquire()
         try:
+            if self._model is None:
+                return []
             # NOTE: name + exist_ok are critical.  Ultralytics 8.3.x's Predictor
             # unconditionally calls increment_path(Path(project) / name) in its
             # constructor, which creates a fresh predict{N} subdirectory on every

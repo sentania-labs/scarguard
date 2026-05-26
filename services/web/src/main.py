@@ -62,8 +62,22 @@ async def _startup() -> None:
     _ensure_secret_key()
     _ensure_bootstrap_token()
     _check_db_integrity()
+    _ensure_training_tables()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+
+
+def _ensure_training_tables() -> None:
+    import logging
+
+    import db as db_module
+
+    log = logging.getLogger("startup")
+    try:
+        db_module.ensure_training_tables()
+        log.info("Training tables ensured")
+    except Exception as exc:
+        log.error("Failed to create training tables: %s", exc)
 
 
 def _check_db_integrity() -> None:
