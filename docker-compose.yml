@@ -484,6 +484,7 @@ services:
     build:
       context: .
       dockerfile: services/trainer/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-trainer:${IMAGE_TAG:-latest}
     container_name: scarguard-trainer
     restart: unless-stopped
     user: "0:0"
