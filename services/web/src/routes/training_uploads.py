@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -35,6 +36,24 @@ MAX_UPLOAD_BYTES: int | None = (
     else 500 * 1024 * 1024  # 500 MB default
 )
 PAGE_SIZE = 25
+_UPLOAD_LIST_URL = "/admin/training/uploads"
+
+_SAFE_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _safe_upload_dir(upload_id: str) -> Path | None:
+    """Resolve an upload_id to a directory path, or None if invalid.
+
+    Validates the ID is a hex-only string AND exists in the database.
+    Returns the constructed path using the DB-returned ID (not user input).
+    """
+    if not _SAFE_ID.match(upload_id):
+        return None
+    upload = db_module.get_training_upload(upload_id)
+    if upload is None:
+        return None
+    safe_id: str = upload["id"]
+    return TRAINING_UPLOADS_DIR / safe_id
 
 
 def _probe_duration(file_path: Path) -> float | None:
@@ -188,15 +207,14 @@ async def delete_upload(request: Request, upload_id: str) -> Response:
     if not isinstance(gate, dict):
         return gate
 
-    upload = db_module.get_training_upload(upload_id)
-    if not upload:
+    upload_dir = _safe_upload_dir(upload_id)
+    if upload_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
 
     db_module.delete_training_upload(upload_id)
-    upload_dir = TRAINING_UPLOADS_DIR / upload_id
     shutil.rmtree(upload_dir, ignore_errors=True)
     logger.info("Training upload deleted: %s", upload_id)
-    return RedirectResponse(url="/admin/training/uploads", status_code=303)
+    return RedirectResponse(url=_UPLOAD_LIST_URL, status_code=303)
 
 
 # ── Serve frame ──────────────────────────────────────────────────────────────
@@ -208,15 +226,15 @@ async def serve_frame(request: Request, upload_id: str, frame_idx: int) -> Respo
     if not isinstance(gate, dict):
         return gate
 
-    upload = db_module.get_training_upload(upload_id)
-    if not upload:
+    upload_dir = _safe_upload_dir(upload_id)
+    if upload_dir is None:
         return JSONResponse({"error": "not found"}, status_code=404)
 
-    frame_path = TRAINING_UPLOADS_DIR / upload_id / "frames" / f"{frame_idx:06d}.jpg"
+    if frame_idx < 0:
+        return JSONResponse({"error": "invalid frame index"}, status_code=400)
+    frame_path = upload_dir / "frames" / f"{frame_idx:06d}.jpg"
     if not frame_path.exists():
         return JSONResponse({"error": "frame not found"}, status_code=404)
-    if not frame_path.resolve().is_relative_to(TRAINING_UPLOADS_DIR.resolve()):
-        return JSONResponse({"error": "invalid path"}, status_code=400)
 
     return FileResponse(str(frame_path), media_type="image/jpeg")
 
@@ -236,6 +254,8 @@ async def label_page(
     if not isinstance(gate, dict):
         return gate
 
+    if not _SAFE_ID.match(upload_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
     upload = db_module.get_training_upload(upload_id)
     if not upload:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -297,6 +317,10 @@ async def review_event(
 
     if action not in ("approved", "rejected", "corrected"):
         return JSONResponse({"error": "invalid action"}, status_code=400)
+
+    event = db_module.get_training_event(event_id)
+    if not event or event["upload_id"] != upload_id:
+        return JSONResponse({"error": "event not found in this upload"}, status_code=404)
 
     corrected = corrected_class.strip()[:64] if action == "corrected" else None
     if action == "corrected" and not corrected:
@@ -368,14 +392,21 @@ async def bulk_review(
     if action not in ("approved", "rejected"):
         return JSONResponse({"error": "bulk action must be approved or rejected"}, status_code=400)
 
+    if not _SAFE_ID.match(upload_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    upload = db_module.get_training_upload(upload_id)
+    if not upload:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    safe_id: str = upload["id"]
     count = db_module.bulk_update_training_events(
-        upload_id,
+        safe_id,
         action,
         filter_pass=filter_pass or None,
         filter_review_state="pending",
     )
-    logger.info("Bulk %s %d events in upload %s", action, count, upload_id)
+    logger.info("Bulk %s %d events in upload %s", action, count, safe_id)
     return RedirectResponse(
-        url=f"/admin/training/uploads/{upload_id}",
+        url=f"{_UPLOAD_LIST_URL}/{safe_id}",
         status_code=303,
     )

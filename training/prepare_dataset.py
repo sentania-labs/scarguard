@@ -433,7 +433,10 @@ def pull_training_uploads(
         else:
             skipped += 1
 
-    # Background samples: every Nth frame from background uploads
+    # Background samples: every Nth frame from background uploads.
+    # Skip frames that already have approved annotations to avoid
+    # emitting the same image as both labeled and empty.
+    labeled_frames: set[tuple[str, int]] = set(frame_labels.keys())
     bg_count = 0
     for upload in bg_uploads:
         upload_frames = Path(frames_dir) / upload["id"] / "frames"
@@ -441,6 +444,8 @@ def pull_training_uploads(
             continue
         fc = upload["frame_count"] or 0
         for i in range(0, fc, max(1, background_sample_interval)):
+            if (upload["id"], i) in labeled_frames:
+                continue
             fp = upload_frames / f"{i:06d}.jpg"
             if fp.exists():
                 samples.append(Sample(image=fp, label_lines=[], source="training_uploads"))
