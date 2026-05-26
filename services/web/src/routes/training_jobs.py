@@ -127,11 +127,11 @@ async def job_detail(request: Request, job_id: str) -> Response:
     log_lines: list[str] = []
     try:
         client = make_sync_client(_redis_cfg())
-        raw_progress = client.get(f"scarguard:training:job:{job_id}:progress")
+        raw_progress: str | None = client.get(f"scarguard:training:job:{job_id}:progress")  # type: ignore[assignment,unused-ignore]
         if raw_progress:
             progress = json.loads(raw_progress)
-        raw_log = client.lrange(f"scarguard:training:job:{job_id}:log", -50, -1)
-        log_lines = list(raw_log) if raw_log else []
+        raw_log: list[str] = client.lrange(f"scarguard:training:job:{job_id}:log", -50, -1)  # type: ignore[assignment,unused-ignore]
+        log_lines = raw_log if raw_log else []
         client.close()
     except Exception:
         pass
@@ -239,7 +239,7 @@ async def detector_state(request: Request) -> Response:
 def _get_detector_state() -> dict:
     try:
         client = make_sync_client(_redis_cfg())
-        raw = client.get(STATE_KEY)
+        raw: str | None = client.get(STATE_KEY)  # type: ignore[assignment,unused-ignore]
         client.close()
         if raw:
             return json.loads(raw)
