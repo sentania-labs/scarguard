@@ -698,3 +698,343 @@ def get_metrics_for_chart(
             "camera_data": None,
         })
     return filled
+
+
+# ── Training uploads ─────────────────────────────────────────────────────────
+
+
+def create_training_upload(
+    upload_id: str,
+    filename: str,
+    target_class_hint: str | None,
+) -> None:
+    """INSERT a new training_uploads row with status='uploaded'."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO training_uploads (id, filename, target_class_hint, status, created_at)
+            VALUES (?, ?, ?, 'uploaded', ?)
+            """,
+            (upload_id, filename, target_class_hint, now),
+        )
+        conn.commit()
+
+
+def get_training_uploads(
+    limit: int = 100,
+    offset: int = 0,
+    status: str | None = None,
+) -> list[sqlite3.Row]:
+    """List training uploads, newest first."""
+    where: list[str] = []
+    params: list[object] = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    params += [limit, offset]
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT * FROM training_uploads
+            {clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        ).fetchall()
+
+
+def count_training_uploads(status: str | None = None) -> int:
+    where: list[str] = []
+    params: list[object] = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM training_uploads {clause}", params
+        ).fetchone()
+        return row[0] if row else 0
+
+
+def get_training_upload(upload_id: str) -> sqlite3.Row | None:
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM training_uploads WHERE id = ?", (upload_id,)
+        ).fetchone()
+
+
+def update_training_upload_status(
+    upload_id: str,
+    status: str,
+    *,
+    frame_count: int | None = None,
+    detection_count: int | None = None,
+    error: str | None = None,
+) -> bool:
+    sets = ["status = ?"]
+    params: list[object] = [status]
+    if frame_count is not None:
+        sets.append("frame_count = ?")
+        params.append(frame_count)
+    if detection_count is not None:
+        sets.append("detection_count = ?")
+        params.append(detection_count)
+    if error is not None:
+        sets.append("error = ?")
+        params.append(error)
+    if status in ("processed", "failed"):
+        sets.append("processed_at = ?")
+        params.append(datetime.now(timezone.utc).isoformat())
+    params.append(upload_id)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE training_uploads SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_training_upload(upload_id: str) -> bool:
+    """DELETE upload and its events (manual cascade — avoids PRAGMA foreign_keys)."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM training_events WHERE upload_id = ?", (upload_id,))
+        cur = conn.execute("DELETE FROM training_uploads WHERE id = ?", (upload_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+# ── Training events ──────────────────────────────────────────────────────────
+
+
+def insert_training_events(upload_id: str, events: list[dict]) -> int:
+    """Bulk-insert training events. Returns rows inserted."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.executemany(
+            """
+            INSERT INTO training_events
+                (upload_id, frame_idx, timestamp_in_video, bbox, predicted_class,
+                 confidence, target_class_hint, detection_pass, review_state, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            [
+                (
+                    upload_id,
+                    e["frame_idx"],
+                    e.get("timestamp_in_video"),
+                    e["bbox"] if isinstance(e["bbox"], str) else __import__("json").dumps(e["bbox"]),
+                    e["predicted_class"],
+                    e["confidence"],
+                    e.get("target_class_hint"),
+                    e["detection_pass"],
+                    now,
+                )
+                for e in events
+            ],
+        )
+        conn.commit()
+        return len(events)
+
+
+def get_training_events(
+    upload_id: str,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    review_state: str | None = None,
+    detection_pass: str | None = None,
+) -> list[sqlite3.Row]:
+    where = ["upload_id = ?"]
+    params: list[object] = [upload_id]
+    if review_state:
+        where.append("review_state = ?")
+        params.append(review_state)
+    if detection_pass:
+        where.append("detection_pass = ?")
+        params.append(detection_pass)
+    clause = "WHERE " + " AND ".join(where)
+    params += [limit, offset]
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT * FROM training_events
+            {clause}
+            ORDER BY confidence DESC, id ASC
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        ).fetchall()
+
+
+def count_training_events(
+    upload_id: str,
+    *,
+    review_state: str | None = None,
+    detection_pass: str | None = None,
+) -> int:
+    where = ["upload_id = ?"]
+    params: list[object] = [upload_id]
+    if review_state:
+        where.append("review_state = ?")
+        params.append(review_state)
+    if detection_pass:
+        where.append("detection_pass = ?")
+        params.append(detection_pass)
+    clause = "WHERE " + " AND ".join(where)
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM training_events {clause}", params
+        ).fetchone()
+        return row[0] if row else 0
+
+
+def get_training_event(event_id: int) -> sqlite3.Row | None:
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM training_events WHERE id = ?", (event_id,)
+        ).fetchone()
+
+
+def get_next_training_event(
+    upload_id: str,
+    current_id: int,
+    *,
+    review_state: str | None = None,
+    detection_pass: str | None = None,
+) -> sqlite3.Row | None:
+    """Get the next event (by confidence desc, id asc) after current_id."""
+    where = ["upload_id = ?", "(confidence < (SELECT confidence FROM training_events WHERE id = ?) OR (confidence = (SELECT confidence FROM training_events WHERE id = ?) AND id > ?))"]
+    params: list[object] = [upload_id, current_id, current_id, current_id]
+    if review_state:
+        where.append("review_state = ?")
+        params.append(review_state)
+    if detection_pass:
+        where.append("detection_pass = ?")
+        params.append(detection_pass)
+    clause = "WHERE " + " AND ".join(where)
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT * FROM training_events
+            {clause}
+            ORDER BY confidence DESC, id ASC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+
+
+def get_prev_training_event(
+    upload_id: str,
+    current_id: int,
+    *,
+    review_state: str | None = None,
+    detection_pass: str | None = None,
+) -> sqlite3.Row | None:
+    """Get the previous event (by confidence desc, id asc) before current_id."""
+    where = ["upload_id = ?", "(confidence > (SELECT confidence FROM training_events WHERE id = ?) OR (confidence = (SELECT confidence FROM training_events WHERE id = ?) AND id < ?))"]
+    params: list[object] = [upload_id, current_id, current_id, current_id]
+    if review_state:
+        where.append("review_state = ?")
+        params.append(review_state)
+    if detection_pass:
+        where.append("detection_pass = ?")
+        params.append(detection_pass)
+    clause = "WHERE " + " AND ".join(where)
+    with _connect() as conn:
+        return conn.execute(
+            f"""
+            SELECT * FROM training_events
+            {clause}
+            ORDER BY confidence ASC, id DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+
+
+def update_training_event_review(
+    event_id: int,
+    review_state: str,
+    corrected_class: str | None = None,
+) -> bool:
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE training_events
+            SET review_state = ?, corrected_class = ?, reviewed_at = ?
+            WHERE id = ?
+            """,
+            (review_state, corrected_class, now, event_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def bulk_update_training_events(
+    upload_id: str,
+    review_state: str,
+    *,
+    filter_pass: str | None = None,
+    filter_review_state: str | None = None,
+) -> int:
+    """Bulk update review_state. Returns rows affected."""
+    now = datetime.now(timezone.utc).isoformat()
+    where = ["upload_id = ?"]
+    params: list[object] = [review_state, now, upload_id]
+    if filter_pass:
+        where.append("detection_pass = ?")
+        params.append(filter_pass)
+    if filter_review_state:
+        where.append("review_state = ?")
+        params.append(filter_review_state)
+    clause = "WHERE " + " AND ".join(where)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE training_events SET review_state = ?, reviewed_at = ? {clause}",
+            params,
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+def get_training_upload_stats(upload_id: str) -> dict:
+    """Return review state counts for an upload."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT review_state, COUNT(*) as cnt
+            FROM training_events
+            WHERE upload_id = ?
+            GROUP BY review_state
+            """,
+            (upload_id,),
+        ).fetchall()
+    stats = {"pending": 0, "approved": 0, "rejected": 0, "corrected": 0, "total": 0}
+    for r in rows:
+        state = r["review_state"]
+        cnt = r["cnt"]
+        if state in stats:
+            stats[state] = cnt
+        stats["total"] += cnt
+    return stats
+
+
+def get_exportable_training_events() -> list[sqlite3.Row]:
+    """Return approved/corrected training events for dataset export."""
+    with _connect() as conn:
+        return conn.execute(
+            """
+            SELECT te.*, tu.target_class_hint AS upload_hint
+            FROM training_events te
+            JOIN training_uploads tu ON te.upload_id = tu.id
+            WHERE te.review_state IN ('approved', 'corrected')
+            ORDER BY te.upload_id, te.frame_idx
+            """
+        ).fetchall()
