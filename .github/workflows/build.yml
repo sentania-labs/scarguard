@@ -425,11 +425,7 @@ jobs:
       - name: Import smoke test
         run: |
           docker run --rm scarguard-trainer:build-validate \
-            python3 -c "
-          import yaml, redis, cv2
-          from ultralytics import YOLO
-          print('Trainer imports OK')
-          "
+            python3 -c "import yaml, redis, cv2; from ultralytics import YOLO; print('Trainer imports OK')"
 
       - name: Clean up
         if: always()
@@ -565,7 +561,6 @@ jobs:
           docker build -f services/backup/Dockerfile -t scarguard-backup:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
           docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
-          docker build -f services/trainer/Dockerfile -t scarguard-trainer:smoke .
 
       # Seed the named volume that docker-compose.yml actually mounts.
       - name: Seed config volume
@@ -651,4 +646,4 @@ jobs:
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
             scarguard-notifier:smoke scarguard-deterrent:smoke \
             scarguard-backup:smoke scarguard-caddy:smoke \
-            scarguard-log-streamer:smoke scarguard-trainer:smoke 2>/dev/null || true
+            scarguard-log-streamer:smoke 2>/dev/null || true
