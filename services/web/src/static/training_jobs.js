@@ -58,8 +58,15 @@
     };
   };
 
-  /* Auto-start stream for running jobs on page load */
+  /* Auto-start stream on page load: either for a just-submitted job
+     (via ?submitted= query param) or for any already-running job. */
   document.addEventListener("DOMContentLoaded", function () {
+    var params = new URLSearchParams(window.location.search);
+    var submitted = params.get("submitted");
+    if (submitted) {
+      _pollUntilRunning(submitted);
+      return;
+    }
     var rows = document.querySelectorAll("tr");
     rows.forEach(function (tr) {
       var statusBadge = tr.querySelector(".badge");
@@ -69,4 +76,33 @@
       }
     });
   });
+
+  function _pollUntilRunning(jobId) {
+    var progressEl = document.getElementById("job-progress");
+    var labelEl = document.getElementById("progress-label");
+    if (progressEl) progressEl.style.display = "block";
+    if (labelEl) labelEl.textContent = "Waiting for trainer to pick up job...";
+
+    var attempts = 0;
+    var maxAttempts = 120;
+    var poll = setInterval(function () {
+      attempts++;
+      fetch("/admin/training/jobs/" + jobId)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.job && data.job.status === "running") {
+            clearInterval(poll);
+            startJobStream(jobId);
+          } else if (data.job && (data.job.status === "completed" || data.job.status === "failed" || data.job.status === "cancelled")) {
+            clearInterval(poll);
+            if (labelEl) labelEl.textContent = "Job " + data.job.status;
+            setTimeout(function () { window.location.reload(); }, 1000);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(poll);
+            if (labelEl) labelEl.textContent = "Timed out waiting for job to start";
+          }
+        })
+        .catch(function () {});
+    }, 2000);
+  }
 })();
