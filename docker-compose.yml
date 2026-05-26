@@ -479,11 +479,17 @@ services:
       - SETUID
       - SETGID
 
-  # ── Trainer (idle until a training job is submitted) ──────────────────────
+  # ── Trainer (ARM64/Jetson only — opt-in via COMPOSE_PROFILES=training) ────
+  # Uses the L4T base image (ARM64 only, no x86 variant).  Gated behind a
+  # profile so `docker compose pull` on x86 hosts doesn't fail on the
+  # missing arch manifest.  Enable on the Orin:
+  #   echo "COMPOSE_PROFILES=training" >> .env
   trainer:
+    profiles: ["training"]
     build:
       context: .
       dockerfile: services/trainer/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-trainer:${IMAGE_TAG:-latest}
     container_name: scarguard-trainer
     restart: unless-stopped
     user: "0:0"
