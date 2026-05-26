@@ -405,6 +405,36 @@ jobs:
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-log-streamer:test || true
 
+  # ── Build trainer — Jetson/L4T (Orin runner, ARM64) ──────────────────────────
+  # Same L4T base as detector — ARM64 only, no x86 variant.
+  build-trainer:
+    name: Build trainer image
+    runs-on: [self-hosted, linux, arm64, jetson]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Build trainer image (validate only, no push)
+        run: |
+          docker build \
+            --file services/trainer/Dockerfile \
+            --tag scarguard-trainer:build-validate \
+            .
+
+      - name: Import smoke test
+        run: |
+          docker run --rm scarguard-trainer:build-validate \
+            python3 -c "
+          import yaml, redis, cv2
+          from ultralytics import YOLO
+          print('Trainer imports OK')
+          "
+
+      - name: Clean up
+        if: always()
+        run: docker rmi scarguard-trainer:build-validate || true
+
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   build-detector:
     name: Build detector image (Jetson)
@@ -535,6 +565,7 @@ jobs:
           docker build -f services/backup/Dockerfile -t scarguard-backup:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
           docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
+          docker build -f services/trainer/Dockerfile -t scarguard-trainer:smoke .
 
       # Seed the named volume that docker-compose.yml actually mounts.
       - name: Seed config volume
@@ -620,4 +651,4 @@ jobs:
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
             scarguard-notifier:smoke scarguard-deterrent:smoke \
             scarguard-backup:smoke scarguard-caddy:smoke \
-            scarguard-log-streamer:smoke 2>/dev/null || true
+            scarguard-log-streamer:smoke scarguard-trainer:smoke 2>/dev/null || true
