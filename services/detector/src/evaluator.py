@@ -13,6 +13,7 @@ import logging
 import sqlite3
 import threading
 from pathlib import Path
+from typing import Any
 
 import redis
 
@@ -32,10 +33,12 @@ class EvaluationRunner:
         redis_cfg: dict,
         db_path: str,
         snapshot_dir: str,
+        paused_ref: Any | None = None,
     ) -> None:
         self._redis_cfg = redis_cfg
         self._db_path = db_path
         self._snapshot_dir = Path(snapshot_dir)
+        self._paused_ref = paused_ref
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._busy = threading.Lock()
@@ -95,6 +98,13 @@ class EvaluationRunner:
                 self._stop.wait(5)
 
     def _handle_request(self, client: redis.Redis, request: dict) -> None:
+        if self._paused_ref is not None and self._paused_ref.get():
+            self._publish_error(
+                client,
+                "Detector is paused for training — evaluation unavailable until training completes",
+            )
+            return
+
         model_a_path = request.get("model_a", "")
         model_b_path = request.get("model_b", "")
         date_from = request.get("date_from")

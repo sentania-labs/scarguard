@@ -36,6 +36,7 @@ from healthcheck import start_heartbeat
 from metrics_store import MetricsStore
 from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
+from pause_handler import PauseHandler
 from publisher import RedisPublisher
 from scheduler import ArmScheduler
 from snapshot_grabber import SnapshotGrabber
@@ -342,6 +343,7 @@ def run_camera(
     redis_cfg: dict,
     frame_skip_ref: AtomicRef[int],
     armed_ref: AtomicRef[bool],
+    paused_ref: AtomicRef[bool],
     exclusion_zones_ref: AtomicRef[list[dict]],
     action_rules_ref: AtomicRef[list[dict]],
     deterrent_rules_ref: AtomicRef[list[dict]],
@@ -409,6 +411,10 @@ def run_camera(
             health_tracker.record_frame(name)
 
         if not armed_ref.get():
+            continue
+
+        if paused_ref.get():
+            stop_event.wait(1.0)
             continue
 
         t0 = time.monotonic()
@@ -489,6 +495,7 @@ def main() -> None:
     redis_cfg: dict = cfg.get("redis", {})
     # Mutable references so hot-reload can update these without restarting threads.
     armed_ref: AtomicRef[bool] = AtomicRef(sys_cfg.get("armed", True))
+    paused_ref: AtomicRef[bool] = AtomicRef(False)
     frame_skip_ref: AtomicRef[int] = AtomicRef(det_cfg.get("frame_skip", 2))
 
     # ---- Model pool ------------------------------------------------------------
@@ -650,6 +657,7 @@ def main() -> None:
                 redis_cfg,
                 frame_skip_ref,
                 armed_ref,
+                paused_ref,
                 zones_ref,
                 rules_ref,
                 det_rules_ref,
@@ -728,11 +736,21 @@ def main() -> None:
     )
     visit_flush_thread.start()
 
+    # ---- Pause handler (training pipeline GPU handoff) --------------------------
+    pause_handler = PauseHandler(
+        redis_cfg=redis_cfg,
+        model_pool=model_pool,
+        paused_ref=paused_ref,
+        global_stop=global_stop,
+    )
+    pause_handler.start()
+
     # ---- Model evaluation runner -----------------------------------------------
     eval_runner = EvaluationRunner(
         redis_cfg=redis_cfg,
         db_path=DB_PATH,
         snapshot_dir=SNAPSHOT_DIR,
+        paused_ref=paused_ref,
     )
     eval_runner.start()
 
@@ -886,6 +904,7 @@ def main() -> None:
 
     watcher.stop()
     scheduler.stop()
+    pause_handler.stop()
     eval_runner.stop()
     for name in list(active_cameras.keys()):
         _stop_camera(name)
