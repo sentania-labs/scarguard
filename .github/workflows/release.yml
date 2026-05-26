@@ -352,6 +352,46 @@ jobs:
             | sort -u \
             | xargs -r docker rmi -f || true
 
+  # ── Build & push — trainer (Orin runner, ARM64) ─────────────────────────────
+  # Same L4T base as detector — ARM64 only, built on the Jetson runner.
+  release-trainer:
+    name: Release trainer image
+    runs-on: [self-hosted, linux, arm64, jetson]
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      TAG: ${{ github.ref_name }}
+      TRAINER_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-trainer
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build trainer image
+        run: |
+          docker build \
+            --file services/trainer/Dockerfile \
+            --tag "$TRAINER_IMAGE:$TAG" \
+            --tag "$TRAINER_IMAGE:latest" \
+            .
+
+      - name: Push trainer image
+        run: |
+          docker push "$TRAINER_IMAGE:$TAG"
+          docker push "$TRAINER_IMAGE:latest"
+
+      - name: Prune
+        if: always()
+        run: docker image prune -f
+
   # ── Build & push — detector x86 (x86 runner) ─────────────────────────────
   release-detector-x86:
     name: Release detector image (x86)
@@ -490,7 +530,7 @@ jobs:
   # with auto-generated notes so there's a visible changelog on the repo.
   create-release:
     name: Create GitHub Release
-    needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-detector, release-detector-x86]
+    needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-detector, release-detector-x86, release-trainer]
     runs-on: [self-hosted, linux, generic]
     permissions:
       contents: write
@@ -542,6 +582,7 @@ jobs:
           | backup | `ghcr.io/{owner}/scarguard-backup:{tag}` | amd64, arm64 |
           | caddy | `ghcr.io/{owner}/scarguard-caddy:{tag}` | amd64, arm64 |
           | log-streamer | `ghcr.io/{owner}/scarguard-log-streamer:{tag}` | amd64, arm64 |
+          | trainer | `ghcr.io/{owner}/scarguard-trainer:{tag}` | ARM64 / L4T |
 
           ## Benchmarks
 
