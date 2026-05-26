@@ -497,6 +497,7 @@ services:
       - MODELS_DIR=/models
       - TRAINING_UPLOADS_DIR=/data/training_uploads
       - TRAINING_WORKSPACE_DIR=/data/training_workspace
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     depends_on:
       - redis
     cap_drop:

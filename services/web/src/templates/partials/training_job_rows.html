@@ -20,11 +20,23 @@
     {% endif %}
   </td>
   <td>
-    {% if j.result %}
-      {% set r = j.result %}
-      {% if r is string %}
-        <span class="muted" title="{{ r }}">{{ r[:60] }}{% if r|length > 60 %}...{% endif %}</span>
+    {% if j.parsed_result %}
+      {% set r = j.parsed_result %}
+      {% if r.uploads is defined %}
+        {% for u in r.uploads %}
+          <a href="/admin/training/uploads/{{ u.upload_id }}" class="btn btn-small">Label Video Detections</a>
+          <span class="muted">({{ u.detections }} det.)</span>
+          {% if not loop.last %}<br>{% endif %}
+        {% endfor %}
+      {% elif r.model_path is defined %}
+        <span class="muted">{{ r.model_path | replace('/models/', '') }}</span>
+      {% elif r.error is defined %}
+        <span class="muted" title="{{ r.error }}">{{ r.error[:50] }}{% if r.error|length > 50 %}...{% endif %}</span>
+      {% else %}
+        <span class="muted">Done</span>
       {% endif %}
+    {% elif j.result %}
+      <span class="muted" title="{{ j.result }}">{{ j.result[:60] }}{% if j.result|length > 60 %}...{% endif %}</span>
     {% else %}
       <span class="muted">—</span>
     {% endif %}
