@@ -12,6 +12,66 @@ from typing import Any
 DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
 
 
+# ── Training tables ──────────────────────────────────────────────────────────
+
+
+def ensure_training_tables() -> None:
+    """Create the training pipeline tables if they don't exist yet."""
+    with _connect() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS training_uploads (
+                id                TEXT    PRIMARY KEY,
+                filename          TEXT    NOT NULL,
+                target_class_hint TEXT,
+                frame_count       INTEGER,
+                detection_count   INTEGER,
+                status            TEXT    NOT NULL DEFAULT 'uploaded',
+                error             TEXT,
+                created_at        TEXT    NOT NULL,
+                processed_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_tu_status
+                ON training_uploads(status);
+
+            CREATE TABLE IF NOT EXISTS training_events (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                upload_id         TEXT    NOT NULL REFERENCES training_uploads(id) ON DELETE CASCADE,
+                frame_idx         INTEGER NOT NULL,
+                timestamp_in_video REAL,
+                bbox              TEXT    NOT NULL,
+                predicted_class   TEXT    NOT NULL,
+                confidence        REAL    NOT NULL,
+                target_class_hint TEXT,
+                detection_pass    TEXT    NOT NULL,
+                review_state      TEXT    NOT NULL DEFAULT 'pending',
+                corrected_class   TEXT,
+                created_at        TEXT    NOT NULL,
+                reviewed_at       TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_te_upload
+                ON training_events(upload_id);
+            CREATE INDEX IF NOT EXISTS idx_te_review
+                ON training_events(review_state);
+            CREATE INDEX IF NOT EXISTS idx_te_pass
+                ON training_events(detection_pass);
+            CREATE INDEX IF NOT EXISTS idx_te_frame
+                ON training_events(upload_id, frame_idx);
+
+            CREATE TABLE IF NOT EXISTS training_jobs (
+                id            TEXT    PRIMARY KEY,
+                type          TEXT    NOT NULL,
+                params        TEXT    NOT NULL,
+                status        TEXT    NOT NULL DEFAULT 'queued',
+                result        TEXT,
+                created_at    TEXT    NOT NULL,
+                started_at    TEXT,
+                completed_at  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_tj_status
+                ON training_jobs(status);
+        """)
+
+
 def _date_to_exclusive(date_str: str) -> str:
     """Shift a YYYY-MM-DD end-date forward one day for an exclusive upper bound.
 
