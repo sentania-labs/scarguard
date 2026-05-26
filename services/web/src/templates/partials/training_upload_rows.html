@@ -1,0 +1,30 @@
+{% for u in uploads %}
+<tr>
+  <td>{{ u.filename }}</td>
+  <td>{% if u.target_class_hint %}<span class="badge">{{ u.target_class_hint }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td>{{ u.frame_count if u.frame_count is not none else '—' }}</td>
+  <td>{{ u.detection_count if u.detection_count is not none else '—' }}</td>
+  <td>
+    {% if u.status == 'processed' %}<span class="badge badge-armed">{{ u.status }}</span>
+    {% elif u.status == 'failed' %}<span class="badge badge-disarmed">{{ u.status }}</span>
+    {% elif u.status == 'processing' %}<span class="badge" style="background:var(--warn);color:#000;">{{ u.status }}</span>
+    {% else %}<span class="badge">{{ u.status }}</span>
+    {% endif %}
+  </td>
+  <td>{{ u.created_at[:16] }}</td>
+  <td>
+    {% if u.status == 'processed' %}
+    <a href="/admin/training/uploads/{{ u.id }}" class="btn btn-small">Label</a>
+    {% endif %}
+    {% if _is_admin %}
+    <form method="post" action="/admin/training/uploads/{{ u.id }}/delete" style="display:inline;">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Delete this upload and all its annotations?')">Delete</button>
+    </form>
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+{% if not uploads %}
+<tr><td colspan="7" class="muted" style="text-align:center;padding:2rem;">No uploads yet</td></tr>
+{% endif %}
