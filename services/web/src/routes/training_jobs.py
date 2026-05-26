@@ -51,11 +51,17 @@ async def jobs_page(
 
     detector_state = _get_detector_state()
 
+    job_list = []
+    for j in jobs:
+        d = dict(j)
+        d["parsed_result"] = _parse_result(d.get("result"))
+        job_list.append(d)
+
     return templates.TemplateResponse(
         request,
         "training_jobs.html",
         {
-            "jobs": [dict(j) for j in jobs],
+            "jobs": job_list,
             "total": total,
             "page": page,
             "total_pages": max(1, -(-total // PAGE_SIZE)),
@@ -234,6 +240,16 @@ async def detector_state(request: Request) -> Response:
     if not isinstance(gate, dict):
         return gate
     return JSONResponse(_get_detector_state())
+
+
+def _parse_result(raw: str | None) -> dict | None:
+    """Parse a job result JSON string into a dict for template rendering."""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 def _get_detector_state() -> dict:
