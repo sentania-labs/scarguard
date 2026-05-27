@@ -58,9 +58,32 @@
     };
   };
 
+  /* Update hint text when job type changes. */
+  function _setupJobTypeHint() {
+    var sel = document.getElementById("job-type");
+    var hint = document.getElementById("params-hint");
+    var textarea = document.getElementById("params-json");
+    if (!sel || !hint) return;
+
+    var defaultHint = "Override defaults from config. Leave {} for defaults.";
+    var processHint = "Processes all uploaded videos that haven't been processed yet. No parameters needed.";
+
+    function update() {
+      if (sel.value === "process_video") {
+        hint.textContent = processHint;
+        if (textarea && textarea.value === "{}") textarea.value = "{}";
+      } else {
+        hint.textContent = defaultHint;
+      }
+    }
+    sel.addEventListener("change", update);
+    update();
+  }
+
   /* Auto-start stream on page load: either for a just-submitted job
      (via ?submitted= query param) or for any already-running job. */
   document.addEventListener("DOMContentLoaded", function () {
+    _setupJobTypeHint();
     var params = new URLSearchParams(window.location.search);
     var submitted = params.get("submitted");
     if (submitted) {
