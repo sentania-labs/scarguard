@@ -129,7 +129,16 @@ def _run_process_video(ctx: JobContext) -> dict:
 
     upload_ids: list[str] = ctx.params.get("upload_ids", [])
     if not upload_ids:
-        return {"error": "No upload_ids provided"}
+        conn = _connect_db()
+        try:
+            rows = conn.execute(
+                "SELECT id FROM training_uploads WHERE status = 'uploaded' ORDER BY created_at"
+            ).fetchall()
+            upload_ids = [r["id"] for r in rows]
+        finally:
+            conn.close()
+        if not upload_ids:
+            return {"error": "No unprocessed uploads found"}
 
     det_cfg = ctx.detection_config()
     train_cfg = ctx.training_config()
