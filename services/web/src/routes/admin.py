@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
-SERVICES = ["detector", "notifier", "deterrent", "web", "caddy"]
+SERVICES = ["detector", "notifier", "deterrent", "web", "caddy", "trainer", "backup"]
 
 # Redis key prefixes — must match log-streamer sidecar constants.
 _CHANNEL_PREFIX = "scarguard:logs:"

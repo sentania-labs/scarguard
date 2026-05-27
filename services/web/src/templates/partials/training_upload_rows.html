@@ -6,7 +6,7 @@
   <td>{{ u.detection_count if u.detection_count is not none else '—' }}</td>
   <td>
     {% if u.status == 'processed' %}<span class="badge badge-armed">{{ u.status }}</span>
-    {% elif u.status == 'failed' %}<span class="badge badge-disarmed">{{ u.status }}</span>
+    {% elif u.status == 'failed' %}<span class="badge badge-disarmed" {% if u.error %}title="{{ u.error }}"{% endif %}>{{ u.status }}</span>
     {% elif u.status == 'processing' %}<span class="badge" style="background:var(--warn);color:#000;">{{ u.status }}</span>
     {% else %}<span class="badge">{{ u.status }}</span>
     {% endif %}
