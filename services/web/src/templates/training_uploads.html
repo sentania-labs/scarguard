@@ -17,21 +17,11 @@
         <input type="file" name="file" accept=".mp4,.avi,.mkv,.mov" required>
       </div>
       <div class="field-group">
-        <label>Primary hint <span class="muted">(legacy single value)</span></label>
-        <select name="target_class_hint">
-          <option value="">None</option>
-          <option value="duck">Duck</option>
-          <option value="heron">Heron</option>
-          <option value="raccoon">Raccoon</option>
-          <option value="background">Background (empty/negative)</option>
-        </select>
+        <label>Hints <span class="muted">(comma-separated, e.g. duck, heron, raccoon, background)</span></label>
+        <input type="text" name="hints" placeholder="duck, heron, raccoon" maxlength="200">
       </div>
     </div>
     <div class="field-row">
-      <div class="field-group">
-        <label>Additional hints <span class="muted">(comma-separated, e.g. duck, heron, raccoon)</span></label>
-        <input type="text" name="hints" placeholder="duck, heron, raccoon" maxlength="200">
-      </div>
       <div class="field-group">
         <label>Detector model <span class="muted">(blank = live detector default)</span></label>
         <select name="detector_model">
@@ -86,8 +76,7 @@
   <thead>
     <tr>
       <th>Filename</th>
-      <th>Hint</th>
-      <th>Hints (multi)</th>
+      <th>Hints</th>
       <th>Model</th>
       <th>Conf</th>
       <th>Frames</th>
