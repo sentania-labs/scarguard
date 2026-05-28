@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 import uuid
 
 import db as db_module
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from redis_client import make_sync_client
 from route_auth import require_admin, require_viewer
+from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -185,44 +189,61 @@ async def job_stream(request: Request, job_id: str) -> Response:
     if not isinstance(gate, dict):
         return gate
 
-    import asyncio
+    user = getattr(request.state, "user", None) or {}
+    user_id = user.get("user_id", "anon")
+    redis_cfg = _redis_cfg()
 
     async def _stream():
-        try:
-            client = make_sync_client(_redis_cfg())
-        except Exception:
-            yield "event: error\ndata: {\"error\": \"Redis unavailable\"}\n\n"
-            return
-
+        # Use the async Redis client so .get/.llen/.lrange don't block
+        # the asyncio event loop — a sync client here was starving
+        # neighbouring SSE generators (logs, deterrent-stuck) for the
+        # duration of a job, breaking them with apparent "connection lost".
+        client = aioredis.Redis(
+            host=redis_cfg.get("host", "redis"),
+            port=int(redis_cfg.get("port", 6379)),
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
         progress_key = f"scarguard:training:job:{job_id}:progress"
         log_key = f"scarguard:training:job:{job_id}:log"
         last_log_len = 0
         max_iterations = 43200  # 12 hours at 1s intervals
 
         try:
-            for _ in range(max_iterations):
-                raw = client.get(progress_key)
-                if raw:
-                    yield f"event: progress\ndata: {raw}\n\n"
+            async with sse_connection(client, user_id):
+                for _ in range(max_iterations):
+                    if await request.is_disconnected():
+                        return
+                    raw = await client.get(progress_key)
+                    if raw:
+                        yield f"event: progress\ndata: {raw}\n\n"
 
-                current_log_len = client.llen(log_key)
-                if current_log_len > last_log_len:
-                    new_lines = client.lrange(log_key, last_log_len, current_log_len - 1)
-                    if new_lines:
-                        for line in new_lines:
-                            yield f"event: log\ndata: {json.dumps(line)}\n\n"
-                    last_log_len = current_log_len
+                    current_log_len = await client.llen(log_key)
+                    if current_log_len > last_log_len:
+                        new_lines = await client.lrange(
+                            log_key, last_log_len, current_log_len - 1,
+                        )
+                        if new_lines:
+                            for line in new_lines:
+                                yield f"event: log\ndata: {json.dumps(line)}\n\n"
+                        last_log_len = current_log_len
 
-                job = db_module.get_training_job(job_id)
-                if job and job["status"] in ("completed", "failed", "cancelled"):
-                    result_data = json.loads(job["result"]) if job["result"] else {}
-                    yield f"event: result\ndata: {json.dumps({'status': job['status'], **result_data})}\n\n"
-                    break
+                    job = db_module.get_training_job(job_id)
+                    if job and job["status"] in ("completed", "failed", "cancelled"):
+                        result_data = json.loads(job["result"]) if job["result"] else {}
+                        yield (
+                            "event: result\ndata: "
+                            + json.dumps({"status": job["status"], **result_data})
+                            + "\n\n"
+                        )
+                        break
 
-                await asyncio.sleep(1)
+                    await asyncio.sleep(1)
+        except SSETooManyStreams:
+            yield "event: error\ndata: Too many active streams\n\n"
         finally:
             try:
-                client.close()
+                await client.aclose()
             except Exception:
                 pass
 
