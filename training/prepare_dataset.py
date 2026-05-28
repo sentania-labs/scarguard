@@ -385,10 +385,14 @@ def pull_training_uploads(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        events = conn.execute("""
+        # corrected_bboxes is additive (added in v1.16+); SELECT it via a
+        # tolerant query that falls back if the column is missing.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(training_events)").fetchall()}
+        bboxes_col = "te.corrected_bboxes" if "corrected_bboxes" in cols else "NULL AS corrected_bboxes"
+        events = conn.execute(f"""
             SELECT te.id, te.upload_id, te.frame_idx, te.bbox,
                    te.predicted_class, te.confidence, te.review_state,
-                   te.corrected_class, tu.target_class_hint
+                   te.corrected_class, {bboxes_col}, tu.target_class_hint
             FROM training_events te
             JOIN training_uploads tu ON te.upload_id = tu.id
             WHERE te.review_state IN ('approved', 'corrected')
@@ -412,6 +416,37 @@ def pull_training_uploads(
 
     for r in events:
         row = dict(r)
+        key = (row["upload_id"], row["frame_idx"])
+        frame_paths[key] = Path(frames_dir) / row["upload_id"] / "frames" / f"{row['frame_idx']:06d}.jpg"
+
+        # Human-drawn replacement boxes override the detector entirely:
+        # one or more {cls, bbox} entries replace the original prediction.
+        relabeled = None
+        if row["review_state"] == "corrected" and row.get("corrected_bboxes"):
+            try:
+                relabeled = json.loads(row["corrected_bboxes"])
+                if not isinstance(relabeled, list) or not relabeled:
+                    relabeled = None
+            except (TypeError, ValueError):
+                relabeled = None
+
+        if relabeled is not None:
+            for entry in relabeled:
+                cls_name = entry.get("cls")
+                bbox = entry.get("bbox")
+                if not isinstance(cls_name, str) or not isinstance(bbox, list) or len(bbox) != 4:
+                    skipped += 1
+                    continue
+                target = _resolve_class(cls_name)
+                if target is None:
+                    print(f"    WARNING: Unmapped re-label class '{cls_name}' in training_event {row['id']}")
+                    skipped += 1
+                    continue
+                cls_idx = UNIFIED_CLASSES.index(target)
+                line = f"{cls_idx} {bbox[0]:.6f} {bbox[1]:.6f} {bbox[2]:.6f} {bbox[3]:.6f}"
+                frame_labels[key].append(line)
+            continue
+
         cls = row["corrected_class"] if row["review_state"] == "corrected" and row.get("corrected_class") else row["predicted_class"]
         target = _resolve_class(cls)
         if target is None:
@@ -422,9 +457,7 @@ def pull_training_uploads(
         cls_idx = UNIFIED_CLASSES.index(target)
         bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
         line = f"{cls_idx} {bbox[0]:.6f} {bbox[1]:.6f} {bbox[2]:.6f} {bbox[3]:.6f}"
-        key = (row["upload_id"], row["frame_idx"])
         frame_labels[key].append(line)
-        frame_paths[key] = Path(frames_dir) / row["upload_id"] / "frames" / f"{row['frame_idx']:06d}.jpg"
 
     for key, lines in frame_labels.items():
         img = frame_paths[key]

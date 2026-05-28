@@ -52,7 +52,7 @@
     </form>
     {% endif %}
   </nav>
-  <main>
+  <main class="{% block main_class %}{% endblock %}">
     <div id="stuck-banner" class="stuck-banner" style="display:none"></div>
     {% block content %}{% endblock %}
   </main>

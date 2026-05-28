@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block content %}
 <h1>Label: {{ upload.filename }}
   {% if upload.target_class_hint %}<span class="badge">{{ upload.target_class_hint }}</span>{% endif %}
@@ -44,6 +45,8 @@
          src="/admin/training/uploads/{{ upload.id }}/frames/{{ event.frame_idx }}"
          alt="Frame {{ event.frame_idx }}">
     <div id="label-bbox" class="label-bbox"></div>
+    <canvas id="label-canvas" class="label-canvas" hidden></canvas>
+    <div id="label-relabel-boxes" class="label-relabel-boxes"></div>
   </div>
   <div id="label-card">
     {% include "partials/training_label_card.html" %}
@@ -53,7 +56,7 @@
 <div class="kbd-legend">
   <kbd>a</kbd> Approve &nbsp;
   <kbd>x</kbd> Reject &nbsp;
-  <kbd>c</kbd> Correct &nbsp;
+  <kbd>r</kbd> Re-label &nbsp;
   <kbd>j</kbd> / <kbd>&rarr;</kbd> Next &nbsp;
   <kbd>k</kbd> / <kbd>&larr;</kbd> Prev
 </div>
