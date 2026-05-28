@@ -154,12 +154,14 @@
       var h = b[3] * canvas.height;
       ctx.strokeStyle = "#34d399";
       ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = "rgba(52, 211, 153, 0.85)";
+      ctx.fillStyle = "rgba(52, 211, 153, 0.9)";
       var label = _relabelBoxes[i].cls + " #" + (i + 1);
       var tw = ctx.measureText(label).width + 4;
-      ctx.fillRect(x, y, tw, 12);
+      /* Label above the box when there's room; flip inside when at top edge. */
+      var ly = y >= 12 ? y - 12 : y;
+      ctx.fillRect(x, ly, tw, 12);
       ctx.fillStyle = "#0a1a12";
-      ctx.fillText(label, x + 2, y + 9);
+      ctx.fillText(label, x + 2, ly + 9);
     }
 
     /* Active drag */
