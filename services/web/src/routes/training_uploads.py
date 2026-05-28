@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
-from route_auth import require_admin, require_viewer
+from route_auth import current_role, require_admin, require_viewer
 from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,49 @@ _UPLOAD_LIST_URL = "/admin/training/uploads"
 _SAFE_ID = re.compile(r"^[0-9a-f]{32}$")
 _HINT_RE = re.compile(r"^[a-z0-9][a-z0-9 _-]{0,31}$")
 _MAX_HINTS = 8
+_RELABEL_CLASS_RE = re.compile(r"^[a-z0-9][a-z0-9 _-]{0,63}$")
+_MAX_RELABEL_BOXES = 32
+
+
+def _validate_corrected_bboxes(raw: str) -> str | None:
+    """Validate a JSON payload of human-drawn replacement boxes.
+
+    Expected shape: ``[{"cls": "duck", "bbox": [xc, yc, w, h]}, ...]`` with
+    bbox values normalized to 0-1. Returns the canonical JSON string to
+    store, or ``None`` if the payload is empty / invalid.
+    """
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list) or not data or len(data) > _MAX_RELABEL_BOXES:
+        return None
+    out: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            return None
+        cls = item.get("cls")
+        bbox = item.get("bbox")
+        if not isinstance(cls, str) or not _RELABEL_CLASS_RE.match(cls.lower().strip()):
+            return None
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            return None
+        try:
+            xc, yc, w, h = (float(v) for v in bbox)
+        except (TypeError, ValueError):
+            return None
+        if not (0.0 <= xc <= 1.0 and 0.0 <= yc <= 1.0):
+            return None
+        if not (0.0 < w <= 1.0 and 0.0 < h <= 1.0):
+            return None
+        out.append({
+            "cls": cls.lower().strip(),
+            "bbox": [round(xc, 6), round(yc, 6), round(w, 6), round(h, 6)],
+        })
+    return json.dumps(out)
 
 
 def _list_model_filenames() -> list[str]:
@@ -473,6 +516,7 @@ async def review_event(
     event_id: int,
     action: str = Form(...),
     corrected_class: str = Form(""),
+    corrected_bboxes: str = Form(""),
 ) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
@@ -486,10 +530,16 @@ async def review_event(
         return JSONResponse({"error": "event not found in this upload"}, status_code=404)
 
     corrected = corrected_class.strip()[:64] if action == "corrected" else None
-    if action == "corrected" and not corrected:
-        return JSONResponse({"error": "corrected_class required"}, status_code=400)
+    bboxes_json = _validate_corrected_bboxes(corrected_bboxes) if action == "corrected" else None
+    if action == "corrected" and not corrected and not bboxes_json:
+        return JSONResponse(
+            {"error": "corrected_class or corrected_bboxes required"},
+            status_code=400,
+        )
+    if action == "corrected" and corrected_bboxes and bboxes_json is None:
+        return JSONResponse({"error": "invalid corrected_bboxes payload"}, status_code=400)
 
-    db_module.update_training_event_review(event_id, action, corrected)
+    db_module.update_training_event_review(event_id, action, corrected, bboxes_json)
 
     rs = request.query_params.get("review_state", "")
     dp = request.query_params.get("detection_pass", "")
@@ -534,6 +584,9 @@ async def review_event(
             "filter_review_state": rs,
             "filter_detection_pass": dp,
             "auto_advance": True,
+            # Partial render bypasses base.html's _is_admin derivation, so
+            # pass it explicitly or the action buttons vanish after HTMX swap.
+            "_is_admin": current_role(request) == "admin",
         },
     )
 

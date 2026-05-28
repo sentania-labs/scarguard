@@ -117,6 +117,7 @@ main {
   margin: 0 auto;
   padding: 2rem 1.5rem;
 }
+main.main-wide { max-width: 1400px; }
 
 h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 1.25rem; }
 h2 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.75rem; }
@@ -1055,10 +1056,10 @@ body.expert-mode details.expert-only { display: block !important; }
 .stat-label { font-size: 0.75rem; color: var(--muted); }
 
 .label-viewer {
-  display: grid; grid-template-columns: 1fr 340px; gap: 1.25rem;
+  display: grid; grid-template-columns: 1fr 360px; gap: 1.25rem;
   align-items: start; margin-bottom: 1rem;
 }
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .label-viewer { grid-template-columns: 1fr; }
 }
 .label-frame-wrap {
@@ -1075,6 +1076,29 @@ body.expert-mode details.expert-only { display: block !important; }
 .label-bbox.state-approved { border-color: var(--ok); }
 .label-bbox.state-rejected { border-color: var(--danger); }
 .label-bbox.state-corrected { border-color: var(--warn); }
+
+.label-canvas {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  cursor: crosshair; touch-action: none;
+}
+.label-canvas[hidden] { display: none; }
+
+.label-relabel-panel { margin-top: 0.75rem; }
+.label-relabel-panel[hidden] { display: none; }
+.relabel-help { font-size: 0.85rem; margin-bottom: 0.5rem; }
+.relabel-box-list {
+  border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem;
+  margin: 0.5rem 0; min-height: 2.2rem;
+}
+.relabel-empty { font-size: 0.85rem; margin: 0; }
+.relabel-box-row {
+  display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0;
+  font-size: 0.9rem;
+}
+.relabel-box-idx { color: var(--muted); font-family: monospace; }
+.relabel-box-cls { font-weight: 600; }
+.relabel-box-remove { margin-left: auto; }
+.relabel-actions { display: flex; gap: 0.5rem; }
 
 .label-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
 .label-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }

@@ -6,6 +6,11 @@
      data-review-state="{{ event.review_state if event else '' }}"
      data-next-id="{{ next_event.id if next_event else '' }}"
      data-prev-id="{{ prev_event.id if prev_event else '' }}"
+     data-upload-id="{{ upload.id if upload else '' }}"
+     data-csrf-token="{{ request.state.csrf_token }}"
+     data-target-hint="{{ upload.target_class_hint if upload and upload.target_class_hint and upload.target_class_hint != 'background' else '' }}"
+     data-filter-review-state="{{ filter_review_state }}"
+     data-filter-detection-pass="{{ filter_detection_pass }}"
      {% if auto_advance is defined and auto_advance %}data-auto-advance="1"{% endif %}>
 
   {% if event %}
@@ -16,6 +21,9 @@
     <span class="muted">Frame {{ event.frame_idx }}</span>
     {% if event.review_state != 'pending' %}
     <span class="badge badge-review-{{ event.review_state }}">{{ event.review_state }}{% if event.corrected_class %}: {{ event.corrected_class }}{% endif %}</span>
+    {% endif %}
+    {% if event.corrected_bboxes %}
+    <span class="badge badge-review-corrected" title="Human-drawn replacement boxes">re-labeled</span>
     {% endif %}
   </div>
 
@@ -31,26 +39,31 @@
             hx-vals='{"action": "rejected", "_csrf_token": "{{ request.state.csrf_token }}"}'
             hx-target="#label-card"
             hx-swap="innerHTML">Reject</button>
-    <button id="btn-show-correct" class="btn btn-wrong" type="button">Correct</button>
+    <button id="btn-relabel" class="btn btn-wrong" type="button">Re-label</button>
   </div>
 
-  <div id="correct-form" class="label-correct-form" style="display:none;">
-    <form hx-post="/admin/training/uploads/{{ upload.id }}/events/{{ event.id }}/review?review_state={{ filter_review_state }}&amp;detection_pass={{ filter_detection_pass }}"
-          hx-target="#label-card"
-          hx-swap="innerHTML">
-      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-      <input type="hidden" name="action" value="corrected">
-      <div class="field-group">
-        <label>Corrected class</label>
-        <input id="corrected-class" type="text" name="corrected_class" list="class-options"
-               value="{{ upload.target_class_hint if upload.target_class_hint and upload.target_class_hint != 'background' else '' }}"
-               required autocomplete="off">
-        <datalist id="class-options">
-          {% for cls in target_classes %}<option value="{{ cls }}">{% endfor %}
-        </datalist>
-      </div>
-      <button type="submit" class="btn">Submit Correction</button>
-    </form>
+  <div id="relabel-panel" class="label-relabel-panel" hidden>
+    <p class="muted relabel-help">
+      Click-drag on the frame to draw a box. Pick the class for each box,
+      then submit. Use this when the detector boxed the wrong thing or
+      missed an object in the frame.
+    </p>
+    <div class="field-group">
+      <label>Class for the next box you draw</label>
+      <input id="relabel-class-input" type="text" list="class-options"
+             value="{{ upload.target_class_hint if upload.target_class_hint and upload.target_class_hint != 'background' else '' }}"
+             autocomplete="off">
+      <datalist id="class-options">
+        {% for cls in target_classes %}<option value="{{ cls }}">{% endfor %}
+      </datalist>
+    </div>
+    <div id="relabel-box-list" class="relabel-box-list">
+      <p class="muted relabel-empty">No boxes drawn yet.</p>
+    </div>
+    <div class="relabel-actions">
+      <button id="btn-relabel-submit" class="btn btn-primary" type="button" disabled>Submit Re-label</button>
+      <button id="btn-relabel-cancel" class="btn" type="button">Cancel</button>
+    </div>
   </div>
   {% endif %}
 

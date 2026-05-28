@@ -82,6 +82,11 @@ def ensure_training_tables() -> None:
         _add_column_if_missing(conn, "training_uploads", "detector_model", "detector_model TEXT")
         _add_column_if_missing(conn, "training_uploads", "confidence_threshold", "confidence_threshold REAL")
         _add_column_if_missing(conn, "training_uploads", "hints", "hints TEXT")
+        # Human-drawn replacement annotations for a frame. JSON list of
+        # {"cls": str, "bbox": [xc, yc, w, h]} where bbox is normalized.
+        # When set on a 'corrected' event, the exporter emits one YOLO row
+        # per entry instead of the detector's original bbox+predicted_class.
+        _add_column_if_missing(conn, "training_events", "corrected_bboxes", "corrected_bboxes TEXT")
         conn.commit()
 
 
@@ -1024,16 +1029,24 @@ def update_training_event_review(
     event_id: int,
     review_state: str,
     corrected_class: str | None = None,
+    corrected_bboxes: str | None = None,
 ) -> bool:
+    """Update review_state, optional corrected_class, optional corrected_bboxes.
+
+    ``corrected_bboxes`` is a JSON-encoded list of
+    ``{"cls": str, "bbox": [xc, yc, w, h]}`` (normalized 0-1) that overrides
+    the detector's prediction at export time.
+    """
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
         cur = conn.execute(
             """
             UPDATE training_events
-            SET review_state = ?, corrected_class = ?, reviewed_at = ?
+            SET review_state = ?, corrected_class = ?, corrected_bboxes = ?,
+                reviewed_at = ?
             WHERE id = ?
             """,
-            (review_state, corrected_class, now, event_id),
+            (review_state, corrected_class, corrected_bboxes, now, event_id),
         )
         conn.commit()
         return cur.rowcount > 0
