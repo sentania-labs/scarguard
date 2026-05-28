@@ -5,6 +5,12 @@
   /* CSP-safe page data: read from <script type="application/json"> block. */
   var _labelData = JSON.parse(document.getElementById("label-page-data").textContent);
 
+  /* Validators for values that flow into URL construction.
+     CodeQL flags dataset-derived strings as DOM-tainted; gating with a
+     strict pattern test breaks the taint flow. */
+  function _isHexId(s) { return typeof s === "string" && /^[a-f0-9]+$/.test(s); }
+  function _isUInt(s)  { return /^\d+$/.test(String(s || "")); }
+
   function renderBbox() {
     var detail = document.getElementById("label-detail");
     var box = document.getElementById("label-bbox");
@@ -33,16 +39,15 @@
     var img = document.getElementById("label-frame");
     if (!detail || !img) return;
     var frameIdx = detail.dataset.frameIdx;
-    if (frameIdx !== undefined && frameIdx !== "") {
-      img.src = "/admin/training/uploads/" + _labelData.uploadId + "/frames/" + frameIdx;
-    }
+    if (!_isHexId(_labelData.uploadId) || !_isUInt(frameIdx)) return;
+    img.src = "/admin/training/uploads/" + _labelData.uploadId + "/frames/" + frameIdx;
   }
 
   function navigateEvent(direction) {
     var detail = document.getElementById("label-detail");
     if (!detail) return;
     var targetId = direction === "next" ? detail.dataset.nextId : detail.dataset.prevId;
-    if (!targetId) return;
+    if (!_isHexId(_labelData.uploadId) || !_isUInt(targetId)) return;
     var qs = "?event_id=" + targetId;
     if (_labelData.filterReviewState) qs += "&review_state=" + encodeURIComponent(_labelData.filterReviewState);
     if (_labelData.filterDetectionPass) qs += "&detection_pass=" + encodeURIComponent(_labelData.filterDetectionPass);
