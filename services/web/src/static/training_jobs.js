@@ -75,6 +75,15 @@
     update();
   }
 
+  /* Delegated click for Watch buttons. CSP forbids inline onclick. */
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (t && t.classList && t.classList.contains("js-watch-job")) {
+      var id = t.getAttribute("data-job-id");
+      if (id) window.startJobStream(id);
+    }
+  });
+
   /* Auto-start stream on page load: either for a just-submitted job
      (via ?submitted= query param) or for any already-running job. */
   document.addEventListener("DOMContentLoaded", function () {
@@ -85,14 +94,11 @@
       _pollUntilRunning(submitted);
       return;
     }
-    var rows = document.querySelectorAll("tr");
-    rows.forEach(function (tr) {
-      var statusBadge = tr.querySelector(".badge");
-      if (statusBadge && statusBadge.textContent.trim() === "running") {
-        var watchBtn = tr.querySelector("button[onclick^='startJobStream']");
-        if (watchBtn) watchBtn.click();
-      }
-    });
+    var watchBtns = document.querySelectorAll(".js-watch-job[data-job-id]");
+    if (watchBtns.length > 0) {
+      var firstId = watchBtns[0].getAttribute("data-job-id");
+      if (firstId) window.startJobStream(firstId);
+    }
   });
 
   function _pollUntilRunning(jobId) {

@@ -54,7 +54,7 @@
     </form>
     {% endif %}
     {% if j.status == 'running' %}
-    <button class="btn btn-small" onclick="startJobStream('{{ j.id }}')">Watch</button>
+    <button type="button" class="btn btn-small js-watch-job" data-job-id="{{ j.id }}">Watch</button>
     {% endif %}
   </td>
 </tr>
