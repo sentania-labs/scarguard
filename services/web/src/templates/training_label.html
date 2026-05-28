@@ -3,6 +3,7 @@
 {% block content %}
 <h1>Label: {{ upload.filename }}
   {% if upload.target_class_hint %}<span class="badge">{{ upload.target_class_hint }}</span>{% endif %}
+  <a href="/admin/training/uploads/{{ upload.id }}/browse" class="btn btn-small" style="margin-left:0.75rem;font-size:0.7rem;font-weight:normal;">Browse frames →</a>
 </h1>
 
 <div class="training-stats-row">

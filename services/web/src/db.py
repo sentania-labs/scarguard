@@ -1052,6 +1052,62 @@ def update_training_event_review(
         return cur.rowcount > 0
 
 
+def insert_manual_training_event(
+    upload_id: str,
+    frame_idx: int,
+    corrected_bboxes_json: str,
+) -> int:
+    """Insert a human-annotated training event for a frame that had no detector
+    output. Stores sentinel values for the NOT NULL columns; the exporter
+    treats ``review_state='corrected'`` + ``corrected_bboxes`` as the
+    authoritative annotation regardless of the (empty) predicted class.
+
+    Returns the new event id.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO training_events
+                (upload_id, frame_idx, timestamp_in_video, bbox, predicted_class,
+                 confidence, target_class_hint, detection_pass, review_state,
+                 corrected_bboxes, created_at, reviewed_at)
+            VALUES (?, ?, NULL, '[]', '', 0.0, NULL, 'manual', 'corrected',
+                    ?, ?, ?)
+            """,
+            (upload_id, frame_idx, corrected_bboxes_json, now, now),
+        )
+        conn.commit()
+        return int(cur.lastrowid or 0)
+
+
+def get_training_events_by_frames(
+    upload_id: str,
+    frame_idxs: list[int],
+) -> dict[int, list[sqlite3.Row]]:
+    """Fetch events for a specific set of frames, grouped by frame_idx.
+
+    Used by the frame-browser grid to badge thumbnails ("has detection",
+    "has annotation") without issuing one query per tile.
+    """
+    if not frame_idxs:
+        return {}
+    placeholders = ",".join("?" * len(frame_idxs))
+    out: dict[int, list[sqlite3.Row]] = {}
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM training_events
+            WHERE upload_id = ?
+              AND frame_idx IN ({placeholders})
+            """,
+            [upload_id, *frame_idxs],
+        ).fetchall()
+    for r in rows:
+        out.setdefault(r["frame_idx"], []).append(r)
+    return out
+
+
 def bulk_update_training_events(
     upload_id: str,
     review_state: str,

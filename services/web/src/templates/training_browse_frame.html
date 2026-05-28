@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
+{% block content %}
+<h1>Frame {{ frame_idx }}: {{ upload.filename }}
+  {% if upload.target_class_hint %}<span class="badge">{{ upload.target_class_hint }}</span>{% endif %}
+</h1>
+
+<div class="card browse-toolbar">
+  <a href="/admin/training/uploads/{{ upload.id }}/browse?stride={{ stride_param }}" class="btn btn-small">← back to grid</a>
+  {% if prev_frame is not none %}
+  <a id="browse-prev" href="/admin/training/uploads/{{ upload.id }}/browse/{{ prev_frame }}?stride={{ stride_param }}" class="btn btn-small">← prev (k)</a>
+  {% endif %}
+  {% if next_frame is not none %}
+  <a id="browse-next" href="/admin/training/uploads/{{ upload.id }}/browse/{{ next_frame }}?stride={{ stride_param }}" class="btn btn-small">next (j) →</a>
+  {% endif %}
+  {% if manual_event %}
+  <span class="badge badge-review-corrected" style="margin-left:auto;">re-labeled</span>
+  {% endif %}
+</div>
+
+<div class="label-viewer">
+  <div class="label-frame-wrap">
+    <img id="label-frame"
+         src="/admin/training/uploads/{{ upload.id }}/frames/{{ frame_idx }}"
+         alt="Frame {{ frame_idx }}">
+    <canvas id="label-canvas" class="label-canvas"></canvas>
+    <div id="label-relabel-boxes" class="label-relabel-boxes"></div>
+  </div>
+
+  <div id="label-card">
+    <div class="label-detail"
+         id="label-detail"
+         data-upload-id="{{ upload.id }}"
+         data-frame-idx="{{ frame_idx }}"
+         data-csrf-token="{{ request.state.csrf_token }}"
+         data-existing-bboxes="{{ manual_event.corrected_bboxes if manual_event and manual_event.corrected_bboxes else '' }}"
+         data-target-hint="{{ upload.target_class_hint if upload.target_class_hint and upload.target_class_hint != 'background' else '' }}">
+
+      {% if _is_admin %}
+      <p class="muted relabel-help">
+        Click-drag on the frame to draw a box. Pick the class for each box,
+        then Save. Use this when the detector missed an object.
+      </p>
+      <div class="field-group">
+        <label>Class for the next box you draw</label>
+        <input id="relabel-class-input" type="text" list="class-options"
+               value="{{ upload.target_class_hint if upload.target_class_hint and upload.target_class_hint != 'background' else '' }}"
+               autocomplete="off">
+        <datalist id="class-options">
+          {% for cls in target_classes %}<option value="{{ cls }}">{% endfor %}
+        </datalist>
+      </div>
+      <div id="relabel-box-list" class="relabel-box-list">
+        <p class="muted relabel-empty">No boxes drawn yet.</p>
+      </div>
+      <div class="relabel-actions">
+        <button id="btn-browse-save" class="btn btn-primary" type="button" disabled>Save</button>
+        {% if next_frame is not none %}
+        <a href="/admin/training/uploads/{{ upload.id }}/browse/{{ next_frame }}?stride={{ stride_param }}" class="btn">Skip →</a>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="muted">Read-only view.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="kbd-legend">
+  <kbd>j</kbd> / <kbd>&rarr;</kbd> next &nbsp;
+  <kbd>k</kbd> / <kbd>&larr;</kbd> prev &nbsp;
+  <kbd>s</kbd> save
+</div>
+
+<script src="/static/training_browse_frame.js"></script>
+{% endblock %}
