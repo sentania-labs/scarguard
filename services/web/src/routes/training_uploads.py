@@ -77,9 +77,13 @@ def _validate_corrected_bboxes(raw: str) -> str | None:
             xc, yc, w, h = (float(v) for v in bbox)
         except (TypeError, ValueError):
             return None
-        if not (0.0 <= xc <= 1.0 and 0.0 <= yc <= 1.0):
-            return None
         if not (0.0 < w <= 1.0 and 0.0 < h <= 1.0):
+            return None
+        # Reject boxes whose extents fall outside the image — clamping the
+        # center alone allows e.g. xc=1.0, w=0.6 (right edge at 1.3).
+        if not (0.0 <= xc - w / 2 and xc + w / 2 <= 1.0):
+            return None
+        if not (0.0 <= yc - h / 2 and yc + h / 2 <= 1.0):
             return None
         out.append({
             "cls": cls.lower().strip(),

@@ -238,20 +238,25 @@
     var canvas = document.getElementById("label-canvas");
     if (!canvas) { _drawing = null; return; }
     var rect = canvas.getBoundingClientRect();
-    var endX = e.clientX - rect.left;
-    var endY = e.clientY - rect.top;
-    var x1 = Math.min(_drawing.startX, endX);
-    var y1 = Math.min(_drawing.startY, endY);
-    var x2 = Math.max(_drawing.startX, endX);
-    var y2 = Math.max(_drawing.startY, endY);
+    var cw = canvas.width || 1;
+    var ch = canvas.height || 1;
+    /* Clamp endpoints to canvas bounds — mouseup is document-wide, so
+       releases outside the frame would otherwise produce boxes whose
+       extents fall outside [0, 1] after normalization. */
+    var endX = Math.max(0, Math.min(cw, e.clientX - rect.left));
+    var endY = Math.max(0, Math.min(ch, e.clientY - rect.top));
+    var startX = Math.max(0, Math.min(cw, _drawing.startX));
+    var startY = Math.max(0, Math.min(ch, _drawing.startY));
+    var x1 = Math.min(startX, endX);
+    var y1 = Math.min(startY, endY);
+    var x2 = Math.max(startX, endX);
+    var y2 = Math.max(startY, endY);
     _drawing = null;
 
     var w = x2 - x1;
     var h = y2 - y1;
     if (w < 6 || h < 6) { _drawCanvas(); return; }
 
-    var cw = canvas.width || 1;
-    var ch = canvas.height || 1;
     var input = document.getElementById("relabel-class-input");
     var cls = (input && input.value || "").trim().toLowerCase();
     if (!cls) {
@@ -263,10 +268,10 @@
     _relabelBoxes.push({
       cls: cls,
       bbox: [
-        _clamp01((x1 + w / 2) / cw),
-        _clamp01((y1 + h / 2) / ch),
-        _clamp01(w / cw),
-        _clamp01(h / ch),
+        (x1 + w / 2) / cw,
+        (y1 + h / 2) / ch,
+        w / cw,
+        h / ch,
       ],
     });
     _renderRelabelOverlay();
@@ -299,7 +304,16 @@
       })
       .then(function (html) {
         var card = document.getElementById("label-card");
-        if (card) card.innerHTML = html;
+        if (card) {
+          card.innerHTML = html;
+          /* HTMX 1.x does not auto-initialize hx-* attributes on raw
+             innerHTML insertions. Without this, the next card's
+             Approve/Reject buttons render but their hx-post wiring is
+             dead until a full page reload. */
+          if (window.htmx && typeof window.htmx.process === "function") {
+            window.htmx.process(card);
+          }
+        }
         /* Manual init: fetch() doesn't fire htmx:afterSettle. */
         _afterCardSwap();
       })
