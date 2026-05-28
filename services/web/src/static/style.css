@@ -1076,6 +1076,24 @@ body.expert-mode details.expert-only { display: block !important; }
 .label-bbox.state-approved { border-color: var(--ok); }
 .label-bbox.state-rejected { border-color: var(--danger); }
 .label-bbox.state-corrected { border-color: var(--warn); }
+/* Original detector box is no longer authoritative once human-drawn
+   boxes are saved — keep it visible but dimmed for reference. */
+.label-bbox.state-superseded {
+  border-style: dashed; border-color: #888; opacity: 0.5;
+}
+
+.label-relabel-boxes {
+  position: absolute; inset: 0; pointer-events: none;
+}
+.relabel-saved-box {
+  position: absolute; border: 2px solid #34d399; box-sizing: border-box;
+}
+.relabel-saved-label {
+  position: absolute; top: 0; left: 0;
+  background: #34d399; color: #0a1a12;
+  font-family: monospace; font-size: 0.75rem;
+  padding: 0 0.3rem; line-height: 1.1rem;
+}
 
 .label-canvas {
   position: absolute; left: 0; top: 0; width: 100%; height: 100%;

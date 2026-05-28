@@ -3,6 +3,7 @@
      data-event-id="{{ event.id if event else '' }}"
      data-frame-idx="{{ event.frame_idx if event else '' }}"
      data-bbox="{{ event.bbox if event else '[]' }}"
+     data-corrected-bboxes="{{ event.corrected_bboxes if event and event.corrected_bboxes else '' }}"
      data-review-state="{{ event.review_state if event else '' }}"
      data-next-id="{{ next_event.id if next_event else '' }}"
      data-prev-id="{{ prev_event.id if prev_event else '' }}"

@@ -26,9 +26,11 @@
     var detail = _detail();
     var box = document.getElementById("label-bbox");
     if (!detail || !box) return;
-    box.classList.remove("state-approved", "state-rejected", "state-corrected");
+    box.classList.remove("state-approved", "state-rejected", "state-corrected", "state-superseded");
     var state = detail.dataset.reviewState || "";
     if (state && state !== "pending") box.classList.add("state-" + state);
+    var hasCorrected = !!(detail.dataset.correctedBboxes || "");
+    if (hasCorrected) box.classList.add("state-superseded");
     var raw = detail.dataset.bbox;
     if (!raw || raw === "[]") { box.style.display = "none"; return; }
     try {
@@ -42,6 +44,35 @@
       box.style.display = "block";
     } catch (e) {
       box.style.display = "none";
+    }
+  }
+
+  function renderCorrectedBboxes() {
+    var detail = _detail();
+    var container = document.getElementById("label-relabel-boxes");
+    if (!detail || !container) return;
+    container.innerHTML = "";
+    var raw = detail.dataset.correctedBboxes || "";
+    if (!raw) return;
+    var entries;
+    try { entries = JSON.parse(raw); } catch (e) { return; }
+    if (!Array.isArray(entries)) return;
+    for (var i = 0; i < entries.length; i++) {
+      var b = entries[i] && entries[i].bbox;
+      var cls = entries[i] && entries[i].cls;
+      if (!Array.isArray(b) || b.length < 4) continue;
+      var xc = +b[0], yc = +b[1], w = +b[2], h = +b[3];
+      var div = document.createElement("div");
+      div.className = "relabel-saved-box";
+      div.style.left = ((xc - w / 2) * 100) + "%";
+      div.style.top = ((yc - h / 2) * 100) + "%";
+      div.style.width = (w * 100) + "%";
+      div.style.height = (h * 100) + "%";
+      var label = document.createElement("span");
+      label.className = "relabel-saved-label";
+      label.textContent = (cls || "?") + " #" + (i + 1);
+      div.appendChild(label);
+      container.appendChild(div);
     }
   }
 
@@ -278,6 +309,7 @@
   function _afterCardSwap() {
     _resetRelabelState();
     renderBbox();
+    renderCorrectedBboxes();
     updateFrame();
   }
 
@@ -350,4 +382,5 @@
 
   /* Initial render */
   renderBbox();
+  renderCorrectedBboxes();
 })();
