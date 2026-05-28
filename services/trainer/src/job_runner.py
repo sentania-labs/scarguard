@@ -124,10 +124,27 @@ def run_job(job: dict, cfg: dict, stop_event: threading.Event) -> dict:
 # ── process_video ────────────────────────────────────────────────────────────
 
 
+def _resolve_upload_model_path(name: str | None, default_path: str) -> str:
+    """Resolve a per-upload detector model name to an absolute path.
+
+    Whitelists against the models directory listing to keep the trainer from
+    loading arbitrary attacker-controlled paths even though the field is
+    admin-set.
+    """
+    if not name:
+        return default_path
+    candidate = Path(MODELS_DIR) / Path(name).name
+    if candidate.exists() and candidate.is_file():
+        return str(candidate)
+    logger.warning("Upload model %r not found in %s — falling back to default", name, MODELS_DIR)
+    return default_path
+
+
 def _run_process_video(ctx: JobContext) -> dict:
     from video_processor import process_upload, result_to_db_rows
 
     upload_ids: list[str] = ctx.params.get("upload_ids", [])
+    clear_existing = bool(ctx.params.get("clear_existing_events", False))
     if not upload_ids:
         conn = _connect_db()
         try:
@@ -143,8 +160,8 @@ def _run_process_video(ctx: JobContext) -> dict:
     det_cfg = ctx.detection_config()
     train_cfg = ctx.training_config()
     video_cfg = train_cfg.get("video", {})
-    model_path = det_cfg.get("model_path", f"{MODELS_DIR}/yolov8n.pt")
-    conf_threshold = det_cfg.get("confidence_threshold", 0.25)
+    default_model_path = det_cfg.get("model_path", f"{MODELS_DIR}/yolov8n.pt")
+    default_conf_threshold = det_cfg.get("confidence_threshold", 0.25)
     low_conf = ctx.params.get("low_confidence", video_cfg.get("low_confidence", 0.05))
     dedupe_iou = ctx.params.get("dedupe_iou", video_cfg.get("dedupe_iou", 0.85))
     dedupe_window = ctx.params.get("dedupe_window", video_cfg.get("dedupe_window", 5))
@@ -173,6 +190,25 @@ def _run_process_video(ctx: JobContext) -> dict:
             if not video_files:
                 logger.warning("No video file for upload %s", uid)
                 continue
+
+            # Per-upload settings; fall back to job/global defaults when NULL.
+            upload_keys = upload.keys() if hasattr(upload, "keys") else []
+            per_model = upload["detector_model"] if "detector_model" in upload_keys else None
+            per_conf = upload["confidence_threshold"] if "confidence_threshold" in upload_keys else None
+            model_path = _resolve_upload_model_path(per_model, default_model_path)
+            conf_threshold = per_conf if per_conf is not None else default_conf_threshold
+
+            if clear_existing:
+                conn = _connect_db()
+                try:
+                    deleted = conn.execute(
+                        "DELETE FROM training_events WHERE upload_id = ?", (uid,)
+                    ).rowcount
+                    conn.commit()
+                finally:
+                    conn.close()
+                if deleted:
+                    logger.info("Cleared %d existing detections for upload %s", deleted, uid)
 
             frames_dir = upload_dir / "frames"
             ctx.publish_progress(

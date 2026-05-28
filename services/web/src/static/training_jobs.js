@@ -58,27 +58,31 @@
     };
   };
 
-  /* Update hint text when job type changes. */
+  /* Toggle visible fields based on job type. Process Videos shows the
+     structured upload picker; other job types keep the JSON textarea. */
   function _setupJobTypeHint() {
     var sel = document.getElementById("job-type");
-    var hint = document.getElementById("params-hint");
-    var textarea = document.getElementById("params-json");
-    if (!sel || !hint) return;
-
-    var defaultHint = "Override defaults from config. Leave {} for defaults.";
-    var processHint = "Processes all uploaded videos that haven't been processed yet. No parameters needed.";
+    if (!sel) return;
+    var processFields = document.getElementById("process-video-fields");
+    var jsonFields = document.getElementById("json-params-fields");
 
     function update() {
-      if (sel.value === "process_video") {
-        hint.textContent = processHint;
-        if (textarea && textarea.value === "{}") textarea.value = "{}";
-      } else {
-        hint.textContent = defaultHint;
-      }
+      var isProcess = sel.value === "process_video";
+      if (processFields) processFields.style.display = isProcess ? "" : "none";
+      if (jsonFields) jsonFields.style.display = isProcess ? "none" : "";
     }
     sel.addEventListener("change", update);
     update();
   }
+
+  /* Delegated click for Watch buttons. CSP forbids inline onclick. */
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (t && t.classList && t.classList.contains("js-watch-job")) {
+      var id = t.getAttribute("data-job-id");
+      if (id) window.startJobStream(id);
+    }
+  });
 
   /* Auto-start stream on page load: either for a just-submitted job
      (via ?submitted= query param) or for any already-running job. */
@@ -90,14 +94,11 @@
       _pollUntilRunning(submitted);
       return;
     }
-    var rows = document.querySelectorAll("tr");
-    rows.forEach(function (tr) {
-      var statusBadge = tr.querySelector(".badge");
-      if (statusBadge && statusBadge.textContent.trim() === "running") {
-        var watchBtn = tr.querySelector("button[onclick^='startJobStream']");
-        if (watchBtn) watchBtn.click();
-      }
-    });
+    var watchBtns = document.querySelectorAll(".js-watch-job[data-job-id]");
+    if (watchBtns.length > 0) {
+      var firstId = watchBtns[0].getAttribute("data-job-id");
+      if (firstId) window.startJobStream(firstId);
+    }
   });
 
   function _pollUntilRunning(jobId) {

@@ -2,10 +2,22 @@
 (function () {
   "use strict";
 
+  /* CSP-safe page data: read from <script type="application/json"> block. */
+  var _labelData = JSON.parse(document.getElementById("label-page-data").textContent);
+
+  /* Validators for values that flow into URL construction.
+     CodeQL flags dataset-derived strings as DOM-tainted; gating with a
+     strict pattern test breaks the taint flow. */
+  function _isHexId(s) { return typeof s === "string" && /^[a-f0-9]+$/.test(s); }
+  function _isUInt(s)  { return /^\d+$/.test(String(s || "")); }
+
   function renderBbox() {
     var detail = document.getElementById("label-detail");
     var box = document.getElementById("label-bbox");
     if (!detail || !box) return;
+    box.classList.remove("state-approved", "state-rejected", "state-corrected");
+    var state = detail.dataset.reviewState || "";
+    if (state && state !== "pending") box.classList.add("state-" + state);
     var raw = detail.dataset.bbox;
     if (!raw || raw === "[]") { box.style.display = "none"; return; }
     try {
@@ -27,21 +39,32 @@
     var img = document.getElementById("label-frame");
     if (!detail || !img) return;
     var frameIdx = detail.dataset.frameIdx;
-    if (frameIdx !== undefined && frameIdx !== "") {
-      img.src = "/admin/training/uploads/" + _labelData.uploadId + "/frames/" + frameIdx;
-    }
+    if (!_isHexId(_labelData.uploadId) || !_isUInt(frameIdx)) return;
+    img.src = "/admin/training/uploads/" + _labelData.uploadId + "/frames/" + frameIdx;
   }
 
   function navigateEvent(direction) {
     var detail = document.getElementById("label-detail");
     if (!detail) return;
     var targetId = direction === "next" ? detail.dataset.nextId : detail.dataset.prevId;
-    if (!targetId) return;
+    if (!_isHexId(_labelData.uploadId) || !_isUInt(targetId)) return;
     var qs = "?event_id=" + targetId;
     if (_labelData.filterReviewState) qs += "&review_state=" + encodeURIComponent(_labelData.filterReviewState);
     if (_labelData.filterDetectionPass) qs += "&detection_pass=" + encodeURIComponent(_labelData.filterDetectionPass);
     window.location.href = "/admin/training/uploads/" + _labelData.uploadId + qs;
   }
+
+  /* Delegated click for the Correct button (CSP forbids inline onclick).
+     Delegation survives HTMX swaps that replace the card. */
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (t && t.id === "btn-show-correct") {
+      var form = document.getElementById("correct-form");
+      if (form) form.style.display = "block";
+      var input = document.getElementById("corrected-class");
+      if (input) input.focus();
+    }
+  });
 
   document.addEventListener("keydown", function (e) {
     var tag = (e.target.tagName || "").toUpperCase();

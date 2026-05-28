@@ -26,7 +26,9 @@ router = APIRouter(prefix="/admin/training/uploads")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 TRAINING_UPLOADS_DIR = Path(os.environ.get("TRAINING_UPLOADS_DIR", "/data/training_uploads"))
+MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov"}
+MODEL_EXTENSIONS = {".pt", ".engine", ".onnx"}
 MAX_DURATION_SECONDS = 60
 _DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
 UPLOAD_CHUNK_SIZE = int(os.environ.get("TRAINING_UPLOAD_CHUNK_SIZE", str(_DEFAULT_CHUNK_SIZE)))
@@ -39,6 +41,84 @@ PAGE_SIZE = 25
 _UPLOAD_LIST_URL = "/admin/training/uploads"
 
 _SAFE_ID = re.compile(r"^[0-9a-f]{32}$")
+_HINT_RE = re.compile(r"^[a-z0-9][a-z0-9 _-]{0,31}$")
+_MAX_HINTS = 8
+
+
+def _list_model_filenames() -> list[str]:
+    """Names (not paths) of model files in MODELS_DIR. Empty list on error."""
+    try:
+        return sorted(
+            f.name for f in MODELS_DIR.iterdir()
+            if f.is_file() and f.suffix in MODEL_EXTENSIONS
+        )
+    except OSError:
+        return []
+
+
+def _parse_hints_input(raw: str) -> tuple[list[str], str | None]:
+    """Parse a comma-separated hint string into (validated list, error).
+
+    Returns ([], error) on validation failure, (items, None) on success.
+    """
+    items: list[str] = []
+    for part in raw.split(","):
+        s = part.strip().lower()
+        if not s:
+            continue
+        if not _HINT_RE.match(s):
+            return [], f"Invalid hint '{s}' — use letters, digits, spaces, _ or -"
+        if s not in items:
+            items.append(s)
+    if len(items) > _MAX_HINTS:
+        return [], f"Too many hints (max {_MAX_HINTS})"
+    return items, None
+
+
+def _validate_model_filename(name: str) -> str | None:
+    """Resolve a user-supplied model name to a filename that exists in MODELS_DIR.
+
+    Whitelist-lookup: enumerate known files and match by name, so the returned
+    string originates from the filesystem listing, never user input.
+    """
+    name = name.strip()
+    if not name:
+        return None
+    for known in _list_model_filenames():
+        if known == name:
+            return known
+    return None
+
+
+def _decode_hints(raw: str | None) -> list[str]:
+    """Best-effort JSON decode of the hints column. Empty list on any failure."""
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    return [str(x) for x in items] if isinstance(items, list) else []
+
+
+def _enrich_upload(row: dict) -> dict:
+    """Add ``hints_list`` to an upload dict for template rendering."""
+    row["hints_list"] = _decode_hints(row.get("hints"))
+    return row
+
+
+def _validate_confidence(raw: str) -> tuple[float | None, str | None]:
+    """Parse confidence input. Empty → (None, None); range-check otherwise."""
+    raw = raw.strip()
+    if not raw:
+        return None, None
+    try:
+        val = float(raw)
+    except ValueError:
+        return None, "Confidence threshold must be a number"
+    if not (0.0 <= val <= 1.0):
+        return None, "Confidence threshold must be between 0.0 and 1.0"
+    return val, None
 
 
 def _safe_upload_dir(upload_id: str) -> Path | None:
@@ -90,12 +170,13 @@ def _error_response(request: Request, error: str, status_code: int = 400) -> Res
         request,
         "training_uploads.html",
         {
-            "uploads": db_module.get_training_uploads(limit=PAGE_SIZE),
+            "uploads": [_enrich_upload(dict(u)) for u in db_module.get_training_uploads(limit=PAGE_SIZE)],
             "total": db_module.count_training_uploads(),
             "page": 1,
             "total_pages": 1,
             "filter_status": "",
             "error": error,
+            "available_models": _list_model_filenames(),
         },
         status_code=status_code,
     )
@@ -121,12 +202,13 @@ async def uploads_list_page(
         request,
         "training_uploads.html",
         {
-            "uploads": [dict(u) for u in uploads],
+            "uploads": [_enrich_upload(dict(u)) for u in uploads],
             "total": total,
             "page": page,
             "total_pages": max(1, -(-total // PAGE_SIZE)),
             "filter_status": status,
             "error": None,
+            "available_models": _list_model_filenames(),
         },
     )
 
@@ -143,6 +225,9 @@ async def upload_video(
     request: Request,
     file: UploadFile = File(...),
     target_class_hint: str = Form(""),
+    detector_model: str = Form(""),
+    confidence_threshold: str = Form(""),
+    hints: str = Form(""),
 ) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
@@ -156,9 +241,26 @@ async def upload_video(
             f"Unsupported format '{suffix}'. Accepted: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}",
         )
 
-    hint = target_class_hint.strip() or None
-    if hint and hint not in ("duck", "heron", "raccoon", "background"):
-        return _error_response(request, f"Invalid target class hint: {hint}")
+    # Legacy single-hint field still works on its own; the multi-value
+    # `hints` form field is preferred. We keep both in sync below.
+    parsed_hints, hint_err = _parse_hints_input(hints)
+    if hint_err:
+        return _error_response(request, hint_err)
+    legacy_hint = target_class_hint.strip().lower() or None
+    if legacy_hint and not _HINT_RE.match(legacy_hint):
+        return _error_response(request, f"Invalid target class hint: {legacy_hint}")
+    if legacy_hint and legacy_hint not in parsed_hints:
+        parsed_hints.insert(0, legacy_hint)
+    if not legacy_hint and parsed_hints:
+        legacy_hint = parsed_hints[0]
+
+    model_name = _validate_model_filename(detector_model) if detector_model.strip() else None
+    if detector_model.strip() and model_name is None:
+        return _error_response(request, f"Unknown model file: {detector_model.strip()}")
+
+    conf, conf_err = _validate_confidence(confidence_threshold)
+    if conf_err:
+        return _error_response(request, conf_err)
 
     TRAINING_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     upload_id = uuid.uuid4().hex
@@ -195,13 +297,68 @@ async def upload_video(
         os.replace(str(tmp_path), str(final_path))
         tmp_path = final_path  # prevent cleanup of moved file
 
-        db_module.create_training_upload(upload_id, filename, hint)
+        db_module.create_training_upload(
+            upload_id, filename, legacy_hint,
+            detector_model=model_name,
+            confidence_threshold=conf,
+            hints=json.dumps(parsed_hints) if parsed_hints else None,
+        )
         logger.info("Training video uploaded: %s (%s, %.0fs)", filename, upload_id, duration)
         return RedirectResponse(url="/admin/training/uploads", status_code=303)
 
     finally:
         if tmp_path.exists() and tmp_path != (TRAINING_UPLOADS_DIR / upload_id / f"original{suffix}"):
             tmp_path.unlink(missing_ok=True)
+
+
+# ── Edit upload settings (inline form on the list page) ─────────────────────
+
+
+@router.post("/{upload_id}/settings")
+async def update_upload_settings(
+    request: Request,
+    upload_id: str,
+    target_class_hint: str = Form(""),
+    detector_model: str = Form(""),
+    confidence_threshold: str = Form(""),
+    hints: str = Form(""),
+) -> Response:
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
+    if not _SAFE_ID.match(upload_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if db_module.get_training_upload(upload_id) is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    parsed_hints, hint_err = _parse_hints_input(hints)
+    if hint_err:
+        return _error_response(request, hint_err)
+    legacy_hint = target_class_hint.strip().lower() or None
+    if legacy_hint and not _HINT_RE.match(legacy_hint):
+        return _error_response(request, f"Invalid target class hint: {legacy_hint}")
+    if legacy_hint and legacy_hint not in parsed_hints:
+        parsed_hints.insert(0, legacy_hint)
+    if not legacy_hint and parsed_hints:
+        legacy_hint = parsed_hints[0]
+
+    model_name = _validate_model_filename(detector_model) if detector_model.strip() else None
+    if detector_model.strip() and model_name is None:
+        return _error_response(request, f"Unknown model file: {detector_model.strip()}")
+
+    conf, conf_err = _validate_confidence(confidence_threshold)
+    if conf_err:
+        return _error_response(request, conf_err)
+
+    db_module.update_training_upload_settings(
+        upload_id,
+        target_class_hint=legacy_hint,
+        detector_model=model_name,
+        confidence_threshold=conf,
+        hints=json.dumps(parsed_hints) if parsed_hints else None,
+    )
+    logger.info("Updated settings for training upload %s", upload_id)
+    return RedirectResponse(url=_UPLOAD_LIST_URL, status_code=303)
 
 
 # ── Delete upload ────────────────────────────────────────────────────────────

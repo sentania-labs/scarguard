@@ -66,14 +66,6 @@
 </div>
 {% endif %}
 
-<script>
-  var _labelData = {
-    uploadId: {{ upload.id | tojson }},
-    csrfToken: {{ request.state.csrf_token | tojson }},
-    filterReviewState: {{ filter_review_state | tojson }},
-    filterDetectionPass: {{ filter_detection_pass | tojson }},
-    targetClasses: {{ target_classes | tojson }}
-  };
-</script>
+<script type="application/json" id="label-page-data">{"uploadId": {{ upload.id | tojson }}, "filterReviewState": {{ filter_review_state | tojson }}, "filterDetectionPass": {{ filter_detection_pass | tojson }}}</script>
 <script src="/static/training_label.js"></script>
 {% endblock %}
