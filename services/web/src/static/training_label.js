@@ -2,6 +2,9 @@
 (function () {
   "use strict";
 
+  /* CSP-safe page data: read from <script type="application/json"> block. */
+  var _labelData = JSON.parse(document.getElementById("label-page-data").textContent);
+
   function renderBbox() {
     var detail = document.getElementById("label-detail");
     var box = document.getElementById("label-bbox");
