@@ -1090,9 +1090,11 @@ body.expert-mode details.expert-only { display: block !important; }
 }
 .relabel-saved-label {
   position: absolute; top: 0; left: 0;
-  background: #34d399; color: #0a1a12;
-  font-family: monospace; font-size: 0.75rem;
-  padding: 0 0.3rem; line-height: 1.1rem;
+  background: rgba(52, 211, 153, 0.85); color: #0a1a12;
+  font-family: monospace; font-size: 0.65rem;
+  padding: 0 0.2rem; line-height: 0.95rem;
+  max-width: 100%; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
 }
 
 .label-canvas {

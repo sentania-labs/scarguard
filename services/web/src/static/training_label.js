@@ -145,7 +145,7 @@
 
     /* Existing drawn boxes */
     ctx.lineWidth = 2;
-    ctx.font = "14px monospace";
+    ctx.font = "10px monospace";
     for (var i = 0; i < _relabelBoxes.length; i++) {
       var b = _relabelBoxes[i].bbox;
       var x = (b[0] - b[2] / 2) * canvas.width;
@@ -156,10 +156,10 @@
       ctx.strokeRect(x, y, w, h);
       ctx.fillStyle = "rgba(52, 211, 153, 0.85)";
       var label = _relabelBoxes[i].cls + " #" + (i + 1);
-      var tw = ctx.measureText(label).width + 8;
-      ctx.fillRect(x, Math.max(0, y - 18), tw, 18);
+      var tw = ctx.measureText(label).width + 4;
+      ctx.fillRect(x, y, tw, 12);
       ctx.fillStyle = "#0a1a12";
-      ctx.fillText(label, x + 4, Math.max(12, y - 4));
+      ctx.fillText(label, x + 2, y + 9);
     }
 
     /* Active drag */
@@ -354,6 +354,9 @@
         if (btnR) btnR.click();
         break;
       case "r":
+        /* Prevent the keystroke from leaking into the class input
+           that gets focused inside _activateRelabel(). */
+        e.preventDefault();
         var btnRl = document.getElementById("btn-relabel");
         if (btnRl) btnRl.click();
         break;
