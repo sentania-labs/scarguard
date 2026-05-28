@@ -47,7 +47,7 @@
       </div>
     </div>
     <button type="submit" class="btn">Upload</button>
-    <p class="hint">Settings can be edited per-upload before processing.</p>
+    <p class="hint">All fields except the file are optional — edit them inline on the row below after upload.</p>
   </form>
 </section>
 {% endif %}
@@ -71,15 +71,27 @@
   </div>
 </form>
 
+{# One settings form per upload, referenced by inputs in the row via
+   the HTML form="..." attribute. Forms live outside <tbody> so the
+   parser doesn't relocate them. #}
+{% if _is_admin %}
+{% for u in uploads %}
+<form id="ufm-{{ u.id }}" method="post" action="/admin/training/uploads/{{ u.id }}/settings" hidden>
+  <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+</form>
+{% endfor %}
+{% endif %}
+
 <table>
   <thead>
     <tr>
       <th>Filename</th>
-      <th>Hints</th>
+      <th>Hint</th>
+      <th>Hints (multi)</th>
       <th>Model</th>
       <th>Conf</th>
       <th>Frames</th>
-      <th>Detections</th>
+      <th>Det.</th>
       <th>Status</th>
       <th>Created</th>
       <th>Actions</th>

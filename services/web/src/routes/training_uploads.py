@@ -311,37 +311,7 @@ async def upload_video(
             tmp_path.unlink(missing_ok=True)
 
 
-# ── Edit upload settings ─────────────────────────────────────────────────────
-
-
-@router.get("/{upload_id}/edit", response_class=HTMLResponse)
-async def edit_upload_page(request: Request, upload_id: str) -> Response:
-    gate = require_admin(request)
-    if not isinstance(gate, dict):
-        return gate
-    if not _SAFE_ID.match(upload_id):
-        return JSONResponse({"error": "not found"}, status_code=404)
-    upload = db_module.get_training_upload(upload_id)
-    if not upload:
-        return JSONResponse({"error": "not found"}, status_code=404)
-
-    upload_dict = dict(upload)
-    raw_hints = upload_dict.get("hints")
-    try:
-        hints_list = json.loads(raw_hints) if raw_hints else []
-    except (ValueError, TypeError):
-        hints_list = []
-
-    return templates.TemplateResponse(
-        request,
-        "training_upload_edit.html",
-        {
-            "upload": upload_dict,
-            "hints_csv": ", ".join(hints_list),
-            "available_models": _list_model_filenames(),
-            "error": None,
-        },
-    )
+# ── Edit upload settings (inline form on the list page) ─────────────────────
 
 
 @router.post("/{upload_id}/settings")
@@ -363,10 +333,10 @@ async def update_upload_settings(
 
     parsed_hints, hint_err = _parse_hints_input(hints)
     if hint_err:
-        return _edit_error(request, upload_id, hint_err)
+        return _error_response(request, hint_err)
     legacy_hint = target_class_hint.strip().lower() or None
     if legacy_hint and not _HINT_RE.match(legacy_hint):
-        return _edit_error(request, upload_id, f"Invalid target class hint: {legacy_hint}")
+        return _error_response(request, f"Invalid target class hint: {legacy_hint}")
     if legacy_hint and legacy_hint not in parsed_hints:
         parsed_hints.insert(0, legacy_hint)
     if not legacy_hint and parsed_hints:
@@ -374,11 +344,11 @@ async def update_upload_settings(
 
     model_name = _validate_model_filename(detector_model) if detector_model.strip() else None
     if detector_model.strip() and model_name is None:
-        return _edit_error(request, upload_id, f"Unknown model file: {detector_model.strip()}")
+        return _error_response(request, f"Unknown model file: {detector_model.strip()}")
 
     conf, conf_err = _validate_confidence(confidence_threshold)
     if conf_err:
-        return _edit_error(request, upload_id, conf_err)
+        return _error_response(request, conf_err)
 
     db_module.update_training_upload_settings(
         upload_id,
@@ -389,27 +359,6 @@ async def update_upload_settings(
     )
     logger.info("Updated settings for training upload %s", upload_id)
     return RedirectResponse(url=_UPLOAD_LIST_URL, status_code=303)
-
-
-def _edit_error(request: Request, upload_id: str, error: str) -> Response:
-    upload = db_module.get_training_upload(upload_id)
-    upload_dict = dict(upload) if upload else {}
-    raw_hints = upload_dict.get("hints")
-    try:
-        hints_list = json.loads(raw_hints) if raw_hints else []
-    except (ValueError, TypeError):
-        hints_list = []
-    return templates.TemplateResponse(
-        request,
-        "training_upload_edit.html",
-        {
-            "upload": upload_dict,
-            "hints_csv": ", ".join(hints_list),
-            "available_models": _list_model_filenames(),
-            "error": error,
-        },
-        status_code=400,
-    )
 
 
 # ── Delete upload ────────────────────────────────────────────────────────────
