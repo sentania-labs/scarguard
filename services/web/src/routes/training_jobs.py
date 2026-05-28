@@ -7,7 +7,7 @@ import logging
 import uuid
 
 import db as db_module
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from redis_client import make_sync_client
@@ -57,6 +57,19 @@ async def jobs_page(
         d["parsed_result"] = _parse_result(d.get("result"))
         job_list.append(d)
 
+    # Pull uploads available for the Process Videos picker (any state — user can
+    # re-process processed ones with clear_existing_events).
+    upload_rows = db_module.get_training_uploads(limit=200)
+    upload_options = [
+        {
+            "id": u["id"],
+            "filename": u["filename"],
+            "status": u["status"],
+            "detection_count": u["detection_count"],
+        }
+        for u in upload_rows
+    ]
+
     return templates.TemplateResponse(
         request,
         "training_jobs.html",
@@ -68,6 +81,7 @@ async def jobs_page(
             "filter_status": status,
             "detector_state": detector_state,
             "is_admin": require_admin(request) if not isinstance(require_admin(request), dict) else True,
+            "upload_options": upload_options,
         },
     )
 
@@ -75,23 +89,36 @@ async def jobs_page(
 # ── Submit job ───────────────────────────────────────────────────────────────
 
 
+_UPLOAD_ID_RE = __import__("re").compile(r"^[0-9a-f]{32}$")
+
+
 @router.post("")
-async def submit_job(
-    request: Request,
-    job_type: str = Form(...),
-    params_json: str = Form("{}"),
-) -> Response:
+async def submit_job(request: Request) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
 
+    form = await request.form()
+    job_type = str(form.get("job_type") or "").strip()
     if job_type not in _VALID_JOB_TYPES:
         return JSONResponse({"error": f"Invalid job type: {job_type}"}, status_code=400)
 
-    try:
-        params = json.loads(params_json)
-    except json.JSONDecodeError:
-        return JSONResponse({"error": "Invalid JSON in params"}, status_code=400)
+    if job_type == "process_video":
+        # Structured form: explicit upload picker + clear_existing checkbox.
+        upload_ids_raw = form.getlist("upload_ids")
+        upload_ids = [uid for uid in upload_ids_raw if isinstance(uid, str) and _UPLOAD_ID_RE.match(uid)]
+        clear_existing = bool(form.get("clear_existing_events"))
+        params: dict = {}
+        if upload_ids:
+            params["upload_ids"] = upload_ids
+        if clear_existing:
+            params["clear_existing_events"] = True
+    else:
+        # Other job types still use the free-form JSON textarea.
+        try:
+            params = json.loads(str(form.get("params_json") or "{}"))
+        except json.JSONDecodeError:
+            return JSONResponse({"error": "Invalid JSON in params"}, status_code=400)
 
     running = db_module.count_training_jobs(status="running")
     queued = db_module.count_training_jobs(status="queued")

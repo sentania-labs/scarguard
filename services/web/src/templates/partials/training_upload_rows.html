@@ -1,7 +1,17 @@
 {% for u in uploads %}
 <tr>
   <td>{{ u.filename }}</td>
-  <td>{% if u.target_class_hint %}<span class="badge">{{ u.target_class_hint }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+  <td>
+    {% if u.hints_list %}
+      {% for h in u.hints_list %}<span class="badge">{{ h }}</span>{% endfor %}
+    {% elif u.target_class_hint %}
+      <span class="badge">{{ u.target_class_hint }}</span>
+    {% else %}
+      <span class="muted">—</span>
+    {% endif %}
+  </td>
+  <td>{% if u.detector_model %}<span class="muted" style="font-family:var(--mono);font-size:0.78rem;">{{ u.detector_model }}</span>{% else %}<span class="muted">default</span>{% endif %}</td>
+  <td>{% if u.confidence_threshold is not none %}{{ "%.2f" | format(u.confidence_threshold) }}{% else %}<span class="muted">—</span>{% endif %}</td>
   <td>{{ u.frame_count if u.frame_count is not none else '—' }}</td>
   <td>{{ u.detection_count if u.detection_count is not none else '—' }}</td>
   <td>
@@ -17,6 +27,7 @@
     <a href="/admin/training/uploads/{{ u.id }}" class="btn btn-small">Label</a>
     {% endif %}
     {% if _is_admin %}
+    <a href="/admin/training/uploads/{{ u.id }}/edit" class="btn btn-small">Edit</a>
     <form method="post" action="/admin/training/uploads/{{ u.id }}/delete" style="display:inline;">
       <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
       <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Delete this upload and all its annotations?')">Delete</button>
@@ -26,5 +37,5 @@
 </tr>
 {% endfor %}
 {% if not uploads %}
-<tr><td colspan="7" class="muted" style="text-align:center;padding:2rem;">No uploads yet</td></tr>
+<tr><td colspan="9" class="muted" style="text-align:center;padding:2rem;">No uploads yet</td></tr>
 {% endif %}

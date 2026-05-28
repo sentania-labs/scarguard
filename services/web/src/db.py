@@ -15,6 +15,13 @@ DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
 # ── Training tables ──────────────────────────────────────────────────────────
 
 
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, col_name: str, col_def: str) -> None:
+    """Idempotent ALTER TABLE ADD COLUMN — SQLite has no IF NOT EXISTS for ALTER."""
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if col_name not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
+
+
 def ensure_training_tables() -> None:
     """Create the training pipeline tables if they don't exist yet."""
     with _connect() as conn:
@@ -70,6 +77,12 @@ def ensure_training_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_tj_status
                 ON training_jobs(status);
         """)
+        # Additive columns on training_uploads — let existing rows default to
+        # NULL so the trainer falls back to global config.
+        _add_column_if_missing(conn, "training_uploads", "detector_model", "detector_model TEXT")
+        _add_column_if_missing(conn, "training_uploads", "confidence_threshold", "confidence_threshold REAL")
+        _add_column_if_missing(conn, "training_uploads", "hints", "hints TEXT")
+        conn.commit()
 
 
 def _date_to_exclusive(date_str: str) -> str:
@@ -707,18 +720,67 @@ def create_training_upload(
     upload_id: str,
     filename: str,
     target_class_hint: str | None,
+    *,
+    detector_model: str | None = None,
+    confidence_threshold: float | None = None,
+    hints: str | None = None,
 ) -> None:
-    """INSERT a new training_uploads row with status='uploaded'."""
+    """INSERT a new training_uploads row with status='uploaded'.
+
+    ``hints`` is a JSON-encoded list of class names — the multi-value
+    superset of the legacy ``target_class_hint`` single value. Both are
+    kept in sync at write-time so older readers keep working.
+    """
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
         conn.execute(
             """
-            INSERT INTO training_uploads (id, filename, target_class_hint, status, created_at)
-            VALUES (?, ?, ?, 'uploaded', ?)
+            INSERT INTO training_uploads
+                (id, filename, target_class_hint, detector_model,
+                 confidence_threshold, hints, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'uploaded', ?)
             """,
-            (upload_id, filename, target_class_hint, now),
+            (
+                upload_id, filename, target_class_hint,
+                detector_model, confidence_threshold, hints, now,
+            ),
         )
         conn.commit()
+
+
+def update_training_upload_settings(
+    upload_id: str,
+    *,
+    target_class_hint: str | None,
+    detector_model: str | None,
+    confidence_threshold: float | None,
+    hints: str | None,
+) -> bool:
+    """UPDATE the user-editable settings on a training upload."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            UPDATE training_uploads
+            SET target_class_hint = ?,
+                detector_model = ?,
+                confidence_threshold = ?,
+                hints = ?
+            WHERE id = ?
+            """,
+            (target_class_hint, detector_model, confidence_threshold, hints, upload_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_training_events_for_upload(upload_id: str) -> int:
+    """DELETE all training_events rows for an upload. Returns rows deleted."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM training_events WHERE upload_id = ?", (upload_id,)
+        )
+        conn.commit()
+        return cur.rowcount
 
 
 def get_training_uploads(

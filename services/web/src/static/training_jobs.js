@@ -58,23 +58,18 @@
     };
   };
 
-  /* Update hint text when job type changes. */
+  /* Toggle visible fields based on job type. Process Videos shows the
+     structured upload picker; other job types keep the JSON textarea. */
   function _setupJobTypeHint() {
     var sel = document.getElementById("job-type");
-    var hint = document.getElementById("params-hint");
-    var textarea = document.getElementById("params-json");
-    if (!sel || !hint) return;
-
-    var defaultHint = "Override defaults from config. Leave {} for defaults.";
-    var processHint = "Processes all uploaded videos that haven't been processed yet. No parameters needed.";
+    if (!sel) return;
+    var processFields = document.getElementById("process-video-fields");
+    var jsonFields = document.getElementById("json-params-fields");
 
     function update() {
-      if (sel.value === "process_video") {
-        hint.textContent = processHint;
-        if (textarea && textarea.value === "{}") textarea.value = "{}";
-      } else {
-        hint.textContent = defaultHint;
-      }
+      var isProcess = sel.value === "process_video";
+      if (processFields) processFields.style.display = isProcess ? "" : "none";
+      if (jsonFields) jsonFields.style.display = isProcess ? "none" : "";
     }
     sel.addEventListener("change", update);
     update();

@@ -23,12 +23,38 @@
           <option value="process_video">Process Videos</option>
         </select>
       </div>
-      <div class="field-group">
-        <label>Parameters (JSON)</label>
-        <textarea name="params_json" id="params-json" rows="3" style="font-family:var(--mono);font-size:0.8rem;">{}</textarea>
-        <p class="hint" id="params-hint">Override defaults from config. Leave {} for defaults.</p>
-      </div>
     </div>
+
+    {# Process Videos: structured picker. Defaults visible since the
+       backend treats an empty upload_ids list as "all unprocessed". #}
+    <div class="field-group" id="process-video-fields" style="display:none;">
+      <label>Uploads to process <span class="muted">(leave none selected to process all unprocessed)</span></label>
+      <div style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:0.5rem;">
+        {% for u in upload_options %}
+        <label style="display:block;padding:0.2rem 0;">
+          <input type="checkbox" name="upload_ids" value="{{ u.id }}">
+          <span>{{ u.filename }}</span>
+          <span class="badge" style="margin-left:0.4rem;">{{ u.status }}</span>
+          {% if u.detection_count is not none %}<span class="muted" style="font-size:0.8rem;">({{ u.detection_count }} detections)</span>{% endif %}
+        </label>
+        {% endfor %}
+        {% if not upload_options %}
+        <p class="muted" style="margin:0;">No uploads yet — upload a video first.</p>
+        {% endif %}
+      </div>
+      <label style="display:block;margin-top:0.5rem;">
+        <input type="checkbox" name="clear_existing_events" value="1">
+        Clear existing detections for selected uploads before re-processing
+      </label>
+      <p class="hint">Each upload's own settings (model, confidence threshold, hints) are used. Edit them on the <a href="/admin/training/uploads">Uploads</a> page.</p>
+    </div>
+
+    <div class="field-group" id="json-params-fields">
+      <label>Parameters (JSON)</label>
+      <textarea name="params_json" id="params-json" rows="3" style="font-family:var(--mono);font-size:0.8rem;">{}</textarea>
+      <p class="hint" id="params-hint">Override defaults from config. Leave {} for defaults.</p>
+    </div>
+
     <button type="submit" class="btn">Submit Job</button>
   </form>
 </section>
