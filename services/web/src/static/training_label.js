@@ -9,6 +9,9 @@
     var detail = document.getElementById("label-detail");
     var box = document.getElementById("label-bbox");
     if (!detail || !box) return;
+    box.classList.remove("state-approved", "state-rejected", "state-corrected");
+    var state = detail.dataset.reviewState || "";
+    if (state && state !== "pending") box.classList.add("state-" + state);
     var raw = detail.dataset.bbox;
     if (!raw || raw === "[]") { box.style.display = "none"; return; }
     try {
@@ -45,6 +48,18 @@
     if (_labelData.filterDetectionPass) qs += "&detection_pass=" + encodeURIComponent(_labelData.filterDetectionPass);
     window.location.href = "/admin/training/uploads/" + _labelData.uploadId + qs;
   }
+
+  /* Delegated click for the Correct button (CSP forbids inline onclick).
+     Delegation survives HTMX swaps that replace the card. */
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    if (t && t.id === "btn-show-correct") {
+      var form = document.getElementById("correct-form");
+      if (form) form.style.display = "block";
+      var input = document.getElementById("corrected-class");
+      if (input) input.focus();
+    }
+  });
 
   document.addEventListener("keydown", function (e) {
     var tag = (e.target.tagName || "").toUpperCase();

@@ -1072,6 +1072,9 @@ body.expert-mode details.expert-only { display: block !important; }
   position: absolute; border: 2px solid #ff3333; pointer-events: none;
   display: none;
 }
+.label-bbox.state-approved { border-color: var(--ok); }
+.label-bbox.state-rejected { border-color: var(--danger); }
+.label-bbox.state-corrected { border-color: var(--warn); }
 
 .label-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
 .label-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
