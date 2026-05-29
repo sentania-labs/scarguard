@@ -51,6 +51,7 @@
     {% endif %}
     {% if u.status == 'processed' %}
     <a href="/admin/training/uploads/{{ u.id }}" class="btn btn-small">Label</a>
+    <a href="/admin/training/uploads/{{ u.id }}/browse" class="btn btn-small">Browse</a>
     {% endif %}
     {% if _is_admin %}
     <form method="post" action="/admin/training/uploads/{{ u.id }}/delete" style="display:inline;">

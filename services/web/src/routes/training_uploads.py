@@ -628,3 +628,243 @@ async def bulk_review(
         url=f"{_UPLOAD_LIST_URL}/{verified_id}",
         status_code=303,
     )
+
+
+# ── Frame browser ────────────────────────────────────────────────────────────
+
+
+_BROWSE_DEFAULT_STRIDE = 30
+_BROWSE_PAGE_SIZE = 60
+_BROWSE_MAX_STRIDE = 600
+
+
+def _list_frame_indices(upload_dir: Path) -> list[int]:
+    """Enumerate available frame indices on disk for an upload."""
+    frames_dir = upload_dir / "frames"
+    if not frames_dir.is_dir():
+        return []
+    out: list[int] = []
+    try:
+        for entry in frames_dir.iterdir():
+            if entry.suffix.lower() != ".jpg":
+                continue
+            stem = entry.stem
+            if stem.isdigit():
+                out.append(int(stem))
+    except OSError:
+        return []
+    out.sort()
+    return out
+
+
+@router.get("/{upload_id}/browse", response_class=HTMLResponse)
+async def browse_grid(
+    request: Request,
+    upload_id: str,
+    page: int = 1,
+    stride: str = "",
+) -> Response:
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
+
+    upload_dir = _safe_upload_dir(upload_id)
+    if upload_dir is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    verified_id = upload_dir.name
+    upload = db_module.get_training_upload(verified_id)
+    if upload is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    all_frames = _list_frame_indices(upload_dir)
+    if stride == "all":
+        sampled = all_frames
+        stride_value = 1
+    else:
+        try:
+            stride_value = int(stride) if stride else _BROWSE_DEFAULT_STRIDE
+        except ValueError:
+            stride_value = _BROWSE_DEFAULT_STRIDE
+        stride_value = max(1, min(_BROWSE_MAX_STRIDE, stride_value))
+        sampled = [f for f in all_frames if f % stride_value == 0]
+
+    if page < 1:
+        page = 1
+    total = len(sampled)
+    total_pages = max(1, (total + _BROWSE_PAGE_SIZE - 1) // _BROWSE_PAGE_SIZE)
+    if page > total_pages:
+        page = total_pages
+    start = (page - 1) * _BROWSE_PAGE_SIZE
+    page_frames = sampled[start : start + _BROWSE_PAGE_SIZE]
+
+    events_by_frame = db_module.get_training_events_by_frames(verified_id, page_frames)
+
+    tiles = []
+    for frame_idx in page_frames:
+        events = events_by_frame.get(frame_idx, [])
+        has_detection = any(ev["detection_pass"] != "manual" for ev in events)
+        has_manual = any(ev["detection_pass"] == "manual" for ev in events)
+        has_annotation = any(
+            ev["corrected_bboxes"] for ev in events if ev["review_state"] == "corrected"
+        )
+        tiles.append({
+            "frame_idx": frame_idx,
+            "has_detection": has_detection,
+            "has_manual": has_manual,
+            "has_annotation": has_annotation,
+        })
+
+    return templates.TemplateResponse(
+        request,
+        "training_browse.html",
+        {
+            "upload": dict(upload),
+            "tiles": tiles,
+            "page": page,
+            "total_pages": total_pages,
+            "total": total,
+            "all_frames_total": len(all_frames),
+            "stride": stride_value,
+            "stride_param": "all" if stride == "all" else str(stride_value),
+            "showing_all": stride == "all",
+        },
+    )
+
+
+@router.get("/{upload_id}/browse/{frame_idx}", response_class=HTMLResponse)
+async def browse_frame(
+    request: Request,
+    upload_id: str,
+    frame_idx: int,
+) -> Response:
+    gate = require_viewer(request)
+    if not isinstance(gate, dict):
+        return gate
+
+    upload_dir = _safe_upload_dir(upload_id)
+    if upload_dir is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    verified_id = upload_dir.name
+    upload = db_module.get_training_upload(verified_id)
+    if upload is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if frame_idx < 0:
+        return JSONResponse({"error": "invalid frame index"}, status_code=400)
+
+    frame_path = upload_dir / "frames" / f"{frame_idx:06d}.jpg"
+    if not frame_path.exists():
+        return JSONResponse({"error": "frame not found"}, status_code=404)
+
+    # If a detector event already exists for this frame, send the user to the
+    # existing labeling queue so re-label augments that event instead of
+    # creating a duplicate manual row.
+    existing = db_module.get_training_events_by_frames(verified_id, [frame_idx]).get(frame_idx, [])
+    detector_event = next(
+        (ev for ev in existing if ev["detection_pass"] != "manual"),
+        None,
+    )
+    if detector_event is not None:
+        return RedirectResponse(
+            url=f"{_UPLOAD_LIST_URL}/{verified_id}?event_id={detector_event['id']}",
+            status_code=303,
+        )
+
+    manual_event = next(
+        (ev for ev in existing if ev["detection_pass"] == "manual"),
+        None,
+    )
+
+    # Stride + page context so prev/next nav uses the same sampling the user
+    # entered with.
+    stride_q = request.query_params.get("stride", "")
+    all_frames = _list_frame_indices(upload_dir)
+    if stride_q == "all":
+        sampled = all_frames
+    else:
+        try:
+            stride_value = int(stride_q) if stride_q else _BROWSE_DEFAULT_STRIDE
+        except ValueError:
+            stride_value = _BROWSE_DEFAULT_STRIDE
+        stride_value = max(1, min(_BROWSE_MAX_STRIDE, stride_value))
+        sampled = [f for f in all_frames if f % stride_value == 0]
+
+    prev_frame = next_frame = None
+    if frame_idx in sampled:
+        i = sampled.index(frame_idx)
+        if i > 0:
+            prev_frame = sampled[i - 1]
+        if i < len(sampled) - 1:
+            next_frame = sampled[i + 1]
+
+    import config_store
+    cfg = config_store.load_cached()
+    target_classes = cfg.get("detection", {}).get("target_classes", [])
+
+    return templates.TemplateResponse(
+        request,
+        "training_browse_frame.html",
+        {
+            "upload": dict(upload),
+            "frame_idx": frame_idx,
+            "prev_frame": prev_frame,
+            "next_frame": next_frame,
+            "stride_param": stride_q or "",
+            "manual_event": dict(manual_event) if manual_event else None,
+            "target_classes": target_classes,
+        },
+    )
+
+
+@router.post("/{upload_id}/browse/{frame_idx}/annotate")
+async def annotate_frame(
+    request: Request,
+    upload_id: str,
+    frame_idx: int,
+    corrected_bboxes: str = Form(...),
+) -> Response:
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
+
+    upload_dir = _safe_upload_dir(upload_id)
+    if upload_dir is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    verified_id = upload_dir.name
+    if frame_idx < 0:
+        return JSONResponse({"error": "invalid frame index"}, status_code=400)
+    frame_path = upload_dir / "frames" / f"{frame_idx:06d}.jpg"
+    if not frame_path.exists():
+        return JSONResponse({"error": "frame not found"}, status_code=404)
+
+    bboxes_json = _validate_corrected_bboxes(corrected_bboxes)
+    if bboxes_json is None:
+        return JSONResponse({"error": "invalid corrected_bboxes payload"}, status_code=400)
+
+    # Detector event already exists → redirect to label queue, do not duplicate.
+    existing = db_module.get_training_events_by_frames(verified_id, [frame_idx]).get(frame_idx, [])
+    detector_event = next(
+        (ev for ev in existing if ev["detection_pass"] != "manual"),
+        None,
+    )
+    if detector_event is not None:
+        return JSONResponse(
+            {"error": "frame already has a detector event — re-label it from the queue"},
+            status_code=409,
+        )
+
+    manual_event = next(
+        (ev for ev in existing if ev["detection_pass"] == "manual"),
+        None,
+    )
+    if manual_event is not None:
+        db_module.update_training_event_review(
+            int(manual_event["id"]), "corrected", None, bboxes_json,
+        )
+        logger.info("Updated manual training_event %s for upload %s frame %s",
+                    manual_event["id"], verified_id, frame_idx)
+    else:
+        new_id = db_module.insert_manual_training_event(verified_id, frame_idx, bboxes_json)
+        logger.info("Inserted manual training_event %s for upload %s frame %s",
+                    new_id, verified_id, frame_idx)
+
+    return JSONResponse({"ok": True})

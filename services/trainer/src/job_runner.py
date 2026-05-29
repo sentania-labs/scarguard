@@ -201,8 +201,14 @@ def _run_process_video(ctx: JobContext) -> dict:
             if clear_existing:
                 conn = _connect_db()
                 try:
+                    # Detector rows only — manual frame-browser annotations
+                    # (detection_pass='manual') are user work and must survive
+                    # a reprocess. Reprocessing only regenerates detector
+                    # output; manual rows are independent of model state.
                     deleted = conn.execute(
-                        "DELETE FROM training_events WHERE upload_id = ?", (uid,)
+                        "DELETE FROM training_events "
+                        "WHERE upload_id = ? AND detection_pass != 'manual'",
+                        (uid,),
                     ).rowcount
                     conn.commit()
                 finally:
