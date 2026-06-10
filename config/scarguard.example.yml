@@ -347,6 +347,11 @@ backup:
 #       enabled: true                 # Include video upload annotations
 #
 #   defaults:
+#     # Ordered class list — order defines model class indices.
+#     # person/dog/cat/plant are distractors: trained so the model stops
+#     # calling humans/pets/vegetation "heron"; filtered at runtime via
+#     # detection.target_classes (never add plant there).
+#     classes: [duck, heron, raccoon, person, dog, cat, plant]
 #     base_model: "yolov8n.pt"
 #     epochs: 100
 #     batch_size: 2                   # Orin 8GB safe

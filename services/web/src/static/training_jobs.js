@@ -65,11 +65,14 @@
     if (!sel) return;
     var processFields = document.getElementById("process-video-fields");
     var jsonFields = document.getElementById("json-params-fields");
+    var classesField = document.getElementById("classes-field");
 
     function update() {
       var isProcess = sel.value === "process_video";
+      var hasClasses = sel.value === "prepare_dataset" || sel.value === "prepare_and_train";
       if (processFields) processFields.style.display = isProcess ? "" : "none";
       if (jsonFields) jsonFields.style.display = isProcess ? "none" : "";
+      if (classesField) classesField.style.display = hasClasses ? "" : "none";
     }
     sel.addEventListener("change", update);
     update();

@@ -66,6 +66,8 @@
 - **Model class introspection (v0.13.4):** `/models` admin page grew a Classes column — expand any model to see its full embedded class list as chips, copy-to-clipboard. Backed by `/models/{filename}/classes`. TensorRT `.engine` files without embedded names return a warning pointing at the source `.pt`.
 - **Orphan-reference soft-warn (v0.13.4):** Save succeeds, response includes a `warnings` list for any rule or summary-report reference that doesn't resolve to a defined channel or group. Applies to both structured-form saves and raw-YAML edits.
 
+- **Configurable training classes with distractors (v0.16.6):** Training class list is tweakable at training time (`--classes` on `prepare_dataset.py`, Classes field on the Training Jobs page, `training.defaults.classes` in config). Default expanded to `duck, heron, raccoon, person, dog, cat, plant` — the last four are distractor classes pulled from Open Images so the model stops misclassifying humans/pets/vegetation as herons. Runtime untouched: distractors are filtered by `detection.target_classes`.
+
 ## Known Issues / Buggy
 
 - **Tuya battery-device first-shot latency.** Battery-powered Tuya devices

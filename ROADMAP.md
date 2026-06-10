@@ -483,6 +483,37 @@ the v1.14 migration window.
 
 ---
 
+## v0.16.6 — distractor training classes (in progress)
+
+Fixes the "humans look like herons" failure mode of pond_v1: a model
+trained on only 3 classes loses the pretrained features that
+distinguish people, so out-of-distribution objects collapse into the
+nearest target silhouette. Adds distractor classes (person, dog, cat,
+plant) to the default training set; the model learns a correct bucket
+for them while runtime behavior stays config-driven via
+`detection.target_classes`.
+
+1. **Configurable class list in `prepare_dataset.py`.** `--classes`
+   CLI arg (ordered, defines model class indices), default
+   `duck,heron,raccoon,person,dog,cat,plant`. Open Images label IDs
+   added for person/dog/cat/plant (Houseplant + Plant fold into
+   `plant`). Labels not in the active list are dropped with warnings,
+   so a 3-class run reproduces the old behavior exactly. Token-based
+   alias matching (no more `cattle`→cat substring traps).
+2. **Trainer + jobs UI.** `prepare_dataset`/`prepare_and_train` jobs
+   accept a `classes` param; visible Classes field on the Training
+   Jobs page prefilled from `training.defaults.classes` or the
+   built-in default. Labeling-queue and frame-browser datalists now
+   suggest training classes, not just detection targets.
+3. **Docs.** `training:` config section documented in
+   CONFIG_REFERENCE.md for the first time, plus distractor runtime
+   guidance (target_classes allowlist, log-without-notify recipe,
+   never add plant).
+4. **Tests + CI.** `training/tests/` unit tests for class parsing and
+   resolution; `training/` added to ruff scope.
+
+---
+
 ## Future Ideas (Unprioritized)
 
 - Twilio SMS notifications — paid per-message, but works on any phone without an app

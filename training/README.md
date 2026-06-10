@@ -110,6 +110,43 @@ the snapshot with a zero-byte label file, which YOLO interprets as
 "no targets in this image." These act as negative / background
 samples during training.
 
+## prepare_dataset.py — merged dataset builder
+
+`prepare_dataset.py` automates the dataset merge: ScarGuard feedback
+events (via SSH or local DB), training-upload annotations, Roboflow
+Universe datasets, and Open Images downloads, remapped to one unified
+class scheme with a train/val split. The trainer service runs this same
+script for on-device `prepare_dataset` / `prepare_and_train` jobs.
+
+```bash
+python prepare_dataset.py \
+    --orin-host scott@orin \
+    --roboflow-key YOUR_KEY \
+    --output ./merged_dataset
+
+# Custom class list (order defines model class indices):
+python prepare_dataset.py --classes duck,heron,raccoon ...
+```
+
+### Classes and distractors
+
+The default class list is
+`duck, heron, raccoon, person, dog, cat, plant`. The last four are
+**distractor classes**: trained so the model has a correct bucket for
+humans, pets, and vegetation instead of forcing them into the nearest
+target silhouette (humans at the pond used to come back as "heron").
+Distractor training data is pulled automatically from Open Images;
+person/dog/cat/plant boxes you draw in the labeling UI count too.
+
+- `--classes` takes a comma-separated **ordered** list — order defines
+  the model's class indices, so keep it stable between runs you intend
+  to compare.
+- Labels that don't map to an active class are dropped with a warning:
+  `--classes duck,heron,raccoon` reproduces the original 3-class
+  behavior exactly.
+- At runtime, distractors are filtered by `detection.target_classes` —
+  see CONFIG_REFERENCE.md ("Distractor Classes & Runtime Behavior").
+
 ## Mixing third-party datasets
 
 The exported zip is a standard YOLO dataset, so you can extend it

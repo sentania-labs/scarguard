@@ -38,7 +38,9 @@ jobs:
             services/notifier/src \
             services/deterrent/src \
             services/log-streamer/src \
-            shared
+            services/trainer/src \
+            shared \
+            training
 
   # ── Type check ──────────────────────────────────────────────────────────────
   # Detector is excluded — it requires torch/opencv/ultralytics which are
@@ -148,3 +150,24 @@ jobs:
         env:
           PYTHONPATH: services/deterrent/src:shared
         run: pytest services/deterrent/tests/ -v
+
+  # ── Tests — training ────────────────────────────────────────────────────────
+  # prepare_dataset.py keeps its heavy imports (roboflow, requests, yaml)
+  # function-local, so the class-handling unit tests run on stdlib + pytest.
+  test-training:
+    name: Tests — training
+    runs-on: [self-hosted, linux, generic]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install pytest
+
+      - name: pytest
+        run: pytest training/tests/ -v
