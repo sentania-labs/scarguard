@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -33,8 +34,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import NamedTuple
 
-UNIFIED_CLASSES = ["duck", "heron", "raccoon"]
+# Default class set: the three target species plus distractor classes
+# (person, dog, cat, plant) that teach the model what NOT to call a heron.
+# Distractors are filtered at runtime via detection.target_classes.
+# Keep in sync with DEFAULT_TRAINING_CLASSES in
+# services/web/src/routes/training_jobs.py (this script is standalone by
+# design — copied into the trainer image — so it can't be imported there).
+DEFAULT_CLASSES = ["duck", "heron", "raccoon", "person", "dog", "cat", "plant"]
 
+# Active class list for this run; order defines model class indices.
+# Overridden from --classes via set_active_classes().
+UNIFIED_CLASSES = list(DEFAULT_CLASSES)
+
+# Master alias map: source label → unified class, for every class this
+# script knows about. _resolve_class() only returns targets present in
+# the active UNIFIED_CLASSES list.
 CLASS_MAP: dict[str, str] = {
     "great_blue_heron": "heron",
     "green_heron": "heron",
@@ -44,6 +58,18 @@ CLASS_MAP: dict[str, str] = {
     "mallard": "duck",
     "raccoon": "raccoon",
     "raccon": "raccoon",
+    "person": "person",
+    "pedestrian": "person",
+    "man": "person",
+    "woman": "person",
+    "dog": "dog",
+    "puppy": "dog",
+    "cat": "cat",
+    "kitten": "cat",
+    "plant": "plant",
+    "houseplant": "plant",
+    "potted_plant": "plant",
+    "flower": "plant",
 }
 
 ROBOFLOW_DATASETS = [
@@ -51,10 +77,49 @@ ROBOFLOW_DATASETS = [
     ("harbin-institute-of-technology-hpsg8", "raccon-3osqx"),
 ]
 
-OID_CLASSES: dict[str, str] = {
+# Master Open Images label map (IDs verified against
+# oidv6-class-descriptions.csv). Houseplant and Plant both fold into
+# "plant"; the per-class image cap is keyed by unified class, so it
+# covers them combined.
+OID_ALL_CLASSES: dict[str, str] = {
     "/m/09ddx": "duck",
     "/m/0dq75": "raccoon",
+    "/m/01g317": "person",
+    "/m/0bt9lr": "dog",
+    "/m/01yrx": "cat",
+    "/m/03fp41": "plant",
+    "/m/05s2s": "plant",
 }
+
+# Active OID label map — entries whose unified class is active.
+OID_CLASSES: dict[str, str] = dict(OID_ALL_CLASSES)
+
+
+def _parse_classes(raw: str) -> list[str]:
+    """Parse a comma-separated class list: strip, lowercase, dedupe in order."""
+    seen: dict[str, None] = {}
+    for part in raw.split(","):
+        name = part.strip().lower()
+        if name:
+            seen.setdefault(name)
+    return list(seen)
+
+
+def set_active_classes(classes: list[str]) -> None:
+    """Set the active class list (model index order) and filter OID labels."""
+    UNIFIED_CLASSES[:] = classes
+    OID_CLASSES.clear()
+    OID_CLASSES.update(
+        {mid: cls for mid, cls in OID_ALL_CLASSES.items() if cls in classes}
+    )
+    print(f"Active classes ({len(classes)}): {classes}")
+    known = set(CLASS_MAP.values()) | set(OID_ALL_CLASSES.values())
+    for cls in classes:
+        if cls not in known:
+            print(
+                f"  WARNING: class '{cls}' has no CLASS_MAP aliases and no "
+                f"Open Images coverage — only exact-name labels will match"
+            )
 
 OID_ANNOTATIONS = {
     "train": "https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-bbox.csv",
@@ -145,6 +210,10 @@ def _parse_args() -> argparse.Namespace:
         "--background-sample-interval", type=int, default=10,
         help="Export every Nth frame from background uploads as negative sample",
     )
+    p.add_argument(
+        "--classes", default=",".join(DEFAULT_CLASSES),
+        help="Comma-separated ordered class list; order defines model class indices",
+    )
     return p.parse_args()
 
 
@@ -152,17 +221,26 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _resolve_class(name: str) -> str | None:
-    """Map any source class name to a unified target class."""
-    if name in CLASS_MAP:
-        return CLASS_MAP[name]
+    """Map a source class name to an *active* unified class, else None."""
     lower = name.lower().strip().replace(" ", "_")
-    for src, dst in CLASS_MAP.items():
-        if src.lower() == lower:
-            return dst
-    for target in UNIFIED_CLASSES:
-        if target in lower:
-            return target
-    return None
+    # An exact active-class name always wins, even when an alias would
+    # fold it into something else (e.g. --classes ...,flower keeps
+    # "flower" labels instead of mapping them to an inactive "plant").
+    if lower in UNIFIED_CLASSES:
+        return lower
+    target = CLASS_MAP.get(name) or CLASS_MAP.get(lower)
+    if target is None:
+        # Token fallback: "great_blue_heron"/"blue-heron"/"herons" →
+        # heron. Whole-token match only, so "cattle"/"bobcat"/"eggplant"
+        # don't false-match cat/plant.
+        tokens = re.split(r"[^a-z0-9]+", lower)
+        for cls in UNIFIED_CLASSES:
+            if cls in tokens or f"{cls}s" in tokens:
+                target = cls
+                break
+    if target is not None and target not in UNIFIED_CLASSES:
+        return None
+    return target
 
 
 # ── SSH helpers ────────────────────────────────────────────────────────────
@@ -567,11 +645,16 @@ def pull_open_images(
     max_per_class: int,
     workers: int,
 ) -> list[Sample]:
-    """Download duck + raccoon images from Open Images V6."""
+    """Download images for the active OID-covered classes from Open Images V6."""
     import requests
 
+    active = sorted(set(OID_CLASSES.values()))
+    if not active:
+        print("\nOpen Images: no active classes have OID coverage — skipping")
+        return []
+
     print(f"\n{'='*60}")
-    print("Downloading Open Images (duck + raccoon)")
+    print(f"Downloading Open Images ({', '.join(active)})")
     print("=" * 60)
 
     # Collect annotations: {image_id: {split, class, bboxes[]}}
@@ -627,11 +710,10 @@ def pull_open_images(
             })
             row_count += 1
             if row_count % 5_000_000 == 0:
-                print(
-                    f"    ...{row_count / 1e6:.0f}M rows  "
-                    f"duck={class_image_counts['duck']}  "
-                    f"raccoon={class_image_counts['raccoon']}",
+                counts = "  ".join(
+                    f"{cls}={cnt}" for cls, cnt in sorted(class_image_counts.items())
                 )
+                print(f"    ...{row_count / 1e6:.0f}M rows  {counts}")
 
             # Stop scanning if we have enough of everything
             if all(c >= max_per_class for c in class_image_counts.values()):
@@ -848,6 +930,12 @@ def merge_and_split(
 def main() -> None:
     args = _parse_args()
     output_dir = Path(args.output).resolve()
+
+    classes = _parse_classes(args.classes)
+    if not classes:
+        print("ERROR: --classes must name at least one class", file=sys.stderr)
+        sys.exit(1)
+    set_active_classes(classes)
 
     if not args.skip_roboflow and not args.roboflow_key:
         print("ERROR: --roboflow-key is required (or use --skip-roboflow)", file=sys.stderr)

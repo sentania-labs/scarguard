@@ -169,6 +169,56 @@ Labeled events power the training pipeline:
 - **Model Evaluation** page compares two models side-by-side against labeled snapshots
 - **Model Promotion** updates config and triggers hot-reload
 
+### Training Configuration (`training:` section)
+
+The `training:` YAML section configures the trainer service (dataset
+preparation and on-device fine-tuning jobs). It is a passthrough section:
+not part of the structured config UI's schema, but preserved by UI saves.
+`training.sources.roboflow.api_key` is sensitive (encrypted at rest,
+redacted for viewers).
+
+| Key | Default | Description |
+|---|---|---|
+| `training.defaults.classes` | `[duck, heron, raccoon, person, dog, cat, plant]` | Ordered training class list — order defines model class indices. Overridable per job via the Classes field on the Training Jobs page. |
+| `training.defaults.base_model` | `yolov8n.pt` | Base model for fine-tuning |
+| `training.defaults.epochs` | `100` | Training epochs |
+| `training.defaults.batch_size` | `2` | Batch size (Orin 8GB safe) |
+| `training.defaults.image_size` | `480` | Training image size (Orin 8GB safe) |
+| `training.defaults.patience` | `20` | Early-stopping patience |
+| `training.defaults.val_split` | `0.15` | Validation holdout fraction |
+| `training.sources.roboflow.api_key` | `""` | Roboflow API key (SENSITIVE) |
+| `training.sources.open_images.max_per_class` | `1500` | Open Images cap per class |
+| `training.sources.open_images.workers` | `16` | Parallel download threads |
+| `training.video.low_confidence` | `0.05` | Low-confidence pass threshold for video processing |
+| `training.video.dedupe_iou` | `0.85` | IoU threshold for near-duplicate frame dedup |
+| `training.video.dedupe_window` | `5` | Frame window for dedup |
+| `training.video.background_sample_interval` | `10` | Every Nth frame of background uploads becomes a negative sample |
+
+### Distractor Classes & Runtime Behavior
+
+`person`, `dog`, `cat`, and `plant` are **distractor classes**: they are
+trained into the model so it learns what *not* to call a heron (humans at
+the pond were previously misclassified as herons), but they are not meant
+to alert or deter. All runtime behavior is driven by existing class
+config — no special handling:
+
+- `detection.target_classes` is an explicit allowlist. Distractor classes
+  not listed there are dropped at inference: no events, no snapshots.
+  Deploying a 7-class model with an unchanged config needs no edits.
+- **Never add `plant` to `target_classes`** — pond vegetation would fire
+  constantly.
+- To **log** a distractor (e.g. person) without notifications: add it to
+  `target_classes`, then give the camera explicit `notification_rules`
+  for the classes you *do* want notifications for, **without a wildcard
+  rule**. A class matching no rule is suppressed. Note: a *matched* rule
+  with `channels: []` means "notify all channels" — that is not the
+  suppression recipe.
+- Deterrents are opt-in per class via `deterrent_rules`, so distractors
+  can never trigger them unless explicitly configured.
+- The Models page will show all 7 classes for a distractor-trained model
+  while `target_classes` lists fewer — that is expected, not a
+  misconfiguration.
+
 ### Database Columns (detection_events)
 
 | Column | Type | Description |

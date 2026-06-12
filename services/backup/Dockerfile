@@ -6,7 +6,7 @@
 # /data/backups/{db_name}/{YYYY-MM-DD}.db.gz on a configurable schedule.
 # Subscribes to scarguard:backup:trigger for manual web-UI triggers and
 # publishes scarguard:backup:status so the UI can surface backup state.
-FROM docker.io/library/python:3.11-slim@sha256:233de06753d30d120b1a3ce359d8d3be8bda78524cd8f520c99883bfe33964cf
+FROM docker.io/library/python:3.11-slim@sha256:f9fa7f851e38bfb19c9de3afbc4b86ae7176ea7aaf94535c31df5458d5849457
 
 WORKDIR /app
 

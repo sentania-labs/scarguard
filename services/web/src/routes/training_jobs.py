@@ -29,6 +29,29 @@ PAGE_SIZE = 25
 
 _VALID_JOB_TYPES = {"process_video", "prepare_dataset", "train", "prepare_and_train"}
 
+# Default training class list. Keep in sync with DEFAULT_CLASSES in
+# training/prepare_dataset.py (standalone by design — copied into the
+# trainer image, so it can't be imported here). person/dog/cat/plant are
+# distractor classes: trained so the model stops calling them herons,
+# filtered at runtime via detection.target_classes.
+DEFAULT_TRAINING_CLASSES = "duck,heron,raccoon,person,dog,cat,plant"
+
+_CLASS_TOKEN_RE = __import__("re").compile(r"^[a-z0-9_-]+$")
+
+_CLASSES_JOB_TYPES = {"prepare_dataset", "prepare_and_train"}
+
+
+def training_classes_default() -> str:
+    """Resolve the Classes prefill: training.defaults.classes or built-in."""
+    import config_store
+    cfg = config_store.load_cached()
+    classes = cfg.get("training", {}).get("defaults", {}).get("classes")
+    if isinstance(classes, (list, tuple)) and classes:
+        return ",".join(str(c).strip() for c in classes)
+    if isinstance(classes, str) and classes.strip():
+        return classes.strip()
+    return DEFAULT_TRAINING_CLASSES
+
 
 def _redis_cfg() -> dict:
     import config_store
@@ -86,6 +109,7 @@ async def jobs_page(
             "detector_state": detector_state,
             "is_admin": require_admin(request) if not isinstance(require_admin(request), dict) else True,
             "upload_options": upload_options,
+            "training_classes_default": training_classes_default(),
         },
     )
 
@@ -123,6 +147,24 @@ async def submit_job(request: Request) -> Response:
             params = json.loads(str(form.get("params_json") or "{}"))
         except json.JSONDecodeError:
             return JSONResponse({"error": "Invalid JSON in params"}, status_code=400)
+
+        # Visible Classes field (prepare jobs only); wins over a "classes"
+        # key in the JSON textarea when filled.
+        classes_raw = str(form.get("classes") or "").strip()
+        if classes_raw and job_type in _CLASSES_JOB_TYPES:
+            tokens: list[str] = []
+            for part in classes_raw.lower().split(","):
+                token = part.strip()
+                if not token:
+                    continue
+                if not _CLASS_TOKEN_RE.match(token):
+                    return JSONResponse(
+                        {"error": f"Invalid class name: {token!r}"}, status_code=400
+                    )
+                if token not in tokens:
+                    tokens.append(token)
+            if tokens:
+                params["classes"] = ",".join(tokens)
 
     running = db_module.count_training_jobs(status="running")
     queued = db_module.count_training_jobs(status="queued")

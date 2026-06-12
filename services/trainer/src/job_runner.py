@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import threading
@@ -33,6 +34,9 @@ SCRIPTS_DIR = Path("/app/scripts")
 _PROGRESS_TTL = 300
 _LOG_TTL = 3600
 _LOG_CAP = 500
+
+# Mirrors the web form's class-name validation (routes/training_jobs.py).
+_CLASS_TOKEN_RE = re.compile(r"^[a-z0-9_-]+$")
 
 
 def _progress_key(job_id: str) -> str:
@@ -350,6 +354,29 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
                            train_cfg.get("video", {}).get("background_sample_interval", 10))
         ),
     ]
+
+    # Class list: job param wins, then training.defaults.classes, then the
+    # script's built-in default. YAML gives a list, the jobs form a
+    # comma-string — accept both, and fail fast on malformed values
+    # rather than preparing a near-empty dataset from unmatched labels.
+    classes = ctx.params.get("classes") or defaults.get("classes")
+    if classes:
+        raw = (
+            [str(c) for c in classes]
+            if isinstance(classes, (list, tuple))
+            else re.split(r"[,\s]+", str(classes))
+        )
+        tokens: list[str] = []
+        for part in raw:
+            token = part.strip().lower()
+            if not token:
+                continue
+            if not _CLASS_TOKEN_RE.match(token):
+                return {"error": f"Invalid class name in training classes: {token!r}"}
+            if token not in tokens:
+                tokens.append(token)
+        if tokens:
+            cmd += ["--classes", ",".join(tokens)]
 
     rf_cfg = sources.get("roboflow", {})
     rf_key = rf_cfg.get("api_key", "")

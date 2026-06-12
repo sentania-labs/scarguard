@@ -63,7 +63,7 @@ Run these before considering any code change done (mirrors CI exactly):
 
 ```bash
 # Ruff — all services (detector included; no GPU deps needed)
-ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/backup/src shared
+ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/backup/src services/trainer/src shared training
 
 # mypy — web (detector is excluded from CI: torch/opencv not available outside L4T)
 MYPYPATH=services/web/src:shared \

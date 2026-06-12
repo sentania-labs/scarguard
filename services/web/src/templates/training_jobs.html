@@ -49,6 +49,12 @@
       <p class="hint">Each upload's own settings (model, confidence threshold, hints) are used. Edit them on the <a href="/admin/training/uploads">Uploads</a> page.</p>
     </div>
 
+    <div class="field-group" id="classes-field">
+      <label>Classes <span class="muted">(comma-separated; order defines model class indices)</span></label>
+      <input type="text" name="classes" id="classes-input" value="{{ training_classes_default }}">
+      <p class="hint">Classes beyond detection targets are distractors — trained so the model learns what <em>not</em> to call a heron, but never alerted on. Overrides a "classes" key in the JSON parameters.</p>
+    </div>
+
     <div class="field-group" id="json-params-fields">
       <label>Parameters (JSON)</label>
       <textarea name="params_json" id="params-json" rows="3" style="font-family:var(--mono);font-size:0.8rem;">{}</textarea>

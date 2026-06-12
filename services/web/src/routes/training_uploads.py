@@ -38,6 +38,25 @@ MAX_UPLOAD_BYTES: int | None = (
     else 500 * 1024 * 1024  # 500 MB default
 )
 PAGE_SIZE = 25
+
+
+def _label_class_options() -> list[str]:
+    """Class suggestions for the labeling datalists: the training class
+    list (training.defaults.classes or built-in default) merged with
+    detection.target_classes. Free-text entry remains allowed — the
+    datalist is suggestion-only."""
+    import config_store
+
+    from routes.training_jobs import training_classes_default
+
+    cfg = config_store.load_cached()
+    training_classes = [
+        c.strip() for c in training_classes_default().split(",") if c.strip()
+    ]
+    detect = cfg.get("detection", {}).get("target_classes", []) or []
+    return list(dict.fromkeys(training_classes + list(detect)))
+
+
 _UPLOAD_LIST_URL = "/admin/training/uploads"
 
 _SAFE_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -490,9 +509,7 @@ async def label_page(
             upload_id, event["id"], review_state=rs, detection_pass=dp,
         )
 
-    import config_store
-    cfg = config_store.load_cached()
-    target_classes = cfg.get("detection", {}).get("target_classes", [])
+    target_classes = _label_class_options()
 
     return templates.TemplateResponse(
         request,
@@ -565,9 +582,7 @@ async def review_event(
     else:
         prev_event = None
 
-    import config_store
-    cfg = config_store.load_cached()
-    target_classes = cfg.get("detection", {}).get("target_classes", [])
+    target_classes = _label_class_options()
 
     return templates.TemplateResponse(
         request,
@@ -796,9 +811,7 @@ async def browse_frame(
         if i < len(sampled) - 1:
             next_frame = sampled[i + 1]
 
-    import config_store
-    cfg = config_store.load_cached()
-    target_classes = cfg.get("detection", {}).get("target_classes", [])
+    target_classes = _label_class_options()
 
     return templates.TemplateResponse(
         request,
