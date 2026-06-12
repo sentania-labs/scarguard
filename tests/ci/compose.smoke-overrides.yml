@@ -1,0 +1,10 @@
+# Compose overrides for the CI smoke test (build.yml compose-smoke-test job).
+# Layered on top of docker-compose.yml via COMPOSE_FILE.
+#
+# The production detector limit (cpus: 4.0) is sized for the Orin's 6
+# cores; the x86 runner host has fewer, and Docker rejects a cpus limit
+# above the host count. The smoke test only verifies the stack starts,
+# so cap it to what any runner host can satisfy.
+services:
+  detector:
+    cpus: 1.0

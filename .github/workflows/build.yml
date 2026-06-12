@@ -573,7 +573,7 @@ jobs:
 
       - name: Start stack (CPU mode)
         env:
-          COMPOSE_FILE: docker-compose.yml
+          COMPOSE_FILE: docker-compose.yml:tests/ci/compose.smoke-overrides.yml
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
@@ -588,7 +588,7 @@ jobs:
 
       - name: Health checks
         env:
-          COMPOSE_FILE: docker-compose.yml
+          COMPOSE_FILE: docker-compose.yml:tests/ci/compose.smoke-overrides.yml
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
@@ -635,7 +635,7 @@ jobs:
       - name: Tear down
         if: always()
         env:
-          COMPOSE_FILE: docker-compose.yml
+          COMPOSE_FILE: docker-compose.yml:tests/ci/compose.smoke-overrides.yml
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
