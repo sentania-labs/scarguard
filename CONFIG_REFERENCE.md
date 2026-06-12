@@ -172,10 +172,14 @@ Labeled events power the training pipeline:
 ### Training Configuration (`training:` section)
 
 The `training:` YAML section configures the trainer service (dataset
-preparation and on-device fine-tuning jobs). It is a passthrough section:
-not part of the structured config UI's schema, but preserved by UI saves.
-`training.sources.roboflow.api_key` is sensitive (encrypted at rest,
-redacted for viewers).
+preparation and on-device fine-tuning jobs). It is editable on the
+Config page under the **Training** sub-tab (v1.16.7+).
+`training.sources.roboflow.api_key` is sensitive: redacted in the UI
+and raw-YAML views, but stored in plaintext — the trainer reads
+`scarguard.yml` directly and cannot decrypt secret-box values (same
+trade-off as camera RTSP URLs for the detector). Without a Roboflow
+key, dataset preparation skips the Roboflow Universe sources and logs
+a warning — heron training coverage depends on them.
 
 | Key | Default | Description |
 |---|---|---|

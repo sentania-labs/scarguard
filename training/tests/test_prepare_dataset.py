@@ -93,3 +93,18 @@ def test_build_remap_drops_inactive_classes():
         0: pd.UNIFIED_CLASSES.index("heron"),
         1: pd.UNIFIED_CLASSES.index("person"),
     }
+
+
+def test_merge_and_split_writes_absolute_dataset_path(tmp_path):
+    """ultralytics resolves a relative ``path`` against the process cwd,
+    so data.yaml must carry the absolute dataset directory."""
+    img = tmp_path / "img.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0fake-jpeg")
+    samples = [
+        pd.Sample(image=img, label_lines=["0 0.5 0.5 0.2 0.2"], source="test"),
+    ]
+    out = tmp_path / "merged"
+    pd.merge_and_split(samples, out, val_split=0.5, seed=1)
+    text = (out / "data.yaml").read_text()
+    assert f"path: {out}\n" in text
+    assert "path: .\n" not in text

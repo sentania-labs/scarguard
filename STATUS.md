@@ -80,6 +80,20 @@
   battery devices — the Tuya LAN fallback listed in ROADMAP Future Ideas is
   explicitly not viable for sleeping devices.
 
+## Recently Fixed (v1.16.7)
+
+- **Containerized training first-run bugs.** The trainer service's
+  `prepare_and_train` path had never run end-to-end (pond_v1/v2 were
+  trained by hand). Four defects found and fixed during the first real
+  run: silent Roboflow skip when no API key is configured (now a loud
+  warning in the job log and result), bare base-model names triggering
+  a GitHub download instead of using a checkpoint staged in `/models`,
+  ultralytics writing run output to the read-only `/app` (now directed
+  to the training workspace via `--project`), and `data.yaml` carrying
+  a relative `path:` that only resolved when cwd was the dataset dir
+  (now absolute). Training settings (Roboflow key, base model, epochs,
+  etc.) are now editable in the Config UI under the Training sub-tab.
+
 ## Not Yet Built
 
 - Custom-trained heron model (have the tooling now, need labeled data)

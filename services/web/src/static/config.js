@@ -105,7 +105,7 @@ document.querySelectorAll(".subtab-btn").forEach(btn => {
 });
 
 (function initSubtab() {
-  const valid = ["system", "detection", "cameras", "notifications", "advanced"];
+  const valid = ["system", "detection", "cameras", "notifications", "training", "advanced"];
   const hash = (location.hash || "").replace(/^#/, "");
   _activateSubtab(valid.includes(hash) ? hash : "system");
 })();
@@ -574,6 +574,34 @@ function readForm() {
     deterrent: {
       enabled: document.getElementById("deterrent-enabled").checked,
     },
+    training: {
+      sources: {
+        roboflow: {
+          api_key: document.getElementById("training-roboflow-key").value.trim(),
+        },
+        open_images: {
+          // 0 is a valid cap (skip OID images entirely) — don't || it away.
+          max_per_class: (v => isNaN(v) ? 1500 : v)(parseInt(document.getElementById("training-oid-max").value, 10)),
+          workers: parseInt(document.getElementById("training-oid-workers").value, 10) || 16,
+        },
+      },
+      defaults: {
+        base_model: document.getElementById("training-base-model").value.trim() || "yolov8n.pt",
+        epochs: parseInt(document.getElementById("training-epochs").value, 10) || 100,
+        image_size: parseInt(document.getElementById("training-imgsz").value, 10) || 480,
+        batch_size: parseInt(document.getElementById("training-batch").value, 10) || 2,
+        patience: parseInt(document.getElementById("training-patience").value, 10) || 20,
+        val_split: parseFloat(document.getElementById("training-val-split").value) || 0.15,
+        classes: document.getElementById("training-classes").value
+          .split(",").map(s => s.trim().toLowerCase()).filter(Boolean).join(","),
+      },
+      video: {
+        low_confidence: parseFloat(document.getElementById("training-video-lowconf").value) || 0.05,
+        dedupe_iou: parseFloat(document.getElementById("training-video-dedupe-iou").value) || 0.85,
+        dedupe_window: parseInt(document.getElementById("training-video-dedupe-window").value, 10) || 5,
+        background_sample_interval: parseInt(document.getElementById("training-bg-interval").value, 10) || 10,
+      },
+    },
   };
 }
 
@@ -604,6 +632,10 @@ function validate(data) {
     errors.push("TLS: Certificate path is required for manual mode");
   if (tls.mode === "manual" && !tls.key_path)
     errors.push("TLS: Key path is required for manual mode");
+
+  const vs = data.training.defaults.val_split;
+  if (isNaN(vs) || vs <= 0 || vs >= 1)
+    errors.push("Training: validation split must be between 0 and 1 (exclusive)");
 
   const sched = data.system.schedule;
   const timeRe = /^\d{2}:\d{2}$/;
@@ -1417,6 +1449,15 @@ function _markRevealed(input, revealed) {
 }
 
 function _applySecrets(secrets) {
+  // Training Roboflow API key
+  if (secrets.roboflow_api_key) {
+    var rfEl = document.getElementById("training-roboflow-key");
+    if (rfEl) {
+      rfEl.value = secrets.roboflow_api_key;
+      _markRevealed(rfEl, true);
+    }
+  }
+
   // Camera RTSP URLs
   if (Array.isArray(secrets.cameras)) {
     var camCards = document.querySelectorAll("#cameras-list .camera-card");

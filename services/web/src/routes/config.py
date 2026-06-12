@@ -21,6 +21,7 @@ from config_model import (
     StructuredConfigPayload,
     SystemConfig,
     TLSConfig,
+    TrainingConfig,
 )
 from config_redact import (
     _CHANNEL_SENSITIVE_KEYS,
@@ -103,6 +104,7 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
         tls=_section(TLSConfig, raw_cfg.get("tls", {})),
         deterrent=_section(ActuationConfig, raw_cfg.get("deterrent", {})),
+        training=_section(TrainingConfig, raw_cfg.get("training", {})),
     )
 
 
@@ -126,6 +128,9 @@ def _redact_parsed_cfg(cfg: StructuredConfigPayload) -> None:
         tuya.api_key = REDACTED_PLACEHOLDER
     if tuya.api_secret:
         tuya.api_secret = REDACTED_PLACEHOLDER
+    roboflow = cfg.training.sources.roboflow
+    if roboflow.api_key:
+        roboflow.api_key = REDACTED_PLACEHOLDER
 
 
 def _cameras_json(cfg_cameras: list[CameraConfig]) -> str:
@@ -275,8 +280,12 @@ async def get_secrets(request: Request) -> Response:
 
     result: dict[str, Any] = {}
 
-    # Structural paths — tuya keys
+    # Structural paths — tuya keys.  The training Roboflow key is handled
+    # separately below: this loop keys results by last path segment, which
+    # would collide with the Tuya ``api_key``.
     for path in _STRUCTURAL_PATHS:
+        if path[0] == "training":
+            continue
         val: Any = cfg
         for seg in path:
             if seg == "[]":
@@ -288,6 +297,12 @@ async def get_secrets(request: Request) -> Response:
                 break
         if isinstance(val, str) and val:
             result[path[-1]] = val
+
+    rf_val: Any = cfg
+    for seg in ("training", "sources", "roboflow", "api_key"):
+        rf_val = rf_val.get(seg) if isinstance(rf_val, dict) else None
+    if isinstance(rf_val, str) and rf_val:
+        result["roboflow_api_key"] = rf_val
 
     # Camera RTSP URLs
     cameras: list[dict[str, str]] = []
@@ -460,6 +475,33 @@ async def save_structured_config(request: Request) -> Response:
         existing_act = {}
     existing_act["enabled"] = payload.deterrent.enabled
     existing["deterrent"] = existing_act
+
+    # Merge training: nested-merge each group so keys the form doesn't know
+    # about survive.  A redacted Roboflow key means "unchanged" — drop it so
+    # the existing secret is preserved.
+    existing_training = existing.get("training", {})
+    if not isinstance(existing_training, dict):
+        existing_training = {}
+    training_dump = payload.training.model_dump(exclude_unset=True)
+    rf_dump = training_dump.get("sources", {}).get("roboflow", {})
+    if rf_dump.get("api_key") == REDACTED_PLACEHOLDER:
+        rf_dump.pop("api_key")
+    for group in ("sources", "defaults", "video"):
+        if group in training_dump:
+            existing_group = existing_training.get(group, {})
+            if not isinstance(existing_group, dict):
+                existing_group = {}
+            if group == "sources":
+                # sources has its own nested dicts (roboflow, open_images)
+                for src_key, src_val in training_dump[group].items():
+                    existing_src = existing_group.get(src_key, {})
+                    if not isinstance(existing_src, dict):
+                        existing_src = {}
+                    existing_group[src_key] = {**existing_src, **src_val}
+                training_dump[group] = existing_group
+            else:
+                training_dump[group] = {**existing_group, **training_dump[group]}
+    existing["training"] = {**existing_training, **training_dump}
 
     config_store.save(existing)
     warnings = _find_orphan_references(existing)
