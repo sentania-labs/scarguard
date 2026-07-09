@@ -9,7 +9,9 @@ ARG PYTORCH_TAG=2.6.0-cuda12.4-cudnn9-runtime
 FROM pytorch/pytorch:${PYTORCH_TAG}
 
 # OpenCV headless deps (no GStreamer needed on x86 — cv2 handles RTSP directly)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# upgrade -y: the pytorch base image ships stale Ubuntu packages
+# (e.g. linux-libc-dev kernel-header CVEs) that trip the Trivy gate.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     gosu \
