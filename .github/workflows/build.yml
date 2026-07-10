@@ -77,7 +77,7 @@ jobs:
         if: github.event_name != 'push'
         run: |
           docker build \
-            --tag scarguard-web:test \
+            --tag scarguard-web:test-${{ github.run_id }} \
             --file services/web/Dockerfile \
             --build-arg VERSION=dev-${{ github.sha }} \
             --build-arg GIT_COMMIT=${{ github.sha }} \
@@ -89,7 +89,7 @@ jobs:
         if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
-          image-ref: scarguard-web:test
+          image-ref: scarguard-web:test-${{ github.run_id }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -103,7 +103,7 @@ jobs:
       - name: Test web in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-web:test sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root --entrypoint "" scarguard-web:test-${{ github.run_id }} sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/web/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -113,7 +113,7 @@ jobs:
 
       - name: Clean up
         if: always() && github.event_name != 'push'
-        run: docker rmi scarguard-web:test || true
+        run: docker rmi scarguard-web:test-${{ github.run_id }} || true
 
   # ── Build notifier (x86 runner) ─────────────────────────────────────────────
   build-notifier:
@@ -153,14 +153,14 @@ jobs:
         if: github.event_name != 'push'
         run: |
           docker build \
-            --tag scarguard-notifier:test \
+            --tag scarguard-notifier:test-${{ github.run_id }} \
             --file services/notifier/Dockerfile \
             .
 
       - name: Test notifier in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-notifier:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root --entrypoint "" scarguard-notifier:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -172,7 +172,7 @@ jobs:
         if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
-          image-ref: scarguard-notifier:test
+          image-ref: scarguard-notifier:test-${{ github.run_id }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -181,7 +181,7 @@ jobs:
 
       - name: Clean up
         if: always() && github.event_name != 'push'
-        run: docker rmi scarguard-notifier:test || true
+        run: docker rmi scarguard-notifier:test-${{ github.run_id }} || true
 
   # ── Build deterrent (x86 runner) ─────────────────────────────────────────────
   build-deterrent:
@@ -221,14 +221,14 @@ jobs:
         if: github.event_name != 'push'
         run: |
           docker build \
-            --tag scarguard-deterrent:test \
+            --tag scarguard-deterrent:test-${{ github.run_id }} \
             --file services/deterrent/Dockerfile \
             .
 
       - name: Test deterrent in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-deterrent:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root --entrypoint "" scarguard-deterrent:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/deterrent/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -240,7 +240,7 @@ jobs:
         if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
-          image-ref: scarguard-deterrent:test
+          image-ref: scarguard-deterrent:test-${{ github.run_id }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -249,7 +249,7 @@ jobs:
 
       - name: Clean up
         if: always() && github.event_name != 'push'
-        run: docker rmi scarguard-deterrent:test || true
+        run: docker rmi scarguard-deterrent:test-${{ github.run_id }} || true
 
   # ── Build backup (x86 runner) ───────────────────────────────────────────────
   build-backup:
@@ -289,14 +289,14 @@ jobs:
         if: github.event_name != 'push'
         run: |
           docker build \
-            --tag scarguard-backup:test \
+            --tag scarguard-backup:test-${{ github.run_id }} \
             --file services/backup/Dockerfile \
             .
 
       - name: Test backup in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-backup:test sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          cid=$(docker create --user root --entrypoint "" scarguard-backup:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
           docker cp ${{ github.workspace }}/services/backup/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -308,7 +308,7 @@ jobs:
         if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
-          image-ref: scarguard-backup:test
+          image-ref: scarguard-backup:test-${{ github.run_id }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -317,7 +317,7 @@ jobs:
 
       - name: Clean up
         if: always() && github.event_name != 'push'
-        run: docker rmi scarguard-backup:test || true
+        run: docker rmi scarguard-backup:test-${{ github.run_id }} || true
 
   # ── Build caddy (x86 runner) ────────────────────────────────────────────────
   build-caddy:
@@ -386,7 +386,7 @@ jobs:
         if: github.event_name != 'push'
         run: |
           docker build \
-            --tag scarguard-log-streamer:test \
+            --tag scarguard-log-streamer:test-${{ github.run_id }} \
             --file services/log-streamer/Dockerfile \
             .
 
@@ -394,7 +394,7 @@ jobs:
         if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
-          image-ref: scarguard-log-streamer:test
+          image-ref: scarguard-log-streamer:test-${{ github.run_id }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -403,7 +403,7 @@ jobs:
 
       - name: Clean up
         if: always() && github.event_name != 'push'
-        run: docker rmi scarguard-log-streamer:test || true
+        run: docker rmi scarguard-log-streamer:test-${{ github.run_id }} || true
 
   # ── Build trainer — Jetson/L4T (Orin runner, ARM64) ──────────────────────────
   # Same L4T base as detector — ARM64 only, no x86 variant.
@@ -419,17 +419,17 @@ jobs:
         run: |
           docker build \
             --file services/trainer/Dockerfile \
-            --tag scarguard-trainer:build-validate \
+            --tag scarguard-trainer:build-validate-${{ github.run_id }} \
             .
 
       - name: Import smoke test
         run: |
-          docker run --rm scarguard-trainer:build-validate \
+          docker run --rm scarguard-trainer:build-validate-${{ github.run_id }} \
             python3 -c "import yaml, redis, cv2; from ultralytics import YOLO; print('Trainer imports OK')"
 
       - name: Clean up
         if: always()
-        run: docker rmi scarguard-trainer:build-validate || true
+        run: docker rmi scarguard-trainer:build-validate-${{ github.run_id }} || true
 
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   build-detector:
@@ -444,7 +444,7 @@ jobs:
         run: |
           docker build \
             --file services/detector/Dockerfile \
-            --tag scarguard-detector:build-validate \
+            --tag scarguard-detector:build-validate-${{ github.run_id }} \
             .
 
       - name: GPU smoke test
@@ -452,7 +452,7 @@ jobs:
           docker run --rm \
             --runtime nvidia \
             -e NVIDIA_VISIBLE_DEVICES=all \
-            scarguard-detector:build-validate \
+            scarguard-detector:build-validate-${{ github.run_id }} \
             python3 -c "
           import torch
           assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
@@ -468,7 +468,7 @@ jobs:
       - name: Inference benchmark (GPU)
         run: |
           cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
-            scarguard-detector:build-validate python3 /ci/smoke_inference.py)
+            scarguard-detector:build-validate-${{ github.run_id }} python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           docker start -a "$cid"
           rc=$?
@@ -477,7 +477,7 @@ jobs:
 
       - name: Clean up build-validate image
         if: always()
-        run: docker rmi scarguard-detector:build-validate || true
+        run: docker rmi scarguard-detector:build-validate-${{ github.run_id }} || true
 
   # ── Build detector — x86 CUDA+CPU (x86 runner) ─────────────────────────────
   build-detector-x86:
@@ -492,14 +492,14 @@ jobs:
         run: |
           docker build \
             --file services/detector/Dockerfile.x86 \
-            --tag scarguard-detector-x86:build-validate \
+            --tag scarguard-detector-x86:build-validate-${{ github.run_id }} \
             .
 
       # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
       - name: Inference benchmark (CPU)
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-detector-x86:build-validate python3 /ci/smoke_inference.py)
+          cid=$(docker create --user root --entrypoint "" scarguard-detector-x86:build-validate-${{ github.run_id }} python3 /ci/smoke_inference.py)
           docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
           docker start -a "$cid"
           rc=$?
@@ -510,7 +510,7 @@ jobs:
         if: github.event_name != 'push'
         uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
-          image-ref: scarguard-detector-x86:build-validate
+          image-ref: scarguard-detector-x86:build-validate-${{ github.run_id }}
           format: table
           exit-code: 1
           severity: CRITICAL
@@ -523,7 +523,7 @@ jobs:
 
       - name: Clean up
         if: always()
-        run: docker rmi scarguard-detector-x86:build-validate || true
+        run: docker rmi scarguard-detector-x86:build-validate-${{ github.run_id }} || true
 
   # ── Compose smoke test (x86 runner) ─────────────────────────────────────────
   compose-smoke-test:

@@ -483,7 +483,7 @@ the v1.14 migration window.
 
 ---
 
-## v0.16.6 — distractor training classes (in progress)
+## v1.16.6 — distractor training classes (in progress)
 
 Fixes the "humans look like herons" failure mode of pond_v1: a model
 trained on only 3 classes loses the pretrained features that

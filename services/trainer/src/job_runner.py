@@ -380,10 +380,18 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
 
     rf_cfg = sources.get("roboflow", {})
     rf_key = rf_cfg.get("api_key", "")
+    roboflow_key_missing = False
     if rf_key and not ctx.params.get("skip_roboflow"):
         cmd += ["--roboflow-key", rf_key]
     else:
         cmd.append("--skip-roboflow")
+        if not ctx.params.get("skip_roboflow"):
+            roboflow_key_missing = True
+            ctx.append_log(
+                "WARNING: Roboflow source skipped — training.sources.roboflow.api_key "
+                "is not set in scarguard.yml. Heron coverage depends on Roboflow; "
+                "expect low annotation counts."
+            )
 
     if ctx.params.get("skip_orin"):
         cmd.append("--skip-orin")
@@ -396,7 +404,12 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
     cmd += ["--max-oid-per-class", str(ctx.params.get("max_oid_per_class", oid_cfg.get("max_per_class", 1500)))]
     cmd += ["--oid-workers", str(oid_cfg.get("workers", 16))]
 
-    return _run_subprocess(ctx, cmd, phase="prepare_dataset")
+    result = _run_subprocess(ctx, cmd, phase="prepare_dataset")
+    if roboflow_key_missing and "error" not in result:
+        result["warnings"] = [
+            "Roboflow source skipped: training.sources.roboflow.api_key is not configured"
+        ]
+    return result
 
 
 _SECRET_ARGS = {"--roboflow-key"}
@@ -423,12 +436,17 @@ def _run_subprocess(ctx: JobContext, cmd: list[str], phase: str) -> dict:
     ctx.publish_progress(phase, 0, f"Starting {phase}")
     ctx.append_log(f"$ {_redact_cmd(cmd)}")
 
+    # Run from the writable workspace: /app is read-only for the service
+    # user, and ultralytics resolves relative output paths and asset
+    # downloads against the process cwd.
+    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        cwd=str(WORKSPACE_DIR),
     )
 
     lines: list[str] = []
@@ -493,11 +511,20 @@ def _run_train(ctx: JobContext) -> dict:
     output_name = ctx.params.get("output_name", "trained.pt")
     output_path = Path(MODELS_DIR) / output_name
 
+    # Bare checkpoint names resolve against MODELS_DIR when staged there,
+    # so a local yolov8n.pt is used instead of a GitHub download.
+    base_model = str(ctx.params.get("base_model", defaults.get("base_model", "yolov8n.pt")) or "yolov8n.pt")
+    if "/" not in base_model:
+        staged = Path(MODELS_DIR) / base_model
+        if staged.is_file():
+            base_model = str(staged)
+
     cmd = [
         "python3", str(SCRIPTS_DIR / "train.py"),
         "--data", str(data_yaml),
-        "--base-model", ctx.params.get("base_model", defaults.get("base_model", "yolov8n.pt")),
+        "--base-model", base_model,
         "--output", str(output_path),
+        "--project", str(WORKSPACE_DIR / "runs"),
         "--epochs", str(ctx.params.get("epochs", defaults.get("epochs", 100))),
         "--imgsz", str(ctx.params.get("image_size", defaults.get("image_size", 480))),
         "--batch", str(ctx.params.get("batch_size", defaults.get("batch_size", 2))),

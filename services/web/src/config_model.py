@@ -310,6 +310,69 @@ class TLSConfig(BaseModel):
     key_path: str = "/config/certs/key.pem"
 
 
+class TrainingRoboflowConfig(BaseModel):
+    api_key: str = ""
+
+
+class TrainingOpenImagesConfig(BaseModel):
+    max_per_class: int = 1500
+    workers: int = 16
+
+
+class TrainingSourcesConfig(BaseModel):
+    roboflow: TrainingRoboflowConfig = TrainingRoboflowConfig()
+    open_images: TrainingOpenImagesConfig = TrainingOpenImagesConfig()
+
+
+class TrainingDefaultsConfig(BaseModel):
+    base_model: str = "yolov8n.pt"
+    epochs: int = 100
+    image_size: int = 480
+    batch_size: int = 2
+    patience: int = 20
+    val_split: float = 0.15
+    classes: str = ""
+
+    @field_validator("classes", mode="before")
+    @classmethod
+    def classes_to_str(cls, v: object) -> str:
+        # YAML may hold a list; the trainer accepts either, the form uses
+        # a comma-separated string.
+        if isinstance(v, (list, tuple)):
+            return ",".join(str(c) for c in v)
+        return str(v) if v is not None else ""
+
+    @field_validator("val_split", mode="before")
+    @classmethod
+    def val_split_clamp(cls, v: object) -> float:
+        # Coerce rather than raise: a strict validator here would make
+        # _parse_cfg fall back to a default TrainingConfig, rendering the
+        # form with an empty (not redacted) API key that the next save
+        # would persist — wiping the stored secret.
+        try:
+            f = float(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0.15
+        if not 0.0 < f < 1.0:
+            return 0.15
+        return f
+
+
+class TrainingVideoConfig(BaseModel):
+    low_confidence: float = 0.05
+    dedupe_iou: float = 0.85
+    dedupe_window: int = 5
+    background_sample_interval: int = 10
+
+
+class TrainingConfig(BaseModel):
+    """Training pipeline settings read by the trainer service."""
+
+    sources: TrainingSourcesConfig = TrainingSourcesConfig()
+    defaults: TrainingDefaultsConfig = TrainingDefaultsConfig()
+    video: TrainingVideoConfig = TrainingVideoConfig()
+
+
 class TuyaCredentialsConfig(BaseModel):
     api_key: str = ""
     api_secret: str = ""
@@ -428,3 +491,4 @@ class StructuredConfigPayload(BaseModel):
     notifications: NotificationsConfig = NotificationsConfig()
     tls: TLSConfig = TLSConfig()
     deterrent: ActuationConfig = ActuationConfig()
+    training: TrainingConfig = TrainingConfig()
