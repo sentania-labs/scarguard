@@ -41,6 +41,7 @@
     <button type="button" class="subtab-btn" data-subtab="detection">Detection</button>
     <button type="button" class="subtab-btn" data-subtab="cameras">Cameras</button>
     <button type="button" class="subtab-btn" data-subtab="notifications">Notifications</button>
+    <button type="button" class="subtab-btn" data-subtab="training">Training</button>
     <button type="button" class="subtab-btn subtab-advanced expert-only" data-subtab="advanced">Advanced</button>
   </div>
 
@@ -244,6 +245,94 @@
           <div class="field-group expert-only">
             <label>Frame skip (process every Nth frame)</label>
             <input type="number" id="det-frame-skip" value="{{ cfg.detection.frame_skip }}" min="1" max="60">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Training ─────────────────────────────────────────────────────────────── #}
+  <div class="config-section" id="section-training" data-subtab="training">
+    <div class="config-section-header" data-toggle-section="section-training">
+      <span class="config-section-label">Training</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <div class="field-group">
+          <label>Roboflow API key</label>
+          <input type="text" id="training-roboflow-key" value="{{ cfg.training.sources.roboflow.api_key }}"
+                 placeholder="Get a free key at roboflow.com → Settings → API Keys">
+          <p class="hint">
+            Without a key, dataset preparation skips the Roboflow Universe
+            datasets — heron coverage depends on them.
+          </p>
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Open Images: max images per class</label>
+            <input type="number" id="training-oid-max" value="{{ cfg.training.sources.open_images.max_per_class }}" min="0" max="50000">
+          </div>
+          <div class="field-group expert-only">
+            <label>Open Images: download threads</label>
+            <input type="number" id="training-oid-workers" value="{{ cfg.training.sources.open_images.workers }}" min="1" max="64">
+          </div>
+        </div>
+        <div class="field-group">
+          <label>Base model (checkpoint to fine-tune from)</label>
+          <input type="text" id="training-base-model" value="{{ cfg.training.defaults.base_model }}"
+                 placeholder="/models/yolov8n.pt">
+          <p class="hint">
+            Bare names (e.g. <code>yolov8n.pt</code>) resolve against the
+            models directory when staged there, otherwise download from
+            the ultralytics GitHub releases.
+          </p>
+        </div>
+        <div class="field-group">
+          <label>Training classes (comma-separated, order defines model class indices)</label>
+          <input type="text" id="training-classes" value="{{ cfg.training.defaults.classes }}"
+                 placeholder="duck, heron, raccoon, person, dog, cat, plant">
+        </div>
+        <div class="field-row">
+          <div class="field-group">
+            <label>Epochs</label>
+            <input type="number" id="training-epochs" value="{{ cfg.training.defaults.epochs }}" min="1" max="1000">
+          </div>
+          <div class="field-group">
+            <label>Image size</label>
+            <input type="number" id="training-imgsz" value="{{ cfg.training.defaults.image_size }}" min="160" max="1920" step="32">
+          </div>
+          <div class="field-group">
+            <label>Batch size</label>
+            <input type="number" id="training-batch" value="{{ cfg.training.defaults.batch_size }}" min="1" max="128">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field-group expert-only">
+            <label>Early-stop patience (epochs)</label>
+            <input type="number" id="training-patience" value="{{ cfg.training.defaults.patience }}" min="1" max="200">
+          </div>
+          <div class="field-group expert-only">
+            <label>Validation split</label>
+            <input type="number" id="training-val-split" value="{{ cfg.training.defaults.val_split }}" min="0.01" max="0.5" step="0.01">
+          </div>
+          <div class="field-group expert-only">
+            <label>Background sample interval (every Nth frame)</label>
+            <input type="number" id="training-bg-interval" value="{{ cfg.training.video.background_sample_interval }}" min="1" max="300">
+          </div>
+        </div>
+        <div class="field-row expert-only">
+          <div class="field-group">
+            <label>Video: low-confidence pass threshold</label>
+            <input type="number" id="training-video-lowconf" value="{{ cfg.training.video.low_confidence }}" min="0.01" max="1" step="0.01">
+          </div>
+          <div class="field-group">
+            <label>Video: dedup IoU threshold</label>
+            <input type="number" id="training-video-dedupe-iou" value="{{ cfg.training.video.dedupe_iou }}" min="0.1" max="1" step="0.05">
+          </div>
+          <div class="field-group">
+            <label>Video: dedup frame window</label>
+            <input type="number" id="training-video-dedupe-window" value="{{ cfg.training.video.dedupe_window }}" min="1" max="60">
           </div>
         </div>
       </div>

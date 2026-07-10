@@ -850,6 +850,7 @@ def merge_and_split(
     seed: int,
 ) -> None:
     """Write a unified YOLO dataset with a randomised train/val split."""
+    output_dir = output_dir.resolve()
     print(f"\n{'='*60}")
     print(f"Merging {len(samples)} samples")
     print("=" * 60)
@@ -899,9 +900,11 @@ def merge_and_split(
         else:
             n_background += 1
 
+    # Absolute path: ultralytics resolves a relative ``path`` against the
+    # process cwd (or its datasets_dir), not the data.yaml location.
     (output_dir / "data.yaml").write_text(
         f"# ScarGuard merged training dataset\n"
-        f"path: .\n"
+        f"path: {output_dir}\n"
         f"train: images/train\n"
         f"val: images/val\n"
         f"\n"

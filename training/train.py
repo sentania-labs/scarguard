@@ -47,6 +47,10 @@ def _parse_args() -> argparse.Namespace:
         help="Device to train on (0 for GPU, cpu for CPU)",
     )
     p.add_argument(
+        "--project", type=str, default="runs",
+        help="Directory for ultralytics run output (must be writable)",
+    )
+    p.add_argument(
         "--force", action="store_true",
         help="Proceed even if a class has fewer than 500 images",
     )
@@ -174,6 +178,7 @@ def main() -> None:
         batch=args.batch,
         patience=args.patience,
         device=args.device,
+        project=args.project,
         verbose=True,
     )
 

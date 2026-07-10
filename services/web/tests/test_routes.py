@@ -260,6 +260,68 @@ class TestConfig:
         assert saved["redis"] == {"host": "redis", "port": 6379}
         assert "webhooks" in saved
 
+    def test_structured_save_training_merge(self, client, monkeypatch):
+        """Training saves keep the real Roboflow key when redacted and
+        preserve video keys the form doesn't send."""
+        existing = {
+            "system": {"armed": True, "log_level": "info"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": 0.25,
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {},
+            "training": {
+                "sources": {"roboflow": {"api_key": "real-secret-key"}},
+                "video": {"low_confidence": 0.07},
+            },
+        }
+        saved_cfgs = []
+        monkeypatch.setattr("config_store.load", lambda: existing)
+        monkeypatch.setattr("config_store.save", lambda cfg: saved_cfgs.append(cfg))
+
+        payload = {
+            "system": {"armed": True, "log_level": "info"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": 0.25,
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {"channels": []},
+            "training": {
+                "sources": {
+                    "roboflow": {"api_key": "***REDACTED***"},
+                    "open_images": {"max_per_class": 2000, "workers": 16},
+                },
+                "defaults": {
+                    "base_model": "yolov8n.pt",
+                    "epochs": 150,
+                    "image_size": 480,
+                    "batch_size": 2,
+                    "patience": 20,
+                    "val_split": 0.15,
+                    "classes": "duck,heron",
+                },
+            },
+        }
+        resp = client.post("/config/structured", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        saved = saved_cfgs[0]
+        # Redacted placeholder must not clobber the stored secret.
+        assert saved["training"]["sources"]["roboflow"]["api_key"] == "real-secret-key"
+        # Sections the form did not send survive untouched.
+        assert saved["training"]["video"]["low_confidence"] == 0.07
+        # New values land.
+        assert saved["training"]["defaults"]["epochs"] == 150
+        assert saved["training"]["sources"]["open_images"]["max_per_class"] == 2000
+
     def test_structured_save_preserves_existing_timezone_when_omitted(self, client, monkeypatch):
         """Structured saves that omit system.timezone must not reset it to UTC."""
         existing = {
