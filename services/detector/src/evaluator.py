@@ -260,7 +260,7 @@ class EvaluationRunner:
             try:
                 # name + exist_ok pin the save_dir so ultralytics' increment_path
                 # doesn't create /tmp/runs/predict{N} per call.  See detector.py
-                # predict() and INFERENCE_INVESTIGATION.md for the full story.
+                # predict() and docs/archive/INFERENCE_INVESTIGATION.md for the full story.
                 results = model.predict(
                     frame,
                     conf=0.1,

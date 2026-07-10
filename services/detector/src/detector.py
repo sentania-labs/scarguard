@@ -40,7 +40,7 @@ class YOLODetector:
         logger.info("Model ready (classes: %s)", sorted(self.target_classes))
         # v0.12.7: predict() uses a pinned save_dir to avoid ultralytics'
         # increment_path O(N) scan.  Log the pin so the fix is visible in
-        # production logs.  See INFERENCE_INVESTIGATION.md.
+        # production logs.  See docs/archive/INFERENCE_INVESTIGATION.md.
         logger.info("Inference save_dir pinned to /tmp/runs/predict (exist_ok=True)")
 
     def unload(self) -> None:
@@ -84,7 +84,7 @@ class YOLODetector:
             # existing predict{N} via os.path.exists() to find the next free
             # integer.  Under sustained load the directory count grows without
             # bound and each predict() call becomes O(N) in filesystem syscalls.
-            # (We hit this in production — see INFERENCE_INVESTIGATION.md.)
+            # (We hit this in production — see docs/archive/INFERENCE_INVESTIGATION.md.)
             # exist_ok=True makes increment_path reuse /tmp/runs/predict and
             # short-circuits the scan loop on the very first iteration.
             results = self._model.predict(
