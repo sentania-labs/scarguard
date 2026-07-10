@@ -28,6 +28,8 @@ services:
       - RUNNER_NAME=${RUNNER_NAME:-orin-nano}
       - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,arm64,jetson}
       - REPO_URL=${REPO_URL}
+      # GitHub is retiring Node 20 action runtimes; runners are Node 24-capable
+      - FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true
     volumes:
       # Persistent runner config — survives rebuilds, avoids re-registration
       - runner-data:/home/runner
