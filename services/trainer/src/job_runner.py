@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from pause_protocol import PauseClient
+from pause_protocol import DEFAULT_PAUSE_TIMEOUT, PauseClient
 from redis_client import make_sync_client
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class JobContext:
     def is_cancelled(self) -> bool:
         return bool(self._redis.exists(_cancel_key(self.job_id))) or self.stop_event.is_set()
 
-    def pause_detector(self, timeout: int = 7200) -> bool:
+    def pause_detector(self, timeout: int = DEFAULT_PAUSE_TIMEOUT) -> bool:
         ok = self._pause_client.pause(timeout=timeout)
         if ok:
             self._pause_client.start_heartbeat()
@@ -98,7 +98,11 @@ class JobContext:
 
     def resume_detector(self) -> None:
         self._pause_client.stop_heartbeat()
-        self._pause_client.resume()
+        if not self._pause_client.resume():
+            logger.warning(
+                "Detector did not confirm resume — it may have auto-resumed "
+                "earlier (check detector logs for GPU contention during training)"
+            )
 
     def training_config(self) -> dict:
         return self.cfg.get("training", {})
