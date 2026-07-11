@@ -80,6 +80,27 @@
   battery devices — the Tuya LAN fallback listed in ROADMAP Future Ideas is
   explicitly not viable for sleeping devices.
 
+## Recently Fixed (unreleased)
+
+- **Detector auto-resume mid-training (OOM-killed pond_v3).** The
+  pause/resume protocol's hard timeout was 2 hours, but a real
+  `prepare_and_train` run takes 10+ hours on the Orin Nano. At the
+  2-hour mark the detector auto-resumed and reloaded its models while
+  training still held the GPU; the resulting memory contention
+  OOM-killed the training subprocess mid-validation (job `7eeb0cbb`,
+  2026-07-11 03:21Z). Ceiling raised to 24 hours — the 90s trainer
+  heartbeat TTL remains the crash guard. Also: the detector now acks a
+  resume request even when it is already running (previously the
+  trainer's post-job resume timed out with a misleading error after
+  any auto-resume), the paused state key is refreshed while paused so
+  the UI doesn't show "unknown" after STATE_TTL expires mid-run, and
+  the trainer logs a warning when the resume ack is missing instead of
+  silently ignoring it. Known limitation: the heartbeat proves the
+  trainer *process* is alive, not that training is progressing — a
+  hung training subprocess now costs up to 24h of detection downtime
+  (was 2h). Tying the heartbeat to subprocess output is a candidate
+  follow-up.
+
 ## Recently Fixed (v1.16.7)
 
 - **Containerized training first-run bugs.** The trainer service's

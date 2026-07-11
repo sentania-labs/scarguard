@@ -172,7 +172,7 @@ The web service creates these tables on startup (same pattern as existing
 ```
 Trainer                         Detector
    │                               │
-   │─── PUBLISH command ──────────►│  {"action":"pause", "request_id":"abc", "timeout":7200}
+   │─── PUBLISH command ──────────►│  {"action":"pause", "request_id":"abc", "timeout":86400}
    │    (scarguard:detector:command)│
    │                               │  1. Set paused_ref = True
    │                               │  2. Wait for in-flight inference to drain (≤5s)
@@ -236,7 +236,7 @@ pipeline logic.
 | OOM during training | Kernel kills trainer → heartbeat expires → auto-resume |
 
 **Hard requirement:** the detector must never remain paused indefinitely.
-The timeout (default 7200s) is the backstop.
+The timeout (default 86400s = 24h) is the backstop for a trainer that is alive but never finishes; the 90s heartbeat TTL is the crash guard.
 
 ### 4.5 Fallback: container stop/start
 
@@ -856,7 +856,7 @@ and the detector auto-resumes.
 
 ### 11.3 Pause timeout
 
-The pause request includes `timeout` (default 7200s).  The detector tracks
+The pause request includes `timeout` (default 86400s = 24h).  The detector tracks
 `paused_since` and auto-resumes when `now - paused_since > timeout`.
 This covers: trainer hung, heartbeat mechanism itself broken, Redis down.
 

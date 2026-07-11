@@ -49,6 +49,7 @@ class PauseHandler:
         self._watcher_stop = threading.Event()
         self._paused_since: float = 0.0
         self._pause_timeout: float = DEFAULT_PAUSE_TIMEOUT
+        self._pause_request_id: str = ""
         self._transition_lock = threading.Lock()
 
     def start(self) -> None:
@@ -93,6 +94,7 @@ class PauseHandler:
             logger.info("Pausing detector (request_id=%s, timeout=%ds)", request_id, timeout)
             self._paused_since = time.monotonic()
             self._pause_timeout = float(timeout)
+            self._pause_request_id = request_id
             self._paused_ref.set(True)
 
             self._global_stop.wait(_DRAIN_WAIT)
@@ -107,7 +109,11 @@ class PauseHandler:
     def _do_resume(self, request_id: str, reason: str = "command") -> None:
         with self._transition_lock:
             if not self._paused_ref.get():
-                logger.info("Not paused — ignoring resume request %s", request_id)
+                # Still ack: after an auto-resume the trainer's own resume
+                # request must not time out waiting for a state it can never
+                # see — republish "running" under the requester's id.
+                logger.info("Not paused — acking resume request %s as running", request_id)
+                self._publish_state("running", request_id=request_id)
                 return
 
             logger.info("Resuming detector (request_id=%s, reason=%s)", request_id, reason)
@@ -188,6 +194,11 @@ class PauseHandler:
                     logger.warning("Trainer heartbeat missing — auto-resuming")
                     self._do_resume("auto-heartbeat", reason="heartbeat-expired")
                     break
+
+                # Refresh the state key: a pause outlives STATE_TTL, and
+                # letting it expire shows the UI "unknown" for the rest of
+                # a long training run.
+                self._publish_state("paused", request_id=self._pause_request_id)
 
                 self._watcher_stop.wait(30)
         except Exception:

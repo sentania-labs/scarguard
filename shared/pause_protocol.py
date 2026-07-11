@@ -29,7 +29,13 @@ HEARTBEAT_INTERVAL = 30  # seconds between heartbeat writes
 HEARTBEAT_TTL = 90  # key TTL — expires if trainer stops writing
 
 # Default pause timeout — detector auto-resumes after this many seconds.
-DEFAULT_PAUSE_TIMEOUT = 7200  # 2 hours
+# This is a last-resort ceiling for a trainer that is alive (heartbeating)
+# but never finishes; the 90s heartbeat TTL is the crash guard. It must
+# comfortably exceed a real training run: a full prepare_and_train on the
+# Orin Nano runs 10+ hours, and an auto-resume mid-training puts detector
+# inference and the training subprocess on the GPU together, OOM-killing
+# the training run (pond_v3, 2026-07-11).
+DEFAULT_PAUSE_TIMEOUT = 86400  # 24 hours
 
 
 class PauseClient:
@@ -38,7 +44,7 @@ class PauseClient:
     Usage::
 
         client = PauseClient(redis_cfg)
-        if client.pause(timeout=7200):
+        if client.pause():
             client.start_heartbeat()
             try:
                 do_training_work()
