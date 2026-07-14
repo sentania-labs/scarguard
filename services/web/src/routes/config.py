@@ -444,9 +444,20 @@ async def save_structured_config(request: Request) -> Response:
             k: v for k, v in ch.items()
             if v != REDACTED_PLACEHOLDER
         }
+        # prev_name is UI-only metadata: the channel's name as of the last
+        # save.  A renamed channel no longer matches its existing entry by
+        # name, so without it the redacted-placeholder stripping above would
+        # silently drop the stored secrets.  Never persisted.
+        prev_name = cleaned.pop("prev_name", "")
         ch_name = cleaned.get("name", "")
         if ch_name and ch_name in existing_channels_by_name:
             merged_ch = {**existing_channels_by_name[ch_name], **cleaned}
+        elif (
+            ch_name
+            and isinstance(prev_name, str)
+            and prev_name in existing_channels_by_name
+        ):
+            merged_ch = {**existing_channels_by_name[prev_name], **cleaned}
         else:
             merged_ch = cleaned
         merged_channels.append(merged_ch)
