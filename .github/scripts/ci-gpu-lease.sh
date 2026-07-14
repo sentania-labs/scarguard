@@ -56,66 +56,69 @@ we_paused() {
 
 case "$ACTION" in
   acquire)
-    # 1. Claim the lease.  SET NX fails while a training run (or another CI
-    #    job) holds the heartbeat key, so wait for it to clear.
+    # Claim the lease, then pause the detector.  Both phases live in one
+    # retry loop bounded by TRAINER_WAIT_SECS: losing the lease to a trainer
+    # at ANY point (before the claim, or between our claim and the detector's
+    # pause ack) sends us back to waiting rather than failing the job.
     deadline=$(( $(date +%s) + TRAINER_WAIT_SECS ))
     while :; do
-      if [ "$(rcli SET "$HEARTBEAT_KEY" "$REQUEST_ID" NX EX "$LEASE_TTL")" = "OK" ]; then
-        # Claimed — but if the detector is already paused under a foreign
-        # request id, either that requester just crashed (heartbeat expired
-        # before the detector auto-resumed) or a trainer acked its pause
-        # milliseconds before writing its first heartbeat.  Wait one trainer
-        # heartbeat interval to tell them apart: a live trainer's plain SET
-        # overwrites our claim.
-        state="$(rcli GET "$STATE_KEY" || true)"
-        if echo "$state" | grep -q '"state": "paused"' && ! we_paused; then
-          echo "Detector paused under a foreign request id — checking for a live holder (35s)..."
-          sleep 35
-          if [ "$(rcli GET "$HEARTBEAT_KEY" || true)" = "$REQUEST_ID" ]; then
-            echo "Stale pause (holder crashed) — taking over the lease; GPU is already free."
-            exit 0
-          fi
-          echo "A live trainer reclaimed the lease — waiting."
-        else
-          break
-        fi
-      else
+      # Phase 1 — claim.  SET NX fails while a training run (or another CI
+      # job) holds the heartbeat key.
+      if [ "$(rcli SET "$HEARTBEAT_KEY" "$REQUEST_ID" NX EX "$LEASE_TTL")" != "OK" ]; then
         echo "GPU lease busy (holder: $(rcli GET "$HEARTBEAT_KEY" || true)) — retrying in 30s"
         sleep 30
+      elif state="$(rcli GET "$STATE_KEY" || true)" \
+          && echo "$state" | grep -q '"state": "paused"' && ! we_paused; then
+        # Claimed, but the detector is already paused under a foreign request
+        # id: either that requester just crashed (heartbeat expired before
+        # the detector auto-resumed) or a trainer acked its pause moments
+        # before writing its first heartbeat.  Wait one trainer heartbeat
+        # interval to tell them apart: a live trainer's plain SET overwrites
+        # our claim.
+        echo "Detector paused under a foreign request id — checking for a live holder (35s)..."
+        sleep 35
+        if [ "$(rcli GET "$HEARTBEAT_KEY" || true)" = "$REQUEST_ID" ]; then
+          echo "Stale pause (holder crashed) — taking over the lease; GPU is already free."
+          exit 0
+        fi
+        echo "A live trainer reclaimed the lease — waiting."
+      else
+        # Phase 2 — pause the detector and wait for its ack (drain + model
+        # unload takes a few seconds).  PUBLISH returns the subscriber
+        # count — zero means no detector is listening and the GPU is already
+        # free.  The command is re-published every poll round: a pause that
+        # raced an auto-resume is silently ignored by the detector, and
+        # re-sending converges.
+        echo "GPU lease claimed ($REQUEST_ID, TTL ${LEASE_TTL}s)"
+        ack_deadline=$(( $(date +%s) + PAUSE_ACK_SECS ))
+        while :; do
+          subs="$(rcli PUBLISH "$COMMAND_CHANNEL" "{\"action\": \"pause\", \"request_id\": \"$REQUEST_ID\", \"timeout\": $PAUSE_TIMEOUT}")"
+          if [ "$subs" = "0" ]; then
+            echo "No detector subscribed on $COMMAND_CHANNEL — nothing to pause."
+            exit 0
+          fi
+          for _ in 1 2 3 4 5; do
+            if we_paused; then
+              echo "Detector paused — GPU released for CI."
+              exit 0
+            fi
+            sleep 2
+          done
+          if [ "$(date +%s)" -ge "$ack_deadline" ]; then
+            # A trainer that paused concurrently owns the key now — its
+            # heartbeat must survive, and we go back to waiting it out.
+            if [ "$(rcli GET "$HEARTBEAT_KEY" || true)" != "$REQUEST_ID" ]; then
+              echo "Lease reclaimed by a trainer during the pause wait — back to waiting."
+              break
+            fi
+            rcli DEL "$HEARTBEAT_KEY" > /dev/null || true
+            echo "::error::Detector did not ack pause within ${PAUSE_ACK_SECS}s (state: $(rcli GET "$STATE_KEY" || true))"
+            exit 1
+          fi
+        done
       fi
       if [ "$(date +%s)" -ge "$deadline" ]; then
         echo "::error::GPU lease held by '$(rcli GET "$HEARTBEAT_KEY" || true)' for over ${TRAINER_WAIT_SECS}s (training run?) — re-run this job once it finishes."
-        exit 1
-      fi
-    done
-    echo "GPU lease claimed ($REQUEST_ID, TTL ${LEASE_TTL}s)"
-
-    # 2. Pause the detector and wait for its ack (drain + model unload takes
-    #    a few seconds).  PUBLISH returns the subscriber count — zero means
-    #    no detector is listening and the GPU is already free.  The command
-    #    is re-published every poll round: a pause that raced an auto-resume
-    #    is silently ignored by the detector, and re-sending converges.
-    deadline=$(( $(date +%s) + PAUSE_ACK_SECS ))
-    while :; do
-      subs="$(rcli PUBLISH "$COMMAND_CHANNEL" "{\"action\": \"pause\", \"request_id\": \"$REQUEST_ID\", \"timeout\": $PAUSE_TIMEOUT}")"
-      if [ "$subs" = "0" ]; then
-        echo "No detector subscribed on $COMMAND_CHANNEL — nothing to pause."
-        exit 0
-      fi
-      for _ in 1 2 3 4 5; do
-        if we_paused; then
-          echo "Detector paused — GPU released for CI."
-          exit 0
-        fi
-        sleep 2
-      done
-      if [ "$(date +%s)" -ge "$deadline" ]; then
-        # Drop the claim only if it is still ours — a trainer that paused
-        # concurrently owns the key now, and its heartbeat must survive.
-        if [ "$(rcli GET "$HEARTBEAT_KEY" || true)" = "$REQUEST_ID" ]; then
-          rcli DEL "$HEARTBEAT_KEY" > /dev/null || true
-        fi
-        echo "::error::Detector did not ack pause within ${PAUSE_ACK_SECS}s (state: $(rcli GET "$STATE_KEY" || true))"
         exit 1
       fi
     done
