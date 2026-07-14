@@ -302,6 +302,13 @@ jobs:
             --tag "$DETECTOR_IMAGE:latest" \
             .
 
+      # The Orin's GPU is single-tenant — take the pause-protocol lease so
+      # the release benchmark never contends with the live detector or a
+      # training run (v1.16.8 release benchmark was cancelled by exactly
+      # that contention).
+      - name: Acquire GPU lease (pause detector)
+        run: .github/scripts/ci-gpu-lease.sh acquire
+
       - name: GPU smoke test
         run: |
           docker run --rm \
@@ -324,6 +331,7 @@ jobs:
       - name: Inference benchmark (GPU)
         id: benchmark
         run: |
+          .github/scripts/ci-gpu-lease.sh refresh
           cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
             "$DETECTOR_IMAGE:$TAG" python3 /ci/smoke_inference.py)
           docker cp "$GITHUB_WORKSPACE/tests/ci/." "$cid:/ci/"
@@ -334,6 +342,10 @@ jobs:
           if [ $rc -ne 0 ]; then exit $rc; fi
           BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
           echo "json=$BENCH" >> "$GITHUB_OUTPUT"
+
+      - name: Release GPU lease (resume detector)
+        if: always()
+        run: .github/scripts/ci-gpu-lease.sh release
 
       - name: Push detector image
         run: |

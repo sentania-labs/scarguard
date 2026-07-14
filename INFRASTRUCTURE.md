@@ -232,6 +232,17 @@ ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. Th
 
 All x86 runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
 
+### Orin GPU Lease (CI ↔ production coordination)
+
+The Orin's 8GB unified memory holds exactly one GPU workload: the live detector, a training run, or a CI inference benchmark — the `orin-nano` runner is the same box as production. CI GPU steps (build.yml and release.yml detector jobs) therefore take a lease via `.github/scripts/ci-gpu-lease.sh` before touching the GPU:
+
+1. **Acquire:** atomically claim the trainer heartbeat key (`SET NX EX 600`) — this waits out an active training run (up to 10 min, then fails with a re-run instruction) and blocks a new one from starting mid-benchmark; then pause the detector over the existing pause protocol (`shared/pause_protocol.py`) and wait for its ack.
+2. **Release** (`if: always()`): drop the claim, resume the detector. Never fails the job.
+
+Crash safety: the heartbeat key's TTL plus the detector's pause-timeout auto-resume guarantee a killed CI job cannot leave production paused. If the production stack (or detector) isn't running, acquire is a no-op. Redis access is via `docker exec` into the production redis container, so no Redis secret lives in CI.
+
+Additionally, PRs only run the Jetson detector job at all when they touch detector-relevant paths (`detector-paths` job in build.yml); pushes to main and releases always run it.
+
 ### Build & Deploy Flow
 
 ```
@@ -251,7 +262,8 @@ PR to main (ci.yml + build.yml — full validation)
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy
   │
-  ├── Orin runner:
+  ├── Orin runner (only when the PR touches detector-relevant paths —
+  │   services/detector/, shared/, tests/ci/, build.yml, .github/scripts/):
   │   └── Build detector image + GPU smoke test + benchmark
   │
   └── Compose smoke test (after all builds pass)
