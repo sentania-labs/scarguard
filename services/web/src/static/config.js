@@ -69,6 +69,26 @@ function _trackChipPicker(picker) {
   return picker;
 }
 
+// Rewrite channel references (pickers flagged ``channelRef``) after a channel
+// rename so rules don't go orphaned.  A blanked name removes the reference,
+// matching the deterrent page's device-rename cascade.  setValues() re-emits
+// onChange, so the hidden form inputs stay in sync.
+function _cascadeChannelRename(oldName, newName) {
+  (window._chipPickers || []).forEach(p => {
+    if (!p.channelRef) return;
+    const vals = p.getValues();
+    if (vals.indexOf(oldName) < 0) return;
+    // Hand-edited YAML can carry duplicate refs, so rewrite every occurrence,
+    // deduping against refs already present.
+    const next = [];
+    vals.forEach(v => {
+      const mapped = v === oldName ? newName : v;
+      if (mapped && next.indexOf(mapped) < 0) next.push(mapped);
+    });
+    p.setValues(next);
+  });
+}
+
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 
 document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -182,13 +202,15 @@ function _attachNotifRulePickers(row, classRegistry) {
   if (chanInput && !chanInput.dataset.chipAttached) {
     chanInput.dataset.chipAttached = "1";
     const initial = (chanInput.value || "").split(",").map(s => s.trim()).filter(Boolean);
-    _trackChipPicker(ChipPicker.create(chanInput, {
+    const picker = ChipPicker.create(chanInput, {
       registry: _channelsRegistry,
       values: initial,
       onChange: (vals) => { chanInput.value = vals.join(","); },
       allowCreate: false,
       placeholder: "Type a channel name…",
-    }));
+    });
+    picker.channelRef = true; // rename cascade rewrites this picker's values
+    _trackChipPicker(picker);
   }
 }
 
@@ -829,7 +851,7 @@ function buildChannelCard(ch) {
     <div class="field-row">
       <div class="field-group">
         <label>Channel name (unique)</label>
-        <input type="text" class="ch-name" value="${_esc(ch.name || "")}" placeholder="e.g. pond-alerts">
+        <input type="text" class="ch-name" value="${_esc(ch.name || "")}" data-prev-name="${_esc(ch.name || "")}" placeholder="e.g. pond-alerts">
       </div>
     </div>
     ${fieldsHtml}
@@ -961,6 +983,26 @@ function _wireGlobalChipPickers() {
         _rebuildChannelRegistry();
       }
     });
+    // Channel-rename propagation — mirrors the device-rename cascade on the
+    // deterrent page.  On a committed name edit (change, not input, so partial
+    // typing doesn't cascade), rewrite every channel-reference picker (camera
+    // notification rules, summary report) from the old name to the new one.
+    chanList.addEventListener("change", (e) => {
+      const t = e.target;
+      if (!t || !t.classList || !t.classList.contains("ch-name")) return;
+      const oldName = t.dataset.prevName || "";
+      const newName = t.value.trim();
+      if (oldName === newName) return;
+      t.dataset.prevName = newName;
+      if (!oldName) return;
+      // If a duplicate card still defines the old name, existing references
+      // remain valid — leave them alone.
+      const stillDefined = Array.from(
+        document.querySelectorAll("#channels-list .ch-name")
+      ).some(el => el !== t && el.value.trim() === oldName);
+      if (stillDefined) return;
+      _cascadeChannelRename(oldName, newName);
+    });
   }
 
   // Detection > Target classes
@@ -993,13 +1035,15 @@ function _wireGlobalChipPickers() {
   if (sumEl && !sumEl.dataset.chipAttached) {
     sumEl.dataset.chipAttached = "1";
     const initial = (sumEl.value || "").split(",").map(s => s.trim()).filter(Boolean);
-    _trackChipPicker(ChipPicker.create(sumEl, {
+    const picker = ChipPicker.create(sumEl, {
       registry: _channelsRegistry,
       values: initial,
       onChange: (vals) => { sumEl.value = vals.join(","); },
       allowCreate: false,
       placeholder: "Type a channel name…",
-    }));
+    });
+    picker.channelRef = true; // rename cascade rewrites this picker's values
+    _trackChipPicker(picker);
   }
 }
 
