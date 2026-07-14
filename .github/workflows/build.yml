@@ -31,6 +31,36 @@ permissions:
 
 jobs:
 
+  # ── Detect detector-relevant changes (PR only) ──────────────────────────────
+  # The Jetson detector job builds on the Orin and runs a GPU benchmark on the
+  # production box.  Most PRs don't touch the detector at all — skip the whole
+  # job for those so CI never contends with the live detector or a training
+  # run unnecessarily (GPU OOM incident, PR #170 first run, 2026-07-14).
+  detector-paths:
+    name: Detect detector changes
+    runs-on: [self-hosted, linux, docker]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    outputs:
+      detector: ${{ steps.filter.outputs.detector }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 2
+
+      - id: filter
+        name: Diff PR against base
+        run: |
+          # PR checkout is the merge commit; parent 1 is the base branch head,
+          # so this diff lists exactly the files the PR changes.
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(services/detector/|shared/|tests/ci/|\.github/workflows/build\.yml|\.github/scripts/)'; then
+            echo "detector=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "detector=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # ── Build web (x86 runner) ───────────────────────────────────────────────────
   build-web:
     name: Build web image
@@ -432,10 +462,18 @@ jobs:
         run: docker rmi scarguard-trainer:build-validate-${{ github.run_id }} || true
 
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
+  # PRs only run this when they touch detector-relevant paths (see
+  # detector-paths above); pushes to main always run it to warm the cache.
+  # A skipped run satisfies required-check branch protection.
   build-detector:
     name: Build detector image (Jetson)
     runs-on: [self-hosted, linux, arm64, jetson]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    needs: detector-paths
+    if: >-
+      !cancelled() &&
+      (github.event_name != 'pull_request' ||
+       (github.event.pull_request.head.repo.owner.login == 'sentania-labs' &&
+        needs.detector-paths.outputs.detector == 'true'))
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -446,6 +484,12 @@ jobs:
             --file services/detector/Dockerfile \
             --tag scarguard-detector:build-validate-${{ github.run_id }} \
             .
+
+      # The Orin's GPU is single-tenant (production detector + trainer live
+      # on this box).  Take the pause-protocol lease before any GPU step so
+      # the benchmark never OOMs against the live detector or a training run.
+      - name: Acquire GPU lease (pause detector)
+        run: .github/scripts/ci-gpu-lease.sh acquire
 
       - name: GPU smoke test
         run: |
@@ -467,13 +511,25 @@ jobs:
       # the outer host filesystem, not the runner container's filesystem.
       - name: Inference benchmark (GPU)
         run: |
-          cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
-            scarguard-detector:build-validate-${{ github.run_id }} python3 /ci/smoke_inference.py)
-          docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
-          docker start -a "$cid"
-          rc=$?
-          docker rm "$cid" > /dev/null
+          # Retry with backoff — absorbs transient memory pressure right
+          # after a detector model unload (unified memory frees lazily).
+          rc=1
+          for attempt in 1 2 3; do
+            .github/scripts/ci-gpu-lease.sh refresh
+            cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
+              scarguard-detector:build-validate-${{ github.run_id }} python3 /ci/smoke_inference.py)
+            docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
+            docker start -a "$cid" && rc=0 || rc=$?
+            docker rm "$cid" > /dev/null
+            [ $rc -eq 0 ] && break
+            echo "Benchmark attempt $attempt failed (rc=$rc)"
+            [ $attempt -lt 3 ] && sleep 60
+          done
           exit $rc
+
+      - name: Release GPU lease (resume detector)
+        if: always()
+        run: .github/scripts/ci-gpu-lease.sh release
 
       - name: Clean up build-validate image
         if: always()
