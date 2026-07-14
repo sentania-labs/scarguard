@@ -754,6 +754,11 @@ async function saveConfig() {
           if (yamlBtn) yamlBtn.textContent = "Reveal secrets";
         }
       } catch (_) { /* non-critical — textarea will update on next page load */ }
+      // Renames are now persisted — future saves must merge secrets by the
+      // new name, so re-stamp each channel's saved name.
+      document.querySelectorAll("#channels-list .ch-name").forEach(el => {
+        el.dataset.savedName = el.value.trim();
+      });
       // Reset secrets reveal state since config may have changed.
       _secretsRevealed = false;
       _savedSecrets = null;
@@ -851,7 +856,7 @@ function buildChannelCard(ch) {
     <div class="field-row">
       <div class="field-group">
         <label>Channel name (unique)</label>
-        <input type="text" class="ch-name" value="${_esc(ch.name || "")}" data-prev-name="${_esc(ch.name || "")}" placeholder="e.g. pond-alerts">
+        <input type="text" class="ch-name" value="${_esc(ch.name || "")}" data-prev-name="${_esc(ch.name || "")}" data-saved-name="${_esc(ch.name || "")}" placeholder="e.g. pond-alerts">
       </div>
     </div>
     ${fieldsHtml}
@@ -871,11 +876,17 @@ function removeChannel(btn) {
 function readChannels() {
   return Array.from(document.querySelectorAll("#channels-list .camera-card")).map(card => {
     const type = card.dataset.chtype;
+    const nameInput = card.querySelector(".ch-name");
     const ch = {
-      name: card.querySelector(".ch-name").value.trim(),
+      name: nameInput.value.trim(),
       type,
       enabled: card.querySelector(".ch-enabled").checked,
     };
+    // On rename, ship the persisted name so the server can carry the
+    // channel's stored secrets over — the form only holds redacted
+    // placeholders, and the server merges secrets by name.
+    const savedName = (nameInput.dataset.savedName || "").trim();
+    if (savedName && savedName !== ch.name) ch.prev_name = savedName;
     card.querySelectorAll(".ch-field").forEach(el => {
       const field = el.dataset.field;
       if (el.type === "checkbox") {

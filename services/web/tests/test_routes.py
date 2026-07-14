@@ -260,6 +260,72 @@ class TestConfig:
         assert saved["redis"] == {"host": "redis", "port": 6379}
         assert "webhooks" in saved
 
+    def test_structured_save_channel_rename_preserves_secrets(self, client, monkeypatch):
+        """A renamed channel (prev_name set) must keep its stored secrets.
+
+        The form ships redacted placeholders for secrets; they are stripped
+        on save and normally re-merged from the existing channel by name.
+        After a rename the name no longer matches, so the merge falls back
+        to prev_name — without it the channel would be persisted with no
+        webhook_url/smtp_pass.
+        """
+        existing = {
+            "system": {"armed": True, "log_level": "info"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": 0.25,
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {
+                "channels": [
+                    {
+                        "name": "bird-alerts-discord",
+                        "type": "discord",
+                        "enabled": True,
+                        "webhook_url": "https://discord.com/api/webhooks/real-secret",
+                    }
+                ]
+            },
+        }
+        saved_cfgs = []
+        monkeypatch.setattr("config_store.load", lambda: existing)
+        monkeypatch.setattr("config_store.save", lambda cfg: saved_cfgs.append(cfg))
+
+        payload = {
+            "system": {"armed": True, "log_level": "info"},
+            "cameras": [],
+            "detection": {
+                "model_path": "/models/best.pt",
+                "confidence_threshold": 0.25,
+                "target_classes": [],
+                "cooldown_seconds": 30,
+                "frame_skip": 2,
+            },
+            "notifications": {
+                "channels": [
+                    {
+                        "name": "pond-alerts-discord",
+                        "prev_name": "bird-alerts-discord",
+                        "type": "discord",
+                        "enabled": True,
+                        "webhook_url": "***REDACTED***",
+                    }
+                ]
+            },
+        }
+        resp = client.post("/config/structured", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        saved_ch = saved_cfgs[0]["notifications"]["channels"][0]
+        assert saved_ch["name"] == "pond-alerts-discord"
+        assert saved_ch["webhook_url"] == "https://discord.com/api/webhooks/real-secret", (
+            "secrets were dropped on channel rename"
+        )
+        assert "prev_name" not in saved_ch, "UI-only prev_name key was persisted"
+
     def test_structured_save_training_merge(self, client, monkeypatch):
         """Training saves keep the real Roboflow key when redacted and
         preserve video keys the form doesn't send."""
