@@ -82,7 +82,20 @@
 
 ## Recently Fixed (unreleased)
 
-- **Detector auto-resume mid-training (OOM-killed pond_v3).** The
+- **Training reliability and failure evidence:** On-device training now uses
+  four data-loader workers by default (validated 0-4), deliberate checkpoint
+  resume within the original run directory, hard detector process isolation
+  through an ownership-aware controller, unified-memory admission/sampling,
+  byte/retention-bounded durable per-job logs, structured signal/resource
+  metadata, and readable UI diagnostics. This preserves the incident split:
+  the July 10-13 `SIGKILL` failures were host-global OOM events (with July 13
+  occurring while the detector remained paused); the July 30 exit 1 was a CUDA
+  allocation failure whose message was separately masked by Jetson's unsupported
+  NVML process query. A narrow wrapper for the pinned L4T/PyTorch 2.4.0 stack now
+  preserves the original assertion as a chained cause and surfaces the CUDA OOM
+  as the final exception; Torch is not independently upgraded.
+
+- **Historical detector auto-resume mid-training (OOM-killed pond_v3).** The
   pause/resume protocol's hard timeout was 2 hours, but a real
   `prepare_and_train` run takes 10+ hours on the Orin Nano. At the
   2-hour mark the detector auto-resumed and reloaded its models while
@@ -96,10 +109,9 @@
   the UI doesn't show "unknown" after STATE_TTL expires mid-run, and
   the trainer logs a warning when the resume ack is missing instead of
   silently ignoring it. Known limitation: the heartbeat proves the
-  trainer *process* is alive, not that training is progressing — a
-  hung training subprocess now costs up to 24h of detection downtime
-  (was 2h). Tying the heartbeat to subprocess output is a candidate
-  follow-up.
+  trainer *process* is alive, not that training is progressing. The current
+  remediation supersedes in-process pause for GPU jobs with an ownership-aware
+  container stop and a controller heartbeat/recovery deadline.
 
 ## Recently Fixed (v1.16.7)
 

@@ -3,7 +3,7 @@
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ScheduleConfig(BaseModel):
@@ -332,6 +332,7 @@ class TrainingDefaultsConfig(BaseModel):
     patience: int = 20
     val_split: float = 0.15
     classes: str = ""
+    workers: int = Field(default=4, ge=0, le=4)
 
     @field_validator("classes", mode="before")
     @classmethod
@@ -365,12 +366,24 @@ class TrainingVideoConfig(BaseModel):
     background_sample_interval: int = 10
 
 
+class TrainingResourcesConfig(BaseModel):
+    min_mem_available_mb: int = Field(default=1536, ge=512, le=8192)
+    min_swap_free_mb: int = Field(default=512, ge=0, le=8192)
+
+
+class TrainingLogsConfig(BaseModel):
+    max_bytes: int = Field(default=16777216, ge=65536, le=1073741824)
+    retention_days: int = Field(default=30, ge=1, le=365)
+
+
 class TrainingConfig(BaseModel):
     """Training pipeline settings read by the trainer service."""
 
     sources: TrainingSourcesConfig = TrainingSourcesConfig()
     defaults: TrainingDefaultsConfig = TrainingDefaultsConfig()
     video: TrainingVideoConfig = TrainingVideoConfig()
+    resources: TrainingResourcesConfig = TrainingResourcesConfig()
+    logs: TrainingLogsConfig = TrainingLogsConfig()
 
 
 class TuyaCredentialsConfig(BaseModel):

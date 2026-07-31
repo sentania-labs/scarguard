@@ -211,6 +211,7 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
+      TRAINING_WORKSPACE_DIR: /data/training_workspace
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
       DETERRENT_DB_PATH: /data/deterrent.db
@@ -479,6 +480,50 @@ services:
       - SETUID
       - SETGID
 
+  # ── Training lifecycle controller (ARM64/Jetson training profile) ────────
+  # The controller is the sole application-side Docker write boundary. Its
+  # HTTP API is hard-coded to acquire/release the Compose detector service;
+  # neither web nor trainer receives a Docker socket or arbitrary container
+  # operation. The socket bind is marked read-only as a filesystem mount, but
+  # Docker API calls can still stop/start containers, hence this strict sidecar.
+  training-controller:
+    profiles: ["training"]
+    build:
+      context: .
+      dockerfile: services/training-controller/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-training-controller:${IMAGE_TAG:-latest}
+    environment:
+      CONTROLLER_STATE_PATH: /state/detector-lease.json
+      CONTROLLER_LEASE_STALE_SECONDS: 120
+      DETECTOR_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-scarguard}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      TRAINING_CONTROLLER_TOKEN: ${TRAINING_CONTROLLER_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - training-controller-state:/state
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+
   # ── Trainer (ARM64/Jetson only — opt-in via COMPOSE_PROFILES=training) ────
   # Uses the L4T base image (ARM64 only, no x86 variant).  Gated behind a
   # profile so `docker compose pull` on x86 hosts doesn't fail on the
@@ -503,9 +548,14 @@ services:
       - MODELS_DIR=/models
       - TRAINING_UPLOADS_DIR=/data/training_uploads
       - TRAINING_WORKSPACE_DIR=/data/training_workspace
+      - TRAINING_CONTROLLER_URL=http://training-controller:8090
+      - TRAINING_CONTROLLER_TOKEN=${TRAINING_CONTROLLER_TOKEN:-}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      training-controller:
+        condition: service_healthy
     cap_drop:
       - ALL
     cap_add:
@@ -514,6 +564,8 @@ services:
       - DAC_OVERRIDE
       - SETUID
       - SETGID
+    cpus: 4.0
+    pids_limit: 256
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s
@@ -532,5 +584,7 @@ volumes:
     name: scarguard-models
   scarguard-data:
     name: scarguard-data
+  training-controller-state:
+    name: scarguard-training-controller-state
   scarguard-notifier:
     name: scarguard-notifier

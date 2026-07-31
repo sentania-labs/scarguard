@@ -55,6 +55,12 @@
       <p class="hint">Classes beyond detection targets are distractors — trained so the model learns what <em>not</em> to call a heron, but never alerted on. Overrides a "classes" key in the JSON parameters.</p>
     </div>
 
+    <div class="field-group" id="train-fields">
+      <label>Data-loader workers <span class="muted">(Jetson Orin: 0-4)</span></label>
+      <input type="number" name="workers" id="workers-input" value="{{ training_workers_default }}" min="0" max="4">
+      <p class="hint">Four is the validated Orin default. Resume is always selected from a failed job below; it is never automatic.</p>
+    </div>
+
     <div class="field-group" id="json-params-fields">
       <label>Parameters (JSON)</label>
       <textarea name="params_json" id="params-json" rows="3" style="font-family:var(--mono);font-size:0.8rem;">{}</textarea>
@@ -72,6 +78,15 @@
     <div class="eval-progress-bar-inner" id="progress-bar" style="width:0%"></div>
   </div>
   <div class="muted" id="progress-detail"></div>
+  <a id="durable-log-link" class="btn btn-small" style="display:none;margin-top:0.5rem;" href="#">Download durable log</a>
+  <details id="terminal-evidence" style="display:none;margin-top:0.5rem;">
+    <summary>Execution and memory evidence</summary>
+    <pre id="terminal-evidence-content" style="white-space:pre-wrap;max-height:18rem;overflow:auto;"></pre>
+  </details>
+  <details id="terminal-traceback" style="display:none;margin-top:0.5rem;">
+    <summary>Traceback</summary>
+    <pre id="terminal-traceback-content" style="white-space:pre-wrap;max-height:22rem;overflow:auto;"></pre>
+  </details>
   <pre id="job-log" style="max-height:300px;overflow-y:auto;font-size:0.75rem;margin-top:0.5rem;padding:0.5rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;"></pre>
 </div>
 

@@ -189,6 +189,15 @@ if [[ -f ".env" ]]; then
         fi
         info "Backfilled DETECTION_HMAC_KEY (signs Redis detection events)"
     fi
+    if ! grep -q '^TRAINING_CONTROLLER_TOKEN=.\{32\}' .env; then
+        CONTROLLER_TOKEN=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+        if grep -q '^TRAINING_CONTROLLER_TOKEN=' .env; then
+            sed -i "s|^TRAINING_CONTROLLER_TOKEN=.*|TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}|" .env
+        else
+            echo "TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}" >> .env
+        fi
+        info "Backfilled TRAINING_CONTROLLER_TOKEN (protects detector lifecycle API)"
+    fi
     if ! grep -q '^COMPOSE_FILE=' .env; then
         if [[ "$NVIDIA_OK" == "true" ]]; then
             echo "COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml" >> .env
@@ -223,6 +232,11 @@ else
     # internal Redis bus is unauthenticated.
     HMAC_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
     sed -i "s|^DETECTION_HMAC_KEY=.*|DETECTION_HMAC_KEY=${HMAC_KEY}|" .env
+
+    # Dedicated training controller API credential; intentionally not shared
+    # with web, detector, notifier, deterrent, or other Compose peers.
+    CONTROLLER_TOKEN=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+    sed -i "s|^TRAINING_CONTROLLER_TOKEN=.*|TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}|" .env
 
     if [[ "$HTTP_PORT_VALUE" != "80" ]]; then
         sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT_VALUE}/" .env

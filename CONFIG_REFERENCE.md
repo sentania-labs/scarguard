@@ -181,6 +181,13 @@ trade-off as camera RTSP URLs for the detector). Without a Roboflow
 key, dataset preparation skips the Roboflow Universe sources and logs
 a warning — heron training coverage depends on them.
 
+Training jobs stop the detector process through the allowlisted lifecycle
+controller before admission, then restore it only when that job owned the stop.
+Failed jobs expose the newest valid `last.pt` beneath the training runs directory
+as a user-selected Resume action; checkpoints are never resumed automatically.
+Full sanitized stdout/stderr is retained under
+`/data/training_workspace/logs/<job_id>.log` within the byte/age limits below.
+
 | Key | Default | Description |
 |---|---|---|
 | `training.defaults.classes` | `[duck, heron, raccoon, person, dog, cat, plant]` | Ordered training class list — order defines model class indices. Overridable per job via the Classes field on the Training Jobs page. |
@@ -190,6 +197,11 @@ a warning — heron training coverage depends on them.
 | `training.defaults.image_size` | `480` | Training image size (Orin 8GB safe) |
 | `training.defaults.patience` | `20` | Early-stopping patience |
 | `training.defaults.val_split` | `0.15` | Validation holdout fraction |
+| `training.defaults.workers` | `4` | Ultralytics data-loader workers. The Jetson Orin profile accepts 0-4. |
+| `training.resources.min_mem_available_mb` | `1536` | Minimum host `MemAvailable` after detector teardown before training is admitted |
+| `training.resources.min_swap_free_mb` | `512` | Minimum free swap when the host has swap configured |
+| `training.logs.max_bytes` | `16777216` | Per-job durable stdout/stderr byte cap |
+| `training.logs.retention_days` | `30` | Durable training-log retention window |
 | `training.sources.roboflow.api_key` | `""` | Roboflow API key (SENSITIVE) |
 | `training.sources.open_images.max_per_class` | `1500` | Open Images cap per class |
 | `training.sources.open_images.workers` | `16` | Parallel download threads |

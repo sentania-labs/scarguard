@@ -87,6 +87,11 @@ def ensure_training_tables() -> None:
         # When set on a 'corrected' event, the exporter emits one YOLO row
         # per entry instead of the detector's original bbox+predicted_class.
         _add_column_if_missing(conn, "training_events", "corrected_bboxes", "corrected_bboxes TEXT")
+        # Durable while-running execution evidence survives a trainer crash;
+        # final result JSON contains the completed metadata as well.
+        _add_column_if_missing(
+            conn, "training_jobs", "execution_metadata", "execution_metadata TEXT"
+        )
         conn.commit()
 
 
@@ -1276,7 +1281,7 @@ def update_training_job_status(
 def mark_stale_running_jobs_failed() -> int:
     """Mark any running jobs as failed (crash recovery on trainer restart)."""
     now = datetime.now(timezone.utc).isoformat()
-    result_json = __import__("json").dumps({"error": "Trainer restarted — job interrupted (possible OOM)"})
+    result_json = __import__("json").dumps({"error": "Trainer restarted — job interrupted"})
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE training_jobs SET status = 'failed', completed_at = ?, result = ? WHERE status = 'running'",

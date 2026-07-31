@@ -613,6 +613,7 @@ function readForm() {
         image_size: parseInt(document.getElementById("training-imgsz").value, 10) || 480,
         batch_size: parseInt(document.getElementById("training-batch").value, 10) || 2,
         patience: parseInt(document.getElementById("training-patience").value, 10) || 20,
+        workers: (v => isNaN(v) ? 4 : v)(parseInt(document.getElementById("training-workers").value, 10)),
         val_split: parseFloat(document.getElementById("training-val-split").value) || 0.15,
         classes: document.getElementById("training-classes").value
           .split(",").map(s => s.trim().toLowerCase()).filter(Boolean).join(","),
@@ -622,6 +623,14 @@ function readForm() {
         dedupe_iou: parseFloat(document.getElementById("training-video-dedupe-iou").value) || 0.85,
         dedupe_window: parseInt(document.getElementById("training-video-dedupe-window").value, 10) || 5,
         background_sample_interval: parseInt(document.getElementById("training-bg-interval").value, 10) || 10,
+      },
+      resources: {
+        min_mem_available_mb: parseInt(document.getElementById("training-min-memory").value, 10) || 1536,
+        min_swap_free_mb: (v => isNaN(v) ? 512 : v)(parseInt(document.getElementById("training-min-swap").value, 10)),
+      },
+      logs: {
+        max_bytes: parseInt(document.getElementById("training-log-max-bytes").value, 10) || 16777216,
+        retention_days: parseInt(document.getElementById("training-log-retention").value, 10) || 30,
       },
     },
   };
@@ -658,6 +667,9 @@ function validate(data) {
   const vs = data.training.defaults.val_split;
   if (isNaN(vs) || vs <= 0 || vs >= 1)
     errors.push("Training: validation split must be between 0 and 1 (exclusive)");
+  const tw = data.training.defaults.workers;
+  if (!Number.isInteger(tw) || tw < 0 || tw > 4)
+    errors.push("Training: data-loader workers must be from 0 through 4 on Jetson Orin");
 
   const sched = data.system.schedule;
   const timeRe = /^\d{2}:\d{2}$/;

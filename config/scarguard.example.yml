@@ -358,6 +358,15 @@ backup:
 #     image_size: 480                 # Orin 8GB safe
 #     patience: 20
 #     val_split: 0.15
+#     workers: 4                       # Jetson Orin profile: 0-4
+#
+#   resources:
+#     min_mem_available_mb: 1536       # Admission check after detector stop
+#     min_swap_free_mb: 512
+#
+#   logs:
+#     max_bytes: 16777216              # Per-job durable stdout/stderr cap
+#     retention_days: 30
 #
 #   video:
 #     low_confidence: 0.05
