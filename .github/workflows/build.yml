@@ -637,7 +637,8 @@ jobs:
           # severity limited to CRITICAL — base image carries dozens of HIGH
           # Ubuntu kernel CVEs we cannot fix; only block on actionable findings
           scanners: vuln
-          timeout: 20m0s
+          # 20m hit "context deadline exceeded" on this image; scan takes 20m+
+          timeout: 40m0s
 
       - name: Clean up
         if: always()
