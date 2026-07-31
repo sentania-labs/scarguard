@@ -128,8 +128,8 @@ def test_exact_fresh_command_and_default_workers(tmp_path: Path, monkeypatch) ->
     monkeypatch.setattr(job_runner, "_newest_checkpoint_since", lambda _started: None)
     captured = {}
 
-    def fake_run(_ctx, cmd, phase, *, preflight=None):
-        captured.update(cmd=cmd, phase=phase, preflight=preflight)
+    def fake_run(_ctx, cmd, phase, *, preflight=None, admission=None):
+        captured.update(cmd=cmd, phase=phase, preflight=preflight, admission=admission)
         return {"phase": phase, "execution": {}}
 
     monkeypatch.setattr(job_runner, "_run_subprocess", fake_run)
@@ -162,6 +162,9 @@ def test_exact_fresh_command_and_default_workers(tmp_path: Path, monkeypatch) ->
     ]
     assert result["model_path"] == str(models / "trained.pt")
     assert ctx.release_count == 1
+    assert captured["admission"]["admitted"] is True
+    assert captured["admission"]["detector_lease"] == {"stopped_by_controller": True}
+    assert captured["admission"]["thresholds"]["min_mem_available_bytes"] == 512 * 1024 * 1024
 
 
 @pytest.mark.parametrize(
@@ -384,6 +387,44 @@ def test_exited_leader_does_not_leave_stdout_holding_child(tmp_path: Path, monke
     assert result["execution"]["return_code"] == 1
     assert elapsed < 5
     assert not Path(f"/proc/{child_pid}").exists()
+
+
+def test_admission_evidence_survives_final_execution_persist(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(job_runner, "WORKSPACE_DIR", workspace)
+    monkeypatch.setattr(job_runner, "_resource_snapshot", abundant_snapshot)
+    ctx = FakeContext(workspace)
+    admission = {
+        "admitted": True,
+        "thresholds": {"min_mem_available_bytes": 512 * 1024 * 1024},
+        "detector_lease": {"stopped_by_controller": True},
+    }
+    result = job_runner._run_subprocess(
+        ctx,
+        [sys.executable, "-c", "print('ok')"],
+        "train",
+        preflight=abundant_snapshot(ctx),
+        admission=admission,
+    )
+    assert result["execution"]["admission"] == admission
+    assert ctx.execution[-1]["admission"] == admission
+    assert ctx.execution[-1]["return_code"] == 0
+
+
+def test_cancelled_process_video_reports_cancelled_status(tmp_path: Path) -> None:
+    class CancelledContext(FakeContext):
+        def detection_config(self):
+            return {}
+
+        def is_cancelled(self):
+            return True
+
+    ctx = CancelledContext(tmp_path / "workspace", params={"upload_ids": ["u1"]})
+    result = job_runner._run_process_video(ctx)
+    assert result["error"] == "Job cancelled"
+    assert result["cancelled"] is True
+    assert ctx.release_count == 1
 
 
 def test_signal_failure_is_the_structured_final_exception(tmp_path: Path, monkeypatch) -> None:

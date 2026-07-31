@@ -407,7 +407,7 @@ def _run_process_video(ctx: JobContext) -> dict:
         results = []
         for i, uid in enumerate(upload_ids):
             if ctx.is_cancelled():
-                return {"error": "Job cancelled", "processed": i}
+                return {"error": "Job cancelled", "cancelled": True, "processed": i}
 
             conn = _connect_db()
             try:
@@ -952,6 +952,7 @@ def _run_subprocess(
     phase: str,
     *,
     preflight: dict[str, Any] | None = None,
+    admission: dict[str, Any] | None = None,
 ) -> dict:
     """Run a process group with bounded memory, complete bounded durable logs, and evidence."""
     ctx.publish_progress(phase, 0, f"Starting {phase}")
@@ -972,6 +973,8 @@ def _run_subprocess(
         "log_path": str(ctx.log_path),
         "preflight": baseline,
     }
+    if admission is not None:
+        execution["admission"] = admission
     monitor.execution = execution
     ctx.persist_execution(execution)
 
@@ -1258,7 +1261,7 @@ def _run_train(ctx: JobContext) -> dict:
 
         admission["admitted"] = True
         ctx.persist_execution(admission)
-        result = _run_subprocess(ctx, cmd, phase="train", preflight=preflight)
+        result = _run_subprocess(ctx, cmd, phase="train", preflight=preflight, admission=admission)
         if "error" not in result:
             result["model_path"] = str(output_path)
         if resume_from:

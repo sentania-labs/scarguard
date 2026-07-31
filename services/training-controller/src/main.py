@@ -10,6 +10,7 @@ that this controller did not stop.
 from __future__ import annotations
 
 import hmac
+import http.client
 import json
 import logging
 import os
@@ -47,36 +48,36 @@ class ControllerError(RuntimeError):
         self.status = status
 
 
+class _UnixHTTPConnection(http.client.HTTPConnection):
+    """HTTP over the Docker UNIX socket with standard chunked-body decoding."""
+
+    def __init__(self, socket_path: str, timeout: float = 30) -> None:
+        super().__init__("docker", timeout=timeout)
+        self._socket_path = socket_path
+
+    def connect(self) -> None:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        sock.connect(self._socket_path)
+        self.sock = sock
+
+
 class DockerBackend:
     """Minimal Docker Engine client exposing only operations needed here."""
 
     def _request(self, method: str, path: str) -> tuple[int, bytes]:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection = _UnixHTTPConnection(SOCKET_PATH)
         try:
-            sock.settimeout(30)
-            sock.connect(SOCKET_PATH)
-            request = (
-                f"{method} {path} HTTP/1.1\r\n"
-                "Host: docker\r\n"
-                "Connection: close\r\n"
-                "Content-Length: 0\r\n\r\n"
-            )
-            sock.sendall(request.encode("ascii"))
-            chunks: list[bytes] = []
-            while True:
-                chunk = sock.recv(65536)
-                if not chunk:
-                    break
-                chunks.append(chunk)
+            connection.request(method, path, headers={"Content-Length": "0"})
+            response = connection.getresponse()
+            return response.status, response.read()
+        except (OSError, http.client.HTTPException) as exc:
+            raise ControllerError(
+                f"Docker Engine request failed: {type(exc).__name__}: {exc}",
+                HTTPStatus.BAD_GATEWAY,
+            ) from exc
         finally:
-            sock.close()
-
-        raw = b"".join(chunks)
-        head, _, body = raw.partition(b"\r\n\r\n")
-        first = head.splitlines()[0].split()
-        if len(first) < 2:
-            raise ControllerError("Invalid response from Docker Engine", HTTPStatus.BAD_GATEWAY)
-        return int(first[1]), body
+            connection.close()
 
     def find_detector(self) -> dict[str, Any]:
         filters = json.dumps({"label": [DETECTOR_SERVICE_LABEL, DETECTOR_PROJECT_LABEL]})
@@ -327,7 +328,10 @@ def _authorized(presented: str | None, expected: str | None = None) -> bool:
     expected = CONTROLLER_TOKEN if expected is None else expected
     if not expected or not presented:
         return False
-    return hmac.compare_digest(presented, expected)
+    return hmac.compare_digest(
+        presented.encode("utf-8", "surrogateescape"),
+        expected.encode("utf-8", "surrogateescape"),
+    )
 
 
 controller = DetectorLeaseController(DockerBackend())

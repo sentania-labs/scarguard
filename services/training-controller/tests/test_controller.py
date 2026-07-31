@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import time
 from http.client import HTTPConnection
@@ -172,12 +173,80 @@ def test_stale_recovery_defers_for_same_or_unknown_gpu_holder(tmp_path: Path, ho
     assert state_path.exists()
 
 
+def test_docker_backend_decodes_chunked_engine_response(tmp_path: Path, monkeypatch) -> None:
+    socket_path = str(tmp_path / "docker.sock")
+    payload = json.dumps([{"Id": "detector-id", "State": "running"}]).encode()
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(socket_path)
+    listener.listen(1)
+
+    def serve() -> None:
+        connection, _ = listener.accept()
+        with connection:
+            connection.recv(65536)
+            half = len(payload) // 2
+            body = (
+                f"{half:x}\r\n".encode() + payload[:half] + b"\r\n"
+                + f"{len(payload) - half:x}\r\n".encode() + payload[half:] + b"\r\n"
+                + b"0\r\n\r\n"
+            )
+            connection.sendall(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Transfer-Encoding: chunked\r\n\r\n" + body
+            )
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    monkeypatch.setattr(main, "SOCKET_PATH", socket_path)
+    try:
+        status, body = main.DockerBackend()._request("GET", "/v1.41/containers/json")
+    finally:
+        thread.join(timeout=2)
+        listener.close()
+    assert status == 200
+    assert json.loads(body) == [{"Id": "detector-id", "State": "running"}]
+
+
+def test_docker_backend_maps_socket_failure_to_controller_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(main, "SOCKET_PATH", str(tmp_path / "missing.sock"))
+    with pytest.raises(main.ControllerError) as excinfo:
+        main.DockerBackend()._request("GET", "/v1.41/containers/json")
+    assert excinfo.value.status == 502
+
+
 def test_controller_authentication_rejects_missing_or_wrong_token() -> None:
     token = "c" * 32
     assert main._authorized(token, token) is True
     assert main._authorized(None, token) is False
     assert main._authorized("wrong", token) is False
     assert main._authorized(token, "") is False
+    assert main._authorized("tokén" + "\xff" * 8, token) is False
+    assert main._authorized("\udcff" * 12, token) is False
+
+
+def test_non_ascii_token_header_returns_401(monkeypatch) -> None:
+    monkeypatch.setattr(main, "CONTROLLER_TOKEN", "c" * 32)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), main.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with socket.create_connection(("127.0.0.1", server.server_port), timeout=2) as client:
+            client.sendall(
+                b"POST /v1/detector/lease/acquire HTTP/1.1\r\n"
+                b"Host: controller\r\n"
+                b"X-Scarguard-Controller-Token: \xc3\xa9\xff-arbitrary-bytes\r\n"
+                b"Content-Length: 0\r\n"
+                b"Connection: close\r\n\r\n"
+            )
+            response = client.recv(65536)
+        assert response.split(b"\r\n", 1)[0].split()[1] == b"401"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_lifecycle_endpoints_reject_unauthenticated_requests(monkeypatch) -> None:
