@@ -131,11 +131,16 @@ scarguard/
 │   │   └── tests/
 │   ├── caddy/                       # Reverse proxy (TLS termination)
 │   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
-│   └── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
+│   ├── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       └── main.py
+│   └── training-controller/         # Allowlisted detector stop/restore API (training profile)
 │       ├── Dockerfile
-│       ├── requirements.txt
-│       └── src/
-│           └── main.py
+│       ├── src/
+│       │   └── main.py
+│       └── tests/
 ├── shared/                          # Code shared across service containers
 │   ├── models.py                    # Pydantic event models
 │   ├── config_watcher.py            # Mtime-based config hot-reload helper
@@ -248,7 +253,7 @@ The Orin's 8GB unified memory holds exactly one GPU workload: the live detector,
 
 Crash safety: the heartbeat key's TTL plus the detector's pause-timeout auto-resume guarantee a killed CI job cannot leave production paused. If the production stack (or detector) isn't running, acquire is a no-op. Redis access is via `docker exec` into the production redis container, so no Redis secret lives in CI.
 
-Additionally, PRs only run the Jetson detector job at all when they touch detector-relevant paths (`detector-paths` job in build.yml); pushes to main and releases always run it.
+Additionally, PRs only run the Jetson detector job when they touch detector-relevant paths (`detector-paths` job in build.yml) **and** carry the `orin-maintenance-approved` label; the PR trainer-image job requires the same label. Pushes to main and releases always run them. The label gate exists because these jobs run on the controlled production Jetson — see `docs/training-remediation-validation.md` for when to apply it.
 
 ### Build & Deploy Flow
 
@@ -259,18 +264,23 @@ PR to main (ci.yml + build.yml — full validation)
   │   ├── Type check (mypy — web, notifier, deterrent)
   │   ├── pytest — web
   │   ├── pytest — notifier
-  │   └── pytest — deterrent
+  │   ├── pytest — deterrent
+  │   └── pytest — training runtime (trainer + lifecycle controller,
+  │       fake children/cgroups/Docker backend — never touches the Orin)
   │
   ├── docker runners (parallel, one job per runner):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
   │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
   │   ├── Build log-streamer image + Trivy
+  │   ├── Build training-controller image (multi-arch) + Trivy
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy
   │
   ├── Orin runner (only when the PR touches detector-relevant paths —
-  │   services/detector/, shared/, tests/ci/, build.yml, .github/scripts/):
+  │   services/detector/, shared/, tests/ci/, build.yml, .github/scripts/ —
+  │   AND carries the orin-maintenance-approved label; trainer-image job
+  │   needs the same label):
   │   └── Build detector image + GPU smoke test + benchmark
   │
   └── Compose smoke test (after all builds pass)
@@ -285,6 +295,7 @@ Tag push (release.yml)
   │   ├── Build + push notifier to ghcr.io
   │   ├── Build + push deterrent to ghcr.io
   │   ├── Build + push log-streamer to ghcr.io
+  │   ├── Build + push training-controller to ghcr.io
   │   └── Build + push caddy to ghcr.io
   │
   ├── docker runner:

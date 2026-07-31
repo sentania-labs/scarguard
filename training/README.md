@@ -84,6 +84,8 @@ python train.py --data my_dataset/dataset/data.yaml --force --output heron_v1.pt
 | `--batch` | `16` | Batch size (reduce for Jetson: try 4 or 8) |
 | `--patience` | `20` | Early stopping patience |
 | `--device` | `0` | Device (`0` for GPU, `cpu` for CPU) |
+| `--workers` | `4` | Ultralytics data-loader workers (Jetson Orin profile: 0–4) |
+| `--resume-from` | off | Explicit checkpoint below the runs directory to resume from; a regular non-symlink `.pt` file, never selected automatically |
 | `--force` | off | Proceed even if classes have < 500 images |
 
 ## Dataset Format
