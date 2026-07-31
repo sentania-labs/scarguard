@@ -4,6 +4,12 @@
 
   var evtSource = null;
 
+  /* Job ids are uuid4().hex; reject anything else before it reaches a URL. */
+  var JOB_ID_RE = /^[0-9a-f]{32}$/;
+  function validJobId(id) {
+    return typeof id === "string" && JOB_ID_RE.test(id);
+  }
+
   function renderTerminalResult(jobId, view, fallbackError) {
     view = view && typeof view === "object" ? view : {};
     var detailEl = document.getElementById("progress-detail");
@@ -17,7 +23,7 @@
       detailEl.textContent = "Error: " + (view.final_exception || fallbackError);
     }
     if (durableLink && view.log_path) {
-      durableLink.href = "/admin/training/jobs/" + jobId + "/log";
+      durableLink.href = "/admin/training/jobs/" + encodeURIComponent(jobId) + "/log";
       durableLink.style.display = "inline-block";
     }
     var evidence = {
@@ -49,6 +55,7 @@
   }
 
   window.startJobStream = function (jobId) {
+    if (!validJobId(jobId)) { return; }
     if (evtSource) { evtSource.close(); }
 
     var progressEl = document.getElementById("job-progress");
@@ -161,6 +168,7 @@
   });
 
   function _pollUntilRunning(jobId) {
+    if (!validJobId(jobId)) { return; }
     var progressEl = document.getElementById("job-progress");
     var labelEl = document.getElementById("progress-label");
     if (progressEl) progressEl.style.display = "block";

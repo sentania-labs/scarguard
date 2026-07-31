@@ -11,7 +11,12 @@ FROM pytorch/pytorch:${PYTORCH_TAG}
 # OpenCV headless deps (no GStreamer needed on x86 — cv2 handles RTSP directly)
 # upgrade -y: the pytorch base image ships stale Ubuntu packages
 # (e.g. linux-libc-dev kernel-header CVEs) that trip the Trivy gate.
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+# APT_CACHE_BUST: CI passes a fresh value per run so this layer is never
+# served from the self-hosted runner's Docker layer cache — a cached layer
+# pins pre-upgrade packages and trips the Trivy gate once a fix publishes.
+ARG APT_CACHE_BUST=dev
+RUN echo "apt cache bust: ${APT_CACHE_BUST}" && \
+    apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     gosu \

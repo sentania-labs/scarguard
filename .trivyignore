@@ -1,0 +1,10 @@
+# Findings from pip >= 26's vendored-dependency SBOM
+# (site-packages/pip/_vendor/bom.cdx.json). These are copies bundled
+# inside pip itself — no requirements.txt controls them, and pip is never
+# invoked at container runtime. Re-check when pip re-vendors fixed versions.
+#
+# msgpack 1.1.2 (vendored for pip's cachecontrol HTTP cache)
+GHSA-6v7p-g79w-8964
+# setuptools 70.3.0 PackageIndex path traversal; pip vendors only
+# pkg_resources from setuptools, so the vulnerable module is not shipped.
+CVE-2025-47273

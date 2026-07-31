@@ -366,6 +366,15 @@ def test_cancellation_terminates_process_group(tmp_path: Path, monkeypatch) -> N
     assert not Path(f"/proc/{child_pid}").exists()
 
 
+def _proc_alive(pid: int) -> bool:
+    """True while pid exists and is not a zombie awaiting reaping."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return stat.rsplit(") ", 1)[-1][:1] != "Z"
+
+
 def test_exited_leader_does_not_leave_stdout_holding_child(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -386,7 +395,12 @@ def test_exited_leader_does_not_leave_stdout_holding_child(tmp_path: Path, monke
     child_pid = int(ctx.logs[-1])
     assert result["execution"]["return_code"] == 1
     assert elapsed < 5
-    assert not Path(f"/proc/{child_pid}").exists()
+    # The SIGKILLed grandchild may linger briefly as an unreaped zombie under
+    # /proc until init reaps it; poll and treat zombie state as terminated.
+    deadline = time.time() + 3
+    while _proc_alive(child_pid) and time.time() < deadline:
+        time.sleep(0.05)
+    assert not _proc_alive(child_pid)
 
 
 def test_admission_evidence_survives_final_execution_persist(tmp_path: Path, monkeypatch) -> None:

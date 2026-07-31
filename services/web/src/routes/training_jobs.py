@@ -205,8 +205,12 @@ async def submit_job(request: Request) -> Response:
                     if form.get("workers") is not None
                     else params.get("workers", 4)
                 )
-            except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=400)
+            except ValueError:
+                logger.warning("Rejected training workers value", exc_info=True)
+                return JSONResponse(
+                    {"error": "Training workers must be an integer from 0 through 4"},
+                    status_code=400,
+                )
             if job_type == "prepare_and_train" and params.get("resume_from"):
                 return JSONResponse(
                     {"error": "Resume is train-only; select Resume checkpoint on a failed job"},
@@ -217,9 +221,16 @@ async def submit_job(request: Request) -> Response:
                     params["resume_from"] = str(
                         validate_resume_checkpoint(params["resume_from"], RUNS_DIR)
                     )
-                except (ValueError, OSError) as exc:
+                except (ValueError, OSError):
+                    logger.warning("Rejected resume checkpoint", exc_info=True)
                     return JSONResponse(
-                        {"error": f"Invalid resume checkpoint: {exc}"}, status_code=400
+                        {
+                            "error": (
+                                "Invalid resume checkpoint: must be an existing regular "
+                                ".pt file below the training runs directory"
+                            )
+                        },
+                        status_code=400,
                     )
 
     running = db_module.count_training_jobs(status="running")

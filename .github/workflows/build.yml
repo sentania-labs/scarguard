@@ -609,6 +609,7 @@ jobs:
         run: |
           docker build \
             --file services/detector/Dockerfile.x86 \
+            --build-arg APT_CACHE_BUST=${{ github.run_id }} \
             --tag scarguard-detector-x86:build-validate-${{ github.run_id }} \
             .
 
