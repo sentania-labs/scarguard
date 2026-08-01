@@ -513,7 +513,7 @@ jobs:
           docker run --rm scarguard-trainer:build-validate-${{ github.run_id }} \
             python3 -c "import importlib.metadata as m, torch, torchvision, yaml, redis, cv2; from ultralytics import YOLO; assert torch.__version__.startswith('2.4.0'); assert torch.version.cuda == '12.6'; assert m.version('ultralytics') == '8.4.56'; print(torch.__version__, torch.version.cuda, torchvision.__version__, m.version('ultralytics'))"
           docker run --rm scarguard-trainer:build-validate-${{ github.run_id }} \
-            sh -c 'pip check | grep -vE "pygobject 3\.42\.1 requires pycairo, which is not installed\.|ninja 1\.11\.1\.1 is not supported on this platform" | { ! grep .; } && cat /app/training-stack.freeze'
+            sh -c 'pip check | grep -vE "pygobject 3\.42\.1 requires pycairo, which is not installed\.|ninja 1\.11\.1\.1 is not supported on this platform|No broken requirements found\." | { ! grep .; } && cat /app/training-stack.freeze'
 
       - name: Clean up
         if: always()

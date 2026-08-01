@@ -17,7 +17,7 @@ COPY services/trainer/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt
 # Note: dustynv/l4t-pytorch base image ships two pre-existing pip check warnings/errors:
 # pygobject requiring pycairo and ninja platform mismatch. Ignore these known base image defects.
-RUN pip check | grep -vE 'pygobject 3\.42\.1 requires pycairo, which is not installed\.|ninja 1\.11\.1\.1 is not supported on this platform' | { ! grep .; } && \
+RUN pip check | grep -vE 'pygobject 3\.42\.1 requires pycairo, which is not installed\.|ninja 1\.11\.1\.1 is not supported on this platform|No broken requirements found\.' | { ! grep .; } && \
     python3 -c "import importlib.metadata as m, torch, torchvision; assert torch.__version__.startswith('2.4.0'); assert torch.version.cuda == '12.6'; assert m.version('ultralytics') == '8.4.56'; print(torch.__version__, torch.version.cuda, torchvision.__version__, m.version('ultralytics'))"
 RUN pip freeze --all | LC_ALL=C sort > /app/training-stack.freeze && \
     dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort > /app/os-packages.manifest
