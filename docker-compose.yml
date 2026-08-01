@@ -493,15 +493,18 @@ services:
       dockerfile: services/training-controller/Dockerfile
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-training-controller:${IMAGE_TAG:-latest}
     environment:
+      CONFIG_PATH: /config/scarguard.yml
       CONTROLLER_STATE_PATH: /state/detector-lease.json
       CONTROLLER_LEASE_STALE_SECONDS: 120
       DETECTOR_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-scarguard}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # setup.sh backfills this credential on the documented upgrade path.
       TRAINING_CONTROLLER_TOKEN: ${TRAINING_CONTROLLER_TOKEN:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - scarguard-config:/config:ro
       - training-controller-state:/state
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]

@@ -24,9 +24,12 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlencode
 
+import yaml
+
 logger = logging.getLogger(__name__)
 
 SOCKET_PATH = os.environ.get("DOCKER_SOCKET_PATH", "/var/run/docker.sock")
+CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "/config/scarguard.yml"))
 STATE_PATH = Path(os.environ.get("CONTROLLER_STATE_PATH", "/state/detector-lease.json"))
 LEASE_STALE_SECONDS = int(os.environ.get("CONTROLLER_LEASE_STALE_SECONDS", "120"))
 DETECTOR_SERVICE_LABEL = "com.docker.compose.service=detector"
@@ -38,6 +41,40 @@ CONTROLLER_TOKEN = os.environ.get("TRAINING_CONTROLLER_TOKEN", "")
 _GPU_LEASE_UNAVAILABLE = "__redis_unavailable__"
 _OWNER_RE = re.compile(r"^[a-f0-9]{32}$")
 _ACTIVE_SUMMARY_STATES = {"running", "paused", "restarting"}
+_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+
+def _configured_log_level(
+    config_path: Path | None = None, *, default: int = logging.INFO
+) -> int:
+    """Read ``system.log_level`` from the deployment's shared config."""
+    path = config_path or CONFIG_PATH
+    try:
+        with path.open(encoding="utf-8") as config_file:
+            config = yaml.safe_load(config_file) or {}
+    except (OSError, UnicodeError, yaml.YAMLError):
+        return default
+    if not isinstance(config, dict):
+        return default
+    system = config.get("system", {})
+    if not isinstance(system, dict):
+        return default
+    return _LOG_LEVELS.get(str(system.get("log_level", "info")).upper(), default)
+
+
+def _refresh_log_level() -> None:
+    """Apply config changes without requiring a controller restart."""
+    root_logger = logging.getLogger()
+    configured = _configured_log_level(default=root_logger.level)
+    if root_logger.level != configured:
+        root_logger.setLevel(configured)
+        logger.info("Log level changed to %s", logging.getLevelName(configured))
 
 
 class ControllerError(RuntimeError):
@@ -401,6 +438,10 @@ class Handler(BaseHTTPRequestHandler):
 def _recovery_loop(stop: threading.Event) -> None:
     while not stop.wait(15):
         try:
+            _refresh_log_level()
+        except Exception:
+            logger.exception("Failed to refresh controller log level")
+        try:
             controller.recover_stale()
         except Exception:
             logger.exception("Stale detector lease recovery failed")
@@ -408,7 +449,7 @@ def _recovery_loop(stop: threading.Event) -> None:
 
 def main() -> None:
     logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        level=_configured_log_level(),
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
     )
     if len(CONTROLLER_TOKEN) < 32:

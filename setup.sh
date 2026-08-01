@@ -190,12 +190,7 @@ if [[ -f ".env" ]]; then
         info "Backfilled DETECTION_HMAC_KEY (signs Redis detection events)"
     fi
     if ! grep -q '^TRAINING_CONTROLLER_TOKEN=.\{32\}' .env; then
-        CONTROLLER_TOKEN=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
-        if grep -q '^TRAINING_CONTROLLER_TOKEN=' .env; then
-            sed -i "s|^TRAINING_CONTROLLER_TOKEN=.*|TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}|" .env
-        else
-            echo "TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}" >> .env
-        fi
+        bash infra/backfill-training-controller-token.sh .env
         info "Backfilled TRAINING_CONTROLLER_TOKEN (protects detector lifecycle API)"
     fi
     if ! grep -q '^COMPOSE_FILE=' .env; then

@@ -138,6 +138,7 @@ scarguard/
 │   │       └── main.py
 │   └── training-controller/         # Allowlisted detector stop/restore API (training profile)
 │       ├── Dockerfile
+│       ├── requirements.txt
 │       ├── src/
 │       │   └── main.py
 │       └── tests/
@@ -148,6 +149,7 @@ scarguard/
 ├── training/
 │   └── train.py                     # Standalone YOLO fine-tuning CLI
 ├── infra/
+│   ├── backfill-training-controller-token.sh # Upgrade credential migration
 │   ├── orin-runner/
 │   │   ├── Dockerfile
 │   │   └── entrypoint.sh

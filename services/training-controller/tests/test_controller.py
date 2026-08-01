@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import threading
 import time
@@ -52,6 +53,76 @@ class FakeBackend:
 
 OWNER = "a" * 32
 OTHER = "b" * 32
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("debug", logging.DEBUG),
+        ("warning", logging.WARNING),
+        ("ERROR", logging.ERROR),
+        ("invalid", logging.INFO),
+    ],
+)
+def test_configured_log_level_reads_shared_config(
+    tmp_path: Path, configured: str, expected: int
+) -> None:
+    config_path = tmp_path / "scarguard.yml"
+    config_path.write_text(f"system:\n  log_level: {configured}\n")
+    assert main._configured_log_level(config_path) == expected
+
+
+def test_refresh_log_level_applies_config_change(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "scarguard.yml"
+    config_path.write_text("system:\n  log_level: debug\n")
+    monkeypatch.setattr(main, "CONFIG_PATH", config_path)
+    root_logger = logging.getLogger()
+    previous = root_logger.level
+    try:
+        root_logger.setLevel(logging.INFO)
+        main._refresh_log_level()
+        assert root_logger.level == logging.DEBUG
+    finally:
+        root_logger.setLevel(previous)
+
+
+def test_refresh_log_level_keeps_last_valid_level_for_malformed_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_path = tmp_path / "scarguard.yml"
+    config_path.write_bytes(b"system:\n  log_level: \xff\n")
+    monkeypatch.setattr(main, "CONFIG_PATH", config_path)
+    root_logger = logging.getLogger()
+    previous = root_logger.level
+    try:
+        root_logger.setLevel(logging.WARNING)
+        main._refresh_log_level()
+        assert root_logger.level == logging.WARNING
+    finally:
+        root_logger.setLevel(previous)
+
+
+def test_recovery_loop_continues_when_log_refresh_fails(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class StopAfterOneIteration(threading.Event):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def wait(self, _timeout: float | None = None) -> bool:
+            self.calls += 1
+            return self.calls > 1
+
+    def fail_refresh() -> None:
+        raise RuntimeError("malformed config")
+
+    monkeypatch.setattr(main, "_refresh_log_level", fail_refresh)
+    monkeypatch.setattr(main.controller, "recover_stale", lambda: calls.append("recover"))
+
+    main._recovery_loop(StopAfterOneIteration())
+
+    assert calls == ["recover"]
 
 
 def test_running_detector_is_stopped_and_restored(tmp_path: Path) -> None:

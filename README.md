@@ -338,11 +338,13 @@ Then restart: `docker compose up -d caddy`
 
 ```bash
 git pull
-docker compose pull
-docker compose up -d
+sudo bash setup.sh
 ```
 
-That's all that's needed. HTTP continues to work on your existing port with no config changes.
+`setup.sh` preserves the existing configuration, backfills credentials added by
+newer releases (including `TRAINING_CONTROLLER_TOKEN`), pulls the updated
+images, and recreates the services. HTTP continues to work on the existing port
+with no config changes.
 
 #### Breaking change in v1.14.2 — non-root containers (handled automatically)
 

@@ -3,9 +3,12 @@ FROM docker.io/library/python:3.11-slim@sha256:f9fa7f851e38bfb19c9de3afbc4b86ae7
 
 WORKDIR /app
 
-# No third-party deps, but the base image's setuptools/wheel carry fixable
-# HIGH CVEs (Trivy-gated): upgrade them like every other slim-based service.
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# The base image's setuptools/wheel carry fixable HIGH CVEs (Trivy-gated),
+# so upgrade the build tooling before installing the controller's pinned YAML
+# parser.
+COPY services/training-controller/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY services/training-controller/src/ ./src/
 

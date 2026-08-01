@@ -669,6 +669,9 @@ jobs:
           fi
           docker compose version
 
+      - name: Training controller credential migration
+        run: tests/ci/test-training-controller-token-backfill.sh
+
       - name: Build all images locally
         run: |
           docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86:smoke .

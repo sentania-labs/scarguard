@@ -421,13 +421,15 @@ jobs:
 
       - name: Build trainer image
         run: |
+          BUILD_DATE="$(git show -s --format=%cI "$GITHUB_SHA")"
+          test -n "$BUILD_DATE"
           docker build \
             --file services/trainer/Dockerfile \
             --tag "$TRAINER_IMAGE:$TAG" \
             --tag "$TRAINER_IMAGE:latest" \
             --build-arg VERSION="$TAG" \
             --build-arg GIT_COMMIT="${{ github.sha }}" \
-            --build-arg BUILD_DATE="${{ github.event.release.published_at }}" \
+            --build-arg BUILD_DATE="$BUILD_DATE" \
             .
 
       - name: Push trainer image
