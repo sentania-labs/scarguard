@@ -5,7 +5,7 @@
 ```yaml
 system:
   armed: true
-  log_level: info
+  log_level: info                # debug | info | warning | error; all services honor it, the training controller applies changes without a restart
   timezone: "UTC"
   retention_days: 90             # days; applies to snapshots, events, visits, and metrics; 0 = keep forever (0 or 1-365)
   stats_interval: 5             # seconds between system stats collection (1-60)
