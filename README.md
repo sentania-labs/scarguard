@@ -95,6 +95,7 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 | `notifier` | Redis subscriber, Discord + email + webhook + ntfy dispatch | `python:3.11-slim` |
 | `deterrent` | Tuya Cloud device control (sprinklers, lights, sirens) | `python:3.11-slim` |
 | `log-streamer` | Tails container logs, publishes to Redis for web UI | `python:3.11-slim` |
+| `training-controller` | Allowlisted detector stop/restore boundary for training (opt-in profile) | `python:3.11-slim` |
 | `trainer` | Video processing, dataset prep, YOLO training (ARM64/Jetson only, opt-in profile) | `dustynv/l4t-pytorch:r36.4.0` |
 | `backup` | SQLite online-backup sidecar (scarguard.db, auth.db, deterrent.db) | `python:3.11-slim` |
 | `caddy` | HTTPS reverse proxy | `caddy:2-alpine` |
@@ -337,11 +338,13 @@ Then restart: `docker compose up -d caddy`
 
 ```bash
 git pull
-docker compose pull
-docker compose up -d
+sudo bash setup.sh
 ```
 
-That's all that's needed. HTTP continues to work on your existing port with no config changes.
+`setup.sh` preserves the existing configuration, backfills credentials added by
+newer releases (including `TRAINING_CONTROLLER_TOKEN`), pulls the updated
+images, and recreates the services. HTTP continues to work on the existing port
+with no config changes.
 
 #### Breaking change in v1.14.2 — non-root containers (handled automatically)
 
@@ -570,8 +573,14 @@ python train.py \
   --data /path/to/dataset/data.yaml \
   --output heron-v2.pt \
   --base-model yolov8n.pt \
+  --workers 4 \
   --epochs 100
 ```
+
+The Jetson Orin profile validates `--workers` from 0 through 4. In-app failed
+jobs offer a deliberate checkpoint Resume action only for regular, non-symlink
+`.pt` files beneath `/data/training_workspace/runs`; ScarGuard never
+auto-resumes a job.
 
 Run `python train.py --help` for the full CLI reference and recommended hyperparameters.
 

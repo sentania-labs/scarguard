@@ -17,44 +17,86 @@ import shutil
 import sys
 from pathlib import Path
 
+# Make the repository's shared validation helpers importable both from the
+# source tree and from /app/scripts in the trainer image.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared"))
 
-def _parse_args() -> argparse.Namespace:
+from nvml_compat import translate_masked_cuda_oom
+from training_safety import (  # noqa: E402
+    ORIN_DEFAULT_WORKERS,
+    validate_orin_workers,
+    validate_resume_checkpoint,
+)
+
+
+def _worker_count(value: str) -> int:
+    try:
+        return validate_orin_workers(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Fine-tune a YOLO model on a ScarGuard exported dataset.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--data", type=str, required=True,
+        "--data",
+        type=str,
+        required=True,
         help="Path to YOLO data.yaml (from ScarGuard export)",
     )
     p.add_argument(
-        "--base-model", type=str, default="yolov8n.pt",
+        "--base-model",
+        type=str,
+        default="yolov8n.pt",
         help="Pretrained YOLO checkpoint to fine-tune from",
     )
     p.add_argument(
-        "--output", type=str, default="best.pt",
+        "--output",
+        type=str,
+        default="best.pt",
         help="Output path for the trained model weights",
     )
     p.add_argument("--epochs", type=int, default=100, help="Training epochs")
     p.add_argument("--imgsz", type=int, default=640, help="Input image size")
     p.add_argument("--batch", type=int, default=16, help="Batch size")
     p.add_argument(
-        "--patience", type=int, default=20,
+        "--patience",
+        type=int,
+        default=20,
         help="Early stopping patience (epochs without improvement)",
     )
     p.add_argument(
-        "--device", type=str, default="0",
+        "--device",
+        type=str,
+        default="0",
         help="Device to train on (0 for GPU, cpu for CPU)",
     )
     p.add_argument(
-        "--project", type=str, default="runs",
+        "--project",
+        type=str,
+        default="runs",
         help="Directory for ultralytics run output (must be writable)",
     )
     p.add_argument(
-        "--force", action="store_true",
+        "--workers",
+        type=_worker_count,
+        default=ORIN_DEFAULT_WORKERS,
+        help="Ultralytics data-loader workers (Jetson Orin profile: 0-4)",
+    )
+    p.add_argument(
+        "--resume-from",
+        type=str,
+        help="Explicit checkpoint below PROJECT to resume; never selected automatically",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
         help="Proceed even if a class has fewer than 500 images",
     )
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def _validate_dataset(data_yaml: Path) -> dict:
@@ -130,6 +172,10 @@ def _count_per_class(data_yaml: Path, class_names: list[str]) -> dict[int, int]:
 def main() -> None:
     args = _parse_args()
     data_yaml = Path(args.data).resolve()
+    project_dir = Path(args.project).resolve()
+    resume_from = (
+        validate_resume_checkpoint(args.resume_from, project_dir) if args.resume_from else None
+    )
 
     print("=" * 60)
     print("ScarGuard Model Training")
@@ -141,9 +187,7 @@ def main() -> None:
     # Check minimum image count per class
     class_counts = _count_per_class(data_yaml, class_names)
     low_classes = [
-        class_names[idx]
-        for idx in range(len(class_names))
-        if class_counts.get(idx, 0) < 500
+        class_names[idx] for idx in range(len(class_names)) if class_counts.get(idx, 0) < 500
     ]
     if low_classes and not args.force:
         print(
@@ -165,22 +209,42 @@ def main() -> None:
         sys.exit(1)
 
     print(f"\nBase model: {args.base_model}")
+    if resume_from:
+        print(f"Resume checkpoint: {resume_from}")
+        print(f"Original run directory: {resume_from.parent.parent}")
     print(f"Epochs: {args.epochs}, Image size: {args.imgsz}, Batch: {args.batch}")
-    print(f"Patience: {args.patience}, Device: {args.device}")
+    print(f"Patience: {args.patience}, Device: {args.device}, Workers: {args.workers}")
     print()
 
     # Load base model and train
-    model = YOLO(args.base_model)
-    results = model.train(
-        data=str(data_yaml),
-        epochs=args.epochs,
-        imgsz=args.imgsz,
-        batch=args.batch,
-        patience=args.patience,
-        device=args.device,
-        project=args.project,
-        verbose=True,
-    )
+    model = YOLO(str(resume_from) if resume_from else args.base_model)
+    try:
+        if resume_from:
+            # Ultralytics restores the original run's arguments and save_dir
+            # from the checkpoint. Only the deliberately bounded worker count
+            # is overridden, so resume continues in that same run directory.
+            results = model.train(
+                resume=str(resume_from),
+                workers=args.workers,
+                verbose=True,
+            )
+        else:
+            results = model.train(
+                data=str(data_yaml),
+                epochs=args.epochs,
+                imgsz=args.imgsz,
+                batch=args.batch,
+                patience=args.patience,
+                device=args.device,
+                project=str(project_dir),
+                workers=args.workers,
+                verbose=True,
+            )
+    except RuntimeError as exc:
+        replacement = translate_masked_cuda_oom(exc, __import__("torch"))
+        if replacement is not None:
+            raise replacement from exc
+        raise
 
     # Copy best weights to output path
     output_path = Path(args.output).resolve()

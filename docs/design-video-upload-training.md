@@ -146,9 +146,15 @@ The web service creates these tables on startup (same pattern as existing
 
 ---
 
-## 4. Pause/Resume Mechanism
+## 4. Detector Isolation and Legacy Pause/Resume
 
-### 4.1 Choice: Redis pub/sub command + key-based ack
+### 4.1 Legacy choice: Redis pub/sub command + key-based ack
+
+The Redis pause protocol below remains for short CI maintenance operations and
+historical context. Production training and video-processing jobs use the hard
+container isolation in section 4.5; unloading a model and calling
+`torch.cuda.empty_cache()` never counted as releasing the detector process's
+CUDA context.
 
 **Why Redis, not DB flag or socket:**
 - Redis pub/sub is already the IPC pattern for eval requests, snapshot
@@ -227,30 +233,37 @@ pipeline logic.
 
 | Failure mode | Recovery |
 |---|---|
-| Training job fails (exception) | Trainer sends resume in `finally` block |
-| Trainer container crashes | Heartbeat expires (90s); detector auto-resumes |
-| Trainer container killed (SIGKILL) | Same — heartbeat TTL expires |
-| Pause timeout exceeded | Detector auto-resumes after `timeout` seconds |
-| Detector restarts while paused | Starts unpaused (default state) |
-| Redis connection lost during pause | Detector can't read heartbeat → auto-resume after timeout |
-| OOM during training | Kernel kills trainer → heartbeat expires → auto-resume |
+| Training succeeds, fails, or is cancelled | Trainer releases its controller lease in `finally`; controller starts the exact detector it stopped |
+| Trainer container/process crashes | Controller heartbeat becomes stale after 120 seconds and restores its owned detector |
+| Trainer restarts with a stale `running` row | Startup requests immediate recovery for that job ID and retains its resource evidence |
+| Detector was stopped before training | Controller records `stopped_by_controller=false` and never starts it |
+| Another owner attempts release | Controller returns conflict and leaves detector state unchanged |
+| Detector restarts during an active lease | Controller heartbeat stops that same owned container again |
+| A live or uncheckable GPU lease exists during stale recovery | Detector restoration waits; only an explicit owner release may restore while its own lease is live |
+| Training child is host-OOM killed | Trainer parent records signal/resource evidence and releases; if the parent also dies, controller recovery applies |
 
 **Hard requirement:** the detector must never remain paused indefinitely.
-The timeout (default 86400s = 24h) is the backstop for a trainer that is alive but never finishes; the 90s heartbeat TTL is the crash guard.
+The persisted controller lease—not `torch.cuda.empty_cache()` or a hoped-for
+trainer container restart—is the recovery authority. The older Redis pause
+protocol remains available to CI's short GPU lease, but production training
+uses the hard-isolation path below.
 
-### 4.5 Fallback: container stop/start
+### 4.5 Hard isolation: ownership-aware container stop/start
 
-If in-process pause proves fragile (model unload doesn't reliably free GPU
-memory, or camera threads misbehave), the fallback is:
+Training uses the hard-isolation fallback because model unload plus
+`torch.cuda.empty_cache()` does not destroy the detector's CUDA process. A
+dedicated `training-controller` is the only service with Docker write access.
+Its API contains no caller-selected container or arbitrary operation: it stops
+only the container labeled `com.docker.compose.service=detector`, persists the
+exact container ID and whether it performed the stop, and starts that exact ID
+only when the owning job releases or its controller heartbeat becomes stale.
+Every lifecycle call requires a dedicated 32-character credential exposed only
+to trainer and controller; health is the sole unauthenticated endpoint.
 
-1. Trainer calls `docker stop scarguard-detector` (via Docker socket proxy
-   with `POST` permission on `/containers/*/stop`).
-2. Training runs.
-3. Trainer calls `docker start scarguard-detector`.
-
-This requires adding `POST` capability to the existing `docker-socket-proxy`
-service (currently read-only: `CONTAINERS=1`, `EVENTS=1`).  Flag this in PR
-review if we reach for it.
+The trainer first atomically claims the existing Redis GPU lease (so Orin CI
+cannot race training), acquires the controller lease, and then starts work. Web
+and trainer never receive a Docker socket. The general read-only log-streamer
+proxy is not granted `POST` access.
 
 ---
 
@@ -282,7 +295,8 @@ User                Web Service              Disk
 ### 5.2 Video processing
 
 Video processing runs in the **trainer** container as a `process_video` job.
-It requires GPU access, so the detector is paused first.
+It requires GPU access, so trainer acquires the shared Redis GPU lease and the
+controller hard-stops the detector container first.
 
 **Model access decision: load a fresh instance after the detector frees
 GPU.**
@@ -290,13 +304,13 @@ GPU.**
 Why not borrow the detector's loaded model: the trainer and detector are
 separate containers (separate processes, separate CUDA contexts).  Object
 references can't cross process boundaries.  Instead, the trainer loads the
-same model path from `/models/` after the detector unloads and frees GPU
-memory.  This mirrors how the evaluator already works (loads its own YOLO
+same model path from `/models/` after the detector process has stopped. This
+mirrors how the evaluator already works (loads its own YOLO
 instances, deletes them afterward).
 
 **Processing steps:**
 
-1. Pause detector (wait for ack).
+1. Acquire the GPU/controller lease and verify the detector process stopped.
 2. Load YOLO model from `detection.model_path` in config.
 3. Open video with OpenCV `VideoCapture`.
 4. For each frame:
@@ -311,11 +325,11 @@ instances, deletes them afterward).
 6. INSERT surviving detections into `training_events`.
 7. Update `training_uploads.status = 'processed'`, set `frame_count`,
    `detection_count`.
-8. Unload model, `torch.cuda.empty_cache()`.
-9. Resume detector.
+8. Unload the trainer's model.
+9. Release the controller lease; it restores only the exact detector it stopped.
 
 For **batch processing** (multiple pending uploads in one job): the trainer
-pauses once, processes all uploads sequentially, resumes once.  The
+acquires once, processes all uploads sequentially, releases once. The
 `process_video` job accepts a list of upload IDs.
 
 ### 5.3 Two-pass confidence tagging
@@ -507,10 +521,13 @@ services/trainer/
 `training_jobs` polling.  No CUDA context is created until a GPU job starts.
 Idle memory footprint: ~50MB.
 
-**OOM protection:** `deploy.resources.limits.memory: 6g` in
-docker-compose.  If training OOMs, the kernel kills the trainer process.
-The container restarts (restart policy), but the detector's heartbeat
-watcher has already auto-resumed.
+**OOM evidence and recovery:** the trainer container has a 6 GiB memory
+limit, but training runs as a child process. A host-global OOM can kill that
+child while PID 1 and the container survive, so the limit does **not** imply a
+container restart. The job runner samples host unified memory and cgroup
+current/peak/events, decodes the child signal, and claims probable OOM only
+when resource evidence supports it. Detector restoration is owned by the
+allowlisted training-controller, independent of a container restart.
 
 ### 6.4 `scarguard.yml` additions
 
@@ -541,6 +558,15 @@ training:
     image_size: 480
     patience: 20
     val_split: 0.15
+    workers: 4                         # Jetson Orin profile: 0-4
+
+  resources:
+    min_mem_available_mb: 1536         # checked after hard detector stop
+    min_swap_free_mb: 512
+
+  logs:
+    max_bytes: 16777216
+    retention_days: 30
 
   video:
     low_confidence: 0.05
@@ -833,42 +859,50 @@ advanced params.
 
 ## 11. Safety & Recovery
 
-### 11.1 Resume-on-failure
+### 11.1 Detector restoration on every exit
 
 ```python
-async def run_gpu_job(job, pause_client, ...):
-    await pause_client.pause(timeout=job.timeout)
+def run_gpu_job(job, controller, ...):
+    controller.acquire(job.id)
     try:
-        await do_work(job)
+        do_work(job)
     finally:
-        await pause_client.resume()
+        controller.release(job.id)
 ```
 
-The `finally` block is the primary safety net.  Even if `do_work()` raises,
-OOMs, or is interrupted, resume is called.
+The `finally` block handles normal failure and cancellation. Persisted
+controller ownership handles trainer death and restores only a detector the
+controller actually stopped.
 
-### 11.2 Heartbeat
+### 11.2 Controller and GPU-lease heartbeats
 
-While the detector is paused, the trainer writes
-`scarguard:trainer:heartbeat` every 30s (TTL 90s).  The detector's heartbeat
-watcher checks every 30s.  If the key is absent, the trainer is assumed dead
-and the detector auto-resumes.
+Trainer atomically compare-and-expires `scarguard:trainer:heartbeat` every 30
+seconds (TTL 90 seconds) and separately heartbeats its authenticated controller
+lease. Loss of Redis lease ownership stops the training process group. A stale
+controller lease restores its exact detector only when the GPU lease is absent;
+an unknown Redis state fails closed.
 
-### 11.3 Pause timeout
+### 11.3 Stale controller recovery
 
-The pause request includes `timeout` (default 86400s = 24h).  The detector tracks
-`paused_since` and auto-resumes when `now - paused_since > timeout`.
-This covers: trainer hung, heartbeat mechanism itself broken, Redis down.
+The controller persists owner, exact container ID, pre-stop state, and whether
+it performed the stop before calling Docker. Its recovery loop uses a
+120-second stale deadline. Redis failure defers restoration rather than risking
+GPU contention. The legacy 24-hour detector pause timeout does not govern
+production training isolation.
 
 ### 11.4 OOM during training
 
-Docker memory limit (`6g`) causes the trainer to be OOM-killed.  The
-container restarts (restart policy `unless-stopped`), but the current job is
-lost.  The detector's heartbeat expires within 90s → auto-resume.
+The 6 GiB container limit is not a restart guarantee. Training runs in a child
+process, so host-global memory pressure can SIGKILL the child while the trainer
+container remains alive. The trainer decodes the signal and reports probable
+OOM only when cgroup or host unified-memory evidence supports it. A CUDA
+allocation failure remains distinct, including when Jetson's unsupported NVML
+process query masks the useful allocator message.
 
-The trainer's `main.py` startup checks for jobs with `status='running'`
-and marks them `status='failed'` with `result={"error": "Trainer
-restarted — job interrupted (possible OOM)"}`.
+The allowlisted training-controller owns detector restoration on every normal,
+failure, cancellation, and stale-job recovery path. It restores only the exact
+detector container it recorded stopping, and stale recovery defers while the GPU
+lease is live or cannot be checked.
 
 ### 11.5 Missing credentials fail-fast
 
@@ -904,10 +938,11 @@ shows a "Job in progress" indicator and disables the submit button.
 | Two-pass classification | Detections above/below threshold tagged correctly | Unit |
 | training_events → YOLO export | Approved events produce correct label lines; corrected class used; multiple detections per frame merged; background uploads emit empty labels | Unit |
 | Job queue state transitions | queued → running → completed; queued → cancelled; running → failed | Unit |
-| Pause/resume happy path | Detector acks pause, state key set, camera threads skip inference, resume restores inference | Integration |
-| Pause with training failure | Exception during training → detector resumes (finally block) | Integration |
-| Pause timeout | Detector auto-resumes after timeout expires | Integration |
-| Heartbeat recovery | Trainer heartbeat stops → detector auto-resumes within 2 check cycles | Integration |
+| Controller ownership happy path | Running detector is stopped and the exact owned ID is restored | Integration |
+| Controller pre-stopped path | A detector the controller did not stop is never started | Integration |
+| Training failure/cancellation | Every exit releases; stale recovery covers trainer death | Integration |
+| GPU lease loss | Atomic renewal failure terminates the training process group | Integration |
+| Stale recovery | Live or unknown GPU lease defers detector restoration | Integration |
 | Missing credentials | Job with empty Roboflow key fails fast, detector not paused | Unit |
 | Video upload validation | Rejects non-video files, respects max size | Unit |
 | Bulk review | "Approve All Normal" updates only pass='normal' pending events | Unit |

@@ -39,6 +39,7 @@ jobs:
             services/deterrent/src \
             services/log-streamer/src \
             services/trainer/src \
+            services/training-controller/src \
             shared \
             training
 
@@ -171,3 +172,31 @@ jobs:
 
       - name: pytest
         run: pytest training/tests/ -v
+
+  # ── Tests — trainer execution + lifecycle controller ──────────────────────
+  # These use fake children, fake cgroup evidence, and a fake Docker backend.
+  # They never contact the production Orin or drive a live detector.
+  test-training-runtime:
+    name: Tests — training runtime
+    runs-on: [self-hosted, linux, generic]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install pytest redis -r services/training-controller/requirements.txt
+
+      - name: Trainer fake-child and evidence tests
+        env:
+          PYTHONPATH: services/trainer/src:shared
+        run: pytest services/trainer/tests/ -v
+
+      - name: Lifecycle controller ownership tests
+        env:
+          PYTHONPATH: services/training-controller/src
+        run: pytest services/training-controller/tests/ -v

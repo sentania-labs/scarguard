@@ -16,6 +16,7 @@ import sqlite3
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,17 +57,51 @@ def _get_redis(cfg: dict) -> redis.Redis:
 
 
 def _mark_stale_jobs() -> int:
-    """Mark any 'running' jobs as failed (crash recovery)."""
+    """Restore owned detector leases and fail interrupted jobs with their evidence."""
     now = datetime.now(timezone.utc).isoformat()
-    result_json = json.dumps({"error": "Trainer restarted — job interrupted (possible OOM)"})
     conn = _connect_db()
     try:
-        cur = conn.execute(
-            "UPDATE training_jobs SET status = 'failed', completed_at = ?, result = ? WHERE status = 'running'",
-            (now, result_json),
-        )
+        rows = conn.execute(
+            "SELECT id, execution_metadata FROM training_jobs WHERE status = 'running'"
+        ).fetchall()
+        for row in rows:
+            recovery_error = None
+            try:
+                from detector_controller import DetectorControllerClient
+
+                DetectorControllerClient(str(row["id"])).recover()
+            except Exception as exc:
+                recovery_error = str(exc)
+                logger.exception("Immediate detector recovery failed for stale job %s", row["id"])
+            try:
+                execution = json.loads(row["execution_metadata"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                execution = {}
+            result = {
+                "error": "Trainer restarted — job interrupted",
+                "execution": execution,
+                "recovery": {
+                    "detector_restore_requested": True,
+                    "error": recovery_error,
+                },
+            }
+            conn.execute(
+                "UPDATE training_jobs SET status = 'failed', completed_at = ?, result = ? WHERE id = ?",
+                (now, json.dumps(result), row["id"]),
+            )
         conn.commit()
-        return cur.rowcount
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def _ensure_execution_schema() -> None:
+    conn = _connect_db()
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(training_jobs)")}
+        if "execution_metadata" not in columns:
+            conn.execute("ALTER TABLE training_jobs ADD COLUMN execution_metadata TEXT")
+            conn.commit()
     finally:
         conn.close()
 
@@ -114,7 +149,10 @@ def _process_job(job: dict, cfg: dict, stop_event: threading.Event) -> None:
     _set_job_status(job_id, "running")
     try:
         result = run_job(job, cfg, stop_event)
-        if "error" in result:
+        if result.get("cancelled"):
+            _set_job_status(job_id, "cancelled", result=json.dumps(result))
+            logger.info("Job %s cancelled", job_id)
+        elif "error" in result:
             _set_job_status(job_id, "failed", result=json.dumps(result))
             logger.warning("Job %s failed: %s", job_id, result["error"])
         else:
@@ -122,7 +160,20 @@ def _process_job(job: dict, cfg: dict, stop_event: threading.Event) -> None:
             logger.info("Job %s completed", job_id)
     except Exception as e:
         logger.exception("Job %s failed", job_id)
-        _set_job_status(job_id, "failed", result=json.dumps({"error": str(e)}))
+        trace = traceback.format_exc()
+        _set_job_status(
+            job_id,
+            "failed",
+            result=json.dumps(
+                {
+                    "error": str(e),
+                    "execution": {
+                        "final_exception": f"{type(e).__name__}: {e}",
+                        "final_traceback": trace,
+                    },
+                }
+            ),
+        )
 
 
 def main() -> None:
@@ -137,6 +188,7 @@ def main() -> None:
 
     Path("/tmp/healthy").touch(exist_ok=True)
 
+    _ensure_execution_schema()
     stale = _mark_stale_jobs()
     if stale:
         logger.warning("Marked %d stale running job(s) as failed", stale)
@@ -150,7 +202,9 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    logger.info("Listening for jobs on %s (poll fallback every %ds)", JOB_NOTIFY_CHANNEL, POLL_INTERVAL)
+    logger.info(
+        "Listening for jobs on %s (poll fallback every %ds)", JOB_NOTIFY_CHANNEL, POLL_INTERVAL
+    )
 
     while not stop_event.is_set():
         try:

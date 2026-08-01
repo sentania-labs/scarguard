@@ -306,6 +306,29 @@
             <label>Batch size</label>
             <input type="number" id="training-batch" value="{{ cfg.training.defaults.batch_size }}" min="1" max="128">
           </div>
+          <div class="field-group">
+            <label>Data-loader workers</label>
+            <input type="number" id="training-workers" value="{{ cfg.training.defaults.workers }}" min="0" max="4">
+            <p class="hint">Jetson Orin profile: 0-4; default 4.</p>
+          </div>
+        </div>
+        <div class="field-row expert-only">
+          <div class="field-group">
+            <label>Minimum MemAvailable (MiB)</label>
+            <input type="number" id="training-min-memory" value="{{ cfg.training.resources.min_mem_available_mb }}" min="512" max="8192">
+          </div>
+          <div class="field-group">
+            <label>Minimum swap free (MiB)</label>
+            <input type="number" id="training-min-swap" value="{{ cfg.training.resources.min_swap_free_mb }}" min="0" max="8192">
+          </div>
+          <div class="field-group">
+            <label>Durable log retention (days)</label>
+            <input type="number" id="training-log-retention" value="{{ cfg.training.logs.retention_days }}" min="1" max="365">
+          </div>
+        </div>
+        <div class="field-group expert-only">
+          <label>Maximum durable log bytes per job</label>
+          <input type="number" id="training-log-max-bytes" value="{{ cfg.training.logs.max_bytes }}" min="65536" max="1073741824">
         </div>
         <div class="field-row">
           <div class="field-group expert-only">

@@ -435,12 +435,65 @@ jobs:
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-log-streamer:test-${{ github.run_id }} || true
 
+  # ── Build training lifecycle controller (x86 runner) ──────────────────────
+  build-training-controller:
+    name: Build training-controller image
+    runs-on: [self-hosted, linux, docker]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build training-controller (validate only)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
+        with:
+          context: .
+          file: services/training-controller/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=training-controller
+          cache-to: type=gha,scope=training-controller,mode=max
+
+      - name: Build training-controller (amd64, load for scan)
+        if: github.event_name != 'push'
+        run: |
+          docker build \
+            --tag scarguard-training-controller:test-${{ github.run_id }} \
+            --file services/training-controller/Dockerfile \
+            .
+
+      - name: Trivy scan — training-controller
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        with:
+          image-ref: scarguard-training-controller:test-${{ github.run_id }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-training-controller:test-${{ github.run_id }} || true
+
   # ── Build trainer — Jetson/L4T (Orin runner, ARM64) ──────────────────────────
-  # Same L4T base as detector — ARM64 only, no x86 variant.
+  # Same L4T base as detector — ARM64 only, no x86 variant. PR target-image
+  # validation is maintenance-window gated because it runs on the controlled
+  # Jetson host; generic fake-child/controller tests run in ci.yml regardless.
   build-trainer:
     name: Build trainer image
     runs-on: [self-hosted, linux, arm64, jetson]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.owner.login == 'sentania-labs' &&
+       contains(github.event.pull_request.labels.*.name, 'orin-maintenance-approved'))
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -450,20 +503,27 @@ jobs:
           docker build \
             --file services/trainer/Dockerfile \
             --tag scarguard-trainer:build-validate-${{ github.run_id }} \
+            --build-arg VERSION=dev-${{ github.sha }} \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
             .
 
       - name: Import smoke test
         run: |
           docker run --rm scarguard-trainer:build-validate-${{ github.run_id }} \
-            python3 -c "import yaml, redis, cv2; from ultralytics import YOLO; print('Trainer imports OK')"
+            python3 -c "import importlib.metadata as m, torch, torchvision, yaml, redis, cv2; from ultralytics import YOLO; assert torch.__version__.startswith('2.4.0'); assert torch.version.cuda == '12.6'; assert m.version('ultralytics') == '8.4.56'; print(torch.__version__, torch.version.cuda, torchvision.__version__, m.version('ultralytics'))"
+          docker run --rm scarguard-trainer:build-validate-${{ github.run_id }} \
+            sh -c 'pip check && cat /app/training-stack.freeze'
 
       - name: Clean up
         if: always()
         run: docker rmi scarguard-trainer:build-validate-${{ github.run_id }} || true
 
   # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
-  # PRs only run this when they touch detector-relevant paths (see
-  # detector-paths above); pushes to main always run it to warm the cache.
+  # PRs run this only when they touch detector-relevant paths AND a captain-
+  # approved maintenance window is recorded with the
+  # `orin-maintenance-approved` label. Pushes to main retain the release-line
+  # validation behavior after the reviewed PR is merged.
   # A skipped run satisfies required-check branch protection.
   build-detector:
     name: Build detector image (Jetson)
@@ -473,7 +533,8 @@ jobs:
       !cancelled() &&
       (github.event_name != 'pull_request' ||
        (github.event.pull_request.head.repo.owner.login == 'sentania-labs' &&
-        needs.detector-paths.outputs.detector == 'true'))
+        needs.detector-paths.outputs.detector == 'true' &&
+        contains(github.event.pull_request.labels.*.name, 'orin-maintenance-approved')))
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -548,6 +609,7 @@ jobs:
         run: |
           docker build \
             --file services/detector/Dockerfile.x86 \
+            --build-arg APT_CACHE_BUST=${{ github.run_id }} \
             --tag scarguard-detector-x86:build-validate-${{ github.run_id }} \
             .
 
@@ -575,7 +637,8 @@ jobs:
           # severity limited to CRITICAL — base image carries dozens of HIGH
           # Ubuntu kernel CVEs we cannot fix; only block on actionable findings
           scanners: vuln
-          timeout: 20m0s
+          # 20m hit "context deadline exceeded" on this image; scan takes 20m+
+          timeout: 40m0s
 
       - name: Clean up
         if: always()
@@ -588,7 +651,7 @@ jobs:
       github.event_name != 'push' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.owner.login == 'sentania-labs')
-    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-backup, build-caddy, build-log-streamer]
+    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-backup, build-caddy, build-log-streamer, build-training-controller]
     runs-on: [self-hosted, linux, docker]
 
     steps:
@@ -606,6 +669,9 @@ jobs:
           fi
           docker compose version
 
+      - name: Training controller credential migration
+        run: tests/ci/test-training-controller-token-backfill.sh
+
       - name: Build all images locally
         run: |
           docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86:smoke .
@@ -617,6 +683,7 @@ jobs:
           docker build -f services/backup/Dockerfile -t scarguard-backup:smoke .
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
           docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
+          docker build -f services/training-controller/Dockerfile -t scarguard-training-controller:smoke .
 
       # Seed the named volume that docker-compose.yml actually mounts.
       - name: Seed config volume

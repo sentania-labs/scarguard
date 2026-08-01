@@ -90,8 +90,8 @@ self-review via subagent before considering the task done:
 
 **Applies to:**
 
-- Any change to `services/` (detector, web, notifier, deterrent,
-  backup, log-streamer)
+- Any change to `services/` (any service container, including
+  trainer and training-controller)
 - Any change to `shared/`
 - Any change to `docker-compose.yml` or a Dockerfile
 - Config schema changes

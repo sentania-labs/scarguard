@@ -497,7 +497,7 @@ async def save_structured_config(request: Request) -> Response:
     rf_dump = training_dump.get("sources", {}).get("roboflow", {})
     if rf_dump.get("api_key") == REDACTED_PLACEHOLDER:
         rf_dump.pop("api_key")
-    for group in ("sources", "defaults", "video"):
+    for group in ("sources", "defaults", "video", "resources", "logs"):
         if group in training_dump:
             existing_group = existing_training.get(group, {})
             if not isinstance(existing_group, dict):

@@ -131,11 +131,17 @@ scarguard/
 │   │   └── tests/
 │   ├── caddy/                       # Reverse proxy (TLS termination)
 │   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
-│   └── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
+│   ├── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       └── main.py
+│   └── training-controller/         # Allowlisted detector stop/restore API (training profile)
 │       ├── Dockerfile
 │       ├── requirements.txt
-│       └── src/
-│           └── main.py
+│       ├── src/
+│       │   └── main.py
+│       └── tests/
 ├── shared/                          # Code shared across service containers
 │   ├── models.py                    # Pydantic event models
 │   ├── config_watcher.py            # Mtime-based config hot-reload helper
@@ -143,6 +149,7 @@ scarguard/
 ├── training/
 │   └── train.py                     # Standalone YOLO fine-tuning CLI
 ├── infra/
+│   ├── backfill-training-controller-token.sh # Upgrade credential migration
 │   ├── orin-runner/
 │   │   ├── Dockerfile
 │   │   └── entrypoint.sh
@@ -160,7 +167,7 @@ scarguard/
 
 - **detector (Jetson):** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`docker-compose.gpu.yml` override).
 - **detector (x86):** `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`. The PyTorch tag is parameterized via `ARG PYTORCH_TAG` in `Dockerfile.x86` — override with `--build-arg PYTORCH_TAG=<tag>` to test a different version. Bump the default when cutting a release.
-- **web, notifier, deterrent, log-streamer:** `python:3.11-slim` — no GPU needed.
+- **web, notifier, deterrent, log-streamer, training-controller:** `python:3.11-slim` — no GPU needed.
 - **caddy:** `caddy:2-alpine` + Python for config parsing.
 - **redis:** `redis:7-alpine` (digest-pinned in `docker-compose.yml`).
 
@@ -174,7 +181,9 @@ The stateful application containers (detector, web, notifier, deterrent) create 
 
 Each service uses a per-service sentinel file (`.ownership-fixed-{detector,web,notifier,deterrent}`) so services sharing the same volume don't skip each other's chown.
 
-The `log-streamer` sidecar runs as root because it needs access to `/var/run/docker.sock`; it has no write access to any application volume.
+The `log-streamer` runs as a non-root user and reaches only the read endpoints
+exposed by `docker-socket-proxy`. The training-controller runs as root inside its
+minimal container so it can open the socket, but its API is detector-only.
 
 CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
@@ -185,19 +194,24 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
 | `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
-| `scarguard-data` | detector, web, notifier, deterrent | rw (detector, web, deterrent), ro (notifier) | `scarguard.db`, `auth.db`, `deterrent.db`, snapshots |
+| `scarguard-data` | detector, web, notifier, deterrent, trainer | rw (detector, web, deterrent, trainer), ro (notifier) | SQLite DBs, snapshots, training workspace and durable logs |
 | `scarguard-models` | detector, web, notifier | rw (web — model upload), ro (detector, notifier — storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
 | `scarguard-redis-data` | redis | rw | Redis persistence |
+| `training-controller-state` | training-controller | rw | Detector lease ownership and crash-recovery state |
 
-Additionally, the Docker socket is bind-mounted into the `log-streamer` sidecar (not the web container):
+Docker access is mediated as follows (never mounted into web or trainer):
 
 | Bind mount | Service | Purpose |
 |------------|---------|---------|
-| `/var/run/docker.sock:/var/run/docker.sock:ro` | log-streamer | Tails container logs, publishes to Redis for the web Admin Logs tab |
+| Docker socket via read-only proxy | log-streamer | Tails container logs and publishes to Redis |
+| `/var/run/docker.sock:/var/run/docker.sock:ro` | training-controller (training profile only) | Narrow API stops/starts only the Compose detector service for exclusive training GPU access. The bind mode does not make Docker API writes read-only; the controller's allowlist is the boundary. |
 
-> **Security note:** Mounting `/var/run/docker.sock` gives the log-streamer container host-equivalent Docker daemon access. The web container no longer has this mount (removed in v0.12.6). The sidecar runs as a minimal Python process and communicates only via Redis.
+> **Security note:** `web`, `trainer`, and `log-streamer` do not receive Docker
+> write access. The opt-in training-controller is deliberately privileged but
+> exposes only acquire/heartbeat/release/recover operations for the detector;
+> it persists the exact container ID and never starts a detector it did not stop.
 
 ### Migrating from bind mounts (v0.7 and earlier)
 
@@ -241,7 +255,7 @@ The Orin's 8GB unified memory holds exactly one GPU workload: the live detector,
 
 Crash safety: the heartbeat key's TTL plus the detector's pause-timeout auto-resume guarantee a killed CI job cannot leave production paused. If the production stack (or detector) isn't running, acquire is a no-op. Redis access is via `docker exec` into the production redis container, so no Redis secret lives in CI.
 
-Additionally, PRs only run the Jetson detector job at all when they touch detector-relevant paths (`detector-paths` job in build.yml); pushes to main and releases always run it.
+Additionally, PRs only run the Jetson detector job when they touch detector-relevant paths (`detector-paths` job in build.yml) **and** carry the `orin-maintenance-approved` label; the PR trainer-image job requires the same label. Pushes to main and releases always run them. The label gate exists because these jobs run on the controlled production Jetson — see `docs/training-remediation-validation.md` for when to apply it.
 
 ### Build & Deploy Flow
 
@@ -252,18 +266,23 @@ PR to main (ci.yml + build.yml — full validation)
   │   ├── Type check (mypy — web, notifier, deterrent)
   │   ├── pytest — web
   │   ├── pytest — notifier
-  │   └── pytest — deterrent
+  │   ├── pytest — deterrent
+  │   └── pytest — training runtime (trainer + lifecycle controller,
+  │       fake children/cgroups/Docker backend — never touches the Orin)
   │
   ├── docker runners (parallel, one job per runner):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
   │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
   │   ├── Build log-streamer image + Trivy
+  │   ├── Build training-controller image (multi-arch) + Trivy
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy
   │
   ├── Orin runner (only when the PR touches detector-relevant paths —
-  │   services/detector/, shared/, tests/ci/, build.yml, .github/scripts/):
+  │   services/detector/, shared/, tests/ci/, build.yml, .github/scripts/ —
+  │   AND carries the orin-maintenance-approved label; trainer-image job
+  │   needs the same label):
   │   └── Build detector image + GPU smoke test + benchmark
   │
   └── Compose smoke test (after all builds pass)
@@ -278,6 +297,7 @@ Tag push (release.yml)
   │   ├── Build + push notifier to ghcr.io
   │   ├── Build + push deterrent to ghcr.io
   │   ├── Build + push log-streamer to ghcr.io
+  │   ├── Build + push training-controller to ghcr.io
   │   └── Build + push caddy to ghcr.io
   │
   ├── docker runner:
@@ -330,9 +350,10 @@ docker run --rm --runtime=nvidia --gpus all dustynv/l4t-pytorch:r36.4.0 python3 
 ### Resource Limits
 
 `docker-compose.yml` sets `mem_limit`, `cpus`, and `pids_limit` on
-every service so a single misbehaving container can't OOM the host
-(the "detector OOM takes down the deterrent that was supposed to
-protect the pond" failure mode called out in the v1.14 review).
+services as containment, not as a guarantee against host-global OOM. On the
+Jetson's unified memory, the kernel may kill a training child while the trainer
+container survives; admission control and persisted resource evidence handle
+that case explicitly.
 Defaults are sized for a Jetson Orin Nano:
 
 | Service | mem | cpus | notes |
@@ -342,6 +363,8 @@ Defaults are sized for a Jetson Orin Nano:
 | notifier | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
 | deterrent | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
 | log-streamer | 128 MB | 0.25 | read_only rootfs + tmpfs /tmp |
+| training-controller | 64 MB | 0.25 | detector-only Docker API boundary |
+| trainer | 6 GB | 4.0 | limit includes child; unified-memory admission still applies |
 | backup | 128 MB | 0.5 | periodic cycle, mostly idle |
 | redis | 256 MB | 0.5 | + `--maxmemory 200mb --maxmemory-policy allkeys-lru` |
 | caddy | 128 MB | 0.5 | keeps NET_BIND_SERVICE for 80/443 |
@@ -393,8 +416,9 @@ fields — Tuya creds, SMTP passwords, webhook URLs, ntfy tokens):
 A proper `scripts/rotate-secret-key.sh` that re-encrypts in place
 is v1.15 work (tracked in ROADMAP.md).
 
-`DETECTION_HMAC_KEY` (signs detection events on Redis) and
-`REDIS_PASSWORD`:
+`DETECTION_HMAC_KEY` (signs detection events on Redis),
+`TRAINING_CONTROLLER_TOKEN` (authenticates the allowlisted detector lifecycle
+API), and `REDIS_PASSWORD`:
 
 1. Regenerate in `.env` — either re-run `setup.sh` (backfill path)
    or edit the values directly. See `.env.example` for generation

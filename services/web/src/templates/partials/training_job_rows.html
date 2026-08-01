@@ -22,18 +22,49 @@
   <td>
     {% if j.parsed_result %}
       {% set r = j.parsed_result %}
+      {% set v = j.result_view %}
       {% if r.uploads is defined %}
         {% for u in r.uploads %}
           <a href="/admin/training/uploads/{{ u.upload_id }}" class="btn btn-small">Label Video Detections</a>
           <span class="muted">({{ u.detections }} det.)</span>
           {% if not loop.last %}<br>{% endif %}
         {% endfor %}
-      {% elif r.model_path is defined %}
-        <span class="muted">{{ r.model_path | replace('/models/', '') }}</span>
-      {% elif r.error is defined %}
-        <span class="muted" title="{{ r.error }}">{{ r.error[:50] }}{% if r.error|length > 50 %}...{% endif %}</span>
+      {% elif v.model_path %}
+        <span class="muted">Model: {{ v.model_path | replace('/models/', '') }}</span>
+        {% if v.resume_from %}<br><span class="muted">Resumed {{ v.resume_from }}</span>{% endif %}
+      {% elif v.error %}
+        <div class="training-error"><strong>{{ v.final_exception or v.error }}</strong></div>
+        <div style="margin-top:0.35rem;">
+          {% if v.signal %}<span class="badge">{{ v.signal }}</span>{% endif %}
+          {% if v.probable_oom %}<span class="badge badge-disarmed">Probable resource OOM</span>{% endif %}
+          {% if v.cuda_allocation_failure %}<span class="badge" style="background:var(--warn);color:#000;">CUDA allocation failure</span>{% endif %}
+        </div>
+        {% if v.diagnostic_masking %}
+        <p class="muted" style="margin:0.35rem 0 0;">The underlying CUDA allocation failure was preserved; Jetson's unsupported NVML process query was a separate diagnostic mask.</p>
+        {% endif %}
+        {% if v.traceback %}
+        <details style="margin-top:0.35rem;"><summary>Traceback</summary><pre style="white-space:pre-wrap;max-height:22rem;overflow:auto;">{{ v.traceback }}</pre></details>
+        {% endif %}
+        {% if v.signal or v.memory_peak_bytes or v.cgroup_event_delta or v.preflight %}
+        <details style="margin-top:0.35rem;">
+          <summary>Execution and memory evidence</summary>
+          <dl style="font-size:0.8rem;">
+            {% if v.return_code is not none %}<dt>Return code</dt><dd>{{ v.return_code }}</dd>{% endif %}
+            {% if v.signal %}<dt>Signal</dt><dd>{{ v.signal }}</dd>{% endif %}
+            {% if v.preflight.mem_available_bytes is defined and v.preflight.mem_available_bytes is not none %}<dt>Preflight MemAvailable</dt><dd>{{ (v.preflight.mem_available_bytes / 1048576) | round | int }} MiB</dd>{% endif %}
+            {% if v.preflight.swap_free_bytes is defined and v.preflight.swap_free_bytes is not none %}<dt>Preflight swap free</dt><dd>{{ (v.preflight.swap_free_bytes / 1048576) | round | int }} MiB</dd>{% endif %}
+            {% if v.memory_peak_bytes %}<dt>Container memory peak</dt><dd>{{ (v.memory_peak_bytes / 1048576) | round | int }} MiB</dd>{% endif %}
+            {% if v.preflight.gpu_lease_holder is defined %}<dt>GPU lease holder</dt><dd>{{ v.preflight.gpu_lease_holder or 'none' }}</dd>{% endif %}
+            {% if v.cgroup_event_delta %}<dt>cgroup event delta</dt><dd><code>{{ v.cgroup_event_delta }}</code></dd>{% endif %}
+            {% if v.oom_evidence %}<dt>OOM evidence</dt><dd>{{ v.oom_evidence | join('; ') }}</dd>{% endif %}
+          </dl>
+        </details>
+        {% endif %}
       {% else %}
         <span class="muted">Done</span>
+      {% endif %}
+      {% if v.log_path %}
+        <div style="margin-top:0.35rem;"><a href="/admin/training/jobs/{{ j.id }}/log">Download durable log</a></div>
       {% endif %}
     {% elif j.result %}
       <span class="muted" title="{{ j.result }}">{{ j.result[:60] }}{% if j.result|length > 60 %}...{% endif %}</span>
@@ -55,6 +86,13 @@
     {% endif %}
     {% if j.status == 'running' %}
     <button type="button" class="btn btn-small js-watch-job" data-job-id="{{ j.id }}">Watch</button>
+    {% endif %}
+    {% if j.status == 'failed' and j.resume_candidate and _is_admin %}
+    <form method="post" action="/admin/training/jobs/{{ j.id }}/resume" style="display:inline;">
+      <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+      <button type="submit" class="btn btn-small">Resume checkpoint</button>
+    </form>
+    <div class="muted" style="font-size:0.75rem;max-width:22rem;overflow-wrap:anywhere;">{{ j.resume_candidate }}</div>
     {% endif %}
   </td>
 </tr>
