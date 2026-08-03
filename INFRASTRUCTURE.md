@@ -350,7 +350,11 @@ docker run --rm --runtime=nvidia --gpus all dustynv/l4t-pytorch:r36.4.0 python3 
 ### Resource Limits
 
 `docker-compose.yml` sets `mem_limit`, `cpus`, and `pids_limit` on
-services as containment, not as a guarantee against host-global OOM. On the
+services as containment, not as a guarantee against host-global OOM.
+Exception: the trainer expresses its CPU and pids limits under
+`deploy.resources.limits` (and its memory limit lives in
+`docker-compose.gpu.yml` the same way) so the base file and the GPU
+overlay merge cleanly when stacked via `COMPOSE_FILE`. On the
 Jetson's unified memory, the kernel may kill a training child while the trainer
 container survives; admission control and persisted resource evidence handle
 that case explicitly.
