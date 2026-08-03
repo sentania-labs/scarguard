@@ -672,6 +672,17 @@ jobs:
       - name: Training controller credential migration
         run: tests/ci/test-training-controller-token-backfill.sh
 
+      - name: Validate compose configs (base and stacked GPU overlay)
+        run: |
+          echo "Validating base docker-compose.yml..."
+          docker compose config > /dev/null
+
+          echo "Validating base + GPU overlay (COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml)..."
+          COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml docker compose config > /dev/null
+
+          echo "Validating stacked configs with training profile enabled..."
+          COMPOSE_PROFILES=training COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml docker compose config > /dev/null
+
       - name: Build all images locally
         run: |
           docker build -f services/detector/Dockerfile.x86 -t scarguard-detector-x86:smoke .

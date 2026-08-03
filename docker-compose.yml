@@ -567,8 +567,11 @@ services:
       - DAC_OVERRIDE
       - SETUID
       - SETGID
-    cpus: 4.0
-    pids_limit: 256
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          pids: 256
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/healthy"]
       interval: 30s
