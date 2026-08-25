@@ -23,6 +23,7 @@ jobs:
   # ── Build & push — web (x86 runner) ─────────────────────────────────────────
   release-web:
     name: Release web image
+    # HOLDOUT: builds platforms linux/amd64,linux/arm64 (no QEMU on the lab pool's remote buildkitd) and the local `docker image prune` step needs a real daemon.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -73,6 +74,7 @@ jobs:
   # ── Build & push — notifier (x86 runner) ───────────────────────────────────
   release-notifier:
     name: Release notifier image
+    # HOLDOUT: builds platforms linux/amd64,linux/arm64 (no QEMU on the lab pool's remote buildkitd) and the local `docker image prune` step needs a real daemon.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -113,6 +115,7 @@ jobs:
   # ── Build & push — deterrent (x86 runner) ──────────────────────────────────
   release-deterrent:
     name: Release deterrent image
+    # HOLDOUT: builds platforms linux/amd64,linux/arm64 (no QEMU on the lab pool's remote buildkitd) and the local `docker image prune` step needs a real daemon.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -153,6 +156,7 @@ jobs:
   # ── Build & push — backup (x86 runner) ─────────────────────────────────────
   release-backup:
     name: Release backup image
+    # HOLDOUT: builds platforms linux/amd64,linux/arm64 (no QEMU on the lab pool's remote buildkitd) and the local `docker image prune` step needs a real daemon.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -193,6 +197,7 @@ jobs:
   # ── Build & push — caddy (x86 runner) ──────────────────────────────────────
   release-caddy:
     name: Release caddy image
+    # HOLDOUT: builds platforms linux/amd64,linux/arm64 (no QEMU on the lab pool's remote buildkitd) and the local `docker image prune` step needs a real daemon.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -233,6 +238,7 @@ jobs:
   # ── Build & push — log-streamer (x86 runner) ───────────────────────────────
   release-log-streamer:
     name: Release log-streamer image
+    # HOLDOUT: builds platforms linux/amd64,linux/arm64 (no QEMU on the lab pool's remote buildkitd) and the local `docker image prune` step needs a real daemon.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -273,6 +279,7 @@ jobs:
   # ── Build & push — training lifecycle controller ─────────────────────────
   release-training-controller:
     name: Release training-controller image
+    # HOLDOUT: buildx here uses the default docker-container driver (needs a local daemon) and builds platforms linux/amd64,linux/arm64, which the lab pool's remote buildkitd cannot do without QEMU/binfmt.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -305,6 +312,7 @@ jobs:
   # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
   release-detector:
     name: Release detector image (Jetson)
+    # HOLDOUT: Jetson/L4T ARM64 build with a GPU smoke test, requires the Orin hardware.
     runs-on: [self-hosted, linux, arm64, jetson]
     permissions:
       contents: read
@@ -400,6 +408,7 @@ jobs:
   # Same L4T base as detector — ARM64 only, built on the Jetson runner.
   release-trainer:
     name: Release trainer image
+    # HOLDOUT: Jetson/L4T ARM64 build, requires the Orin hardware.
     runs-on: [self-hosted, linux, arm64, jetson]
     permissions:
       contents: read
@@ -444,6 +453,7 @@ jobs:
   # ── Build & push — detector x86 (x86 runner) ─────────────────────────────
   release-detector-x86:
     name: Release detector image (x86)
+    # HOLDOUT: raw `docker build` + docker create/cp benchmark extraction below need a real Docker daemon, not available on the lab pool.
     runs-on: [self-hosted, linux, docker]
     permissions:
       contents: read
@@ -501,7 +511,7 @@ jobs:
   update-benchmarks:
     name: Update BENCHMARKS.md
     needs: [release-detector, release-detector-x86]
-    runs-on: [self-hosted, linux, generic]
+    runs-on: lab
     permissions:
       contents: write
       pull-requests: write
@@ -580,7 +590,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-training-controller, release-detector, release-detector-x86, release-trainer]
-    runs-on: [self-hosted, linux, generic]
+    runs-on: lab
     permissions:
       contents: write
 
