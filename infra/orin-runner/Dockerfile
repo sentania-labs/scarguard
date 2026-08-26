@@ -38,13 +38,27 @@ RUN groupmod -g ${GROUP_GID} docker \
  && usermod -aG docker runner
 WORKDIR /home/runner
 
-# GitHub Actions runner (ARM64)
-# Check https://github.com/actions/runner/releases for latest version.
+# GitHub Actions runner (ARM64).
+# Latest: https://github.com/actions/runner/releases
 #
-# The runner SELF-UPDATES at runtime, so a stale value here is not visible
-# in `busy`/`online` status: the running container had already pulled
-# 2.332.0 into bin.2.332.0 beside the baked-in 2.330.0. It matters when a
-# container is recreated, which then starts old and re-downloads.
+# THIS IS A FIRST-BOOT SEED ONLY. Do not expect bumping it to upgrade the
+# running runner.
+#
+# docker-compose.runner.yml mounts the persistent `runner-data` volume over
+# /home/runner, which is where this download lands. Docker populates a named
+# volume from the image ONCE, when the volume is empty; after that the volume
+# masks whatever the image contains. So a recreated container keeps using the
+# runner already in the volume and never sees this version.
+#
+# That is fine, because the runner SELF-UPDATES: the volume here was seeded
+# at 2.330.0 and had already pulled 2.332.0 into bin.2.332.0 on its own.
+# Chasing the version from the Dockerfile would duplicate a mechanism that
+# already works, and the only ways to force it are deleting the volume
+# (which discards registration) or having the entrypoint migrate binaries
+# into it (machinery for no gain).
+#
+# Bumped anyway so a NEW volume starts close to current instead of
+# downloading a year-old runner and then immediately self-updating.
 ENV RUNNER_VERSION=2.337.0
 RUN curl -L -O https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
  && tar xzf actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
