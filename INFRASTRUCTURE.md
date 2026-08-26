@@ -236,15 +236,38 @@ ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. Th
 
 ### Runners
 
-| Runner | Labels | Purpose |
-|--------|--------|---------|
+CI runs across two fleets: the lab ARC pool (ephemeral Kubernetes pods,
+no local Docker daemon) and the long-lived self-hosted fleet.
+
+| Runner | `runs-on:` | Purpose |
+|--------|-----------|---------|
+| lab ARC pool | `lab` | Lint, typecheck, pytest, path filtering, post-release steps |
 | `runner-docker` | self-hosted, linux, docker | x86 Docker builds |
 | `runner-terraform` | self-hosted, linux, terraform, docker | x86 Docker builds |
 | `runner-packer` | self-hosted, linux, packer, docker | x86 Docker builds |
-| `runner-generic` / `-2` / `-3` | self-hosted, linux, generic | Lint, typecheck, pytest |
-| `orin-nano` | self-hosted, linux, arm64, jetson | Jetson detector builds |
+| `runner-generic` / `-2` / `-3` | self-hosted, linux, generic | None. Idle since the ARC split; decommission candidates. |
+| `orin-nano` | self-hosted, linux, arm64, jetson | Jetson detector and trainer builds |
 
-All x86 runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
+The three `runner-generic` machines no longer back any job: every workflow
+that used the `generic` label now targets `runs-on: lab`. They are left
+registered but unreferenced, pending a decision on decommissioning them.
+
+**Why the split, not a full flip.** The lab pool's pods are ephemeral and
+have no local Docker daemon, only a remote buildkitd. Any job that runs
+`docker build`/`create`/`cp`/`compose` or loads an image locally for Trivy
+therefore stays on the self-hosted fleet, and every such job carries a
+`# HOLDOUT:` comment above its `runs-on:` naming the specific reason.
+Jetson jobs stay on `orin-nano` because they need the physical Orin
+hardware.
+
+**Open question (unconfirmed):** every image build/release job also targets
+`linux/amd64,linux/arm64`, which the remote buildkitd is assumed to lack
+QEMU/binfmt for. That assumption has not been verified with lab-admin. If
+the buildkitd pod does support multi-arch, the seven simple per-service
+release jobs plus `build-caddy`, `build-log-streamer`, and
+`build-training-controller` become movable. Confirm before revisiting.
+
+The x86 self-hosted runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
 
 ### Orin GPU Lease (CI ↔ production coordination)
 
@@ -261,7 +284,8 @@ Additionally, PRs only run the Jetson detector job when they touch detector-rele
 
 ```
 PR to main (ci.yml + build.yml — full validation)
-  ├── generic runners (parallel):
+  ├── lab ARC pool (parallel):
+  │   ├── Detect detector changes (git diff path filter)
   │   ├── Lint (ruff — all services)
   │   ├── Type check (mypy — web, notifier, deterrent)
   │   ├── pytest — web
@@ -270,7 +294,7 @@ PR to main (ci.yml + build.yml — full validation)
   │   └── pytest — training runtime (trainer + lifecycle controller,
   │       fake children/cgroups/Docker backend — never touches the Orin)
   │
-  ├── docker runners (parallel, one job per runner):
+  ├── docker runners (HOLDOUT: need a real daemon; parallel, one job per runner):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
   │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
@@ -288,11 +312,11 @@ PR to main (ci.yml + build.yml — full validation)
   └── Compose smoke test (after all builds pass)
 
 Merge to main (build.yml — cache warming only)
-  ├── docker runners: Multi-arch builds only (warms GHA build cache)
+  ├── docker runners (HOLDOUT): Multi-arch builds only (warms GHA build cache)
   └── Tests, Trivy, and compose smoke test are SKIPPED (passed on PR)
 
 Tag push (release.yml)
-  ├── docker runners (parallel, one job per runner):
+  ├── docker runners (HOLDOUT: multi-arch buildx; parallel, one job per runner):
   │   ├── Build + push web to ghcr.io
   │   ├── Build + push notifier to ghcr.io
   │   ├── Build + push deterrent to ghcr.io
@@ -306,12 +330,13 @@ Tag push (release.yml)
   ├── Orin runner:
   │   └── Build + push detector to ghcr.io + GPU benchmark
   │
-  └── Post-release:
+  └── Post-release (lab ARC pool, no Docker):
       ├── Append benchmarks to BENCHMARKS.md (auto-PR)
       └── Create GitHub Release with image table
 
-Weekly (cleanup.yml — Sunday 03:00 UTC)
-  ├── docker runners: system prune + builder cache prune (matrix hits all 3)
+Weekly (cleanup.yml — Sunday 03:00 UTC; self-hosted fleet only, ARC pods
+have no persistent state to prune)
+  ├── docker runners: system prune + builder cache prune (one pinned job each)
   └── Orin runner: system prune (no volume prune — preserves models)
 ```
 
