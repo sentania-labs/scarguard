@@ -1,4 +1,4 @@
-FROM ubuntu:22.04@sha256:eb29ed27b0821dca09c2e28b39135e185fc1302036427d5f4d70a41ce8fd7659
+FROM ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
 # Note: Using 22.04 to match JetPack 6.x userspace (Ubuntu 22.04 Jammy)
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -39,8 +39,13 @@ RUN groupmod -g ${GROUP_GID} docker \
 WORKDIR /home/runner
 
 # GitHub Actions runner (ARM64)
-# Check https://github.com/actions/runner/releases for latest version
-ENV RUNNER_VERSION=2.330.0
+# Check https://github.com/actions/runner/releases for latest version.
+#
+# The runner SELF-UPDATES at runtime, so a stale value here is not visible
+# in `busy`/`online` status: the running container had already pulled
+# 2.332.0 into bin.2.332.0 beside the baked-in 2.330.0. It matters when a
+# container is recreated, which then starts old and re-downloads.
+ENV RUNNER_VERSION=2.337.0
 RUN curl -L -O https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
  && tar xzf actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
  && rm actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
