@@ -1,4 +1,4 @@
-FROM ubuntu:22.04@sha256:eb29ed27b0821dca09c2e28b39135e185fc1302036427d5f4d70a41ce8fd7659
+FROM ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
 # Note: Using 22.04 to match JetPack 6.x userspace (Ubuntu 22.04 Jammy)
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -38,9 +38,28 @@ RUN groupmod -g ${GROUP_GID} docker \
  && usermod -aG docker runner
 WORKDIR /home/runner
 
-# GitHub Actions runner (ARM64)
-# Check https://github.com/actions/runner/releases for latest version
-ENV RUNNER_VERSION=2.330.0
+# GitHub Actions runner (ARM64).
+# Latest: https://github.com/actions/runner/releases
+#
+# THIS IS A FIRST-BOOT SEED ONLY. Do not expect bumping it to upgrade the
+# running runner.
+#
+# docker-compose.runner.yml mounts the persistent `runner-data` volume over
+# /home/runner, which is where this download lands. Docker populates a named
+# volume from the image ONCE, when the volume is empty; after that the volume
+# masks whatever the image contains. So a recreated container keeps using the
+# runner already in the volume and never sees this version.
+#
+# That is fine, because the runner SELF-UPDATES: the volume here was seeded
+# at 2.330.0 and had already pulled 2.332.0 into bin.2.332.0 on its own.
+# Chasing the version from the Dockerfile would duplicate a mechanism that
+# already works, and the only ways to force it are deleting the volume
+# (which discards registration) or having the entrypoint migrate binaries
+# into it (machinery for no gain).
+#
+# Bumped anyway so a NEW volume starts close to current instead of
+# downloading a year-old runner and then immediately self-updating.
+ENV RUNNER_VERSION=2.337.0
 RUN curl -L -O https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
  && tar xzf actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
  && rm actions-runner-linux-arm64-${RUNNER_VERSION}.tar.gz \
