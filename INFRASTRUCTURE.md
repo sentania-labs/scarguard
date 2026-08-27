@@ -236,15 +236,55 @@ ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. Th
 
 ### Runners
 
-| Runner | Labels | Purpose |
-|--------|--------|---------|
-| `runner-docker` | self-hosted, linux, docker | x86 Docker builds |
-| `runner-terraform` | self-hosted, linux, terraform, docker | x86 Docker builds |
-| `runner-packer` | self-hosted, linux, packer, docker | x86 Docker builds |
-| `runner-generic` / `-2` / `-3` | self-hosted, linux, generic | Lint, typecheck, pytest |
-| `orin-nano` | self-hosted, linux, arm64, jetson | Jetson detector builds |
+scarguard is a **public** repo, so GitHub-hosted runners are free and
+unlimited. Placement follows one question: what does the job actually need?
 
-All x86 runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
+| Need | Destination | Jobs |
+|---|---|---|
+| The Orin's GPU | `[self-hosted, linux, arm64, jetson]` | `build-detector`, `release-detector` |
+| arm64, no GPU | `ubuntu-24.04-arm` | `build-trainer`, `release-trainer` |
+| A Docker daemon | `ubuntu-latest` | all 10 x86 image build/release jobs, `compose-smoke-test` |
+| Neither | `ubuntu-latest` | lint, typecheck, 5x pytest, `detector-paths`, `update-benchmarks`, `create-release` |
+
+**Only two jobs genuinely need the Orin.** `build-detector` and
+`release-detector` run a real GPU smoke test (`torch.cuda.is_available()`)
+and the inference benchmark, both under the single-tenant GPU lease. There
+is no substitute for that hardware.
+
+**The trainer does not.** It is an arm64 L4T image, but no step in either
+trainer job touches the GPU: the import checks run without
+`--runtime nvidia`, and `torch.version.cuda` is a string attribute, not a
+device query. `release-trainer` is build-and-push only. Both therefore run
+on GitHub's native arm64 runners, which also removes the
+`orin-maintenance-approved` gate from `build-trainer`: that gate existed
+only because the job ran on the controlled production host, and leaving it
+would have silently skipped trainer validation on every PR.
+
+**The compose smoke test is not a lab or Orin job.** It runs x86 in CPU
+mode against `scarguard-detector-x86`. It needs a real Docker daemon, which
+is exactly what a GitHub-hosted runner provides.
+
+**Nothing in this repo uses the `lab` ARC pool.** The lab pool exists to
+reach the lab (vCenter, the cluster, the lab CA, internal DNS). No scarguard
+job needs any of that, so none belongs there. See the `github-ci` skill for
+the full placement rule.
+
+### Decommissioning
+
+These runners no longer back any scarguard job:
+
+| Runner | Status |
+|---|---|
+| `runner-generic` / `-2` / `-3` | Unreferenced. Decommission candidates. |
+| `runner-docker` / `-terraform` / `-packer` | Unreferenced by scarguard; other repos may still use them. |
+| `orin-nano` | **Still required** for the two detector jobs. |
+
+`cleanup.yml` still prunes the three x86 self-hosted runners. That is now
+stale for this repo, since scarguard no longer builds on them, but it was
+left in place because those machines are shared. The Orin cleanup job is
+still needed.
+
+The remaining x86 self-hosted runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
 
 ### Orin GPU Lease (CI ↔ production coordination)
 
@@ -261,7 +301,8 @@ Additionally, PRs only run the Jetson detector job when they touch detector-rele
 
 ```
 PR to main (ci.yml + build.yml — full validation)
-  ├── generic runners (parallel):
+  ├── GitHub-hosted ubuntu-latest (parallel):
+  │   ├── Detect detector changes (git diff path filter)
   │   ├── Lint (ruff — all services)
   │   ├── Type check (mypy — web, notifier, deterrent)
   │   ├── pytest — web
@@ -270,7 +311,7 @@ PR to main (ci.yml + build.yml — full validation)
   │   └── pytest — training runtime (trainer + lifecycle controller,
   │       fake children/cgroups/Docker backend — never touches the Orin)
   │
-  ├── docker runners (parallel, one job per runner):
+  ├── GitHub-hosted ubuntu-latest (parallel):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
   │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
@@ -279,20 +320,22 @@ PR to main (ci.yml + build.yml — full validation)
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy
   │
-  ├── Orin runner (only when the PR touches detector-relevant paths —
-  │   services/detector/, shared/, tests/ci/, build.yml, .github/scripts/ —
-  │   AND carries the orin-maintenance-approved label; trainer-image job
-  │   needs the same label):
+  ├── ubuntu-24.04-arm:
+  │   └── Build trainer image (L4T arm64) + import smoke test
+  │
+  ├── Orin runner, GPU required (only when the PR touches detector-relevant
+  │   paths: services/detector/, shared/, tests/ci/, build.yml,
+  │   .github/scripts/ AND carries the orin-maintenance-approved label):
   │   └── Build detector image + GPU smoke test + benchmark
   │
   └── Compose smoke test (after all builds pass)
 
 Merge to main (build.yml — cache warming only)
-  ├── docker runners: Multi-arch builds only (warms GHA build cache)
+  ├── ubuntu-latest: Multi-arch builds only (warms GHA build cache)
   └── Tests, Trivy, and compose smoke test are SKIPPED (passed on PR)
 
 Tag push (release.yml)
-  ├── docker runners (parallel, one job per runner):
+  ├── GitHub-hosted ubuntu-latest (parallel):
   │   ├── Build + push web to ghcr.io
   │   ├── Build + push notifier to ghcr.io
   │   ├── Build + push deterrent to ghcr.io
@@ -300,18 +343,23 @@ Tag push (release.yml)
   │   ├── Build + push training-controller to ghcr.io
   │   └── Build + push caddy to ghcr.io
   │
-  ├── docker runner:
+  ├── ubuntu-latest:
   │   └── Build + push detector-x86 to ghcr.io + CPU benchmark
   │
-  ├── Orin runner:
+  ├── ubuntu-24.04-arm:
+  │   └── Build + push trainer to ghcr.io
+  │
+  ├── Orin runner (GPU required):
   │   └── Build + push detector to ghcr.io + GPU benchmark
   │
-  └── Post-release:
+  └── Post-release (ubuntu-latest):
       ├── Append benchmarks to BENCHMARKS.md (auto-PR)
       └── Create GitHub Release with image table
 
-Weekly (cleanup.yml — Sunday 03:00 UTC)
-  ├── docker runners: system prune + builder cache prune (matrix hits all 3)
+Weekly (cleanup.yml — Sunday 03:00 UTC; self-hosted fleet only, GitHub-hosted
+runners are ephemeral and have no persistent state to prune)
+  ├── docker runners: system prune + builder cache prune (one pinned job each;
+  │   now stale for scarguard, which no longer builds on them)
   └── Orin runner: system prune (no volume prune — preserves models)
 ```
 

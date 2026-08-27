@@ -23,7 +23,7 @@ jobs:
   # ── Build & push — web (x86 runner) ─────────────────────────────────────────
   release-web:
     name: Release web image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -66,14 +66,11 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — notifier (x86 runner) ───────────────────────────────────
   release-notifier:
     name: Release notifier image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -106,14 +103,11 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — deterrent (x86 runner) ──────────────────────────────────
   release-deterrent:
     name: Release deterrent image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -146,14 +140,11 @@ jobs:
           cache-from: type=gha,scope=deterrent
           cache-to: type=gha,scope=deterrent,mode=max
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — backup (x86 runner) ─────────────────────────────────────
   release-backup:
     name: Release backup image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -186,14 +177,11 @@ jobs:
           cache-from: type=gha,scope=backup
           cache-to: type=gha,scope=backup,mode=max
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — caddy (x86 runner) ──────────────────────────────────────
   release-caddy:
     name: Release caddy image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -226,14 +214,11 @@ jobs:
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — log-streamer (x86 runner) ───────────────────────────────
   release-log-streamer:
     name: Release log-streamer image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -266,14 +251,11 @@ jobs:
           cache-from: type=gha,scope=log-streamer
           cache-to: type=gha,scope=log-streamer,mode=max
 
-      - name: Prune dangling images
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — training lifecycle controller ─────────────────────────
   release-training-controller:
     name: Release training-controller image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -305,6 +287,8 @@ jobs:
   # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
   release-detector:
     name: Release detector image (Jetson)
+    # ORIN-ONLY: real GPU smoke test and inference benchmark under the
+    # single-tenant GPU lease. No substitute.
     runs-on: [self-hosted, linux, arm64, jetson]
     permissions:
       contents: read
@@ -400,7 +384,8 @@ jobs:
   # Same L4T base as detector — ARM64 only, built on the Jetson runner.
   release-trainer:
     name: Release trainer image
-    runs-on: [self-hosted, linux, arm64, jetson]
+    # Native arm64 GitHub-hosted runner. Build and push only, no GPU step.
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -437,14 +422,11 @@ jobs:
           docker push "$TRAINER_IMAGE:$TAG"
           docker push "$TRAINER_IMAGE:latest"
 
-      - name: Prune
-        if: always()
-        run: docker image prune -f
 
   # ── Build & push — detector x86 (x86 runner) ─────────────────────────────
   release-detector-x86:
     name: Release detector image (x86)
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
@@ -493,15 +475,12 @@ jobs:
           docker push "$DETECTOR_X86_IMAGE:$TAG"
           docker push "$DETECTOR_X86_IMAGE:latest"
 
-      - name: Prune
-        if: always()
-        run: docker image prune -f
 
   # ── Update benchmark ledger ──────────────────────────────────────────────────
   update-benchmarks:
     name: Update BENCHMARKS.md
     needs: [release-detector, release-detector-x86]
-    runs-on: [self-hosted, linux, generic]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
@@ -580,7 +559,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-training-controller, release-detector, release-detector-x86, release-trainer]
-    runs-on: [self-hosted, linux, generic]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 

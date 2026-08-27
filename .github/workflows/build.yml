@@ -38,7 +38,7 @@ jobs:
   # run unnecessarily (GPU OOM incident, PR #170 first run, 2026-07-14).
   detector-paths:
     name: Detect detector changes
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     outputs:
       detector: ${{ steps.filter.outputs.detector }}
@@ -64,7 +64,7 @@ jobs:
   # ── Build web (x86 runner) ───────────────────────────────────────────────────
   build-web:
     name: Build web image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -126,10 +126,10 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
 
-      # Uses docker create + cp instead of bind mounts (-v) because the
-      # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
-      # the outer host filesystem, not the runner container's filesystem,
-      # causing empty mount directories inside the test container.
+      # Uses docker create + cp instead of bind mounts (-v).  This was
+      # originally required by the self-hosted DinD runner; it is kept because
+      # it is daemon-topology independent and works unchanged on the
+      # GitHub-hosted runner.
       - name: Test web in container
         if: github.event_name != 'push'
         run: |
@@ -148,7 +148,7 @@ jobs:
   # ── Build notifier (x86 runner) ─────────────────────────────────────────────
   build-notifier:
     name: Build notifier image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -216,7 +216,7 @@ jobs:
   # ── Build deterrent (x86 runner) ─────────────────────────────────────────────
   build-deterrent:
     name: Build deterrent image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -284,7 +284,7 @@ jobs:
   # ── Build backup (x86 runner) ───────────────────────────────────────────────
   build-backup:
     name: Build backup image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -352,7 +352,7 @@ jobs:
   # ── Build caddy (x86 runner) ────────────────────────────────────────────────
   build-caddy:
     name: Build caddy image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -383,7 +383,7 @@ jobs:
   # ── Build log-streamer (x86 runner) ─────────────────────────────────────────
   build-log-streamer:
     name: Build log-streamer image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -438,7 +438,7 @@ jobs:
   # ── Build training lifecycle controller (x86 runner) ──────────────────────
   build-training-controller:
     name: Build training-controller image
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     permissions:
       contents: read
@@ -484,16 +484,20 @@ jobs:
         run: docker rmi scarguard-training-controller:test-${{ github.run_id }} || true
 
   # ── Build trainer — Jetson/L4T (Orin runner, ARM64) ──────────────────────────
-  # Same L4T base as detector — ARM64 only, no x86 variant. PR target-image
-  # validation is maintenance-window gated because it runs on the controlled
-  # Jetson host; generic fake-child/controller tests run in ci.yml regardless.
+  # Same L4T base as detector — ARM64 only, no x86 variant.  The
+  # orin-maintenance-approved gate was dropped with the move off the Jetson:
+  # its only justification was that this job ran on the controlled production
+  # host, so keeping it here would silently skip trainer validation on every
+  # PR.  Generic fake-child/controller tests run in ci.yml regardless.
   build-trainer:
     name: Build trainer image
-    runs-on: [self-hosted, linux, arm64, jetson]
+    # Native arm64 GitHub-hosted runner. The L4T image is arm64, but nothing
+    # in this job touches the GPU: the import checks below run without
+    # `--runtime nvidia` and `torch.version.cuda` is a string attribute.
+    runs-on: ubuntu-24.04-arm
     if: >-
       github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.repo.owner.login == 'sentania-labs' &&
-       contains(github.event.pull_request.labels.*.name, 'orin-maintenance-approved'))
+      github.event.pull_request.head.repo.owner.login == 'sentania-labs'
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -527,6 +531,8 @@ jobs:
   # A skipped run satisfies required-check branch protection.
   build-detector:
     name: Build detector image (Jetson)
+    # ORIN-ONLY: real GPU smoke test (`torch.cuda.is_available()`), the
+    # inference benchmark, and the single-tenant GPU lease. No substitute.
     runs-on: [self-hosted, linux, arm64, jetson]
     needs: detector-paths
     if: >-
@@ -567,9 +573,9 @@ jobs:
           print('GPU smoke test passed')
           "
 
-      # Uses docker create + cp instead of bind mounts (-v) because the
-      # self-hosted runner uses Docker-in-Docker.  Bind mount paths reference
-      # the outer host filesystem, not the runner container's filesystem.
+      # Uses docker create + cp instead of bind mounts (-v).  Originally
+      # required by the self-hosted DinD runner, kept because it is
+      # daemon-topology independent.
       - name: Inference benchmark (GPU)
         run: |
           # Retry with backoff — absorbs transient memory pressure right
@@ -599,7 +605,7 @@ jobs:
   # ── Build detector — x86 CUDA+CPU (x86 runner) ─────────────────────────────
   build-detector-x86:
     name: Build detector image (x86)
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
 
     steps:
@@ -652,7 +658,7 @@ jobs:
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.owner.login == 'sentania-labs')
     needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-backup, build-caddy, build-log-streamer, build-training-controller]
-    runs-on: [self-hosted, linux, docker]
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -714,11 +720,11 @@ jobs:
           DETECTOR_IMAGE: scarguard-detector-x86
           IMAGE_TAG: smoke
           GHCR_OWNER: ""
-          # The self-hosted docker runner co-hosts other web services on
-          # :80/:443 — remap Caddy's host bindings so the smoke stack
-          # doesn't collide.  Health checks hit the web container via
-          # `docker compose exec`, so Caddy's external ports are unused
-          # here; production deploys still bind the defaults.
+          # Caddy's host bindings are remapped off :80/:443.  This was needed
+          # because the old self-hosted runner co-hosted other web services;
+          # it is kept because health checks hit the web container via
+          # `docker compose exec`, so Caddy's external ports are unused here
+          # either way.  Production deploys still bind the defaults.
           HTTP_PORT: "18080"
           HTTPS_PORT: "18443"
         run: docker compose up -d
