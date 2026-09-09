@@ -111,6 +111,7 @@ class FakeContainer:
         history: list[str] | None = None,
         live: list[str] | None = None,
         hold_open: threading.Event | None = None,
+        hold_started: threading.Event | None = None,
         error: Exception | None = None,
     ) -> None:
         self.id = container_id
@@ -119,6 +120,7 @@ class FakeContainer:
         self.history = history or []
         self.live = live or []
         self.hold_open = hold_open
+        self.hold_started = hold_started
         self.error = error
         self.log_calls: list[dict[str, Any]] = []
 
@@ -131,6 +133,8 @@ class FakeContainer:
             if self.error is not None:
                 raise self.error
             if self.hold_open is not None:
+                if self.hold_started is not None:
+                    self.hold_started.set()
                 self.hold_open.wait(timeout=2)
 
         return log_stream()
@@ -178,6 +182,24 @@ def _buffer_texts(redis_client: FakeRedis, buffer_key: str) -> list[str]:
     ]
 
 
+def _tail_container(
+    service: str,
+    container: FakeContainer,
+    result_callback: Any,
+    redis_factory: Any,
+) -> None:
+    generation_guard = main.TailGeneration()
+    generation = generation_guard.advance()
+    main.tail_container(
+        service,
+        container,
+        result_callback,
+        generation_guard,
+        generation,
+        redis_factory,
+    )
+
+
 def test_reattach_backfills_gap_and_deduplicates_live_overlap(caplog: Any) -> None:
     redis_client = FakeRedis()
     buffer_key = f"{main.BUFFER_PREFIX}web"
@@ -201,7 +223,7 @@ def test_reattach_backfills_gap_and_deduplicates_live_overlap(caplog: Any) -> No
     )
     results: list[main.TailResult] = []
 
-    main.tail_container("web", container, results.append, lambda: redis_client)
+    _tail_container("web", container, results.append, lambda: redis_client)
 
     assert container.log_calls == [
         {
@@ -240,7 +262,7 @@ def test_new_container_repeating_old_line_is_not_dropped() -> None:
         history=["2026-09-09T12:00:01Z ready\n"],
     )
 
-    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "ready")]
 
@@ -266,8 +288,8 @@ def test_legacy_buffer_backfill_is_seeded_without_republishing(
         live=["2026-09-09T12:00:05Z current\n"],
     )
 
-    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
-    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "current")]
     assert _buffer_texts(redis_client, buffer_key) == [
@@ -295,7 +317,7 @@ def test_legacy_migration_remains_pending_after_attachment_failure(
         error=RuntimeError("attach failed"),
     )
 
-    main.tail_container("web", failed, lambda _result: None, lambda: redis_client)
+    _tail_container("web", failed, lambda _result: None, lambda: redis_client)
 
     assert redis_client.lists[buffer_key] == ["legacy"]
 
@@ -305,7 +327,7 @@ def test_legacy_migration_remains_pending_after_attachment_failure(
         history=["2026-09-09T12:00:01Z legacy\n"],
         live=["2026-09-09T12:00:05Z current\n"],
     )
-    main.tail_container("web", recovered, lambda _result: None, lambda: redis_client)
+    _tail_container("web", recovered, lambda _result: None, lambda: redis_client)
 
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "current")]
     assert _buffer_texts(redis_client, buffer_key) == ["current", "legacy"]
@@ -325,7 +347,7 @@ def test_legacy_migration_preserves_unobserved_history(monkeypatch: Any) -> None
         history=["2026-09-09T12:00:01Z seen\n"],
     )
 
-    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     assert _buffer_texts(redis_client, buffer_key) == ["seen", "older-unseen"]
     entries = [
@@ -355,7 +377,7 @@ def test_coupled_buffer_deduplicates_without_separate_identity_key(
         ],
     )
 
-    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "missed")]
     assert "pre-upgrade buffer has no identities" not in caplog.text
@@ -373,7 +395,7 @@ def test_quick_eof_timing_excludes_redis_preparation(monkeypatch: Any) -> None:
     monkeypatch.setattr(main.time, "monotonic", lambda: clock[0])
     results: list[main.TailResult] = []
 
-    main.tail_container(
+    _tail_container(
         "web",
         FakeContainer("web", "container-1"),
         results.append,
@@ -396,7 +418,7 @@ def test_deduplication_window_stays_bounded() -> None:
         live=[repeated, *unique, repeated],
     )
 
-    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     repeated_publications = [
         line for _channel, line in redis_client.published if line == "repeated"
@@ -424,6 +446,89 @@ def test_health_refresh_expires_lines_outside_five_minute_window(monkeypatch: An
     assert redis_client.values[main.HEALTH_KEY] == "1"
     assert main.refresh_health(lambda: redis_client, now=600.0) == 0
     assert main.HEALTH_KEY not in redis_client.values
+
+
+def test_replacement_tail_preserves_new_lines_after_delayed_old_eof(
+    monkeypatch: Any,
+) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    redis_client.lists[buffer_key] = ["legacy"]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+
+    old_release = threading.Event()
+    old_holding = threading.Event()
+    old_container = FakeContainer(
+        "web",
+        "old-container",
+        history=["2026-09-09T12:00:01Z legacy\n"],
+        hold_open=old_release,
+        hold_started=old_holding,
+    )
+    docker_client = FakeDockerClient([old_container])
+    streamer = main.LogStreamer(
+        client_factory=lambda: docker_client,  # type: ignore[arg-type]
+        redis_factory=lambda: redis_client,  # type: ignore[arg-type]
+    )
+
+    streamer.run_cycle()
+    old_thread, _container_id = streamer.active["web"]
+    assert old_holding.wait(timeout=1)
+
+    new_container = FakeContainer(
+        "web",
+        "new-container",
+        live=["2026-09-09T12:00:05Z new-line\n"],
+    )
+    docker_client.containers._containers = [new_container]
+    streamer.run_cycle()
+    new_thread, _container_id = streamer.active["web"]
+    new_thread.join(timeout=1)
+    assert not new_thread.is_alive()
+
+    old_release.set()
+    old_thread.join(timeout=1)
+    assert not old_thread.is_alive()
+    assert _buffer_texts(redis_client, buffer_key) == ["new-line", "legacy"]
+    assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "new-line")]
+    assert streamer.tail_results.qsize() == 1
+
+
+def test_replacement_discards_queued_old_tail_result() -> None:
+    redis_client = FakeRedis()
+    old_container = FakeContainer(
+        "web",
+        "old-container",
+        error=RuntimeError("old attachment failed"),
+    )
+    docker_client = FakeDockerClient([old_container])
+    streamer = main.LogStreamer(
+        client_factory=lambda: docker_client,  # type: ignore[arg-type]
+        redis_factory=lambda: redis_client,  # type: ignore[arg-type]
+    )
+
+    streamer.run_cycle()
+    old_thread, _container_id = streamer.active["web"]
+    old_thread.join(timeout=1)
+    assert not old_thread.is_alive()
+    assert streamer.tail_results.qsize() == 1
+
+    new_release = threading.Event()
+    new_container = FakeContainer(
+        "web",
+        "new-container",
+        hold_open=new_release,
+    )
+    docker_client.containers._containers = [new_container]
+    streamer.run_cycle()
+
+    assert "web" not in streamer.attachment_failures
+    assert "web" not in streamer.quick_eof_counts
+    new_release.set()
+    new_thread, _container_id = streamer.active["web"]
+    new_thread.join(timeout=1)
 
 
 def test_repeated_quick_eof_reattachments_recreate_stale_client(caplog: Any) -> None:

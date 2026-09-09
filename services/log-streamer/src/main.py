@@ -75,6 +75,8 @@ class TailResult(BaseModel):
     """Completion report sent from a tail thread to the manager."""
 
     service: str
+    container_id: str
+    generation: int
     elapsed_seconds: float
     stopped: bool
     failed: bool
@@ -107,6 +109,39 @@ class BufferState(BaseModel):
 DockerClientFactory = Callable[[], docker.DockerClient]
 RedisClientFactory = Callable[[], redislib.Redis]
 _LEGACY_IDENTITY_PREFIX = "legacy-buffer:"
+
+
+class TailGeneration:
+    """Serialize service writes and reject work from replaced tails."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._current = 0
+
+    def advance(self) -> int:
+        with self._lock:
+            self._current += 1
+            return self._current
+
+    def invalidate(self, generation: int) -> None:
+        with self._lock:
+            if generation == self._current:
+                self._current += 1
+
+    def is_current(self, generation: int) -> bool:
+        with self._lock:
+            return generation == self._current
+
+    def run_if_current(
+        self,
+        generation: int,
+        action: Callable[[], None],
+    ) -> bool:
+        with self._lock:
+            if generation != self._current:
+                return False
+            action()
+            return True
 
 
 def _strip_ansi(text: str) -> str:
@@ -318,6 +353,8 @@ def tail_container(
     service: str,
     container: docker.models.containers.Container,
     result_callback: Callable[[TailResult], None],
+    generation_guard: TailGeneration,
+    generation: int,
     redis_factory: RedisClientFactory = _redis_client,
 ) -> None:
     """Tail one container and publish its logs. Runs in a thread."""
@@ -350,27 +387,34 @@ def tail_container(
         nonlocal migration_cutoff
         if migration_cutoff is None:
             return True
-        try:
+
+        def migrate_buffer() -> None:
             migrated_entries = _couple_legacy_entries(
                 buffer_state.entries,
                 migration_entries,
             )
             _replace_buffer(redis_client, buffer_key, migrated_entries)
+            logger.info(
+                "Backfill skipped once for %s because the pre-upgrade buffer has no identities",
+                service,
+            )
+
+        try:
+            if not generation_guard.run_if_current(generation, migrate_buffer):
+                return False
         except redislib.RedisError:
             logger.warning("Redis log buffer migration failed for %s", service)
             return False
         for entry in migration_entries:
             remember_identity(entry.identity)
         migration_cutoff = None
-        logger.info(
-            "Backfill skipped once for %s because the pre-upgrade buffer has no identities",
-            service,
-        )
         return True
 
     def publish_new(chunk: bytes | str) -> None:
         nonlocal migration_cutoff
         for log_line in _parse_log_chunk(chunk, container.id):
+            if not generation_guard.is_current(generation):
+                return
             if log_line.identity in known_identities:
                 continue
             if migration_cutoff is not None:
@@ -386,20 +430,26 @@ def tail_container(
                 if not complete_migration():
                     continue
             try:
-                _publish_line(
-                    redis_client,
-                    channel,
-                    buffer_key,
-                    service,
-                    log_line,
+                published = generation_guard.run_if_current(
+                    generation,
+                    lambda: _publish_line(
+                        redis_client,
+                        channel,
+                        buffer_key,
+                        service,
+                        log_line,
+                    ),
                 )
-                remember_identity(log_line.identity)
+                if published:
+                    remember_identity(log_line.identity)
             except redislib.RedisError:
                 logger.warning("Redis publish failed for %s, will retry", service)
 
     failed = False
     started = time.monotonic()
     try:
+        if not generation_guard.is_current(generation):
+            return
         for chunk in container.logs(
             stream=True,
             follow=True,
@@ -412,20 +462,32 @@ def tail_container(
     except Exception:
         failed = True
         if not _stop.is_set():
-            logger.warning("Log stream ended for %s", service, exc_info=True)
+            generation_guard.run_if_current(
+                generation,
+                lambda: logger.warning(
+                    "Log stream ended for %s",
+                    service,
+                    exc_info=True,
+                ),
+            )
     finally:
         elapsed = time.monotonic() - started
         stopped = _stop.is_set()
         if not failed and not stopped and migration_entries:
             complete_migration()
         redis_client.close()
-        result_callback(
-            TailResult(
-                service=service,
-                elapsed_seconds=elapsed,
-                stopped=stopped,
-                failed=failed,
-            )
+        generation_guard.run_if_current(
+            generation,
+            lambda: result_callback(
+                TailResult(
+                    service=service,
+                    container_id=container.id,
+                    generation=generation,
+                    elapsed_seconds=elapsed,
+                    stopped=stopped,
+                    failed=failed,
+                )
+            ),
         )
         logger.info("Tail thread exiting for %s", service)
 
@@ -442,7 +504,9 @@ class LogStreamer:
         self._redis_factory = redis_factory
         self.docker_client = client_factory()
         self.active: dict[str, tuple[threading.Thread, str]] = {}
+        self.active_generations: dict[str, int] = {}
         self.active_started: dict[str, float] = {}
+        self.tail_generations: dict[str, TailGeneration] = {}
         self.tail_results: queue.Queue[TailResult] = queue.Queue()
         self.quick_eof_counts: dict[str, int] = {}
         self.recovering_services: set[str] = set()
@@ -461,13 +525,26 @@ class LogStreamer:
         logger.warning("Recreated Docker client after repeated quick log stream EOFs")
         return True
 
-    def _process_tail_results(self) -> None:
+    def _process_tail_results(
+        self,
+        services: dict[str, docker.models.containers.Container],
+    ) -> bool:
         """Consume thread results and heal the client after repeated quick EOFs."""
         while True:
             try:
                 result = self.tail_results.get_nowait()
             except queue.Empty:
                 break
+            active = self.active.get(result.service)
+            discovered = services.get(result.service)
+            if (
+                active is None
+                or discovered is None
+                or result.generation != self.active_generations.get(result.service)
+                or result.container_id != active[1]
+                or result.container_id != discovered.id
+            ):
+                continue
             if result.stopped:
                 continue
             if result.failed:
@@ -488,22 +565,31 @@ class LogStreamer:
             self.recovering_services.update(triggered_services)
             for service in triggered_services:
                 self.quick_eof_counts[service] = 0
-            self._replace_docker_client()
+            return self._replace_docker_client()
+        return False
 
     def run_cycle(self) -> None:
         """Run one discovery and reconciliation cycle."""
         refresh_health(self._redis_factory)
-        self._process_tail_results()
         try:
             services = discover_services(self.docker_client)
         except Exception:
             logger.exception("Failed to list containers")
             set_health_status(False, self._redis_factory)
             return
+        if self._process_tail_results(services):
+            try:
+                services = discover_services(self.docker_client)
+            except Exception:
+                logger.exception("Failed to list containers after recreating Docker client")
+                set_health_status(False, self._redis_factory)
+                return
 
         for service in list(self.active):
             if service not in services:
                 logger.info("Service %s gone, stopping tail", service)
+                generation = self.active_generations.pop(service)
+                self.tail_generations[service].invalidate(generation)
                 del self.active[service]
                 self.active_started.pop(service, None)
                 self.attachment_failures.discard(service)
@@ -515,11 +601,14 @@ class LogStreamer:
                 thread, old_id = self.active[service]
                 if container.id != old_id:
                     logger.info("Service %s restarted, restarting tail", service)
+                    generation = self.active_generations.pop(service)
+                    self.tail_generations[service].invalidate(generation)
                     del self.active[service]
                     self.active_started.pop(service, None)
                 elif not thread.is_alive():
                     logger.debug("Tail thread for %s died, respawning", service)
                     del self.active[service]
+                    self.active_generations.pop(service)
                     self.active_started.pop(service, None)
 
         now = time.monotonic()
@@ -536,14 +625,27 @@ class LogStreamer:
         for service, container in services.items():
             if service in self.active:
                 continue
+            generation_guard = self.tail_generations.setdefault(
+                service,
+                TailGeneration(),
+            )
+            generation = generation_guard.advance()
             thread = threading.Thread(
                 target=tail_container,
-                args=(service, container, self.tail_results.put, self._redis_factory),
+                args=(
+                    service,
+                    container,
+                    self.tail_results.put,
+                    generation_guard,
+                    generation,
+                    self._redis_factory,
+                ),
                 name=f"tail-{service}",
                 daemon=True,
             )
             thread.start()
             self.active[service] = (thread, container.id)
+            self.active_generations[service] = generation
             self.active_started[service] = time.monotonic()
 
         set_health_status(
@@ -553,6 +655,8 @@ class LogStreamer:
 
     def close(self) -> None:
         """Close manager resources during process shutdown."""
+        for service, generation in self.active_generations.items():
+            self.tail_generations[service].invalidate(generation)
         self.docker_client.close()
 
 
