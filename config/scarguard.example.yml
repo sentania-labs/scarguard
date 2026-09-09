@@ -175,7 +175,7 @@ detection:
 # ── Notifications ─────────────────────────────────────────────────────────────
 # Define one or more named channels under `notifications.channels`.  Each
 # channel has a unique name and a type (`discord`, `email`, `webhook`,
-# `ntfy`).  Reference channel names from per-camera `action_rules` to route
+# `ntfy`).  Reference channel names from per-camera `notification_rules` to route
 # specific detections to specific channels.  Without rules, every enabled
 # channel fires for every detection.
 #
@@ -244,38 +244,6 @@ redis:
   host: redis
   port: 6379
 
-
-  # ── Named channels ────────────────────────────────────────────────────────
-  # Define multiple named channels; each channel has a unique name and type.
-  # Reference channels by name in camera notification_rules.
-  #
-  # Supported types: discord, email, webhook, ntfy
-  #
-  # channels:
-  #   - name: pond-alerts
-  #     type: discord
-  #     enabled: true
-  #     webhook_url: "https://discord.com/api/webhooks/…"
-  #     mention_role: ""
-  #     include_snapshot: true
-  #
-  #   - name: email-digest
-  #     type: email
-  #     enabled: true
-  #     smtp_host: smtp.gmail.com
-  #     smtp_port: 587
-  #     smtp_user: you@example.com
-  #     smtp_pass: your-app-password
-  #     to_addresses: [you@example.com]
-  #     include_snapshot: true
-  #
-  #   - name: home-assistant
-  #     type: webhook
-  #     enabled: true
-  #     url: "http://homeassistant.local:8123/api/webhook/scarguard"
-  #     method: POST
-  #     # auth_token: "Bearer …"   # optional
-
 # ── Physical Deterrence (Tuya Cloud) ──────────────────────────────────────────
 # Automated deterrence via Tuya smart devices (sprinklers, lights, sirens,
 # smart plugs).  Requires a Tuya IoT Platform account and API credentials.
@@ -334,18 +302,10 @@ backup:
 # training:
 #   sources:
 #     roboflow:
-#       api_key: ""                   # SENSITIVE — encrypted at rest
-#       datasets:
-#         - workspace: "your-workspace"
-#           project: "your-project"
+#       api_key: ""                   # Sensitive, stored plaintext for the trainer
 #     open_images:
 #       max_per_class: 1500
 #       workers: 16
-#     local:
-#       enabled: true                 # Include detection_events feedback
-#     training_uploads:
-#       enabled: true                 # Include video upload annotations
-#
 #   defaults:
 #     # Ordered class list — order defines model class indices.
 #     # person/dog/cat/plant are distractors: trained so the model stops
@@ -372,5 +332,4 @@ backup:
 #     low_confidence: 0.05
 #     dedupe_iou: 0.85
 #     dedupe_window: 5
-#     max_duration_seconds: 60
 #     background_sample_interval: 10
