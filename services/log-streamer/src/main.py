@@ -96,9 +96,7 @@ class BufferedLogEntry(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
-    envelope: Literal["scarguard-log-buffer-v1"] = Field(
-        alias="__scarguard_log_buffer__"
-    )
+    envelope: Literal["scarguard-log-buffer-v1"] = Field(alias="__scarguard_log_buffer__")
     text: str
     identity: str
 
@@ -218,11 +216,7 @@ def _buffer_state(
 
 def _parse_log_chunk(chunk: bytes | str, container_id: str) -> list[ParsedLogLine]:
     """Decode timestamped Docker output into individual log events."""
-    decoded = (
-        chunk.decode("utf-8", errors="replace")
-        if isinstance(chunk, bytes)
-        else str(chunk)
-    )
+    decoded = chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else str(chunk)
     parsed: list[ParsedLogLine] = []
     for raw_line in decoded.splitlines():
         timestamp, separator, payload = raw_line.partition(" ")
@@ -596,9 +590,7 @@ class LogStreamer:
                 self.quick_eof_counts.pop(result.service, None)
 
         triggered_services = {
-            service
-            for service, count in self.quick_eof_counts.items()
-            if count >= QUICK_EOF_LIMIT
+            service for service, count in self.quick_eof_counts.items() if count >= QUICK_EOF_LIMIT
         }
         if triggered_services:
             self.recovering_services.update(triggered_services)
@@ -655,8 +647,7 @@ class LogStreamer:
             service
             for service, (thread, _container_id) in self.active.items()
             if thread.is_alive()
-            and now - self.active_started.get(service, now)
-            >= QUICK_EOF_THRESHOLD_SECONDS
+            and now - self.active_started.get(service, now) >= QUICK_EOF_THRESHOLD_SECONDS
         }
         self.attachment_failures.difference_update(stable_services)
         self.recovering_services.difference_update(stable_services)

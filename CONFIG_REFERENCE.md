@@ -118,15 +118,6 @@ redis:
   port: 6379
 ```
 
-Log-streamer re-attachments backfill the latest 100 Docker log lines and suppress
-entries already present in the service's Redis buffer. Each buffered entry
-contains both the displayed text and its container-and-timestamp identity, so
-Redis eviction cannot separate the line from its deduplication state. The fixed
-recovery threshold recreates the Docker client after three streams end within
-ten seconds. The
-`scarguard:logs:published:5m:count` key records the number of lines in the
-rolling five-minute health window.
-
 ## Detection Logic
 
 1. Pull frames from each RTSP stream (OpenCV `VideoCapture`)

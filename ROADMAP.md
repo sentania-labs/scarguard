@@ -3,15 +3,6 @@
 Active and planned features. Each item includes acceptance criteria. Completed features (1–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 ---
 
-## Reliability fixes
-
-- Completed: recover log streaming after stale Docker SDK sessions by detecting
-  repeated quick EOFs, recreating the client, backfilling missed lines with
-  Redis-buffer deduplication, and reporting attachment health independently of
-  log volume. Tracks issue #169.
-
----
-
 ## Deterrence — Physical Deterrence (Scar's Revenge)
 
 New `deterrent` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya smart devices via the **Tuya Cloud API** (`tinytuya.Cloud`). Supports sprinklers, lights, sirens, and smart plugs — any device in the Tuya/Smart Life ecosystem. Randomized activation patterns (device selection, duration, delays) to prevent wildlife habituation.

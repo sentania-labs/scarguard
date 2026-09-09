@@ -190,10 +190,11 @@ The log streamer replaces its Docker SDK client after three streams end within
 ten seconds. Re-attachments request 100 recent lines and suppress lines already
 present in the Redis buffer. Each buffer entry couples its displayed text with
 its container-and-timestamp identity so Redis eviction cannot split their state.
-The rolling publication count remains available in Redis for diagnostics. The
-Compose healthcheck uses a separate expiring manager-status key, so a quiet but
-attached sidecar remains healthy while an attachment failure or quick-EOF loop
-does not.
+The rolling publication count remains available at
+`scarguard:logs:published:5m:count` for diagnostics. The Compose healthcheck
+reads the separate expiring `scarguard:logs:health` manager-status key, so a
+quiet but attached sidecar remains healthy while an attachment failure or
+quick-EOF loop does not.
 
 CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
