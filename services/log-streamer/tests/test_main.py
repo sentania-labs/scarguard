@@ -405,6 +405,52 @@ def test_quick_eof_timing_excludes_redis_preparation(monkeypatch: Any) -> None:
     assert results[0].elapsed_seconds == 0
 
 
+def test_transient_redis_read_failure_retries_without_republishing() -> None:
+    class FlakyRedis(FakeRedis):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail_reads = 1
+
+        def lrange(self, key: str, start: int, end: int) -> list[str]:
+            if self.fail_reads:
+                self.fail_reads -= 1
+                raise main.redislib.RedisError("temporary read failure")
+            return super().lrange(key, start, end)
+
+    redis_client = FlakyRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    redis_client.lists[buffer_key] = [
+        _buffer_entry("container-1", "2026-09-09T12:00:01Z", "existing")
+    ]
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=["2026-09-09T12:00:01Z existing\n"],
+    )
+    streamer = main.LogStreamer(
+        client_factory=lambda: FakeDockerClient([container]),  # type: ignore[arg-type]
+        redis_factory=lambda: redis_client,  # type: ignore[arg-type]
+    )
+
+    streamer.run_cycle()
+    failed_thread, _container_id = streamer.active["web"]
+    failed_thread.join(timeout=1)
+    assert not failed_thread.is_alive()
+    assert container.log_calls == []
+    assert redis_client.published == []
+
+    streamer.run_cycle()
+    recovered_thread, _container_id = streamer.active["web"]
+    recovered_thread.join(timeout=1)
+
+    assert not recovered_thread.is_alive()
+    assert len(container.log_calls) == 1
+    assert redis_client.published == []
+    assert _buffer_texts(redis_client, buffer_key) == ["existing"]
+    assert "web" in streamer.attachment_failures
+    assert "web" not in streamer.quick_eof_counts
+
+
 def test_deduplication_window_stays_bounded() -> None:
     redis_client = FakeRedis()
     repeated = "2026-09-09T12:00:00Z repeated\n"

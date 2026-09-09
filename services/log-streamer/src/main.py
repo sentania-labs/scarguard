@@ -80,6 +80,7 @@ class TailResult(BaseModel):
     elapsed_seconds: float
     stopped: bool
     failed: bool
+    stream_attempted: bool
 
 
 class ParsedLogLine(BaseModel):
@@ -180,17 +181,12 @@ def discover_services(
 def _buffer_state(
     client: redislib.Redis,
     buffer_key: str,
-) -> BufferState:
+) -> BufferState | None:
     """Load identities and detect entries written before the coupled schema."""
     try:
         raw_entries = client.lrange(buffer_key, 0, BUFFER_MAX - 1)
     except redislib.RedisError:
-        logger.warning("Redis log buffer lookup failed for %s", buffer_key)
-        return BufferState(
-            entries=[],
-            recent_identities=[],
-            has_legacy_entries=False,
-        )
+        return None
 
     entries: list[BufferedLogEntry] = []
     identities: list[str] = []
@@ -363,10 +359,33 @@ def tail_container(
     logger.info("Tailing %s (container %s)", service, container.short_id)
 
     redis_client = redis_factory()
+
+    def report_reconciliation_failure() -> None:
+        logger.warning("Redis log buffer lookup failed for %s", buffer_key)
+        result_callback(
+            TailResult(
+                service=service,
+                container_id=container.id,
+                generation=generation,
+                elapsed_seconds=0,
+                stopped=_stop.is_set(),
+                failed=True,
+                stream_attempted=False,
+            )
+        )
+
     buffer_state = _buffer_state(
         redis_client,
         buffer_key,
     )
+    if buffer_state is None:
+        generation_guard.run_if_current(
+            generation,
+            report_reconciliation_failure,
+        )
+        redis_client.close()
+        logger.info("Tail thread exiting for %s", service)
+        return
     known_identity_order = deque(
         reversed(buffer_state.recent_identities),
         maxlen=BACKFILL_LINES,
@@ -486,6 +505,7 @@ def tail_container(
                     elapsed_seconds=elapsed,
                     stopped=stopped,
                     failed=failed,
+                    stream_attempted=True,
                 )
             ),
         )
@@ -549,6 +569,8 @@ class LogStreamer:
                 continue
             if result.failed:
                 self.attachment_failures.add(result.service)
+            if not result.stream_attempted:
+                continue
             if result.elapsed_seconds < QUICK_EOF_THRESHOLD_SECONDS:
                 self.quick_eof_counts[result.service] = (
                     self.quick_eof_counts.get(result.service, 0) + 1
