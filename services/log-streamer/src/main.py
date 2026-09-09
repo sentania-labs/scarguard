@@ -22,7 +22,7 @@ import time
 from collections import deque
 from datetime import datetime
 from types import FrameType
-from typing import Callable
+from typing import Callable, Literal
 
 import docker
 import redis as redislib
@@ -38,8 +38,6 @@ logger = logging.getLogger("log-streamer")
 COMPOSE_PROJECT = os.environ.get("COMPOSE_PROJECT", "scarguard")
 CHANNEL_PREFIX = "scarguard:logs:"
 BUFFER_PREFIX = "scarguard:logs:buffer:"
-IDENTITY_PREFIX = "scarguard:logs:identity:"
-IDENTITY_MIGRATION_PREFIX = "scarguard:logs:identity-migration:"
 HEALTH_EVENTS_KEY = "scarguard:logs:published:5m:events"
 HEALTH_KEY = "scarguard:logs:published:5m:count"
 HEALTH_STATUS_KEY = "scarguard:logs:health"
@@ -90,8 +88,25 @@ class ParsedLogLine(BaseModel):
     timestamp: str
 
 
+class BufferedLogEntry(BaseModel):
+    """One persisted log line and its reconnect identity."""
+
+    v: Literal[1] = 1
+    text: str
+    identity: str
+
+
+class BufferState(BaseModel):
+    """Decoded Redis buffer state used for reconnect reconciliation."""
+
+    entries: list[BufferedLogEntry]
+    recent_identities: list[str]
+    has_legacy_entries: bool
+
+
 DockerClientFactory = Callable[[], docker.DockerClient]
 RedisClientFactory = Callable[[], redislib.Redis]
+_LEGACY_IDENTITY_PREFIX = "legacy-buffer:"
 
 
 def _strip_ansi(text: str) -> str:
@@ -127,42 +142,42 @@ def discover_services(
     return result
 
 
-def _recent_identities(
-    client: redislib.Redis,
-    identity_key: str,
-) -> list[str]:
-    """Load the bounded deduplication window."""
-    try:
-        return list(client.lrange(identity_key, 0, BACKFILL_LINES - 1))
-    except redislib.RedisError:
-        logger.warning("Redis identity lookup failed for %s", identity_key)
-        return []
-
-
-def _migration_state(
+def _buffer_state(
     client: redislib.Redis,
     buffer_key: str,
-    identity_key: str,
-    migration_key: str,
-) -> tuple[float | None, bool]:
+) -> BufferState:
+    """Load identities and detect entries written before the coupled schema."""
     try:
-        pending_cutoff = client.get(migration_key)
-        if pending_cutoff is not None:
-            return float(pending_cutoff), False
-        if client.lrange(identity_key, 0, 0) or not client.lrange(buffer_key, 0, 0):
-            return None, False
-        cutoff = time.time()
-        started = bool(client.set(migration_key, str(cutoff), nx=True))
-        if started:
-            return cutoff, True
-        persisted_cutoff = client.get(migration_key)
-        return (
-            float(persisted_cutoff) if persisted_cutoff is not None else cutoff,
-            False,
+        raw_entries = client.lrange(buffer_key, 0, BUFFER_MAX - 1)
+    except redislib.RedisError:
+        logger.warning("Redis log buffer lookup failed for %s", buffer_key)
+        return BufferState(
+            entries=[],
+            recent_identities=[],
+            has_legacy_entries=False,
         )
-    except (redislib.RedisError, ValueError):
-        logger.warning("Redis identity migration state failed for %s", identity_key)
-        return None, False
+
+    entries: list[BufferedLogEntry] = []
+    identities: list[str] = []
+    has_legacy_entries = False
+    for index, raw_entry in enumerate(raw_entries):
+        try:
+            entry = BufferedLogEntry.model_validate_json(raw_entry)
+        except ValueError:
+            has_legacy_entries = True
+            entry = BufferedLogEntry(
+                text=raw_entry,
+                identity=f"{_LEGACY_IDENTITY_PREFIX}{index}",
+            )
+        else:
+            if index < BACKFILL_LINES:
+                identities.append(entry.identity)
+        entries.append(entry)
+    return BufferState(
+        entries=entries,
+        recent_identities=identities,
+        has_legacy_entries=has_legacy_entries,
+    )
 
 
 def _parse_log_chunk(chunk: bytes | str, container_id: str) -> list[ParsedLogLine]:
@@ -198,22 +213,39 @@ def _timestamp_seconds(timestamp: str) -> float | None:
         return None
 
 
-def _store_identity(
+def _replace_buffer(
     client: redislib.Redis,
-    identity_key: str,
-    identity: str,
+    buffer_key: str,
+    entries: list[BufferedLogEntry],
 ) -> None:
-    pipe = client.pipeline(transaction=False)
-    pipe.lpush(identity_key, identity)
-    pipe.ltrim(identity_key, 0, BUFFER_MAX - 1)
+    pipe = client.pipeline(transaction=True)
+    pipe.delete(buffer_key)
+    for entry in reversed(entries[:BUFFER_MAX]):
+        pipe.lpush(buffer_key, entry.model_dump_json())
     pipe.execute()
+
+
+def _couple_legacy_entries(
+    existing: list[BufferedLogEntry],
+    observed: list[BufferedLogEntry],
+) -> list[BufferedLogEntry]:
+    remaining = list(existing)
+    for observed_entry in observed:
+        for index in range(len(remaining) - 1, -1, -1):
+            candidate = remaining[index]
+            if (
+                candidate.identity.startswith(_LEGACY_IDENTITY_PREFIX)
+                and candidate.text == observed_entry.text
+            ):
+                remaining.pop(index)
+                break
+    return [*reversed(observed), *remaining][:BUFFER_MAX]
 
 
 def _publish_line(
     client: redislib.Redis,
     channel: str,
     buffer_key: str,
-    identity_key: str,
     service: str,
     log_line: ParsedLogLine,
 ) -> None:
@@ -222,10 +254,11 @@ def _publish_line(
     health_member = f"{time.time_ns()}:{next(_health_member_sequence)}:{service}"
     pipe = client.pipeline(transaction=False)
     pipe.publish(channel, log_line.text)
-    pipe.lpush(buffer_key, log_line.text)
+    pipe.lpush(
+        buffer_key,
+        BufferedLogEntry(text=log_line.text, identity=log_line.identity).model_dump_json(),
+    )
     pipe.ltrim(buffer_key, 0, BUFFER_MAX - 1)
-    pipe.lpush(identity_key, log_line.identity)
-    pipe.ltrim(identity_key, 0, BUFFER_MAX - 1)
     pipe.eval(
         _HEALTH_UPDATE_SCRIPT,
         2,
@@ -290,27 +323,20 @@ def tail_container(
     """Tail one container and publish its logs. Runs in a thread."""
     channel = f"{CHANNEL_PREFIX}{service}"
     buffer_key = f"{BUFFER_PREFIX}{service}"
-    identity_key = f"{IDENTITY_PREFIX}{service}"
-    migration_key = f"{IDENTITY_MIGRATION_PREFIX}{service}"
     logger.info("Tailing %s (container %s)", service, container.short_id)
 
-    started = time.monotonic()
     redis_client = redis_factory()
-    recent_identities = _recent_identities(
-        redis_client,
-        identity_key,
-    )
-    known_identity_order = deque(
-        reversed(recent_identities),
-        maxlen=BACKFILL_LINES,
-    )
-    known_identities = set(recent_identities)
-    migration_cutoff, migration_started = _migration_state(
+    buffer_state = _buffer_state(
         redis_client,
         buffer_key,
-        identity_key,
-        migration_key,
     )
+    known_identity_order = deque(
+        reversed(buffer_state.recent_identities),
+        maxlen=BACKFILL_LINES,
+    )
+    known_identities = set(buffer_state.recent_identities)
+    migration_cutoff = time.time() if buffer_state.has_legacy_entries else None
+    migration_entries: list[BufferedLogEntry] = []
 
     def remember_identity(identity: str) -> None:
         if identity in known_identities:
@@ -320,11 +346,27 @@ def tail_container(
         known_identity_order.append(identity)
         known_identities.add(identity)
 
-    if migration_started:
+    def complete_migration() -> bool:
+        nonlocal migration_cutoff
+        if migration_cutoff is None:
+            return True
+        try:
+            migrated_entries = _couple_legacy_entries(
+                buffer_state.entries,
+                migration_entries,
+            )
+            _replace_buffer(redis_client, buffer_key, migrated_entries)
+        except redislib.RedisError:
+            logger.warning("Redis log buffer migration failed for %s", service)
+            return False
+        for entry in migration_entries:
+            remember_identity(entry.identity)
+        migration_cutoff = None
         logger.info(
-            "Skipping one backfill for %s because the pre-upgrade buffer has no identities",
+            "Backfill skipped once for %s because the pre-upgrade buffer has no identities",
             service,
         )
+        return True
 
     def publish_new(chunk: bytes | str) -> None:
         nonlocal migration_cutoff
@@ -334,26 +376,20 @@ def tail_container(
             if migration_cutoff is not None:
                 event_time = _timestamp_seconds(log_line.timestamp)
                 if event_time is None or event_time <= migration_cutoff:
-                    try:
-                        _store_identity(redis_client, identity_key, log_line.identity)
-                        remember_identity(log_line.identity)
-                    except redislib.RedisError:
-                        logger.warning(
-                            "Redis identity migration failed for %s",
-                            service,
+                    migration_entries.append(
+                        BufferedLogEntry(
+                            text=log_line.text,
+                            identity=log_line.identity,
                         )
+                    )
                     continue
-                try:
-                    redis_client.delete(migration_key)
-                    migration_cutoff = None
-                except redislib.RedisError:
-                    logger.warning("Redis identity migration completion failed for %s", service)
+                if not complete_migration():
+                    continue
             try:
                 _publish_line(
                     redis_client,
                     channel,
                     buffer_key,
-                    identity_key,
                     service,
                     log_line,
                 )
@@ -362,6 +398,7 @@ def tail_container(
                 logger.warning("Redis publish failed for %s, will retry", service)
 
     failed = False
+    started = time.monotonic()
     try:
         for chunk in container.logs(
             stream=True,
@@ -379,6 +416,8 @@ def tail_container(
     finally:
         elapsed = time.monotonic() - started
         stopped = _stop.is_set()
+        if not failed and not stopped and migration_entries:
+            complete_migration()
         redis_client.close()
         result_callback(
             TailResult(

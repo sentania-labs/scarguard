@@ -35,7 +35,6 @@ class FakeRedis:
         return self.lists[key][start : end + 1]
 
     def pipeline(self, transaction: bool = False) -> FakePipeline:
-        assert transaction is False
         return FakePipeline(self)
 
     def publish(self, channel: str, line: str) -> int:
@@ -84,25 +83,21 @@ class FakeRedis:
             self.values.pop(count_key, None)
         return count
 
-    def get(self, key: str) -> str | None:
-        return self.values.get(key)
-
     def set(
         self,
         key: str,
         value: str,
         ex: int | None = None,
-        nx: bool = False,
     ) -> bool:
-        if nx and key in self.values:
-            return False
         if ex is not None:
             assert ex == main.HEALTH_STATUS_TTL_SECONDS
         self.values[key] = value
         return True
 
     def delete(self, key: str) -> int:
-        return int(self.values.pop(key, None) is not None)
+        removed = int(self.values.pop(key, None) is not None)
+        removed += int(self.lists.pop(key, None) is not None)
+        return removed
 
     def close(self) -> None:
         pass
@@ -169,14 +164,26 @@ def _event_identity(container_id: str, timestamp: str, text: str) -> str:
     return f"{container_id}:{timestamp}:{text}"
 
 
-def test_reattach_backfills_gap_and_deduplicates_live_overlap() -> None:
+def _buffer_entry(container_id: str, timestamp: str, text: str) -> str:
+    return main.BufferedLogEntry(
+        text=text,
+        identity=_event_identity(container_id, timestamp, text),
+    ).model_dump_json()
+
+
+def _buffer_texts(redis_client: FakeRedis, buffer_key: str) -> list[str]:
+    return [
+        main.BufferedLogEntry.model_validate_json(entry).text
+        for entry in redis_client.lists[buffer_key]
+    ]
+
+
+def test_reattach_backfills_gap_and_deduplicates_live_overlap(caplog: Any) -> None:
     redis_client = FakeRedis()
     buffer_key = f"{main.BUFFER_PREFIX}web"
-    identity_key = f"{main.IDENTITY_PREFIX}web"
-    redis_client.lists[buffer_key] = ["before-2", "before-1"]
-    redis_client.lists[identity_key] = [
-        _event_identity("container-1", "2026-09-09T12:00:02Z", "before-2"),
-        _event_identity("container-1", "2026-09-09T12:00:01Z", "before-1"),
+    redis_client.lists[buffer_key] = [
+        _buffer_entry("container-1", "2026-09-09T12:00:02Z", "before-2"),
+        _buffer_entry("container-1", "2026-09-09T12:00:01Z", "before-1"),
     ]
     container = FakeContainer(
         "web",
@@ -209,7 +216,7 @@ def test_reattach_backfills_gap_and_deduplicates_live_overlap() -> None:
         (f"{main.CHANNEL_PREFIX}web", "missed-2"),
         (f"{main.CHANNEL_PREFIX}web", "live-1"),
     ]
-    assert redis_client.lists[buffer_key][:5] == [
+    assert _buffer_texts(redis_client, buffer_key)[:5] == [
         "live-1",
         "missed-2",
         "missed-1",
@@ -219,13 +226,13 @@ def test_reattach_backfills_gap_and_deduplicates_live_overlap() -> None:
     assert len(redis_client.sorted_sets[main.HEALTH_EVENTS_KEY]) == 3
     assert redis_client.values[main.HEALTH_KEY] == "3"
     assert len(results) == 1
+    assert "pre-upgrade buffer has no identities" not in caplog.text
 
 
 def test_new_container_repeating_old_line_is_not_dropped() -> None:
     redis_client = FakeRedis()
-    redis_client.lists[f"{main.BUFFER_PREFIX}web"] = ["ready"]
-    redis_client.lists[f"{main.IDENTITY_PREFIX}web"] = [
-        _event_identity("old-container", "2026-09-09T12:00:01Z", "ready")
+    redis_client.lists[f"{main.BUFFER_PREFIX}web"] = [
+        _buffer_entry("old-container", "2026-09-09T12:00:01Z", "ready")
     ]
     container = FakeContainer(
         "web",
@@ -244,7 +251,6 @@ def test_legacy_buffer_backfill_is_seeded_without_republishing(
 ) -> None:
     redis_client = FakeRedis()
     buffer_key = f"{main.BUFFER_PREFIX}web"
-    identity_key = f"{main.IDENTITY_PREFIX}web"
     redis_client.lists[buffer_key] = ["legacy-2", "legacy-1"]
     cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
     assert cutoff is not None
@@ -264,11 +270,11 @@ def test_legacy_buffer_backfill_is_seeded_without_republishing(
     main.tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "current")]
-    assert redis_client.lists[buffer_key] == ["current", "legacy-2", "legacy-1"]
-    assert _event_identity(
-        "container-1", "2026-09-09T12:00:01Z", "legacy-1"
-    ) in redis_client.lists[identity_key]
-    assert f"{main.IDENTITY_MIGRATION_PREFIX}web" not in redis_client.values
+    assert _buffer_texts(redis_client, buffer_key) == [
+        "current",
+        "legacy-2",
+        "legacy-1",
+    ]
     assert caplog.text.count("pre-upgrade buffer has no identities") == 1
 
 
@@ -278,7 +284,6 @@ def test_legacy_migration_remains_pending_after_attachment_failure(
 ) -> None:
     redis_client = FakeRedis()
     buffer_key = f"{main.BUFFER_PREFIX}web"
-    migration_key = f"{main.IDENTITY_MIGRATION_PREFIX}web"
     redis_client.lists[buffer_key] = ["legacy"]
     cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
     assert cutoff is not None
@@ -292,7 +297,7 @@ def test_legacy_migration_remains_pending_after_attachment_failure(
 
     main.tail_container("web", failed, lambda _result: None, lambda: redis_client)
 
-    assert migration_key in redis_client.values
+    assert redis_client.lists[buffer_key] == ["legacy"]
 
     recovered = FakeContainer(
         "web",
@@ -303,8 +308,79 @@ def test_legacy_migration_remains_pending_after_attachment_failure(
     main.tail_container("web", recovered, lambda _result: None, lambda: redis_client)
 
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "current")]
-    assert migration_key not in redis_client.values
+    assert _buffer_texts(redis_client, buffer_key) == ["current", "legacy"]
     assert caplog.text.count("pre-upgrade buffer has no identities") == 1
+
+
+def test_legacy_migration_preserves_unobserved_history(monkeypatch: Any) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    redis_client.lists[buffer_key] = ["seen", "older-unseen"]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=["2026-09-09T12:00:01Z seen\n"],
+    )
+
+    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+
+    assert _buffer_texts(redis_client, buffer_key) == ["seen", "older-unseen"]
+    entries = [
+        main.BufferedLogEntry.model_validate_json(entry)
+        for entry in redis_client.lists[buffer_key]
+    ]
+    assert entries[0].identity == _event_identity(
+        "container-1", "2026-09-09T12:00:01Z", "seen"
+    )
+    assert entries[1].identity.startswith("legacy-buffer:")
+
+
+def test_coupled_buffer_deduplicates_without_separate_identity_key(
+    caplog: Any,
+) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    redis_client.lists[buffer_key] = [
+        _buffer_entry("container-1", "2026-09-09T12:00:01Z", "before")
+    ]
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=[
+            "2026-09-09T12:00:01Z before\n",
+            "2026-09-09T12:00:02Z missed\n",
+        ],
+    )
+
+    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+
+    assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "missed")]
+    assert "pre-upgrade buffer has no identities" not in caplog.text
+
+
+def test_quick_eof_timing_excludes_redis_preparation(monkeypatch: Any) -> None:
+    clock = [0.0]
+
+    class SlowRedis(FakeRedis):
+        def lrange(self, key: str, start: int, end: int) -> list[str]:
+            clock[0] += main.QUICK_EOF_THRESHOLD_SECONDS + 1
+            return super().lrange(key, start, end)
+
+    redis_client = SlowRedis()
+    monkeypatch.setattr(main.time, "monotonic", lambda: clock[0])
+    results: list[main.TailResult] = []
+
+    main.tail_container(
+        "web",
+        FakeContainer("web", "container-1"),
+        results.append,
+        lambda: redis_client,
+    )
+
+    assert results[0].elapsed_seconds == 0
 
 
 def test_deduplication_window_stays_bounded() -> None:
@@ -340,8 +416,8 @@ def test_health_refresh_expires_lines_outside_five_minute_window(monkeypatch: An
         timestamp="299",
     )
 
-    main._publish_line(redis_client, "channel", "buffer", "identities", "web", first)
-    main._publish_line(redis_client, "channel", "buffer", "identities", "web", second)
+    main._publish_line(redis_client, "channel", "buffer", "web", first)
+    main._publish_line(redis_client, "channel", "buffer", "web", second)
     assert redis_client.values[main.HEALTH_KEY] == "2"
 
     assert main.refresh_health(lambda: redis_client, now=301.0) == 1

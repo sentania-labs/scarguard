@@ -1,5 +1,6 @@
 """Admin routes — service log viewer and config backup management."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -24,6 +25,21 @@ SERVICES = ["detector", "notifier", "deterrent", "web", "caddy", "trainer", "bac
 # Redis key prefixes — must match log-streamer sidecar constants.
 _CHANNEL_PREFIX = "scarguard:logs:"
 _BUFFER_PREFIX = "scarguard:logs:buffer:"
+
+
+def _buffer_text(raw_entry: str) -> str:
+    try:
+        entry = json.loads(raw_entry)
+    except (json.JSONDecodeError, TypeError):
+        return raw_entry
+    if (
+        isinstance(entry, dict)
+        and entry.get("v") == 1
+        and isinstance(entry.get("text"), str)
+        and isinstance(entry.get("identity"), str)
+    ):
+        return entry["text"]
+    return raw_entry
 
 
 def _redis_params() -> dict:
@@ -77,7 +93,8 @@ async def logs_stream(
                         "— waiting for live lines from log-streamer sidecar...\n\n"
                     )
                 else:
-                    for line in reversed(lines):
+                    for raw_entry in reversed(lines):
+                        line = _buffer_text(raw_entry)
                         safe = line.replace("\n", "  ")
                         yield f"data: {safe}\n\n"
 
