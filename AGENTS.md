@@ -23,7 +23,7 @@ sanctioned cross-system channel.
 - **IPC:** Redis pub/sub as internal message bus
 - **Database:** SQLite (single writer, no Postgres)
 - **Language:** Python 3.11 services; the digest-pinned Jetson L4T trainer image supplies Python 3.10/Torch 2.4.0/CUDA 12.6 as one compatible stack
-- **CI/CD:** GitHub Actions → GHCR (x86 + Orin ARM64 self-hosted runners)
+- **CI/CD:** GitHub Actions → GHCR (GitHub-hosted x86 and ARM64 runners, plus the Orin self-hosted GPU runner)
 - **Config:** Single `scarguard.yml` in external data directory
 
 ## Design Decisions — Do Not Change Without Discussion

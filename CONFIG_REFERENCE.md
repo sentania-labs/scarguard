@@ -51,12 +51,9 @@ cameras:
     model_path: null              # optional — per-camera model override (default: null = use global detection.model_path)
     detect_classes: null          # optional — per-camera class filter (default: null = use global detection.target_classes)
     confidence_threshold: null    # optional — per-camera confidence override (default: null = use global detection.confidence_threshold)
-    # Exclusion zones use NORMALIZED coordinates (0.0–1.0 relative to frame).
+    # Exclusion zones use normalized polygon coordinates (0.0 to 1.0 relative to frame).
     exclusion_zones:
-      - x: 0.50
-        y: 0.40
-        w: 0.12
-        h: 0.18
+      - points: [[0.50, 0.40], [0.62, 0.40], [0.62, 0.58], [0.50, 0.58]]
         label: "heron decoy"
     # Per-camera notification rules — route detections from this camera to
     # specific named channels.  Rules are evaluated top-down; first match wins.
@@ -85,29 +82,9 @@ detection:
   cooldown_seconds: 30
   frame_skip: 2
 
-  # Per-camera notification rules (defined inside each camera block)
-  # NOTE: v0.13.3 renamed `action_rules` → `notification_rules`.  Pre-v0.13.3
-  # configs are auto-migrated on load.
-  notification_rules:
-    - class_name: great_blue_heron
-      channels: [pond-alerts, owner-email]
-    - class_name: bird
-      channels: [pond-alerts]
-    - class_name: "*"        # catch-all
-      channels: [pond-alerts]
-
-  # Per-camera deterrent rules (v0.13.3+, defined inside each camera block).
-  # First-match-wins on class_name; empty list = no deterrent (explicit opt-in).
-  # Group names reference entries in deterrent.groups (below).
-  deterrent_rules:
-    - class_name: great_blue_heron
-      groups: [thermonuclear]        # the full battery of deterrents
-    - class_name: raccoon
-      groups: [minor]                # single siren
-
-  # Per-camera overrides (v0.13.3+): model_path, detect_classes, and
-  # confidence_threshold are defined above in the camera block.  When null
-  # (default), the corresponding global `detection.*` value is inherited.
+  # Per-camera overrides and notification_rules / deterrent_rules belong in
+  # each camera block. When an override is null, the corresponding global
+  # `detection.*` value is inherited.
   # In the UI, list fields like detect_classes, notification_rules.channels,
   # and deterrent_rules.groups use a chip-autocomplete control (v0.13.4+) —
   # typos render as amber "unknown" chips.  Unresolved references produce an
@@ -174,10 +151,10 @@ Labeled events power the training pipeline:
 The `training:` YAML section configures the trainer service (dataset
 preparation and on-device fine-tuning jobs). It is editable on the
 Config page under the **Training** sub-tab (v1.16.7+).
-`training.sources.roboflow.api_key` is sensitive: redacted in the UI
-and raw-YAML views, but stored in plaintext — the trainer reads
-`scarguard.yml` directly and cannot decrypt secret-box values (same
-trade-off as camera RTSP URLs for the detector). Without a Roboflow
+`training.sources.roboflow.api_key` is sensitive and redacted in the UI
+and raw-YAML views. It remains plaintext because the trainer reads
+`scarguard.yml` directly and cannot decrypt secret-box values, the same
+trade-off as camera RTSP URLs for the detector. Without a Roboflow
 key, dataset preparation skips the Roboflow Universe sources and logs
 a warning — heron training coverage depends on them.
 

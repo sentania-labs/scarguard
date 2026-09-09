@@ -161,7 +161,7 @@ cameras:
     enabled: true
 ```
 
-For a more complete initial setup, see the examples below or jump to [Feature Guides](#feature-guides).
+For the full schema and field defaults, see [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md). The web UI exposes every supported setting.
 
 **Cameras with exclusion zones** (suppress a static decoy or blind spot):
 
@@ -171,10 +171,7 @@ cameras:
     rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN"
     enabled: true
     exclusion_zones:
-      - x: 0.72   # normalized 0–1 from left
-        y: 0.10   # normalized 0–1 from top
-        w: 0.12
-        h: 0.18
+      - points: [[0.72, 0.10], [0.84, 0.10], [0.84, 0.28], [0.72, 0.28]]
         label: "heron decoy"
 ```
 
@@ -469,26 +466,20 @@ Exclusion zones suppress detections from specific areas of a camera frame — us
 1. Open **Settings → Cameras**
 2. Find the camera and click **Edit Exclusion Zones**
 3. A snapshot from the camera is displayed with an overlay canvas
-4. Click and drag to draw a rectangular zone
+4. Click to place polygon vertices, then close the zone
 5. Optionally add a label (e.g. "heron decoy") for reference
 6. Click **Save** — the zones are written to `scarguard.yml` and hot-reloaded into the detector
 
-Zones are stored as normalized coordinates (0–1) relative to frame size, so they remain accurate even if resolution changes:
+Zones are stored as normalized polygon coordinates (0 to 1) relative to frame size, so they remain accurate even if resolution changes:
 
 ```yaml
 cameras:
   - name: pond-north
     rtsp_url: "rtsp://..."
     exclusion_zones:
-      - x: 0.72    # left edge of zone (fraction of frame width)
-        y: 0.10    # top edge of zone (fraction of frame height)
-        w: 0.12    # zone width
-        h: 0.18    # zone height
+      - points: [[0.72, 0.10], [0.84, 0.10], [0.84, 0.28], [0.72, 0.28]]
         label: "heron decoy"
-      - x: 0.0
-        y: 0.85
-        w: 1.0
-        h: 0.15
+      - points: [[0.0, 0.85], [1.0, 0.85], [1.0, 1.0], [0.0, 1.0]]
         label: "pond edge reflection"
 ```
 
@@ -748,29 +739,6 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 
 ---
 
-## Development Status
+## Project status
 
-| Version | Description | Status |
-|---------|-------------|--------|
-| v0.1 | Detection engine (RTSP + YOLO + SQLite + Redis) | Complete |
-| v0.2 | Notifications (Discord webhook + Email SMTP), web UI, CI/CD, hot-reload | Complete |
-| v0.3 | Admin logs tab, SSL/TLS, snapshot retention, SSL config UI | Complete |
-| v0.4 | Exclusion zones, enhanced event log, action rules, live feed, named channels, scheduling | Complete |
-| v0.5 | GPU/CPU stats view (live metrics, per-camera FPS, rolling charts) | Complete |
-| v0.6 | App security — session auth, first-run setup, user management, API tokens, lockout | Complete |
-| v0.7 | Detection feedback, training data dashboard, YOLO export, training script, model evaluation | Complete |
-| v0.8 | Per-camera models, named Docker volumes, CI PR build validation | Complete |
-| v0.9 | Ntfy, visit tracking, camera health, metrics persistence, training nudge, config backup, on-demand snapshot, CI hardening | Complete |
-| v0.10 | CI/CD pipeline hardening (compose smoke test, GPU/CPU benchmarks); x86/CUDA detector image with CPU fallback | Complete |
-| v0.11 | Unified retention, scheduled digest reports, mobile-friendly admin menu, event pruning | Complete |
-| v0.12 | HTML email, notification feedback tokens, config UI modes, health checks, Caddy TLS reverse proxy (Beta 1) | Complete |
-| v0.12.3–v0.12.10 | Hardening patch cycle (Redis auth, FairLock, log-streamer sidecar, inference perf, viewer role, audit log, CodeQL) | Complete |
-| v0.13.0 | Deterrent service MVP — Tuya Cloud control of sprinklers, lights, sirens, plugs | Complete |
-| v0.13.1 | Deterrent web UI — actuation log, device status, test-fire, config UI | Complete |
-| v0.13.2 | Review fixes, legacy notification key removal, doc cleanup | Complete |
-| v0.13.3 | Per-camera deterrent scoping, confidence thresholds, UI tabs, latency instrumentation | Complete |
-| v0.13.4 | Chip autocomplete, model-class introspection, Docker Hub auth | Complete |
-| v0.13.5 | Dashboard deterrent widget, chip-picker z-index fix, compose-smoke port remap | Complete |
-| v1.14.0 | GA hardening: actuation watchdog + reconciliation, HMAC Redis bus, encrypted secrets, bootstrap token, SSRF guard, rate limits, compose hardening, SQLite backup sidecar | In progress |
-
-See [ROADMAP.md](ROADMAP.md) for planned features and [STATUS.md](STATUS.md) for a detailed breakdown of what's working.
+The current release is v1.16.12. See [STATUS.md](STATUS.md) for operational status, [ROADMAP.md](ROADMAP.md) for planned work, and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed-feature history.

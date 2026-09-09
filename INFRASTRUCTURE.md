@@ -1,6 +1,6 @@
 # ScarGuard — Infrastructure
 
-Doc last verified: 2026-04-20
+Doc last verified: 2026-09-09
 
 ## Repository Structure
 
@@ -269,22 +269,16 @@ reach the lab (vCenter, the cluster, the lab CA, internal DNS). No scarguard
 job needs any of that, so none belongs there. See the `github-ci` skill for
 the full placement rule.
 
-### Decommissioning
+### Self-hosted runner scope
 
-These runners no longer back any scarguard job:
+The retired x86 self-hosted runners were deregistered on 2026-09-08 and are
+not selected by any ScarGuard workflow. `orin-nano` remains the sole
+self-hosted runner because detector validation requires its GPU. The weekly
+cleanup workflow prunes only that runner and deliberately leaves volumes
+intact so models and SQLite data survive.
 
-| Runner | Status |
-|---|---|
-| `runner-generic` / `-2` / `-3` | Unreferenced. Decommission candidates. |
-| `runner-docker` / `-terraform` / `-packer` | Unreferenced by scarguard; other repos may still use them. |
-| `orin-nano` | **Still required** for the two detector jobs. |
-
-`cleanup.yml` still prunes the three x86 self-hosted runners. That is now
-stale for this repo, since scarguard no longer builds on them, but it was
-left in place because those machines are shared. The Orin cleanup job is
-still needed.
-
-The remaining x86 self-hosted runners are containerized on an ubuntu24 host with Docker socket mount (DinD). The Orin runner uses `infra/orin-runner/` Dockerfile. GPU accessible because builds/tests run against the host Docker daemon.
+The Orin runner uses the `infra/orin-runner/` Dockerfile. GPU builds and
+benchmarks use the host Docker daemon.
 
 ### Orin GPU Lease (CI ↔ production coordination)
 
@@ -356,11 +350,8 @@ Tag push (release.yml)
       ├── Append benchmarks to BENCHMARKS.md (auto-PR)
       └── Create GitHub Release with image table
 
-Weekly (cleanup.yml — Sunday 03:00 UTC; self-hosted fleet only, GitHub-hosted
-runners are ephemeral and have no persistent state to prune)
-  ├── docker runners: system prune + builder cache prune (one pinned job each;
-  │   now stale for scarguard, which no longer builds on them)
-  └── Orin runner: system prune (no volume prune — preserves models)
+Weekly (cleanup.yml, Sunday 03:00 UTC; GitHub-hosted runners are ephemeral)
+  └── Orin runner: system prune (no volume prune, preserves models and data)
 ```
 
 ### Runner Image Updates

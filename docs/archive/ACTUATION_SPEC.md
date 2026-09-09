@@ -162,7 +162,7 @@ deterrent:
 
 ### Config Notes
 
-- `api_key` and `api_secret` are obtained from the Tuya IoT Platform — see [TUYA_SETUP.md](TUYA_SETUP.md) for the full walkthrough.
+- `api_key` and `api_secret` are obtained from the Tuya IoT Platform. See [TUYA_SETUP.md](../../TUYA_SETUP.md) for the full walkthrough.
 - `api_region` must match the Data Center selected during project creation.
 - No `local_key`, `ip`, or `protocol_version` fields — Cloud API doesn't need them.
 - Individual devices can be disabled without removing them from config.
@@ -251,7 +251,7 @@ Battery readings are written to SQLite for historical tracking and future web UI
 
 ## Device Setup
 
-See [TUYA_SETUP.md](TUYA_SETUP.md) for the complete step-by-step guide covering:
+See [TUYA_SETUP.md](../../TUYA_SETUP.md) for the complete step-by-step guide covering:
 
 1. Creating a Tuya IoT Platform account
 2. Creating a Cloud Development project

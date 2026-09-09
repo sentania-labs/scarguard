@@ -8,14 +8,14 @@
 - **Webhook notifications:** Generic HTTP/HTTPS webhook channel (POST or PUT, optional Bearer auth).
 - **Named notification channels:** Multi-instance per type (`notifications.channels`), each with a unique name. Legacy flat `discord`/`email` keys were removed in v0.13.2 and are stripped from `scarguard.yml` on the next save.
 - **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload — functional.
-- **CI/CD:** GitHub Actions workflows build and push images to GHCR. Public repo, so nearly everything runs on free GitHub-hosted runners: `ubuntu-latest` for all x86 image builds, the compose smoke test, lint, typecheck and pytest; `ubuntu-24.04-arm` for the two L4T trainer jobs. Only `build-detector` and `release-detector` still need the Orin, because only they run a real GPU smoke test and inference benchmark. No job uses the lab ARC pool, and the 6 legacy x86 self-hosted runners are now unreferenced by this repo. Web, notifier, caddy, and detector-x86 builds run in parallel. CI lint/tests run on PRs only; main-push builds warm the GHA cache without re-running tests. Weekly cleanup still targets the self-hosted fleet via label-pinned jobs. Compose smoke test, GPU/CPU inference benchmarks in CI.
+- **CI/CD:** GitHub Actions workflows build and push images to GHCR. `ubuntu-latest` runs x86 builds, the compose smoke test, lint, type checks, and pytest; `ubuntu-24.04-arm` runs the L4T trainer jobs. `build-detector` and `release-detector` use the Orin for real GPU smoke tests and inference benchmarks. No job uses the lab ARC pool. The retired x86 self-hosted runners are not selected, and weekly cleanup prunes only the Orin without pruning volumes. Main pushes warm the build cache without repeating PR validation.
 - **x86 detector:** CUDA+CPU detector image (`scarguard-detector-x86`) runs on any x86 Linux with or without NVIDIA GPU. CPU fallback via PyTorch.
 - **Docker Compose stack:** All seven services (redis, caddy, detector, web, notifier, deterrent, log-streamer) start and communicate correctly.
 - **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required).
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
 - **Notifier resilience:** Internet interruptions handled with per-notifier retry queue and exponential backoff.
-- **Detection exclusion zones:** Per-camera normalized rectangular zones drawn in the config editor canvas; detections inside excluded.
-- **Action rules:** Per-camera, per-class channel routing. First-match-wins rules stored in YAML and editable in the config GUI.
+- **Detection exclusion zones:** Per-camera normalized polygon zones drawn in the config editor canvas; detections inside are excluded.
+- **Notification rules:** Per-camera, per-class channel routing. First-match-wins rules are stored in YAML and editable in the config GUI.
 - **Enhanced event log:** Filter by camera, class, date range. `actions_triggered` column shows which channels were notified.
 - **Scheduled arm/disarm:** Fixed-time schedule (HH:MM) or solar mode (sunrise/sunset) via `astral`; manual dashboard overrides respected until next transition.
 - **Live feed:** Detection-triggered annotated snapshot feed with SSE, offline indicator, and exponential-backoff auto-reconnect.

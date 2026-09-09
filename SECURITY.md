@@ -58,17 +58,14 @@ The key lives at `/data/secret_key` (mode `0600`), generated on the
 first web startup. Notifier and deterrent mount `/data` and load the
 same key to decrypt at runtime.
 
-**Upgrade behaviour:** existing plaintext secrets pass through on read
-(no-op), and the first save after upgrade automatically re-encrypts them.
-`v1.15` will drop the plaintext-passthrough code path and reject
-unencrypted values — see `ROADMAP.md`.
+**Upgrade behaviour:** sensitive fields written by the web UI are encrypted
+before save. Consumers reject an unencrypted sensitive value, so restore the
+matching `/data/secret_key` with `scarguard.yml` rather than hand-editing an
+encrypted field.
 
-**Rotation:** stop the web container, overwrite `/data/secret_key` with
-a new Fernet key, restart. Pre-existing ciphertext becomes unreadable
-and the affected fields will need to be re-entered in the admin UI
-(which is the intent when you rotate). A proper
-`scripts/rotate-secret-key.sh` that re-encrypts in place is tracked as
-v1.15 work.
+**Rotation:** use the documented rotation workflow in
+[INFRASTRUCTURE.md](INFRASTRUCTURE.md#secret-rotation-playbook). Replacing
+the key alone makes existing ciphertext unreadable.
 
 ### Not at rest
 
