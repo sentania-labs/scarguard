@@ -334,6 +334,59 @@ def test_legacy_migration_remains_pending_after_attachment_failure(
     assert caplog.text.count("pre-upgrade buffer has no identities") == 1
 
 
+def test_legacy_migration_failure_retries_first_live_line(monkeypatch: Any) -> None:
+    class FailingPipeline(FakePipeline):
+        def execute(self) -> list[Any]:
+            raise main.redislib.RedisError("temporary migration failure")
+
+    class FlakyMigrationRedis(FakeRedis):
+        def __init__(self) -> None:
+            super().__init__()
+            self.migration_failures = 1
+
+        def pipeline(self, transaction: bool = False) -> FakePipeline:
+            if transaction and self.migration_failures:
+                self.migration_failures -= 1
+                return FailingPipeline(self)
+            return super().pipeline(transaction)
+
+    redis_client = FlakyMigrationRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    redis_client.lists[buffer_key] = ["legacy"]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=["2026-09-09T12:00:01Z legacy\n"],
+        live=[
+            "2026-09-09T12:00:05Z first-live\n",
+            "2026-09-09T12:00:06Z later-live\n",
+        ],
+    )
+    results: list[main.TailResult] = []
+
+    _tail_container("web", container, results.append, lambda: redis_client)
+
+    assert results[0].failed is True
+    assert redis_client.published == []
+    assert redis_client.lists[buffer_key] == ["legacy"]
+
+    _tail_container("web", container, results.append, lambda: redis_client)
+
+    assert results[1].failed is False
+    assert redis_client.published == [
+        (f"{main.CHANNEL_PREFIX}web", "first-live"),
+        (f"{main.CHANNEL_PREFIX}web", "later-live"),
+    ]
+    assert _buffer_texts(redis_client, buffer_key) == [
+        "later-live",
+        "first-live",
+        "legacy",
+    ]
+
+
 def test_legacy_migration_preserves_unobserved_history(monkeypatch: Any) -> None:
     redis_client = FakeRedis()
     buffer_key = f"{main.BUFFER_PREFIX}web"

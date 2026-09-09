@@ -429,11 +429,11 @@ def tail_container(
         migration_cutoff = None
         return True
 
-    def publish_new(chunk: bytes | str) -> None:
+    def publish_new(chunk: bytes | str) -> bool:
         nonlocal migration_cutoff
         for log_line in _parse_log_chunk(chunk, container.id):
             if not generation_guard.is_current(generation):
-                return
+                return False
             if log_line.identity in known_identities:
                 continue
             if migration_cutoff is not None:
@@ -447,7 +447,7 @@ def tail_container(
                     )
                     continue
                 if not complete_migration():
-                    continue
+                    return False
             try:
                 published = generation_guard.run_if_current(
                     generation,
@@ -463,6 +463,7 @@ def tail_container(
                     remember_identity(log_line.identity)
             except redislib.RedisError:
                 logger.warning("Redis publish failed for %s, will retry", service)
+        return True
 
     failed = False
     started = time.monotonic()
@@ -477,7 +478,9 @@ def tail_container(
         ):
             if _stop.is_set():
                 break
-            publish_new(chunk)
+            if not publish_new(chunk):
+                failed = True
+                break
     except Exception:
         failed = True
         if not _stop.is_set():
@@ -493,7 +496,7 @@ def tail_container(
         elapsed = time.monotonic() - started
         stopped = _stop.is_set()
         if not failed and not stopped and migration_entries:
-            complete_migration()
+            failed = not complete_migration()
         redis_client.close()
         generation_guard.run_if_current(
             generation,
