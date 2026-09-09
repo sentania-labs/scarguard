@@ -1,6 +1,6 @@
 # ScarGuard — Completed Features Archive
 
-Features 1–17, 18–27 are fully implemented. Moved here from [ROADMAP.md](ROADMAP.md) to keep the active roadmap focused on upcoming work.
+Features 1 to 27 are fully implemented. This archive keeps completed-feature history out of [ROADMAP.md](ROADMAP.md), which is the owner for active work.
 
 ---
 

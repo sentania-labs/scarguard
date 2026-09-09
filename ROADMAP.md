@@ -260,8 +260,8 @@ Workstreams (see `.claude/plans/` or the v1.14 PRs for full detail):
 9. **Documentation.** New `SECURITY.md`, `BACKUP.md`,
    `docs/EMERGENCY_OFF.md`; INFRASTRUCTURE.md additions for resource
    limits, backup architecture, secret-rotation playbook; README version
-   table reconciled through v1.14.0; self-review rule moves from CLAUDE.md
-   to CONTRIBUTING.md (D9); CONFIG_REFERENCE parity pass against
+   table reconciled through v1.14.0; self-review rule moves to
+   CONTRIBUTING.md (D9); CONFIG_REFERENCE parity pass against
    `config_model.py` (D10).
 
 ### Deferred from v1.14.0

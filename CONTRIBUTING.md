@@ -5,7 +5,7 @@ Thanks for your interest in contributing. ScarGuard is a small project and we we
 ## Getting Started
 
 1. **Read the docs** — [README.md](README.md), [ROADMAP.md](ROADMAP.md), and [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md) cover what's built, what's planned, and how the system works.
-2. **Check the roadmap** — Features 17–26 are planned and open for contribution. If you want to work on one, open an issue first so we can coordinate.
+2. **Check the roadmap** — [ROADMAP.md](ROADMAP.md) lists the work that is still planned. If you want to work on an item, open an issue first so we can coordinate.
 3. **Check existing issues** — your bug or idea may already be tracked.
 
 ## Reporting Bugs
@@ -54,8 +54,8 @@ You don't need a Jetson or GPU to work on the web service or notifier — only t
 These must pass before submitting a PR (mirrors CI):
 
 ```bash
-# Ruff — all services
-ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/backup/src shared
+# Ruff — all services and shared training code
+ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/log-streamer/src services/trainer/src services/training-controller/src shared training
 
 # mypy — web
 MYPYPATH=services/web/src:shared \
@@ -69,9 +69,6 @@ MYPYPATH=services/notifier/src:shared \
 MYPYPATH=services/deterrent/src:shared \
   python3 -m mypy services/deterrent/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — backup
-MYPYPATH=services/backup/src:shared \
-  python3 -m mypy services/backup/src shared --ignore-missing-imports --explicit-package-bases
 ```
 
 ### Self-Review Protocol (AI-assisted changes)
@@ -121,7 +118,9 @@ If you're diving into the code, here's the lay of the land:
 | `web` | FastAPI + Jinja UI, SQLite, config management | Yes |
 | `notifier` | Redis subscriber, dispatches to Discord/email/webhooks | Yes |
 | `detector` | RTSP ingestion, YOLO inference, event publishing | No (needs NVIDIA GPU) |
-| `redis` | Internal message bus | N/A |
+| `deterrent` | Tuya Cloud physical-deterrence controller | Yes |
+| `backup` | SQLite backup sidecar | Yes |
+| `log-streamer` | Publishes container logs for the admin viewer | Yes |
 
 Services communicate via Redis pub/sub. All config lives in a single `scarguard.yml`. See [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md) for the full schema.
 
@@ -136,7 +135,7 @@ These are intentional and should not be changed without discussion:
 5. **Python 3.11** — pinned to match L4T base image compatibility
 6. **Snapshots are files on disk** — no blob store or database storage
 
-See [CLAUDE.md](CLAUDE.md) for the full list.
+See [AGENTS.md](AGENTS.md) for the full list.
 
 ## License
 
