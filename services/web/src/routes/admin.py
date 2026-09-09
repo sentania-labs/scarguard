@@ -25,6 +25,7 @@ SERVICES = ["detector", "notifier", "deterrent", "web", "caddy", "trainer", "bac
 # Redis key prefixes — must match log-streamer sidecar constants.
 _CHANNEL_PREFIX = "scarguard:logs:"
 _BUFFER_PREFIX = "scarguard:logs:buffer:"
+_BUFFER_ENTRY_MARKER = "scarguard-log-buffer-v1"
 
 
 def _buffer_text(raw_entry: str) -> str:
@@ -34,7 +35,7 @@ def _buffer_text(raw_entry: str) -> str:
         return raw_entry
     if (
         isinstance(entry, dict)
-        and entry.get("v") == 1
+        and entry.get("__scarguard_log_buffer__") == _BUFFER_ENTRY_MARKER
         and isinstance(entry.get("text"), str)
         and isinstance(entry.get("identity"), str)
     ):

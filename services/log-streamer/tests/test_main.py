@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 from collections import defaultdict
 from typing import Any
@@ -170,6 +171,7 @@ def _event_identity(container_id: str, timestamp: str, text: str) -> str:
 
 def _buffer_entry(container_id: str, timestamp: str, text: str) -> str:
     return main.BufferedLogEntry(
+        envelope="scarguard-log-buffer-v1",
         text=text,
         identity=_event_identity(container_id, timestamp, text),
     ).model_dump_json()
@@ -245,6 +247,9 @@ def test_reattach_backfills_gap_and_deduplicates_live_overlap(caplog: Any) -> No
         "before-2",
         "before-1",
     ]
+    assert json.loads(redis_client.lists[buffer_key][0])[
+        "__scarguard_log_buffer__"
+    ] == "scarguard-log-buffer-v1"
     assert len(redis_client.sorted_sets[main.HEALTH_EVENTS_KEY]) == 3
     assert redis_client.values[main.HEALTH_KEY] == "3"
     assert len(results) == 1
@@ -411,6 +416,58 @@ def test_legacy_migration_preserves_unobserved_history(monkeypatch: Any) -> None
         "container-1", "2026-09-09T12:00:01Z", "seen"
     )
     assert entries[1].identity.startswith("legacy-buffer:")
+
+
+def test_legacy_application_json_is_not_treated_as_buffer_envelope(
+    monkeypatch: Any,
+) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    application_json = '{"v":1,"text":"app text","identity":"app identity"}'
+    redis_client.lists[buffer_key] = [application_json]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=[f"2026-09-09T12:00:01Z {application_json}\n"],
+    )
+
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
+
+    assert redis_client.published == []
+    assert _buffer_texts(redis_client, buffer_key) == [application_json]
+
+
+def test_legacy_migration_matches_repeated_text_in_newest_window(
+    monkeypatch: Any,
+) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    fillers = [f"filler-{index}" for index in range(main.BACKFILL_LINES)]
+    redis_client.lists[buffer_key] = ["repeated", *fillers, "repeated"]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=["2026-09-09T12:00:01Z repeated\n"],
+    )
+
+    _tail_container("web", container, lambda _result: None, lambda: redis_client)
+
+    entries = [
+        main.BufferedLogEntry.model_validate_json(entry)
+        for entry in redis_client.lists[buffer_key]
+    ]
+    assert entries[0].identity == _event_identity(
+        "container-1", "2026-09-09T12:00:01Z", "repeated"
+    )
+    assert entries[1].text == "filler-0"
+    assert entries[-1].text == "repeated"
+    assert entries[-1].identity.startswith("legacy-buffer:")
 
 
 def test_coupled_buffer_deduplicates_without_separate_identity_key(
@@ -674,6 +731,59 @@ def test_repeated_quick_eof_reattachments_recreate_stale_client(caplog: Any) -> 
 
     stable_release.set()
     recovered_thread.join(timeout=1)
+
+
+def test_stable_stream_clears_quick_eof_count_before_replacement() -> None:
+    quick_container = FakeContainer("web", "container-1")
+    docker_client = FakeDockerClient([quick_container])
+    client_factory_calls = 0
+
+    def client_factory() -> FakeDockerClient:
+        nonlocal client_factory_calls
+        client_factory_calls += 1
+        return docker_client
+
+    redis_client = FakeRedis()
+    streamer = main.LogStreamer(
+        client_factory=client_factory,  # type: ignore[arg-type]
+        redis_factory=lambda: redis_client,  # type: ignore[arg-type]
+    )
+
+    streamer.run_cycle()
+    first_thread, _container_id = streamer.active["web"]
+    first_thread.join(timeout=1)
+    streamer.run_cycle()
+    second_thread, _container_id = streamer.active["web"]
+    second_thread.join(timeout=1)
+
+    stable_release = threading.Event()
+    stable_container = FakeContainer(
+        "web",
+        "container-1",
+        hold_open=stable_release,
+    )
+    docker_client.containers._containers = [stable_container]
+    streamer.run_cycle()
+    stable_thread, _container_id = streamer.active["web"]
+    assert stable_thread.is_alive()
+    assert streamer.quick_eof_counts["web"] == 2
+
+    streamer.active_started["web"] -= main.QUICK_EOF_THRESHOLD_SECONDS
+    streamer.run_cycle()
+    assert "web" not in streamer.quick_eof_counts
+
+    replacement = FakeContainer("web", "container-2")
+    docker_client.containers._containers = [replacement]
+    streamer.run_cycle()
+    replacement_thread, _container_id = streamer.active["web"]
+    replacement_thread.join(timeout=1)
+    stable_release.set()
+    stable_thread.join(timeout=1)
+    streamer.run_cycle()
+
+    assert streamer.quick_eof_counts["web"] == 1
+    assert client_factory_calls == 1
+    assert docker_client.closed is False
 
 
 def test_attachment_failure_marks_manager_unhealthy() -> None:

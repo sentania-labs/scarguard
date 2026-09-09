@@ -26,7 +26,7 @@ from typing import Callable, Literal
 
 import docker
 import redis as redislib
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,7 +94,11 @@ class ParsedLogLine(BaseModel):
 class BufferedLogEntry(BaseModel):
     """One persisted log line and its reconnect identity."""
 
-    v: Literal[1] = 1
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    envelope: Literal["scarguard-log-buffer-v1"] = Field(
+        alias="__scarguard_log_buffer__"
+    )
     text: str
     identity: str
 
@@ -197,6 +201,7 @@ def _buffer_state(
         except ValueError:
             has_legacy_entries = True
             entry = BufferedLogEntry(
+                envelope="scarguard-log-buffer-v1",
                 text=raw_entry,
                 identity=f"{_LEGACY_IDENTITY_PREFIX}{index}",
             )
@@ -261,14 +266,18 @@ def _couple_legacy_entries(
     observed: list[BufferedLogEntry],
 ) -> list[BufferedLogEntry]:
     remaining = list(existing)
-    for observed_entry in observed:
-        for index in range(len(remaining) - 1, -1, -1):
+    search_start = 0
+    search_stop = min(BACKFILL_LINES, len(remaining))
+    for observed_entry in reversed(observed):
+        for index in range(search_start, search_stop):
             candidate = remaining[index]
             if (
                 candidate.identity.startswith(_LEGACY_IDENTITY_PREFIX)
                 and candidate.text == observed_entry.text
             ):
                 remaining.pop(index)
+                search_start = index
+                search_stop -= 1
                 break
     return [*reversed(observed), *remaining][:BUFFER_MAX]
 
@@ -287,7 +296,11 @@ def _publish_line(
     pipe.publish(channel, log_line.text)
     pipe.lpush(
         buffer_key,
-        BufferedLogEntry(text=log_line.text, identity=log_line.identity).model_dump_json(),
+        BufferedLogEntry(
+            envelope="scarguard-log-buffer-v1",
+            text=log_line.text,
+            identity=log_line.identity,
+        ).model_dump_json(),
     )
     pipe.ltrim(buffer_key, 0, BUFFER_MAX - 1)
     pipe.eval(
@@ -441,6 +454,7 @@ def tail_container(
                 if event_time is None or event_time <= migration_cutoff:
                     migration_entries.append(
                         BufferedLogEntry(
+                            envelope="scarguard-log-buffer-v1",
                             text=log_line.text,
                             identity=log_line.identity,
                         )
@@ -646,6 +660,8 @@ class LogStreamer:
         }
         self.attachment_failures.difference_update(stable_services)
         self.recovering_services.difference_update(stable_services)
+        for service in stable_services:
+            self.quick_eof_counts.pop(service, None)
 
         for service, container in services.items():
             if service in self.active:
