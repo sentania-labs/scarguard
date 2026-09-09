@@ -87,6 +87,17 @@
   unhealthy. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the recovery and
   health contract.
 
+- **Trainer dependency security bumps.** `pillow-heif` 0.22.0 → 1.3.0 and
+  `requests` 2.32.4 → 2.33.0 clear GHSA-5gjj-6r7v-ph3x (encode-path integer
+  overflow reachable from image handling) and GHSA-gc5v-m9x4-r6x2 (insecure
+  temp-file reuse in `extract_zipped_paths`). `roboflow` moves 1.1.61 → 1.2.0
+  in the same step because pillow-heif 1.x no longer exposes
+  `register_avif_opener()`, which the older roboflow called at import; 1.2.0
+  sources AVIF from `pillow-avif-plugin` instead, so decoding behavior is
+  preserved. This supersedes the pillow-heif pin from #179; the coupling
+  rationale lives next to the versions in
+  `services/trainer/requirements.txt`.
+
 - **Training reliability and failure evidence:** On-device training now uses
   four data-loader workers by default (validated 0-4), deliberate checkpoint
   resume within the original run directory, hard detector process isolation
