@@ -559,6 +559,10 @@ function readForm() {
         max_backups: parseInt(document.getElementById('backup_max_backups')?.value || '50'),
         debounce_seconds: parseInt(document.getElementById('backup_debounce_seconds')?.value || '180'),
       },
+      log_streamer: {
+        quick_eof_limit: parseInt(document.getElementById('log_streamer_quick_eof_limit')?.value || '3'),
+        quick_eof_threshold_seconds: parseInt(document.getElementById('log_streamer_quick_eof_threshold_seconds')?.value || '10'),
+      },
       schedule,
       auth: {
         enabled: document.getElementById("auth-enabled").checked,

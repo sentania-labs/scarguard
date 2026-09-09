@@ -408,12 +408,13 @@ services:
       REDIS_PORT: ${REDIS_PORT:-6379}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+      CONFIG_PATH: /config/scarguard.yml
       # docker.from_env() picks up DOCKER_HOST automatically.
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     healthcheck:
       # Exec form (JSON array) avoids YAML folded-scalar indentation bugs
       # that broke the previous inline python -c form.
-      test: ["CMD", "python3", "-c", "import os,redis; redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=int(os.environ.get('REDIS_PORT','6379')), password=os.environ.get('REDIS_PASSWORD') or None).ping()"]
+      test: ["CMD", "python3", "-c", "import os,redis,sys; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=int(os.environ.get('REDIS_PORT','6379')), password=os.environ.get('REDIS_PASSWORD') or None); sys.exit(0 if int(r.get('scarguard:logs:published:5m:count') or 0)>0 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -423,6 +424,8 @@ services:
         condition: service_healthy
       docker-socket-proxy:
         condition: service_started
+    volumes:
+      - scarguard-config:/config:ro
     restart: unless-stopped
     mem_limit: 128m
     cpus: 0.25

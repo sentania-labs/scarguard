@@ -134,8 +134,9 @@ scarguard/
 │   ├── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
-│   │   └── src/
-│   │       └── main.py
+│   │   ├── src/
+│   │   │   └── main.py
+│   │   └── tests/
 │   └── training-controller/         # Allowlisted detector stop/restore API (training profile)
 │       ├── Dockerfile
 │       ├── requirements.txt
@@ -185,6 +186,14 @@ The `log-streamer` runs as a non-root user and reaches only the read endpoints
 exposed by `docker-socket-proxy`. The training-controller runs as root inside its
 minimal container so it can open the socket, but its API is detector-only.
 
+The log streamer mounts `scarguard-config` read-only and reloads its quick EOF
+recovery thresholds every 30 seconds. Repeated short streams replace the Docker
+SDK client. Re-attachments request 100 recent lines and suppress lines already
+present in the Redis buffer by comparing container and timestamp identities.
+The Compose healthcheck reads the periodically refreshed, expiring
+`scarguard:logs:published:5m:count` key, so a sidecar that is attached but
+publishing nothing becomes unhealthy after five minutes.
+
 CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
 ## Named Volumes
@@ -193,7 +202,7 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
-| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
+| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent, log-streamer) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
 | `scarguard-data` | detector, web, notifier, deterrent, trainer | rw (detector, web, deterrent, trainer), ro (notifier) | SQLite DBs, snapshots, training workspace and durable logs |
 | `scarguard-models` | detector, web, notifier | rw (web — model upload), ro (detector, notifier — storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
@@ -309,7 +318,7 @@ PR to main (ci.yml + build.yml — full validation)
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
   │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
-  │   ├── Build log-streamer image + Trivy
+  │   ├── Build log-streamer image + pytest + Trivy
   │   ├── Build training-controller image (multi-arch) + Trivy
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy

@@ -388,7 +388,14 @@ async def save_structured_config(request: Request) -> Response:
     if not isinstance(existing_system, dict):
         existing_system = {}
     system_dump = payload.system.model_dump(exclude_unset=True)
-    for nested_key in ("schedule", "auth", "summary_report", "backup", "config_api"):
+    for nested_key in (
+        "schedule",
+        "auth",
+        "summary_report",
+        "backup",
+        "config_api",
+        "log_streamer",
+    ):
         if nested_key in system_dump:
             existing_nested = existing_system.get(nested_key, {})
             if not isinstance(existing_nested, dict):

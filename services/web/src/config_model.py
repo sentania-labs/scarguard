@@ -136,6 +136,25 @@ class ConfigApiConfig(BaseModel):
     enabled: bool = False
 
 
+class LogStreamerConfig(BaseModel):
+    quick_eof_limit: int = 3
+    quick_eof_threshold_seconds: int = 10
+
+    @field_validator("quick_eof_limit")
+    @classmethod
+    def quick_eof_limit_range(cls, v: int) -> int:
+        if not 1 <= v <= 20:
+            raise ValueError("quick_eof_limit must be between 1 and 20")
+        return v
+
+    @field_validator("quick_eof_threshold_seconds")
+    @classmethod
+    def quick_eof_threshold_range(cls, v: int) -> int:
+        if not 1 <= v <= 300:
+            raise ValueError("quick_eof_threshold_seconds must be between 1 and 300")
+        return v
+
+
 class SystemConfig(BaseModel):
     armed: bool = True
     log_level: str = "info"
@@ -150,6 +169,7 @@ class SystemConfig(BaseModel):
     backup: BackupConfig = BackupConfig()
     summary_report: SummaryReportConfig = SummaryReportConfig()
     config_api: ConfigApiConfig = ConfigApiConfig()
+    log_streamer: LogStreamerConfig = LogStreamerConfig()
 
     @field_validator("retention_days")
     @classmethod

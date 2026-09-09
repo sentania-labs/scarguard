@@ -66,6 +66,51 @@ class TestConfig:
         assert resp.status_code == 200
         assert "<textarea" in resp.text
 
+    def test_page_exposes_log_streamer_recovery_settings(self, client, monkeypatch):
+        cfg = {
+            "system": {
+                "log_streamer": {
+                    "quick_eof_limit": 5,
+                    "quick_eof_threshold_seconds": 25,
+                }
+            }
+        }
+        monkeypatch.setattr("config_store.load", lambda: cfg)
+
+        resp = client.get("/config")
+
+        assert resp.status_code == 200
+        assert 'id="log_streamer_quick_eof_limit"' in resp.text
+        assert 'value="5"' in resp.text
+        assert 'id="log_streamer_quick_eof_threshold_seconds"' in resp.text
+        assert 'value="25"' in resp.text
+
+    def test_structured_save_persists_log_streamer_recovery_settings(
+        self, client, monkeypatch
+    ):
+        saved_cfgs = []
+        monkeypatch.setattr("config_store.load", lambda: {"system": {}})
+        monkeypatch.setattr("config_store.save", lambda cfg: saved_cfgs.append(cfg))
+
+        resp = client.post(
+            "/config/structured",
+            json={
+                "system": {
+                    "log_streamer": {
+                        "quick_eof_limit": 6,
+                        "quick_eof_threshold_seconds": 30,
+                    }
+                }
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        assert saved_cfgs[0]["system"]["log_streamer"] == {
+            "quick_eof_limit": 6,
+            "quick_eof_threshold_seconds": 30,
+        }
+
     def test_cameras_json_is_not_html_escaped(self, client):
         resp = client.get("/config")
         assert resp.status_code == 200

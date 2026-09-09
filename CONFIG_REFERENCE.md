@@ -11,6 +11,9 @@ system:
   stats_interval: 5             # seconds between system stats collection (1-60)
   visit_timeout_seconds: 300    # gap before a visit session is closed (60-3600)
   training_nudge_threshold: 100 # labeled events before showing training nudge banner (10-10000)
+  log_streamer:
+    quick_eof_limit: 3          # short-lived streams before recreating the Docker client (1-20)
+    quick_eof_threshold_seconds: 10 # streams shorter than this count as quick EOFs (1-300)
   auth:
     enabled: true               # master toggle for authentication (default: true)
     session_timeout_hours: 24   # session expiry (default: 24)
@@ -117,6 +120,14 @@ redis:
   host: redis
   port: 6379
 ```
+
+The log streamer reads these recovery settings on each 30-second discovery
+cycle. Both controls are available under **Settings > Advanced > Log Streamer
+Recovery**. Re-attachments backfill the latest 100 Docker log lines and suppress
+entries already present in the service's Redis buffer by using a parallel list
+of container and timestamp identities. The
+`scarguard:logs:published:5m:count` key records the number of lines in the
+rolling five-minute health window.
 
 ## Detection Logic
 

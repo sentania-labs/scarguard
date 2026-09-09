@@ -27,6 +27,13 @@ system:
   # Set to 0 to disable automatic cleanup.
   retention_days: 90
 
+  # Log-streamer recovery. The sidecar recreates its Docker SDK client after
+  # this many consecutive streams end within the threshold. Defaults recover
+  # stale socket-proxy sessions without reacting to one brief restart.
+  log_streamer:
+    quick_eof_limit: 3
+    quick_eof_threshold_seconds: 10
+
   # ── Authentication ────────────────────────────────────────────────────────
   # Gate all web UI routes behind a login page.
   # On first launch (no users in auth.db), the web UI redirects to a one-time
