@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import threading
 from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
 import main
@@ -85,6 +84,26 @@ class FakeRedis:
             self.values.pop(count_key, None)
         return count
 
+    def get(self, key: str) -> str | None:
+        return self.values.get(key)
+
+    def set(
+        self,
+        key: str,
+        value: str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool:
+        if nx and key in self.values:
+            return False
+        if ex is not None:
+            assert ex == main.HEALTH_STATUS_TTL_SECONDS
+        self.values[key] = value
+        return True
+
+    def delete(self, key: str) -> int:
+        return int(self.values.pop(key, None) is not None)
+
     def close(self) -> None:
         pass
 
@@ -97,6 +116,7 @@ class FakeContainer:
         history: list[str] | None = None,
         live: list[str] | None = None,
         hold_open: threading.Event | None = None,
+        error: Exception | None = None,
     ) -> None:
         self.id = container_id
         self.short_id = container_id[:12]
@@ -104,19 +124,21 @@ class FakeContainer:
         self.history = history or []
         self.live = live or []
         self.hold_open = hold_open
+        self.error = error
         self.log_calls: list[dict[str, Any]] = []
 
-    def logs(self, **kwargs: Any) -> bytes | Any:
+    def logs(self, **kwargs: Any) -> Any:
         self.log_calls.append(kwargs)
-        if not kwargs["stream"]:
-            return "".join(self.history).encode()
 
-        def live_stream() -> Any:
+        def log_stream() -> Any:
+            yield from self.history
             yield from self.live
+            if self.error is not None:
+                raise self.error
             if self.hold_open is not None:
                 self.hold_open.wait(timeout=2)
 
-        return live_stream()
+        return log_stream()
 
 
 class FakeContainers:
@@ -174,16 +196,14 @@ def test_reattach_backfills_gap_and_deduplicates_live_overlap() -> None:
 
     main.tail_container("web", container, results.append, lambda: redis_client)
 
-    assert container.log_calls[0] == {
-        "stream": False,
-        "follow": False,
-        "tail": main.BACKFILL_LINES,
-        "timestamps": True,
-    }
-    assert container.log_calls[1]["stream"] is True
-    assert container.log_calls[1]["follow"] is True
-    assert container.log_calls[1]["tail"] == 0
-    assert container.log_calls[1]["timestamps"] is True
+    assert container.log_calls == [
+        {
+            "stream": True,
+            "follow": True,
+            "tail": main.BACKFILL_LINES,
+            "timestamps": True,
+        }
+    ]
     assert redis_client.published == [
         (f"{main.CHANNEL_PREFIX}web", "missed-1"),
         (f"{main.CHANNEL_PREFIX}web", "missed-2"),
@@ -218,13 +238,107 @@ def test_new_container_repeating_old_line_is_not_dropped() -> None:
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "ready")]
 
 
+def test_legacy_buffer_backfill_is_seeded_without_republishing(
+    monkeypatch: Any,
+    caplog: Any,
+) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    identity_key = f"{main.IDENTITY_PREFIX}web"
+    redis_client.lists[buffer_key] = ["legacy-2", "legacy-1"]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+    caplog.set_level("INFO")
+    container = FakeContainer(
+        "web",
+        "container-1",
+        history=[
+            "2026-09-09T12:00:01Z legacy-1\n",
+            "2026-09-09T12:00:02Z legacy-2\n",
+        ],
+        live=["2026-09-09T12:00:05Z current\n"],
+    )
+
+    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+
+    assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "current")]
+    assert redis_client.lists[buffer_key] == ["current", "legacy-2", "legacy-1"]
+    assert _event_identity(
+        "container-1", "2026-09-09T12:00:01Z", "legacy-1"
+    ) in redis_client.lists[identity_key]
+    assert f"{main.IDENTITY_MIGRATION_PREFIX}web" not in redis_client.values
+    assert caplog.text.count("pre-upgrade buffer has no identities") == 1
+
+
+def test_legacy_migration_remains_pending_after_attachment_failure(
+    monkeypatch: Any,
+    caplog: Any,
+) -> None:
+    redis_client = FakeRedis()
+    buffer_key = f"{main.BUFFER_PREFIX}web"
+    migration_key = f"{main.IDENTITY_MIGRATION_PREFIX}web"
+    redis_client.lists[buffer_key] = ["legacy"]
+    cutoff = main._timestamp_seconds("2026-09-09T12:00:04Z")
+    assert cutoff is not None
+    monkeypatch.setattr(main.time, "time", lambda: cutoff)
+    caplog.set_level("INFO")
+    failed = FakeContainer(
+        "web",
+        "container-1",
+        error=RuntimeError("attach failed"),
+    )
+
+    main.tail_container("web", failed, lambda _result: None, lambda: redis_client)
+
+    assert migration_key in redis_client.values
+
+    recovered = FakeContainer(
+        "web",
+        "container-1",
+        history=["2026-09-09T12:00:01Z legacy\n"],
+        live=["2026-09-09T12:00:05Z current\n"],
+    )
+    main.tail_container("web", recovered, lambda _result: None, lambda: redis_client)
+
+    assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "current")]
+    assert migration_key not in redis_client.values
+    assert caplog.text.count("pre-upgrade buffer has no identities") == 1
+
+
+def test_deduplication_window_stays_bounded() -> None:
+    redis_client = FakeRedis()
+    repeated = "2026-09-09T12:00:00Z repeated\n"
+    unique = [
+        f"2026-09-09T12:00:{second:02d}Z line-{second}\n"
+        for second in range(1, main.BACKFILL_LINES + 1)
+    ]
+    container = FakeContainer(
+        "web",
+        "container-1",
+        live=[repeated, *unique, repeated],
+    )
+
+    main.tail_container("web", container, lambda _result: None, lambda: redis_client)
+
+    repeated_publications = [
+        line for _channel, line in redis_client.published if line == "repeated"
+    ]
+    assert repeated_publications == ["repeated", "repeated"]
+
+
 def test_health_refresh_expires_lines_outside_five_minute_window(monkeypatch: Any) -> None:
     redis_client = FakeRedis()
     times = iter([0.0, 299.0])
     monkeypatch.setattr(main.time, "time", lambda: next(times))
     monkeypatch.setattr(main.time, "time_ns", lambda: 1)
-    first = main.ParsedLogLine(text="first", identity="container:0:first")
-    second = main.ParsedLogLine(text="second", identity="container:299:second")
+    first = main.ParsedLogLine(text="first", identity="container:0:first", timestamp="0")
+    second = main.ParsedLogLine(
+        text="second",
+        identity="container:299:second",
+        timestamp="299",
+    )
 
     main._publish_line(redis_client, "channel", "buffer", "identities", "web", first)
     main._publish_line(redis_client, "channel", "buffer", "identities", "web", second)
@@ -254,18 +368,13 @@ def test_repeated_quick_eof_reattachments_recreate_stale_client(caplog: Any) -> 
         client_factory=lambda: next(clients),  # type: ignore[arg-type]
         redis_factory=lambda: redis_client,  # type: ignore[arg-type]
     )
-    settings = main.LogStreamerSettings(
-        quick_eof_limit=3,
-        quick_eof_threshold_seconds=10,
-    )
-
     for _cycle in range(3):
-        streamer.run_cycle(settings)
+        streamer.run_cycle()
         stale_thread, _container_id = streamer.active["web"]
         stale_thread.join(timeout=1)
         assert not stale_thread.is_alive()
 
-    streamer.run_cycle(settings)
+    streamer.run_cycle()
     recovered_thread, _container_id = streamer.active["web"]
     for _attempt in range(100):
         if redis_client.published:
@@ -276,24 +385,32 @@ def test_repeated_quick_eof_reattachments_recreate_stale_client(caplog: Any) -> 
     assert streamer.docker_client is recovered_client
     assert recovered_thread.is_alive()
     assert redis_client.published == [(f"{main.CHANNEL_PREFIX}web", "gap-line")]
+    assert redis_client.values[main.HEALTH_STATUS_KEY] == "failed"
     assert "Recreated Docker client" in caplog.text
+
+    streamer.active_started["web"] -= main.QUICK_EOF_THRESHOLD_SECONDS
+    streamer.run_cycle()
+    assert redis_client.values[main.HEALTH_STATUS_KEY] == "ok"
 
     stable_release.set()
     recovered_thread.join(timeout=1)
 
 
-def test_load_settings_uses_defaults_and_operator_values(tmp_path: Path) -> None:
-    missing = tmp_path / "missing.yml"
-    assert main.load_settings(missing) == main.LogStreamerSettings()
+def test_attachment_failure_marks_manager_unhealthy() -> None:
+    failing_container = FakeContainer(
+        "web",
+        "container-1",
+        error=RuntimeError("attach failed"),
+    )
+    redis_client = FakeRedis()
+    streamer = main.LogStreamer(
+        client_factory=lambda: FakeDockerClient([failing_container]),  # type: ignore[arg-type]
+        redis_factory=lambda: redis_client,  # type: ignore[arg-type]
+    )
 
-    config_path = tmp_path / "scarguard.yml"
-    config_path.write_text(
-        "system:\n"
-        "  log_streamer:\n"
-        "    quick_eof_limit: 5\n"
-        "    quick_eof_threshold_seconds: 25\n"
-    )
-    assert main.load_settings(config_path) == main.LogStreamerSettings(
-        quick_eof_limit=5,
-        quick_eof_threshold_seconds=25,
-    )
+    streamer.run_cycle()
+    failed_thread, _container_id = streamer.active["web"]
+    failed_thread.join(timeout=1)
+    streamer.run_cycle()
+
+    assert redis_client.values[main.HEALTH_STATUS_KEY] == "failed"

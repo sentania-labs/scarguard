@@ -52,7 +52,7 @@
 - **Token-scoped feedback snapshots:** Feedback page serves snapshots via `/feedback/{token}/snapshot` (token-validated, no global `/snapshots` exposure for unauthenticated users).
 - **Non-root containers:** All service Dockerfiles run as `scarguard` user (detector adds `video` group for GPU access).
 - **Dependency pinning:** All `requirements.txt` files pin exact versions.
-- **Log-streamer sidecar:** Dedicated container tails Docker logs and publishes to Redis pub/sub. Re-attachments backfill recent lines without duplicating the Redis buffer, repeated quick EOFs recreate the Docker client, and a rolling five-minute Redis signal drives container health. Recovery thresholds are configurable in Settings > Advanced.
+- **Log-streamer sidecar:** Dedicated container tails Docker logs and publishes to Redis pub/sub. Re-attachments backfill recent lines without duplicating the Redis buffer, repeated quick EOFs recreate the Docker client, and Redis exposes both rolling activity and attachment health signals.
 - **Redis authentication:** `requirepass` with `REDIS_PASSWORD` env var across all services.
 - **FairLock inference scheduling:** FIFO lock prevents camera thread starvation when multiple cameras share a YOLO model.
 - **Caddy reverse proxy:** TLS termination, automatic HTTPS via Let's Encrypt or manual certs.
@@ -82,11 +82,11 @@
 
 ## Recently Fixed (unreleased)
 
-- **Log-streamer quick EOF loop:** Repeated short-lived Docker log streams now
-  trigger a fresh Docker SDK client after configurable thresholds. Each
+- **Log-streamer quick EOF loop:** Three Docker log streams ending within ten
+  seconds now trigger a fresh Docker SDK client. Each
   re-attachment requests the latest 100 lines and suppresses entries already in
   the Redis buffer, closing the prior loss window. The Compose healthcheck now
-  requires at least one published line in the rolling five-minute health key.
+  reports attachment failures without treating quiet services as unhealthy.
 
 - **Training reliability and failure evidence:** On-device training now uses
   four data-loader workers by default (validated 0-4), deliberate checkpoint

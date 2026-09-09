@@ -186,13 +186,13 @@ The `log-streamer` runs as a non-root user and reaches only the read endpoints
 exposed by `docker-socket-proxy`. The training-controller runs as root inside its
 minimal container so it can open the socket, but its API is detector-only.
 
-The log streamer mounts `scarguard-config` read-only and reloads its quick EOF
-recovery thresholds every 30 seconds. Repeated short streams replace the Docker
-SDK client. Re-attachments request 100 recent lines and suppress lines already
+The log streamer replaces its Docker SDK client after three streams end within
+ten seconds. Re-attachments request 100 recent lines and suppress lines already
 present in the Redis buffer by comparing container and timestamp identities.
-The Compose healthcheck reads the periodically refreshed, expiring
-`scarguard:logs:published:5m:count` key, so a sidecar that is attached but
-publishing nothing becomes unhealthy after five minutes.
+The rolling publication count remains available in Redis for diagnostics. The
+Compose healthcheck uses a separate expiring manager-status key, so a quiet but
+attached sidecar remains healthy while an attachment failure or quick-EOF loop
+does not.
 
 CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
@@ -202,7 +202,7 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
-| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent, log-streamer) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
+| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
 | `scarguard-data` | detector, web, notifier, deterrent, trainer | rw (detector, web, deterrent, trainer), ro (notifier) | SQLite DBs, snapshots, training workspace and durable logs |
 | `scarguard-models` | detector, web, notifier | rw (web — model upload), ro (detector, notifier — storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |

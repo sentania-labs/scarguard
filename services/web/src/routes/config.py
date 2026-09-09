@@ -394,7 +394,6 @@ async def save_structured_config(request: Request) -> Response:
         "summary_report",
         "backup",
         "config_api",
-        "log_streamer",
     ):
         if nested_key in system_dump:
             existing_nested = existing_system.get(nested_key, {})

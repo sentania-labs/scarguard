@@ -7,9 +7,8 @@ Active and planned features. Each item includes acceptance criteria. Completed f
 
 - Completed: recover log streaming after stale Docker SDK sessions by detecting
   repeated quick EOFs, recreating the client, backfilling missed lines with
-  Redis-buffer deduplication, and making recent publication activity part of
-  the container healthcheck. Recovery thresholds are operator-configurable in
-  Settings > Advanced. Tracks issue #169.
+  Redis-buffer deduplication, and reporting attachment health independently of
+  log volume. Tracks issue #169.
 
 ---
 
