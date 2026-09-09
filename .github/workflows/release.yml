@@ -533,7 +533,12 @@ jobs:
       - name: Create benchmark PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
+          if [ -z "$TAG" ]; then
+            echo "TAG is empty, refusing to open a blank-titled benchmark PR" >&2
+            exit 1
+          fi
           BRANCH="chore/benchmarks-$TAG"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

@@ -1,11 +1,10 @@
 name: Runner Cleanup
 
 # Prunes stale Docker images, stopped containers, and unused build cache
-# on all runners to prevent disk exhaustion over time.
-#
-# Each x86 job targets a specific runner via its unique label so that all
-# three machines are guaranteed to be pruned (the previous matrix approach
-# could schedule multiple legs on the same runner).
+# on the Orin runner to prevent disk exhaustion over time. The Orin is the
+# only self-hosted runner this workflow prunes: the legacy x86 runners
+# (runner-docker, runner-terraform, runner-packer) were deregistered and
+# stopped on 2026-09-08 (see issue #184) and no longer exist to clean.
 #
 # Runs weekly automatically, or trigger manually via workflow_dispatch.
 # Note: does NOT prune volumes on the Orin to preserve model weights.
@@ -15,47 +14,12 @@ on:
     - cron: "0 3 * * 0"  # Sunday 03:00 UTC
   workflow_dispatch:
 
-# Default token scope: read-only. The cleanup jobs only run local docker
-# prune commands on the runner — they do not touch GHCR or the repo.
+# Default token scope: read-only. The cleanup job only runs local docker
+# prune commands on the runner — it does not touch GHCR or the repo.
 permissions:
   contents: read
 
 jobs:
-
-  # ── x86 runner cleanup ─────────────────────────────────────────────────────
-  # Three separate jobs pinned by unique labels.  runner-terraform and
-  # runner-packer each have a label no other runner shares.  runner-docker
-  # uses [self-hosted, linux, docker] which matches all three, but the other
-  # two are occupied by their pinned jobs so it lands on runner-docker.
-  cleanup-docker:
-    name: Cleanup runner-docker
-    runs-on: [self-hosted, linux, docker]
-    steps:
-      - name: Docker system prune
-        run: docker system prune -f --volumes
-
-      - name: Prune build cache older than 7 days
-        run: docker builder prune -f --keep-storage 5GB
-
-  cleanup-terraform:
-    name: Cleanup runner-terraform
-    runs-on: [self-hosted, linux, terraform]
-    steps:
-      - name: Docker system prune
-        run: docker system prune -f --volumes
-
-      - name: Prune build cache older than 7 days
-        run: docker builder prune -f --keep-storage 5GB
-
-  cleanup-packer:
-    name: Cleanup runner-packer
-    runs-on: [self-hosted, linux, packer]
-    steps:
-      - name: Docker system prune
-        run: docker system prune -f --volumes
-
-      - name: Prune build cache older than 7 days
-        run: docker builder prune -f --keep-storage 5GB
 
   # ── Orin runner cleanup ────────────────────────────────────────────────────
   cleanup-orin:
