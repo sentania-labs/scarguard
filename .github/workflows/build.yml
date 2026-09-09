@@ -431,6 +431,18 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
 
+      - name: Test log-streamer in container
+        if: github.event_name != 'push'
+        run: |
+          cid=$(docker create --user root --entrypoint "" scarguard-log-streamer:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          trap 'docker rm "$cid" > /dev/null 2>&1 || true' EXIT
+          docker cp ${{ github.workspace }}/services/log-streamer/tests/. "$cid:/app/tests/"
+          set +e
+          docker start -a "$cid"
+          rc=$?
+          set -e
+          exit $rc
+
       - name: Clean up
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-log-streamer:test-${{ github.run_id }} || true

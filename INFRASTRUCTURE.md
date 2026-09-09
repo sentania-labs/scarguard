@@ -134,8 +134,9 @@ scarguard/
 │   ├── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
-│   │   └── src/
-│   │       └── main.py
+│   │   ├── src/
+│   │   │   └── main.py
+│   │   └── tests/
 │   └── training-controller/         # Allowlisted detector stop/restore API (training profile)
 │       ├── Dockerfile
 │       ├── requirements.txt
@@ -184,6 +185,16 @@ Each service uses a per-service sentinel file (`.ownership-fixed-{detector,web,n
 The `log-streamer` runs as a non-root user and reaches only the read endpoints
 exposed by `docker-socket-proxy`. The training-controller runs as root inside its
 minimal container so it can open the socket, but its API is detector-only.
+
+The log streamer replaces its Docker SDK client after three streams end within
+ten seconds. Re-attachments request 100 recent lines and suppress lines already
+present in the Redis buffer. Each buffer entry couples its displayed text with
+its container-and-timestamp identity so Redis eviction cannot split their state.
+The rolling publication count remains available at
+`scarguard:logs:published:5m:count` for diagnostics. The Compose healthcheck
+reads the separate expiring `scarguard:logs:health` manager-status key, so a
+quiet but attached sidecar remains healthy while an attachment failure or
+quick-EOF loop does not.
 
 CI bypasses the entrypoint with `--user root --entrypoint ""` for benchmark and test steps that need root write access.
 
@@ -309,7 +320,7 @@ PR to main (ci.yml + build.yml — full validation)
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
   │   ├── Build notifier image (multi-arch) + amd64 test + Trivy
   │   ├── Build deterrent image (multi-arch) + amd64 test + Trivy
-  │   ├── Build log-streamer image + Trivy
+  │   ├── Build log-streamer image + pytest + Trivy
   │   ├── Build training-controller image (multi-arch) + Trivy
   │   ├── Build caddy image (multi-arch)
   │   └── Build detector-x86 image + CPU benchmark + Trivy

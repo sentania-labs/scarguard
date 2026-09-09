@@ -57,6 +57,8 @@ def _list_models() -> list[str]:
         )
     except OSError:
         return []
+
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
@@ -153,8 +155,7 @@ def _groups_json(raw_cfg: dict) -> str:
         raw_groups = det.get("groups", [])
         if isinstance(raw_groups, list):
             groups = [
-                g.get("name", "") for g in raw_groups
-                if isinstance(g, dict) and g.get("name")
+                g.get("name", "") for g in raw_groups if isinstance(g, dict) and g.get("name")
             ]
     return safe_json_dumps(groups)
 
@@ -310,10 +311,12 @@ async def get_secrets(request: Request) -> Response:
     if isinstance(raw_cameras, list):
         for cam in raw_cameras:
             if isinstance(cam, dict) and cam.get("rtsp_url"):
-                cameras.append({
-                    "name": cam.get("name", ""),
-                    "rtsp_url": cam["rtsp_url"],
-                })
+                cameras.append(
+                    {
+                        "name": cam.get("name", ""),
+                        "rtsp_url": cam["rtsp_url"],
+                    }
+                )
     if cameras:
         result["cameras"] = cameras
 
@@ -340,7 +343,8 @@ async def get_secrets(request: Request) -> Response:
 
 
 @router.post(
-    "/structured", response_class=JSONResponse,
+    "/structured",
+    response_class=JSONResponse,
     dependencies=[Depends(rate_limit("config-save", capacity=20, window_seconds=60))],
 )
 async def save_structured_config(request: Request) -> Response:
@@ -388,7 +392,13 @@ async def save_structured_config(request: Request) -> Response:
     if not isinstance(existing_system, dict):
         existing_system = {}
     system_dump = payload.system.model_dump(exclude_unset=True)
-    for nested_key in ("schedule", "auth", "summary_report", "backup", "config_api"):
+    for nested_key in (
+        "schedule",
+        "auth",
+        "summary_report",
+        "backup",
+        "config_api",
+    ):
         if nested_key in system_dump:
             existing_nested = existing_system.get(nested_key, {})
             if not isinstance(existing_nested, dict):
@@ -404,18 +414,13 @@ async def save_structured_config(request: Request) -> Response:
     # the form ships redacted placeholders by default; only revealed values
     # should update the persisted config.
     existing_cameras_by_name: dict[str, dict] = {
-        c["name"]: c
-        for c in existing.get("cameras", [])
-        if isinstance(c, dict) and "name" in c
+        c["name"]: c for c in existing.get("cameras", []) if isinstance(c, dict) and "name" in c
     }
     merged_cameras = []
     for cam in payload.cameras:
         cam_dict = cam.model_dump(exclude_unset=True)
         # Strip redacted placeholders so the merge keeps the existing secret.
-        cam_dict = {
-            k: v for k, v in cam_dict.items()
-            if v != REDACTED_PLACEHOLDER
-        }
+        cam_dict = {k: v for k, v in cam_dict.items() if v != REDACTED_PLACEHOLDER}
         if cam.name in existing_cameras_by_name:
             merged = {**existing_cameras_by_name[cam.name], **cam_dict}
         else:
@@ -440,10 +445,7 @@ async def save_structured_config(request: Request) -> Response:
         if not isinstance(ch, dict):
             merged_channels.append(ch)
             continue
-        cleaned = {
-            k: v for k, v in ch.items()
-            if v != REDACTED_PLACEHOLDER
-        }
+        cleaned = {k: v for k, v in ch.items() if v != REDACTED_PLACEHOLDER}
         # prev_name is UI-only metadata: the channel's name as of the last
         # save.  A renamed channel no longer matches its existing entry by
         # name, so without it the redacted-placeholder stripping above would
@@ -452,11 +454,7 @@ async def save_structured_config(request: Request) -> Response:
         ch_name = cleaned.get("name", "")
         if ch_name and ch_name in existing_channels_by_name:
             merged_ch = {**existing_channels_by_name[ch_name], **cleaned}
-        elif (
-            ch_name
-            and isinstance(prev_name, str)
-            and prev_name in existing_channels_by_name
-        ):
+        elif ch_name and isinstance(prev_name, str) and prev_name in existing_channels_by_name:
             merged_ch = {**existing_channels_by_name[prev_name], **cleaned}
         else:
             merged_ch = cleaned
@@ -526,11 +524,13 @@ async def save_structured_config(request: Request) -> Response:
             "orphan_warnings": len(warnings),
         },
     )
-    return JSONResponse({
-        "ok": True,
-        "tls_changed": tls_changed,
-        "warnings": warnings,
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "tls_changed": tls_changed,
+            "warnings": warnings,
+        }
+    )
 
 
 def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
@@ -579,8 +579,7 @@ def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
             for g_ref in rule.get("groups", []) or []:
                 if isinstance(g_ref, str) and g_ref and g_ref not in group_names:
                     warnings.append(
-                        f"Camera '{cam_name}' deterrent rule references "
-                        f"unknown group '{g_ref}'"
+                        f"Camera '{cam_name}' deterrent rule references unknown group '{g_ref}'"
                     )
 
     sys_cfg = cfg.get("system") or {}
@@ -589,9 +588,7 @@ def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
         if isinstance(sr, dict):
             for ch_ref in sr.get("channels", []) or []:
                 if isinstance(ch_ref, str) and ch_ref and ch_ref not in channel_names:
-                    warnings.append(
-                        f"Summary report references unknown channel '{ch_ref}'"
-                    )
+                    warnings.append(f"Summary report references unknown channel '{ch_ref}'")
 
     return warnings
 
@@ -600,7 +597,8 @@ _MAX_RAW_YAML_BYTES = 1_000_000  # 1 MB ceiling on raw-YAML uploads
 
 
 @router.post(
-    "", response_class=HTMLResponse,
+    "",
+    response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("config-save", capacity=20, window_seconds=60))],
 )
 async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
@@ -615,7 +613,8 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
     if raw_bytes > _MAX_RAW_YAML_BYTES:
         log.warning(
             "Rejecting raw-YAML save of %d bytes (cap %d)",
-            raw_bytes, _MAX_RAW_YAML_BYTES,
+            raw_bytes,
+            _MAX_RAW_YAML_BYTES,
         )
         return HTMLResponse(
             f"<h1>413 — Payload too large</h1>"
@@ -812,10 +811,7 @@ async def send_test_notification(request: Request) -> Response:
 
     # Validate channel name against configured named channels
     raw_channels = cfg.get("notifications", {}).get("channels", [])
-    valid_names = {
-        ch["name"] for ch in raw_channels
-        if isinstance(ch, dict) and ch.get("name")
-    }
+    valid_names = {ch["name"] for ch in raw_channels if isinstance(ch, dict) and ch.get("name")}
     if channel not in valid_names:
         return JSONResponse(
             {"ok": False, "error": f"Unknown channel: {channel}. Save config first."},
@@ -843,7 +839,12 @@ async def send_test_notification(request: Request) -> Response:
         "actions_triggered": [channel],
     }
 
-    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+    client = aioredis.Redis(
+        host=host,
+        port=port,
+        password=os.environ.get("REDIS_PASSWORD", "") or None,
+        decode_responses=True,
+    )
     try:
         await client.publish(_DETECTIONS_CHANNEL, json.dumps(event))
     finally:

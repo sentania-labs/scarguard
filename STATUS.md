@@ -52,7 +52,7 @@
 - **Token-scoped feedback snapshots:** Feedback page serves snapshots via `/feedback/{token}/snapshot` (token-validated, no global `/snapshots` exposure for unauthenticated users).
 - **Non-root containers:** All service Dockerfiles run as `scarguard` user (detector adds `video` group for GPU access).
 - **Dependency pinning:** All `requirements.txt` files pin exact versions.
-- **Log-streamer sidecar:** Dedicated container tails Docker logs and publishes to Redis pub/sub. Web UI subscribes to Redis for admin log streaming — Docker socket no longer mounted in the web container.
+- **Log-streamer sidecar:** Dedicated container tails Docker logs and publishes to Redis pub/sub, with resilient reconnect handling and health reporting. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the operational contract.
 - **Redis authentication:** `requirepass` with `REDIS_PASSWORD` env var across all services.
 - **FairLock inference scheduling:** FIFO lock prevents camera thread starvation when multiple cameras share a YOLO model.
 - **Caddy reverse proxy:** TLS termination, automatic HTTPS via Let's Encrypt or manual certs.
@@ -81,6 +81,11 @@
   explicitly not viable for sleeping devices.
 
 ## Recently Fixed (unreleased)
+
+- **Log-streamer quick EOF loop (issue #169):** The sidecar now self-heals stale
+  Docker SDK sessions and backfills reconnect gaps without making quiet services
+  unhealthy. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the recovery and
+  health contract.
 
 - **Training reliability and failure evidence:** On-device training now uses
   four data-loader workers by default (validated 0-4), deliberate checkpoint

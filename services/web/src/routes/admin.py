@@ -1,5 +1,6 @@
 """Admin routes — service log viewer and config backup management."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -24,6 +25,22 @@ SERVICES = ["detector", "notifier", "deterrent", "web", "caddy", "trainer", "bac
 # Redis key prefixes — must match log-streamer sidecar constants.
 _CHANNEL_PREFIX = "scarguard:logs:"
 _BUFFER_PREFIX = "scarguard:logs:buffer:"
+_BUFFER_ENTRY_MARKER = "scarguard-log-buffer-v1"
+
+
+def _buffer_text(raw_entry: str) -> str:
+    try:
+        entry = json.loads(raw_entry)
+    except (json.JSONDecodeError, TypeError):
+        return raw_entry
+    if (
+        isinstance(entry, dict)
+        and entry.get("__scarguard_log_buffer__") == _BUFFER_ENTRY_MARKER
+        and isinstance(entry.get("text"), str)
+        and isinstance(entry.get("identity"), str)
+    ):
+        return entry["text"]
+    return raw_entry
 
 
 def _redis_params() -> dict:
@@ -43,9 +60,7 @@ async def logs_page(request: Request) -> Response:
     gate = require_viewer(request)
     if not isinstance(gate, dict):
         return gate
-    return templates.TemplateResponse(
-        request, "logs.html", {"services": SERVICES}
-    )
+    return templates.TemplateResponse(request, "logs.html", {"services": SERVICES})
 
 
 @router.get("/logs/stream")
@@ -77,7 +92,8 @@ async def logs_stream(
                         "— waiting for live lines from log-streamer sidecar...\n\n"
                     )
                 else:
-                    for line in reversed(lines):
+                    for raw_entry in reversed(lines):
+                        line = _buffer_text(raw_entry)
                         safe = line.replace("\n", "  ")
                         yield f"data: {safe}\n\n"
 
@@ -87,7 +103,8 @@ async def logs_stream(
                 try:
                     while not await request.is_disconnected():
                         message = await pubsub.get_message(
-                            ignore_subscribe_messages=True, timeout=15.0,
+                            ignore_subscribe_messages=True,
+                            timeout=15.0,
                         )
                         if message is None:
                             yield ": keepalive\n\n"
@@ -139,9 +156,7 @@ async def backup_diff(request: Request, name: str) -> Response:
     from main import backup_manager
 
     if not backup_manager:
-        return JSONResponse(
-            {"error": "Backup manager not initialized"}, status_code=500
-        )
+        return JSONResponse({"error": "Backup manager not initialized"}, status_code=500)
     if not name.startswith("scarguard_") or not name.endswith(".yml"):
         return JSONResponse({"error": "Invalid backup name"}, status_code=400)
     # When the caller is a viewer (not admin), produce the diff from redacted
@@ -164,9 +179,7 @@ async def backup_restore(request: Request, name: str) -> Response:
     from main import backup_manager
 
     if not backup_manager:
-        return JSONResponse(
-            {"error": "Backup manager not initialized"}, status_code=500
-        )
+        return JSONResponse({"error": "Backup manager not initialized"}, status_code=500)
     if not name.startswith("scarguard_") or not name.endswith(".yml"):
         return JSONResponse({"error": "Invalid backup name"}, status_code=400)
     ok = backup_manager.restore(name)
@@ -184,9 +197,7 @@ async def backup_create(request: Request) -> Response:
     from main import backup_manager
 
     if not backup_manager:
-        return JSONResponse(
-            {"error": "Backup manager not initialized"}, status_code=500
-        )
+        return JSONResponse({"error": "Backup manager not initialized"}, status_code=500)
     filename = backup_manager.create_backup("manual")
     if not filename:
         return JSONResponse({"error": "Failed to create backup"}, status_code=500)
