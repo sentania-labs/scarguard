@@ -29,6 +29,7 @@ from deterrent_safety import (
     MAX_TEST_FIRE_SEC,
     clamp_duration,
 )
+from group_fire import PlanExecution, execute_plan, resolve_group_devices
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ STATUS_REQUEST_CHANNEL = "scarguard:deterrent:status-request"
 STATUS_RESULT_PREFIX = "scarguard:deterrent:status:result:"
 FORCE_OFF_CHANNEL = "scarguard:deterrent:force-off"
 FORCE_OFF_RESULT_PREFIX = "scarguard:deterrent:force-off:result:"
+TEST_FIRE_GROUP_CHANNEL = "scarguard:deterrent:test-fire-group"
+TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 
 
 class RequestHandler:
@@ -91,10 +94,12 @@ class RequestHandler:
                 pubsub = client.pubsub()
                 pubsub.subscribe(
                     TEST_FIRE_CHANNEL, STATUS_REQUEST_CHANNEL, FORCE_OFF_CHANNEL,
+                    TEST_FIRE_GROUP_CHANNEL,
                 )
                 logger.info(
                     "Subscribed to %s, %s, %s",
                     TEST_FIRE_CHANNEL, STATUS_REQUEST_CHANNEL, FORCE_OFF_CHANNEL,
+                    TEST_FIRE_GROUP_CHANNEL,
                 )
                 delay = 5
 
@@ -115,6 +120,8 @@ class RequestHandler:
                         self._handle_test_fire(client, payload)
                     elif channel == STATUS_REQUEST_CHANNEL:
                         self._handle_status_request(client, payload)
+                    elif channel == TEST_FIRE_GROUP_CHANNEL:
+                        self._handle_test_fire_group(client, payload)
                     elif channel == FORCE_OFF_CHANNEL:
                         self._handle_force_off(client, payload)
 
@@ -208,6 +215,121 @@ class RequestHandler:
             "Test-fire result: %s - %s",
             device.name, "success" if result.success else (result.error or "failed"),
         )
+
+    def _handle_test_fire_group(
+        self,
+        client: redis_lib.Redis,
+        payload: dict[str, Any],
+    ) -> None:
+        """Fire one configured group exactly as a detection would.
+
+        This runs the real ``build_random_plan`` path rather than a
+        simulation, so what an operator sees is the randomisation the group
+        would actually produce: the same device subset, the same per-device
+        durations, the same inter-device delays. Durations are therefore
+        bounded by MAX_ACTUATION_SEC (as on the detection path) and not by
+        the tighter MAX_TEST_FIRE_SEC that gates a single-device test-fire.
+        Exercising a group with artificially short sprays would not tell an
+        operator anything useful about what happens when a heron lands.
+        """
+        request_id = payload.get("request_id", "")
+        group_name = payload.get("group_name", "")
+        result_channel = f"{TEST_FIRE_GROUP_RESULT_PREFIX}{request_id}"
+
+        if not request_id or not group_name:
+            return
+
+        controller = self._controller_ref.get()
+        if controller is None:
+            client.publish(result_channel, json.dumps({
+                "ok": False, "error": "No Tuya credentials configured",
+            }))
+            return
+
+        act_cfg = self._act_cfg_ref.get()
+        group = next((g for g in act_cfg.groups if g.name == group_name), None)
+        if group is None:
+            client.publish(result_channel, json.dumps({
+                "ok": False, "error": f"Group {group_name} not found in config",
+            }))
+            return
+
+        group_devices = resolve_group_devices(group, act_cfg.devices)
+        if not group_devices:
+            client.publish(result_channel, json.dumps({
+                "ok": False,
+                "error": f"Group {group_name} has no enabled devices",
+            }))
+            return
+
+        logger.info(
+            "Test-fire group [%s]: %d eligible device(s) [rid=%s]",
+            group.name, len(group_devices), request_id,
+        )
+        execution = execute_plan(
+            controller,
+            group_devices,
+            group.effective_defaults(act_cfg.defaults),
+            request_id=request_id,
+            event_type="test_fire_group",
+            label=f"Test-fire group [{group.name}]",
+            on_stuck=lambda device, error: self._publish_stuck(
+                client, device, request_id=request_id, error=error,
+            ),
+        )
+
+        self._persist_group_test_fire(group.name, execution, request_id)
+
+        client.publish(result_channel, json.dumps({
+            "ok": all(a.success for a in execution.actions),
+            "group_name": group.name,
+            "devices_fired": len(execution.actions),
+            "devices_succeeded": execution.successes,
+            "total_duration_sec": round(execution.total_duration_sec, 2),
+            "devices": [
+                {
+                    "device_name": a.device_name,
+                    "duration_sec": a.duration_sec,
+                    "success": a.success,
+                    "error": a.error,
+                    "stuck": a.stuck,
+                }
+                for a in execution.actions
+            ],
+        }))
+        logger.info(
+            "Test-fire group [%s] complete: %d/%d devices fired in %.1fs [rid=%s]",
+            group.name, execution.successes, len(execution.actions),
+            execution.total_duration_sec, request_id,
+        )
+
+    @staticmethod
+    def _persist_group_test_fire(
+        group_name: str,
+        execution: PlanExecution,
+        request_id: str,
+    ) -> None:
+        """Persist a group test-fire so it joins the actuation hash chain."""
+        import actuation_db
+
+        event = ActuationEvent(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            trigger_class="admin",
+            trigger_camera="test-fire-group",
+            trigger_confidence=0.0,
+            group_name=group_name,
+            pre_delay_sec=execution.pre_delay_sec,
+            actions=execution.actions,
+            total_duration_sec=round(execution.total_duration_sec, 2),
+            request_id=request_id,
+            event_type="test_fire_group",
+        )
+        try:
+            actuation_db.insert_event(event)
+        except Exception:
+            logger.exception(
+                "Failed to persist group test-fire event [rid=%s]", request_id,
+            )
 
     @staticmethod
     def _persist_test_fire(

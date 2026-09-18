@@ -1,0 +1,134 @@
+"""Shared group-firing sequence.
+
+Both the detection path (``main._fire_group``) and the admin group test-fire
+(``request_handler._handle_test_fire_group``) drive the same hardware through
+the same randomised plan. Keeping that sequence in one place means the safety
+invariants live in one place too:
+
+* every activation goes through ``controller.activate_device``, which owns the
+  watchdog OFF and sets the busy flag the reconcile loop checks before it
+  force-OFFs anything;
+* every duration is clamped to ``MAX_ACTUATION_SEC`` here as well as in the
+  controller, so a tampered or misconfigured range cannot extend a physical
+  hold;
+* a stuck device is always reported, via a callback because the two callers
+  publish to Redis through different clients.
+
+``main`` imports ``RequestHandler``, so the handler cannot import back from
+``main``; this module is the seam that lets both share the code.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from actuation_models import ActuationDefaults, DeterrentGroup, DeviceAction, DeviceConfig
+from deterrent_safety import MAX_ACTUATION_SEC, clamp_duration
+from pydantic import BaseModel
+from randomizer import build_random_plan
+
+if TYPE_CHECKING:
+    from cloud_controller import TuyaCloudController
+
+logger = logging.getLogger(__name__)
+
+# Fallback when a configured spray duration is unusable (non-numeric, NaN).
+# Matches the pre-extraction behaviour of ``main._fire_group``.
+DEFAULT_SPRAY_SEC = 3.0
+
+# Reported when a stuck device carries no more specific error.
+STUCK_FALLBACK_ERROR = "OFF failed"
+
+
+class PlanExecution(BaseModel):
+    """Outcome of driving one randomised plan to completion."""
+
+    actions: list[DeviceAction]
+    pre_delay_sec: float
+    total_duration_sec: float
+
+    @property
+    def successes(self) -> int:
+        return sum(1 for a in self.actions if a.success)
+
+
+def resolve_group_devices(
+    group: DeterrentGroup,
+    registry: list[DeviceConfig],
+) -> list[DeviceConfig]:
+    """Return the enabled devices referenced by *group*, preserving registry order."""
+    wanted = set(group.devices)
+    return [d for d in registry if d.enabled and d.name in wanted]
+
+
+def execute_plan(
+    controller: TuyaCloudController,
+    devices: list[DeviceConfig],
+    defaults: ActuationDefaults,
+    *,
+    request_id: str,
+    event_type: str,
+    label: str,
+    on_stuck: Callable[[DeviceConfig, str], None],
+) -> PlanExecution:
+    """Build a randomised plan over *devices* and fire it, device by device.
+
+    *label* only appears in log lines, so the detection path and an admin
+    test-fire are distinguishable in the log stream. *on_stuck* is invoked once
+    per device that reported ON-succeeded-but-OFF-failed; the caller decides how
+    to publish it.
+    """
+    selected, durations, inter_delays, pre_delay = build_random_plan(devices, defaults)
+
+    t_start = time.monotonic()
+    actions: list[DeviceAction] = []
+
+    if pre_delay > 0:
+        logger.debug("Pre-delay: %.1fs", pre_delay)
+        time.sleep(pre_delay)
+
+    for i, device in enumerate(selected):
+        if inter_delays[i] > 0:
+            logger.debug("Inter-device delay: %.1fs", inter_delays[i])
+            time.sleep(inter_delays[i])
+
+        # Defence-in-depth clamp - the randomizer reads spray_duration_range
+        # from config; a misconfigured or tampered config can't drive the
+        # physical hold beyond MAX_ACTUATION_SEC. The controller clamps too.
+        duration = clamp_duration(
+            durations[i],
+            max_sec=MAX_ACTUATION_SEC,
+            default=DEFAULT_SPRAY_SEC,
+        )
+        logger.info(
+            "%s: firing device %s (%s) for %.1fs [rid=%s]",
+            label, device.name, device.type, duration, request_id,
+        )
+        result = controller.activate_device(
+            device, duration,
+            request_id=request_id,
+            event_type=event_type,
+        )
+        actions.append(DeviceAction(
+            device_name=device.name,
+            device_id=device.device_id,
+            device_type=device.type,
+            duration_sec=duration,
+            delay_before_sec=inter_delays[i],
+            success=result.success,
+            error=result.error,
+            cloud_ack_ms=result.on_ack_ms,
+            off_attempts=result.off_attempts,
+            stuck=result.stuck,
+        ))
+        if result.stuck:
+            on_stuck(device, result.error or STUCK_FALLBACK_ERROR)
+
+    return PlanExecution(
+        actions=actions,
+        pre_delay_sec=pre_delay,
+        total_duration_sec=time.monotonic() - t_start,
+    )

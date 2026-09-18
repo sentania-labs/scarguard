@@ -275,6 +275,8 @@ STATUS_REQUEST_CHANNEL = "scarguard:deterrent:status-request"
 STATUS_RESULT_PREFIX = "scarguard:deterrent:status:result:"
 FORCE_OFF_CHANNEL = "scarguard:deterrent:force-off"
 FORCE_OFF_RESULT_PREFIX = "scarguard:deterrent:force-off:result:"
+TEST_FIRE_GROUP_CHANNEL = "scarguard:deterrent:test-fire-group"
+TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 
 
 def _redis_params() -> dict[str, Any]:
@@ -369,6 +371,47 @@ async def test_fire(request: Request) -> Response:
     result = await _redis_request(
         TEST_FIRE_CHANNEL, TEST_FIRE_RESULT_PREFIX,
         {"device_id": device_id, "duration_sec": duration},
+    )
+    status_code = 200 if result.get("ok") else 502
+    return JSONResponse(result, status_code=status_code)
+
+
+@router.post(
+    "/test-fire-group", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("test-fire-group", capacity=5, window_seconds=60))],
+)
+async def test_fire_group(request: Request) -> Response:
+    """Fire one configured group exactly as a detection would - admin only.
+
+    Runs the real randomisation plan rather than a simulation, so a group can
+    be exercised before heron season without waiting for a heron. The deterrent
+    service owns duration bounds; this route only validates that a group name
+    was supplied. Rate limited more tightly than single-device test-fire
+    because one call can drive every device in a group.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+
+    group_name = body.get("group_name", "")
+    if not isinstance(group_name, str) or not group_name.strip():
+        return JSONResponse(
+            {"ok": False, "error": "group_name is required"}, status_code=400,
+        )
+
+    # A group sequence can legitimately run longer than a single device: every
+    # selected device fires in turn, each with its own pre/inter delay. Allow
+    # headroom over the default so a slow Tuya Cloud round-trip on the last
+    # device does not surface as a spurious timeout.
+    result = await _redis_request(
+        TEST_FIRE_GROUP_CHANNEL, TEST_FIRE_GROUP_RESULT_PREFIX,
+        {"group_name": group_name.strip()},
+        timeout_sec=120.0,
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)

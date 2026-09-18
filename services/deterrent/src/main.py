@@ -20,7 +20,6 @@ from actuation_models import (
     ActuationConfig,
     ActuationEvent,
     DeterrentGroup,
-    DeviceAction,
     DeviceConfig,
 )
 from atomic_ref import AtomicRef
@@ -28,13 +27,9 @@ from battery_monitor import BatteryMonitor
 from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
 from cooldown import CooldownTracker, GroupCooldownTracker
-from deterrent_safety import (
-    MAX_ACTUATION_SEC,
-    clamp_duration,
-)
 from event_signing import load_key_from_env, verify_event
+from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
-from randomizer import build_random_plan
 from request_handler import RequestHandler
 
 logger = logging.getLogger(__name__)
@@ -108,15 +103,6 @@ def build_controller(act_cfg: ActuationConfig) -> TuyaCloudController | None:
 # documented as thread-safe, and actuation sequences are inherently serial).
 # ---------------------------------------------------------------------------
 
-def _resolve_group_devices(
-    group: DeterrentGroup,
-    registry: list[DeviceConfig],
-) -> list[DeviceConfig]:
-    """Return the enabled devices referenced by *group*, preserving registry order."""
-    wanted = set(group.devices)
-    return [d for d in registry if d.enabled and d.name in wanted]
-
-
 def _parse_event_timestamp(event: dict[str, Any]) -> float | None:
     """Return the event timestamp as unix seconds, or None if unparseable."""
     ts = event.get("timestamp")
@@ -143,7 +129,7 @@ def _fire_group(
     Returns True if the group fired (at least one device was attempted),
     False if it was skipped (e.g. no devices resolved).
     """
-    group_devices = _resolve_group_devices(group, act_cfg.devices)
+    group_devices = resolve_group_devices(group, act_cfg.devices)
     if not group_devices:
         logger.warning(
             "Group %r has no enabled devices resolvable from registry - skipping",
@@ -152,64 +138,31 @@ def _fire_group(
         return False
 
     defaults = group.effective_defaults(act_cfg.defaults)
-    selected, durations, inter_delays, pre_delay = build_random_plan(
-        group_devices, defaults,
-    )
 
     camera_name = event.get("camera_name", "unknown")
     class_name = event.get("class_name", "")
     confidence = event.get("confidence", 0.0)
     request_id = uuid.uuid4().hex[:16]
     logger.info(
-        "Firing group [%s]: %s from %s (conf=%.2f) - %d device(s) [rid=%s]",
-        group.name, class_name, camera_name, confidence, len(selected), request_id,
+        "Firing group [%s]: %s from %s (conf=%.2f) - %d eligible device(s) [rid=%s]",
+        group.name, class_name, camera_name, confidence, len(group_devices), request_id,
     )
 
-    t_start = time.monotonic()
-    actions: list[DeviceAction] = []
+    execution = execute_plan(
+        controller,
+        group_devices,
+        defaults,
+        request_id=request_id,
+        event_type="detection",
+        label=f"Group [{group.name}]",
+        on_stuck=lambda device, error: _publish_stuck(
+            pub_holder, redis_cfg, device, request_id, error,
+        ),
+    )
+    actions = execution.actions
+    pre_delay = execution.pre_delay_sec
 
-    if pre_delay > 0:
-        logger.debug("Pre-delay: %.1fs", pre_delay)
-        time.sleep(pre_delay)
-
-    for i, device in enumerate(selected):
-        if inter_delays[i] > 0:
-            logger.debug("Inter-device delay: %.1fs", inter_delays[i])
-            time.sleep(inter_delays[i])
-
-        # Defence-in-depth clamp - the randomizer reads spray_duration_range
-        # from config; a misconfigured or tampered config can't drive the
-        # physical hold beyond MAX_ACTUATION_SEC. The controller clamps too.
-        duration = clamp_duration(
-            durations[i],
-            max_sec=MAX_ACTUATION_SEC,
-            default=3.0,
-        )
-        logger.info(
-            "Firing device %s (%s) for %.1fs [rid=%s]",
-            device.name, device.type, duration, request_id,
-        )
-        result = controller.activate_device(
-            device, duration,
-            request_id=request_id,
-            event_type="detection",
-        )
-        actions.append(DeviceAction(
-            device_name=device.name,
-            device_id=device.device_id,
-            device_type=device.type,
-            duration_sec=duration,
-            delay_before_sec=inter_delays[i],
-            success=result.success,
-            error=result.error,
-            cloud_ack_ms=result.on_ack_ms,
-            off_attempts=result.off_attempts,
-            stuck=result.stuck,
-        ))
-        if result.stuck:
-            _publish_stuck(pub_holder, redis_cfg, device, request_id, result.error or "OFF failed")
-
-    total_duration = time.monotonic() - t_start
+    total_duration = execution.total_duration_sec
 
     actuation_event = ActuationEvent(
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -226,7 +179,7 @@ def _fire_group(
         event_type="detection",
     )
 
-    successes = sum(1 for a in actions if a.success)
+    successes = execution.successes
     logger.info(
         "Group [%s] complete: %d/%d devices fired in %.1fs (trigger_delay=%s) [rid=%s]",
         group.name, successes, len(actions), total_duration,
