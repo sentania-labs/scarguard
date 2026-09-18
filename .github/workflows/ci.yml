@@ -152,6 +152,27 @@ jobs:
           PYTHONPATH: services/deterrent/src:shared
         run: pytest services/deterrent/tests/ -v
 
+  # ── Tests - log-streamer ────────────────────────────────────────────────────
+  test-log-streamer:
+    name: Tests - log-streamer
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r services/log-streamer/requirements.txt pytest
+
+      - name: pytest
+        env:
+          PYTHONPATH: services/log-streamer/src:shared
+        run: pytest services/log-streamer/tests/ -v
+
   # ── Tests - training ────────────────────────────────────────────────────────
   # prepare_dataset.py keeps its heavy imports (roboflow, requests, yaml)
   # function-local, so the class-handling unit tests run on stdlib + pytest.
