@@ -1,4 +1,4 @@
-"""Thread-safe mutable reference — replaces GIL-dependent list[T] wrappers."""
+"""Thread-safe mutable reference - replaces GIL-dependent list[T] wrappers."""
 
 from __future__ import annotations
 

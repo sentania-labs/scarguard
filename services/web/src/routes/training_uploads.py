@@ -43,7 +43,7 @@ PAGE_SIZE = 25
 def _label_class_options() -> list[str]:
     """Class suggestions for the labeling datalists: the training class
     list (training.defaults.classes or built-in default) merged with
-    detection.target_classes. Free-text entry remains allowed — the
+    detection.target_classes. Free-text entry remains allowed - the
     datalist is suggestion-only."""
     import config_store
 
@@ -98,7 +98,7 @@ def _validate_corrected_bboxes(raw: str) -> str | None:
             return None
         if not (0.0 < w <= 1.0 and 0.0 < h <= 1.0):
             return None
-        # Reject boxes whose extents fall outside the image — clamping the
+        # Reject boxes whose extents fall outside the image - clamping the
         # center alone allows e.g. xc=1.0, w=0.6 (right edge at 1.3).
         if not (0.0 <= xc - w / 2 and xc + w / 2 <= 1.0):
             return None
@@ -133,7 +133,7 @@ def _parse_hints_input(raw: str) -> tuple[list[str], str | None]:
         if not s:
             continue
         if not _HINT_RE.match(s):
-            return [], f"Invalid hint '{s}' — use letters, digits, spaces, _ or -"
+            return [], f"Invalid hint '{s}' - use letters, digits, spaces, _ or -"
         if s not in items:
             items.append(s)
     if len(items) > _MAX_HINTS:
@@ -350,11 +350,11 @@ async def upload_video(
 
         duration = _probe_duration(tmp_path)
         if duration is None:
-            return _error_response(request, "Could not read video — file may be corrupt or unsupported codec")
+            return _error_response(request, "Could not read video - file may be corrupt or unsupported codec")
         if duration > MAX_DURATION_SECONDS:
             return _error_response(
                 request,
-                f"Video is {duration:.0f}s — max allowed is {MAX_DURATION_SECONDS}s",
+                f"Video is {duration:.0f}s - max allowed is {MAX_DURATION_SECONDS}s",
             )
 
         upload_dir = TRAINING_UPLOADS_DIR / upload_id
@@ -861,7 +861,7 @@ async def annotate_frame(
     )
     if detector_event is not None:
         return JSONResponse(
-            {"error": "frame already has a detector event — re-label it from the queue"},
+            {"error": "frame already has a detector event - re-label it from the queue"},
             status_code=409,
         )
 

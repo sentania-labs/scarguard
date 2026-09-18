@@ -39,7 +39,7 @@ from typing import NamedTuple
 # Distractors are filtered at runtime via detection.target_classes.
 # Keep in sync with DEFAULT_TRAINING_CLASSES in
 # services/web/src/routes/training_jobs.py (this script is standalone by
-# design — copied into the trainer image — so it can't be imported there).
+# design - copied into the trainer image - so it can't be imported there).
 DEFAULT_CLASSES = ["duck", "heron", "raccoon", "person", "dog", "cat", "plant"]
 
 # Active class list for this run; order defines model class indices.
@@ -91,7 +91,7 @@ OID_ALL_CLASSES: dict[str, str] = {
     "/m/05s2s": "plant",
 }
 
-# Active OID label map — entries whose unified class is active.
+# Active OID label map - entries whose unified class is active.
 OID_CLASSES: dict[str, str] = dict(OID_ALL_CLASSES)
 
 
@@ -118,7 +118,7 @@ def set_active_classes(classes: list[str]) -> None:
         if cls not in known:
             print(
                 f"  WARNING: class '{cls}' has no CLASS_MAP aliases and no "
-                f"Open Images coverage — only exact-name labels will match"
+                f"Open Images coverage - only exact-name labels will match"
             )
 
 OID_ANNOTATIONS = {
@@ -335,7 +335,7 @@ def _pull_orin_ssh(host: str, container: str, work_dir: Path) -> list[Sample]:
         )
         print(f"  Snapshots: {tar_path.stat().st_size / 1_048_576:.1f} MB")
     else:
-        print("  WARNING: tar produced no output — snapshot transfer may have failed")
+        print("  WARNING: tar produced no output - snapshot transfer may have failed")
 
     _ssh(host, f"rm -rf {remote_tmp}")
     return _rows_to_samples(rows, snap_dir)
@@ -650,7 +650,7 @@ def pull_open_images(
 
     active = sorted(set(OID_CLASSES.values()))
     if not active:
-        print("\nOpen Images: no active classes have OID coverage — skipping")
+        print("\nOpen Images: no active classes have OID coverage - skipping")
         return []
 
     print(f"\n{'='*60}")

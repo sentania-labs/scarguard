@@ -1,6 +1,6 @@
 """Unit tests for `main._parse_auth_enabled`.
 
-Regression for PR #94 codex review — the original code used
+Regression for PR #94 codex review - the original code used
 ``bool(auth_cfg.get("enabled", True))`` which mishandled quoted YAML
 values (``bool("false") is True``), silently keeping auth enabled when
 the operator intended to disable it.

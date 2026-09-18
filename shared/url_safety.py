@@ -3,8 +3,8 @@
 The notifier accepts webhook URLs (Discord, generic webhook, ntfy) from
 config and ``requests.post()`` them directly. Without validation an
 admin (or an attacker with a stolen session) can point those URLs at
-internal services — Redis on the Docker network, a metadata endpoint,
-``http://127.0.0.1:6379/`` — and turn the notifier into a blind SSRF
+internal services - Redis on the Docker network, a metadata endpoint,
+``http://127.0.0.1:6379/`` - and turn the notifier into a blind SSRF
 proxy. Include-snapshot-URL settings can also leak snapshot files to
 attacker-controlled receivers.
 
@@ -85,7 +85,7 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
       link-local IP is enough to reject the URL.
 
     When *allow_internal* is True, only RFC1918 private ranges are
-    permitted — for operators who run a home-LAN Home Assistant or
+    permitted - for operators who run a home-LAN Home Assistant or
     similar internal webhook receiver. Loopback, link-local, multicast,
     unspecified (0.0.0.0/::), and reserved ranges remain rejected
     (those are never legitimate webhook targets).
@@ -96,13 +96,13 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
     parsed = urlparse(url.strip())
     if parsed.scheme not in _ALLOWED_SCHEMES:
         raise UnsafeURLError(
-            f"URL scheme {parsed.scheme!r} not allowed — must be http or https",
+            f"URL scheme {parsed.scheme!r} not allowed - must be http or https",
         )
     host = parsed.hostname
     if not host:
         raise UnsafeURLError("URL has no hostname")
 
-    # First, handle literal IPs directly — no DNS round-trip, no TOCTOU.
+    # First, handle literal IPs directly - no DNS round-trip, no TOCTOU.
     try:
         literal_ip = ipaddress.ip_address(host)
     except ValueError:
@@ -118,7 +118,7 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
             raise UnsafeURLError(f"URL resolves to blocked address {host}")
         return
 
-    # Hostname — resolve and check every returned IP.
+    # Hostname - resolve and check every returned IP.
     addrs = _resolve(host)
     for addr in addrs:
         try:

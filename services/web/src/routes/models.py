@@ -72,7 +72,7 @@ async def models_page(request: Request, uploaded: str = "") -> Response:
     dependencies=[Depends(rate_limit("model-upload", capacity=10, window_seconds=3600))],
 )
 async def upload_model(request: Request, file: UploadFile = File(...)) -> Response:
-    """Upload a new model file. Admin only — writes to shared /models volume."""
+    """Upload a new model file. Admin only - writes to shared /models volume."""
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
@@ -130,11 +130,11 @@ async def upload_model(request: Request, file: UploadFile = File(...)) -> Respon
         if temp_file_path and temp_file_path.exists() and temp_file_path != dest:
             temp_file_path.unlink(missing_ok=True)
 
-    # Invalidate cached class lists for this filename — a re-upload may have
+    # Invalidate cached class lists for this filename - a re-upload may have
     # changed the embedded names (P1-2).  We can't easily reach the detector's
     # cache from here, but its key includes file size; if size changes the
     # detector misses too.  For matching size+mtime collisions, the detector
-    # would still serve stale — accepted as a known edge case until a Redis
+    # would still serve stale - accepted as a known edge case until a Redis
     # invalidate channel is added (tracked under v0.14 future ideas).
     dest_str = str(dest.resolve())
     for key in list(_classes_cache.keys()):
@@ -160,11 +160,11 @@ def _safe_resolve_model(filename: str) -> Path | None:
 
     Rather than validate *filename* and then construct a path from it
     (which CodeQL correctly flags as user-data-in-path-expression even
-    with a regex gate — the taint tracker can't follow sanitisation
+    with a regex gate - the taint tracker can't follow sanitisation
     through Path joins), we enumerate the files actually present in
     ``MODELS_DIR`` and treat *filename* as a dict key against that
     known-safe set.  The returned ``Path`` therefore always comes from
-    a trusted directory listing — the user-supplied string never reaches
+    a trusted directory listing - the user-supplied string never reaches
     a filesystem sink.
     """
     if not isinstance(filename, str) or not filename:
@@ -216,7 +216,7 @@ async def _fetch_model_classes_via_redis(model_path: str) -> dict[str, Any]:
                     continue
                 # Defence in depth: the reply channel is already per-request
                 # (``{prefix}{request_id}``), but verify the payload's
-                # request_id matches before trusting it — a stale publisher
+                # request_id matches before trusting it - a stale publisher
                 # or a shared-channel misroute could otherwise poison the
                 # cache with someone else's result.
                 if not isinstance(reply, dict) or reply.get("request_id") != request_id:
@@ -224,7 +224,7 @@ async def _fetch_model_classes_via_redis(model_path: str) -> dict[str, Any]:
                 return reply
         return {
             "ok": False,
-            "error": "Request timed out — detector may not be running",
+            "error": "Request timed out - detector may not be running",
         }
     finally:
         try:
@@ -248,7 +248,7 @@ async def model_classes(request: Request, filename: str) -> Response:
             status_code=404,
         )
 
-    # Web-side cache by (path, mtime, size) — see comment on _classes_cache.
+    # Web-side cache by (path, mtime, size) - see comment on _classes_cache.
     try:
         st = target.stat()
     except OSError:

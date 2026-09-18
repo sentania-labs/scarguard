@@ -1,4 +1,4 @@
-"""ScarGuard notifier — subscribes to Redis detections and dispatches notifications."""
+"""ScarGuard notifier - subscribes to Redis detections and dispatches notifications."""
 
 import json
 import logging
@@ -47,13 +47,13 @@ def _derive_base_url(cfg: dict) -> str:
     mode = tls.get("mode", "off")
     if mode in ("auto", "manual"):
         return f"https://{domain}"
-    # mode=off with a domain set — user may be behind an external proxy
+    # mode=off with a domain set - user may be behind an external proxy
     return f"https://{domain}"
 
 
 def _decrypt_secrets(cfg: dict) -> None:
     """Decrypt sensitive channel fields in *cfg* in place if a key is available.
-    No-op if the secret key is absent — operator hasn't run setup yet, or
+    No-op if the secret key is absent - operator hasn't run setup yet, or
     the deployment is mid-upgrade with plaintext secrets still on disk."""
     import secret_box
     key = secret_box.try_load_key()
@@ -62,7 +62,7 @@ def _decrypt_secrets(cfg: dict) -> None:
     try:
         secret_box.decrypt_in_place(cfg, key)
     except secret_box.SecretKeyMissing:
-        logger.error("Failed to decrypt notifier secrets — wrong key on disk?")
+        logger.error("Failed to decrypt notifier secrets - wrong key on disk?")
 
 
 def load_config() -> dict:
@@ -76,7 +76,7 @@ def load_config() -> dict:
 def setup_logging(log_level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
 
@@ -93,7 +93,7 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
         ch_type = ch.get("type", "").lower()
         ch_name = ch.get("name", ch_type)
         if ch_name in seen_names:
-            logger.warning("Duplicate channel name %r — skipping second definition", ch_name)
+            logger.warning("Duplicate channel name %r - skipping second definition", ch_name)
             continue
         try:
             if ch_type == "discord" and ch.get("webhook_url"):
@@ -148,7 +148,7 @@ def dispatch(
     if actions_raw is _MISSING:
         actions_triggered: list[str] = []
     elif actions_raw is None:
-        logger.debug("Event suppressed by notification rules — no notifications")
+        logger.debug("Event suppressed by notification rules - no notifications")
         return
     else:
         actions_triggered = actions_raw
@@ -167,7 +167,7 @@ def dispatch(
         except Exception:
             if queue is not None:
                 logger.warning(
-                    "%s failed — event queued for retry (queue depth: %d)",
+                    "%s failed - event queued for retry (queue depth: %d)",
                     type(notifier).__name__,
                     queue.depth,
                 )
@@ -212,7 +212,7 @@ def subscribe_loop(
     v1.14 verifies the HMAC signature on detection events before
     dispatching a notification. Unlike the deterrent, a missing or invalid
     signature here only suppresses the notification (no physical effect),
-    but we still log loudly — spoofed events would otherwise leak camera
+    but we still log loudly - spoofed events would otherwise leak camera
     snapshots to the attacker's own webhook destinations.
     """
     from event_signing import load_key_from_env, verify_event
@@ -222,7 +222,7 @@ def subscribe_loop(
     hmac_key = load_key_from_env()
     if hmac_key is None:
         logger.warning(
-            "DETECTION_HMAC_KEY not set — dispatching unsigned events.",
+            "DETECTION_HMAC_KEY not set - dispatching unsigned events.",
         )
     unsigned_warned = False
     invalid_warned = False
@@ -253,7 +253,7 @@ def subscribe_loop(
                     logger.warning("Received malformed message: %s", message["data"])
                     continue
 
-                # Signature verification (detection channel only — health alerts
+                # Signature verification (detection channel only - health alerts
                 # come from the detector's health publisher, not the detection
                 # publisher, and aren't signed today).
                 if message["channel"] == CHANNEL and hmac_key is not None:
@@ -261,7 +261,7 @@ def subscribe_loop(
                         if not invalid_warned:
                             logger.error(
                                 "Rejecting detection event with invalid/missing "
-                                "HMAC signature — NOT notifying. Camera=%s class=%s. "
+                                "HMAC signature - NOT notifying. Camera=%s class=%s. "
                                 "Further invalid events at DEBUG.",
                                 event.get("camera_name"),
                                 event.get("class_name"),
@@ -312,7 +312,7 @@ def subscribe_loop(
                         dispatch(alert_event, notifiers, notifiers_lock, queue)
                     else:
                         logger.warning(
-                            "Unknown health alert type %r — dropping",
+                            "Unknown health alert type %r - dropping",
                             alert_type,
                         )
                     continue
@@ -334,7 +334,7 @@ def subscribe_loop(
             if shutdown_event.is_set():
                 break
             logger.exception(
-                "Redis connection lost — retrying in %ds", delay
+                "Redis connection lost - retrying in %ds", delay
             )
             time.sleep(delay)
             delay = min(delay * 2, _REDIS_MAX_RECONNECT_DELAY)
@@ -365,7 +365,7 @@ def main() -> None:
     notifiers_lock = threading.Lock()
     base_url_ref: AtomicRef[str] = AtomicRef(_derive_base_url(cfg))
     if not notifiers:
-        logger.warning("No notifiers enabled — will consume events without dispatching")
+        logger.warning("No notifiers enabled - will consume events without dispatching")
 
     queue = NotificationQueue()
     if queue.depth:
@@ -385,7 +385,7 @@ def main() -> None:
     shutdown_event = threading.Event()
 
     def _shutdown(sig: int, _frame: object) -> None:
-        logger.info("Received signal %s — shutting down", sig)
+        logger.info("Received signal %s - shutting down", sig)
         shutdown_event.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
@@ -404,11 +404,11 @@ def main() -> None:
             notifiers.extend(new_notifiers)
         if new_notifiers:
             logger.info(
-                "Config reloaded — notifiers: %s",
+                "Config reloaded - notifiers: %s",
                 ", ".join(getattr(n, "name", type(n).__name__) for n in new_notifiers),
             )
         else:
-            logger.info("Config reloaded — no notifiers enabled")
+            logger.info("Config reloaded - no notifiers enabled")
 
         # Update digest scheduler with new config
         new_report_cfg = new_cfg.get("system", {}).get("summary_report", {})

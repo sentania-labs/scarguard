@@ -121,7 +121,7 @@ class RequestHandler:
             except redis_lib.RedisError:
                 if self._shutdown.is_set():
                     break
-                logger.exception("Redis error in request handler — retrying in %ds", delay)
+                logger.exception("Redis error in request handler - retrying in %ds", delay)
                 self._shutdown.wait(delay)
                 delay = min(delay * 2, 60)
             finally:
@@ -146,7 +146,7 @@ class RequestHandler:
     ) -> None:
         request_id = payload.get("request_id", "")
         device_id = payload.get("device_id", "")
-        # Second-line clamp — the web route is the authoritative validator
+        # Second-line clamp - the web route is the authoritative validator
         # (returns 400 on out-of-range) but duplicating the cap here means
         # a broken or malicious web peer cannot drive extended actuation.
         duration = clamp_duration(
@@ -205,7 +205,7 @@ class RequestHandler:
             "stuck": result.stuck,
         }))
         logger.info(
-            "Test-fire result: %s — %s",
+            "Test-fire result: %s - %s",
             device.name, "success" if result.success else (result.error or "failed"),
         )
 
@@ -278,7 +278,7 @@ class RequestHandler:
         client: redis_lib.Redis,
         payload: dict[str, Any],
     ) -> None:
-        """Emergency OFF — send OFF to every configured device.
+        """Emergency OFF - send OFF to every configured device.
 
         Ignores ``enabled`` status. A disabled-in-config device that's
         physically stuck on still gets an OFF command. Returns per-device
@@ -312,7 +312,7 @@ class RequestHandler:
                 any_failure = True
 
         logger.warning(
-            "Force-OFF executed [request_id=%s] — %d devices, any_failure=%s",
+            "Force-OFF executed [request_id=%s] - %d devices, any_failure=%s",
             request_id, len(results), any_failure,
         )
         client.publish(result_channel, json.dumps({

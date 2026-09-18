@@ -1,4 +1,4 @@
-"""About page — project info, version, and component status."""
+"""About page - project info, version, and component status."""
 
 import logging
 import os

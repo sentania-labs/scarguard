@@ -1,4 +1,4 @@
-"""Actuation log — view deterrent actuation events."""
+"""Actuation log - view deterrent actuation events."""
 
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ async def actuations_page(
 
 @router.get("/stream")
 async def actuations_stream(request: Request) -> StreamingResponse:
-    """SSE — push new actuation rows as they happen."""
+    """SSE - push new actuation rows as they happen."""
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")

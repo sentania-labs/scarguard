@@ -41,17 +41,17 @@ def record(
     client_ip: str | None = None,
     details: str | Mapping[str, Any] | None = None,
 ) -> None:
-    """Insert an audit row. Best-effort — never raises to the caller.
+    """Insert an audit row. Best-effort - never raises to the caller.
 
     ``details`` may be a plain string or a mapping; mappings are serialized
-    to compact JSON.  Keep details short — this is an index, not a blob
+    to compact JSON.  Keep details short - this is an index, not a blob
     store.  For large payloads, reference them externally (e.g. a backup
     filename) rather than inlining.
 
     **Commit semantics:** this function calls ``db.commit()`` so the audit
     row is durable even if the enclosing request handler later errors out.
     Callers that share the connection must be aware that any other
-    uncommitted work on that connection will also be committed — hook
+    uncommitted work on that connection will also be committed - hook
     ``record()`` after, not in the middle of, a logical write unit.
     """
     if isinstance(details, Mapping):

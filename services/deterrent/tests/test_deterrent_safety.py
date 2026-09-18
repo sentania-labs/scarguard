@@ -19,7 +19,7 @@ class TestClampDuration:
         assert clamp_duration(5.0, max_sec=15.0, default=3.0) == 5.0
 
     def test_clamps_above_max(self) -> None:
-        # Even comically large values must be bounded — this is the core
+        # Even comically large values must be bounded - this is the core
         # physical-safety contract.
         assert clamp_duration(86400.0, max_sec=15.0, default=3.0) == 15.0
 
@@ -59,7 +59,7 @@ class TestClampDuration:
 
 
 class TestSafetyConstants:
-    """Sanity bounds — if these fail, someone tightened the caps without
+    """Sanity bounds - if these fail, someone tightened the caps without
     updating the test, which is fine; if they relaxed them dangerously,
     this catches it."""
 
@@ -82,7 +82,7 @@ class TestSafetyConstants:
     1e9,         # one billion seconds (~31 years)
     86400.0,     # one day
     3600.0,      # one hour
-    61.0,        # 61 seconds — one second past MAX_ACTUATION_SEC
+    61.0,        # 61 seconds - one second past MAX_ACTUATION_SEC
 ])
 def test_hostile_inputs_are_bounded_to_max_actuation(hostile: float) -> None:
     """Whatever the layer, the absolute ceiling is MAX_ACTUATION_SEC."""

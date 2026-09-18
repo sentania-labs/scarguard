@@ -56,7 +56,7 @@ class EventProcessor:
         If absent or the class has no entry, all channels are notified (default).
 
         *groups_by_class* maps class_name → list of deterrent group names to
-        fire.  Empty list or absent entry means "no deterrent action" —
+        fire.  Empty list or absent entry means "no deterrent action" -
         deterrents are explicit-opt-in per v0.13.3 and have no "all" default.
 
         Returns a list of event dicts ready to be JSON-serialized and published.
@@ -74,7 +74,7 @@ class EventProcessor:
                 last = self._last_event.get(key, 0.0)
                 if now - last < self.cooldown_seconds:
                     logger.debug(
-                        "[%s] %s suppressed — cooldown active", camera_name, det.class_name
+                        "[%s] %s suppressed - cooldown active", camera_name, det.class_name
                     )
                     continue
                 self._last_event[key] = now
@@ -106,7 +106,7 @@ class EventProcessor:
 
             if actions_triggered is None:
                 logger.debug(
-                    "[%s] %s no matching notification rule — notifier will suppress",
+                    "[%s] %s no matching notification rule - notifier will suppress",
                     camera_name, det.class_name,
                 )
 

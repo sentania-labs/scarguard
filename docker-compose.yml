@@ -9,7 +9,7 @@ name: scarguard
 # To build locally:   docker compose build
 # To pull from GHCR:  docker compose pull
 # To run:             docker compose up -d
-# TLS is handled by the Caddy reverse proxy — see tls section in scarguard.yml
+# TLS is handled by the Caddy reverse proxy - see tls section in scarguard.yml
 
 services:
 
@@ -17,12 +17,12 @@ services:
   # v1.14.2 upgrade migration: chown the redis-data and caddy-data volumes
   # to uid 999 so the non-root redis/caddy containers can read pre-existing
   # files written by the old root-user containers (any install from 0.13.x,
-  # v1.14.0, or v1.14.1). Runs to completion on every `up` — chown is
+  # v1.14.0, or v1.14.1). Runs to completion on every `up` - chown is
   # idempotent, so steady-state is a no-op (~0.5s). Redis and caddy gate on
   # this via `service_completed_successfully` so they never start ahead of it.
   #
   # RETIREMENT: remove in v1.16, and no earlier than 2026-10-23 (six months
-  # after v1.14.2 ship date) — whichever is later. After retirement, the
+  # after v1.14.2 ship date) - whichever is later. After retirement, the
   # rare stale-installer upgrading from a pre-v1.14.2 volume gets a
   # one-time manual chown instruction (see README "Upgrading from a
   # previous version"). Fresh v1.14.2+ installs never needed this.
@@ -31,7 +31,7 @@ services:
     # `set -e` + no error suppression: if chown actually fails (e.g., a
     # volume backend that rejects the op), the sidecar exits non-zero,
     # the `service_completed_successfully` gate on redis/caddy fails,
-    # and the stack refuses to start with a clear error — preferable to
+    # and the stack refuses to start with a clear error - preferable to
     # redis/caddy booting against unchanged ownership and hitting the
     # same permission wall the sidecar was meant to prevent.
     #
@@ -58,7 +58,7 @@ services:
     # The image's entrypoint only drops privileges when arg[0] is
     # `redis-server`; our `sh -c` wrapper defeats that path, so we pin the
     # uid explicitly here. Existing deployments must chown the redis-data
-    # volume to 999:999 once before upgrading — handled automatically by
+    # volume to 999:999 once before upgrading - handled automatically by
     # the volume-init service above.
     user: "999:999"
     depends_on:
@@ -162,7 +162,7 @@ services:
       DB_PATH: /data/scarguard.db
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
-    # v1.14: active healthcheck — pre-v1.14 was `test -f /tmp/healthy`,
+    # v1.14: active healthcheck - pre-v1.14 was `test -f /tmp/healthy`,
     # which a crashed-but-not-exited process passed forever (the file was
     # touched once at startup). Now we require the file's mtime to be
     # within the last minute, which means the main loop must keep
@@ -204,7 +204,7 @@ services:
       context: .
       dockerfile: services/web/Dockerfile
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-web:${IMAGE_TAG:-latest}
-    # No host ports — Caddy reverse proxy handles all external traffic.
+    # No host ports - Caddy reverse proxy handles all external traffic.
     # To access the web UI directly (debugging), uncomment:
     #   ports: ["${WEB_PORT:-8080}:8080"]
     environment:
@@ -224,9 +224,9 @@ services:
       retries: 3
       start_period: 15s
     volumes:
-      - scarguard-config:/config        # rw — config editor writes scarguard.yml
-      - scarguard-models:/models        # rw — model upload endpoint writes here
-      - scarguard-data:/data            # rw — reads SQLite + serves snapshots + writes auth.db
+      - scarguard-config:/config        # rw - config editor writes scarguard.yml
+      - scarguard-models:/models        # rw - model upload endpoint writes here
+      - scarguard-data:/data            # rw - reads SQLite + serves snapshots + writes auth.db
     depends_on:
       redis:
         condition: service_healthy
@@ -255,7 +255,7 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       NOTIFIER_STATE_DIR: /var/lib/scarguard
-      DB_PATH: /data/scarguard.db       # read-only — digest reports query events/metrics
+      DB_PATH: /data/scarguard.db       # read-only - digest reports query events/metrics
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -268,8 +268,8 @@ services:
       start_period: 15s
     volumes:
       - scarguard-config:/config:ro
-      - scarguard-models:/models:ro     # ro — digest reports storage size
-      - scarguard-data:/data:ro         # ro — reads SQLite + snapshots for attachments/digests
+      - scarguard-models:/models:ro     # ro - digest reports storage size
+      - scarguard-data:/data:ro         # ro - reads SQLite + snapshots for attachments/digests
       - scarguard-notifier:/var/lib/scarguard
     depends_on:
       redis:
@@ -395,7 +395,7 @@ services:
 
   # ── Log Streamer (sidecar) ────────────────────────────────────────────────
   # Tails container logs via the docker-socket-proxy and publishes to Redis.
-  # No direct socket mount — see docker-socket-proxy above.
+  # No direct socket mount - see docker-socket-proxy above.
   log-streamer:
     build:
       context: .
@@ -435,7 +435,7 @@ services:
     tmpfs:
       - /tmp:size=32m
 
-  # ── Config API (optional — behind "config-api" profile) ──────────────────
+  # ── Config API (optional - behind "config-api" profile) ──────────────────
   # v1.15: separate config-write service.  Only starts when launched with
   #   docker compose --profile config-api up
   # When inactive, the web service handles all config writes as before.
@@ -460,8 +460,8 @@ services:
       retries: 3
       start_period: 15s
     volumes:
-      - scarguard-config:/config        # rw — writes scarguard.yml, certs
-      - scarguard-data:/data            # rw — reads auth.db, writes backups
+      - scarguard-config:/config        # rw - writes scarguard.yml, certs
+      - scarguard-data:/data            # rw - reads auth.db, writes backups
     depends_on:
       redis:
         condition: service_healthy
@@ -527,7 +527,7 @@ services:
     tmpfs:
       - /tmp:size=8m
 
-  # ── Trainer (ARM64/Jetson only — opt-in via COMPOSE_PROFILES=training) ────
+  # ── Trainer (ARM64/Jetson only - opt-in via COMPOSE_PROFILES=training) ────
   # Uses the L4T base image (ARM64 only, no x86 variant).  Gated behind a
   # profile so `docker compose pull` on x86 hosts doesn't fail on the
   # missing arch manifest.  Enable on the Orin:

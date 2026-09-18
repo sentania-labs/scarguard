@@ -78,7 +78,7 @@ class BatteryMonitor:
     def _check_device(self, device: DeviceConfig, threshold: int) -> None:
         status = self._controller.get_device_status(device.device_id)
         if status is None:
-            logger.warning("Battery check skipped for %s — status unavailable", device.name)
+            logger.warning("Battery check skipped for %s - status unavailable", device.name)
             return
 
         battery = status.get("battery_percentage")

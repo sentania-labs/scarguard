@@ -1,4 +1,4 @@
-"""Tests for the v1.14 /admin/db-backups route — focused on the
+"""Tests for the v1.14 /admin/db-backups route - focused on the
 path-traversal-rejecting download endpoint."""
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class TestSafeResolve:
         # Valid
         assert backups_route._safe_resolve("scarguard", "ok.db.gz") is not None
 
-        # Path-traversal attempts — every one of these must return None.
+        # Path-traversal attempts - every one of these must return None.
         assert backups_route._safe_resolve("..", "etc/passwd") is None
         assert backups_route._safe_resolve("/etc", "passwd") is None
         assert backups_route._safe_resolve("scarguard", "../../etc/passwd") is None
@@ -132,7 +132,7 @@ class TestAuthReauthGate:
         resp = asyncio.get_event_loop().run_until_complete(
             backups_route.download_backup(request, "scarguard", "test.db.gz"),
         )
-        # FileResponse indicates success — the file will be served.
+        # FileResponse indicates success - the file will be served.
         from fastapi.responses import FileResponse
         assert isinstance(resp, FileResponse)
 

@@ -1,4 +1,4 @@
-"""Visit duration tracking — groups consecutive detections into sessions."""
+"""Visit duration tracking - groups consecutive detections into sessions."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class VisitTracker:
             if visit is not None:
                 elapsed = (timestamp - visit.last_detection_time).total_seconds()
                 if elapsed >= self._timeout:
-                    # Gap exceeded timeout — close old visit, start new one
+                    # Gap exceeded timeout - close old visit, start new one
                     duration = (visit.last_detection_time - visit.start_time).total_seconds()
                     to_persist = {
                         "camera_name": visit.camera_name,
@@ -109,7 +109,7 @@ class VisitTracker:
         for record in closed:
             self._persist(record)
             logger.info(
-                "Visit closed: %s on %s — %.0fs, %d detections",
+                "Visit closed: %s on %s - %.0fs, %d detections",
                 record["class_name"],
                 record["camera_name"],
                 record["duration_secs"],

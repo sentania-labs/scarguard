@@ -17,7 +17,7 @@ async function triggerBackup() {
     });
     var data = await resp.json();
     if (data.ok) {
-      status.textContent = 'Backup started — watching for completion...';
+      status.textContent = 'Backup started - watching for completion...';
       status.style.color = 'var(--ok)';
     } else {
       status.textContent = 'Failed: ' + (data.error || 'unknown');
@@ -80,7 +80,7 @@ async function submitReauth() {
       btn.disabled = false;
       return;
     }
-    // Download succeeded — trigger the browser file-save via a blob.
+    // Download succeeded - trigger the browser file-save via a blob.
     var blob = await resp.blob();
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -155,7 +155,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         if (parts.length) detail = ' (' + parts.join(', ') + ')';
       }
-      msg = 'Backup completed' + detail + ' — reloading...';
+      msg = 'Backup completed' + detail + ' - reloading...';
       liveDiv.style.color = 'var(--ok)';
       setTimeout(function() { location.reload(); }, 2000);
     } else if (phase === 'failed') {

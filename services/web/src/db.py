@@ -16,7 +16,7 @@ DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
 
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, col_name: str, col_def: str) -> None:
-    """Idempotent ALTER TABLE ADD COLUMN — SQLite has no IF NOT EXISTS for ALTER."""
+    """Idempotent ALTER TABLE ADD COLUMN - SQLite has no IF NOT EXISTS for ALTER."""
     cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if col_name not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {col_def}")
@@ -77,7 +77,7 @@ def ensure_training_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_tj_status
                 ON training_jobs(status);
         """)
-        # Additive columns on training_uploads — let existing rows default to
+        # Additive columns on training_uploads - let existing rows default to
         # NULL so the trainer falls back to global config.
         _add_column_if_missing(conn, "training_uploads", "detector_model", "detector_model TEXT")
         _add_column_if_missing(conn, "training_uploads", "confidence_threshold", "confidence_threshold REAL")
@@ -406,7 +406,7 @@ _EXPORTABLE_POSITIVE_WHERE = (
 )
 
 # Exportable rows = positives + false positives (the latter ride along as
-# YOLO background samples — image + empty label file).  FPs without a
+# YOLO background samples - image + empty label file).  FPs without a
 # bbox are still valid backgrounds, so the bbox filter is positives-only.
 _EXPORTABLE_WHERE = (
     "camera_name != '_system'"
@@ -737,7 +737,7 @@ def create_training_upload(
 ) -> None:
     """INSERT a new training_uploads row with status='uploaded'.
 
-    ``hints`` is a JSON-encoded list of class names — the multi-value
+    ``hints`` is a JSON-encoded list of class names - the multi-value
     superset of the legacy ``target_class_hint`` single value. Both are
     kept in sync at write-time so older readers keep working.
     """
@@ -872,7 +872,7 @@ def update_training_upload_status(
 
 
 def delete_training_upload(upload_id: str) -> bool:
-    """DELETE upload and its events (manual cascade — avoids PRAGMA foreign_keys)."""
+    """DELETE upload and its events (manual cascade - avoids PRAGMA foreign_keys)."""
     with _connect() as conn:
         conn.execute("DELETE FROM training_events WHERE upload_id = ?", (upload_id,))
         cur = conn.execute("DELETE FROM training_uploads WHERE id = ?", (upload_id,))
@@ -1281,7 +1281,7 @@ def update_training_job_status(
 def mark_stale_running_jobs_failed() -> int:
     """Mark any running jobs as failed (crash recovery on trainer restart)."""
     now = datetime.now(timezone.utc).isoformat()
-    result_json = __import__("json").dumps({"error": "Trainer restarted — job interrupted"})
+    result_json = __import__("json").dumps({"error": "Trainer restarted - job interrupted"})
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE training_jobs SET status = 'failed', completed_at = ?, result = ? WHERE status = 'running'",

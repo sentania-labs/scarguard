@@ -1,4 +1,4 @@
-"""Unit tests for ModelClassesHandler — focus on the pure logic paths.
+"""Unit tests for ModelClassesHandler - focus on the pure logic paths.
 
 The Redis subscription loop is integration-tested via manual smoke tests;
 these unit tests cover classification of names, cache semantics, the
@@ -207,7 +207,7 @@ class TestIntrospect:
         h = self._make_handler()
         with patch("model_classes_handler._names_from_pt_cpu", return_value={0: "a"}):
             h._introspect(str(pt_file))
-        # Rewrite with more bytes but try to preserve mtime — proves size
+        # Rewrite with more bytes but try to preserve mtime - proves size
         # entering the key matters.
         st = pt_file.stat()
         pt_file.write_bytes(b"xxxx")
@@ -215,7 +215,7 @@ class TestIntrospect:
         with patch("model_classes_handler._names_from_pt_cpu", return_value={0: "b"}):
             r = h._introspect(str(pt_file))
         # mtime probably also bumped by the write; accept either cache bust
-        # path — key thing is the stale value isn't returned.
+        # path - key thing is the stale value isn't returned.
         assert r["classes"] == ["b"]
 
 

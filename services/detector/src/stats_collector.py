@@ -66,7 +66,7 @@ class StatsCollector(threading.Thread):
         if self._gpu_platform:
             logger.info("GPU stats platform detected: %s", self._gpu_platform)
         else:
-            logger.info("No GPU detected — stats will show CPU-only metrics")
+            logger.info("No GPU detected - stats will show CPU-only metrics")
 
     # ── Platform detection ────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ class StatsCollector(threading.Thread):
         # tegrastats: official Jetson tool, covers all JetPack platforms incl. Orin
         if shutil.which("tegrastats"):
             return "tegrastats"
-        # Jetson Orin: GA10B Ampere GPU — sysfs load file at a platform-specific path.
+        # Jetson Orin: GA10B Ampere GPU - sysfs load file at a platform-specific path.
         # This is checked before the generic gpu.0 path because Orin does not expose
         # /sys/devices/gpu.0/load; it uses a different device tree address.
         if StatsCollector._find_orin_gpu_load_path() is not None:
@@ -314,12 +314,12 @@ class StatsCollector(threading.Thread):
         except Exception:
             logger.debug("Failed to read Jetson GPU load", exc_info=True)
 
-        # GPU temperature — look for a zone named GPU-therm or similar
+        # GPU temperature - look for a zone named GPU-therm or similar
         gpu_temp = StatsCollector._read_thermal("gpu")
         if gpu_temp is not None:
             stats["gpu_temp_c"] = gpu_temp
 
-        # GPU memory — try nvidia-smi first (available on JetPack 6), else skip
+        # GPU memory - try nvidia-smi first (available on JetPack 6), else skip
         try:
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=memory.used,memory.total",
@@ -388,7 +388,7 @@ class StatsCollector(threading.Thread):
                 except ValueError:
                     pass
 
-        # Tegra: nvidia-smi reports N/A for temperature — fall back to thermal zone
+        # Tegra: nvidia-smi reports N/A for temperature - fall back to thermal zone
         if "gpu_temp_c" not in stats:
             t = StatsCollector._read_thermal("gpu")
             if t is not None:
@@ -417,7 +417,7 @@ class StatsCollector(threading.Thread):
         if gpu:
             snapshot.update(gpu)
 
-        # Per-camera inference stats (deep copy — camera threads replace inner dicts atomically)
+        # Per-camera inference stats (deep copy - camera threads replace inner dicts atomically)
         with self._camera_stats_lock:
             snapshot["cameras"] = {k: dict(v) for k, v in self._camera_stats.items()}
 
@@ -436,7 +436,7 @@ class StatsCollector(threading.Thread):
             self._gpu_platform or "none",
         )
 
-        # Redis client is lazy — actual connection happens on first command.
+        # Redis client is lazy - actual connection happens on first command.
         _pw = os.environ.get("REDIS_PASSWORD", "") or None
         client = redis_lib.Redis(
             host=self._redis_cfg.get("host", "redis"),

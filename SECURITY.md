@@ -1,7 +1,7 @@
 # Security Model
 
 ScarGuard controls physical actuators (sprinklers, sirens, lights) in a
-residential yard. Its security model has to reflect that — "admin can do
+residential yard. Its security model has to reflect that, "admin can do
 X" is fine for a SaaS dashboard, but here admin actions open solenoid
 valves for real. This document describes the trust boundaries, how
 secrets are handled, and what to do when things go wrong.
@@ -69,15 +69,15 @@ the key alone makes existing ciphertext unreadable.
 
 ### Not at rest
 
-* `REDIS_PASSWORD` — `.env` file on the host. Treat the host as secret-grade.
-* `DETECTION_HMAC_KEY` — same `.env`. Regenerate and restart all
+* `REDIS_PASSWORD`: `.env` file on the host. Treat the host as secret-grade.
+* `DETECTION_HMAC_KEY`: same `.env`. Regenerate and restart all
   services if you suspect leakage.
-* `TRAINING_CONTROLLER_TOKEN` — same `.env`, exposed only to trainer and the
+* `TRAINING_CONTROLLER_TOKEN`: same `.env`, exposed only to trainer and the
   lifecycle controller. Rotate it if either service or the host is compromised;
   unauthenticated controller lifecycle requests fail closed.
-* `BOOTSTRAP_TOKEN` — `/data/bootstrap_token`. Deleted on first successful
+* `BOOTSTRAP_TOKEN`: `/data/bootstrap_token`. Deleted on first successful
   `/setup` POST; never valid again after first admin creation.
-* Session cookies — bcrypt-hashed in `auth.db`; HttpOnly + SameSite=Strict;
+* Session cookies: bcrypt-hashed in `auth.db`; HttpOnly + SameSite=Strict;
   `Secure` flag set when the request is TLS.
 
 ### First-run bootstrap
@@ -90,7 +90,7 @@ and logged to stdout at startup:
 ```
 $ docker compose logs web | grep 'First-run'
 ═══════════════════════════════════════════════════════════
-  First-run setup — complete within 24 hours:
+  First-run setup - complete within 24 hours:
     Browse to: /setup?token=<value>
   Token also stored at /data/bootstrap_token (chmod 600).
 ═══════════════════════════════════════════════════════════
@@ -110,7 +110,7 @@ who seed credentials through a config-management tool.
   a cert automatically.
 - Firewall open 80/443 to the internet; web port (8080) has no host
   binding.
-- Full-disk encryption on the Jetson SD card strongly recommended —
+- Full-disk encryption on the Jetson SD card strongly recommended , 
   `.env` and `/data/secret_key` are the authoritative secret
   material and live on that device.
 
@@ -129,15 +129,15 @@ who seed credentials through a config-management tool.
 
 ScarGuard enforces actuation bounds at four layers:
 
-1. **Web API validation** — `duration_sec` is rejected with 400 if
+1. **Web API validation**: `duration_sec` is rejected with 400 if
    outside `[0.5, 15.0]` seconds for test-fire.
-2. **Deterrent request handler** — defence-in-depth clamp using the
+2. **Deterrent request handler**: defence-in-depth clamp using the
    same constants.
-3. **Cloud controller** — defence-in-depth clamp again plus a
+3. **Cloud controller**: defence-in-depth clamp again plus a
    `threading.Timer` watchdog that fires unconditional OFF at
    `MAX_ACTUATION_SEC = 60` from the ON command, regardless of what
    the caller or the Tuya client do.
-4. **Reconciliation loop** — every 30 seconds the deterrent polls
+4. **Reconciliation loop**: every 30 seconds the deterrent polls
    every enabled device's status and force-OFFs any device reporting
    ON while not actively being driven.
 
@@ -155,7 +155,7 @@ ScarGuard host failure.
 Every detection event published on `scarguard:detections` carries an
 HMAC-SHA256 signature keyed on `DETECTION_HMAC_KEY`. Detector signs;
 deterrent and notifier verify before acting. An event with an invalid
-or missing signature is rejected — the deterrent never fires on it,
+or missing signature is rejected, the deterrent never fires on it,
 the notifier never dispatches it. This closes the "compromised sidecar
 injects a fake heron detection" attack.
 

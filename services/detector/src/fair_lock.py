@@ -1,4 +1,4 @@
-"""FIFO fair lock — prevents thread starvation under contention.
+"""FIFO fair lock - prevents thread starvation under contention.
 
 Python's ``threading.Lock()`` does not guarantee FIFO ordering, so a
 high-frequency thread can monopolize the lock while slower threads starve.
@@ -45,7 +45,7 @@ class FairLock:
             # Remove ourselves from the queue to avoid a dangling event.
             # Race: release() may have popped & signaled us between wait()
             # returning False and us acquiring _lock.  If so the event is
-            # now set and ownership has been handed to us — accept it.
+            # now set and ownership has been handed to us - accept it.
             with self._lock:
                 try:
                     self._queue.remove(event)

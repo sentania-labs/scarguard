@@ -50,7 +50,7 @@ class TestTestFireValidation:
     def test_rejects_nan(self, client, fake_redis) -> None:
         # JSON has no NaN; the route must reject if Python receives it.
         # We send the literal string "NaN" which is allowed by Python's
-        # json.loads by default — confirms the math.isnan() guard fires.
+        # json.loads by default - confirms the math.isnan() guard fires.
         resp = client.post(
             "/admin/deterrent/test-fire",
             content='{"device_id": "bf123", "duration_sec": NaN}',

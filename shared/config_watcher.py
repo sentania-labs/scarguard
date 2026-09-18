@@ -1,4 +1,4 @@
-"""Config file watcher — polls mtime and fires a callback on changes.
+"""Config file watcher - polls mtime and fires a callback on changes.
 
 Shared module used by both the detector and notifier services.
 """
@@ -68,9 +68,9 @@ class ConfigWatcher:
                     with self._path.open() as f:
                         new_cfg = yaml.safe_load(f)
                     if isinstance(new_cfg, dict):
-                        logger.info("Config changed — reloading")
+                        logger.info("Config changed - reloading")
                         self._on_change(new_cfg)
                     else:
-                        logger.warning("Config reload skipped — file did not parse to a dict")
+                        logger.warning("Config reload skipped - file did not parse to a dict")
                 except Exception:
-                    logger.exception("Config reload failed — keeping previous config")
+                    logger.exception("Config reload failed - keeping previous config")

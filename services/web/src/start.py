@@ -1,7 +1,7 @@
-"""ScarGuard web service — startup script.
+"""ScarGuard web service - startup script.
 
 Starts uvicorn on HTTP port 8080.  TLS termination is handled by the Caddy
-reverse proxy container — see the tls section in scarguard.yml.
+reverse proxy container - see the tls section in scarguard.yml.
 """
 
 import logging
@@ -13,7 +13,7 @@ import yaml
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
     stream=sys.stdout,
 )
 log = logging.getLogger("start")
@@ -38,7 +38,7 @@ def main() -> None:
     log_level = cfg.get("system", {}).get("log_level", "INFO")
     # v1.14: trust X-Forwarded-* headers only from the Docker bridge
     # ranges that Caddy actually lives on. Pre-v1.14 was "*" which was
-    # safe under the assumption "only Caddy can reach :8080" — but that
+    # safe under the assumption "only Caddy can reach :8080" - but that
     # assumption breaks the moment someone adds a port binding for
     # debugging or runs a second ingress. Override via env if your Docker
     # network uses non-default subnets.

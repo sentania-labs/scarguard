@@ -2,8 +2,8 @@
 
 The deterrent service fires physical devices (sprinklers, sirens) based on
 detection messages arriving over Redis pub/sub. Anything inside the
-internal Docker network — a compromised service, a future sidecar, a
-misconfigured container — can publish a fake detection and cause physical
+internal Docker network - a compromised service, a future sidecar, a
+misconfigured container - can publish a fake detection and cause physical
 actuation. Redis password auth gates Redis access itself; it does not
 authenticate individual publishers on the same bus.
 
@@ -82,7 +82,7 @@ def load_key_from_env(var_name: str = ENV_VAR) -> bytes | None:
     """Read and decode the HMAC key from the environment.
 
     The key is stored in ``.env`` as a base64-encoded 32-byte secret. A
-    missing or empty value returns ``None`` — callers should log a
+    missing or empty value returns ``None`` - callers should log a
     deprecation warning and fall back to accepting unsigned events for
     one release cycle.
     """
@@ -93,13 +93,13 @@ def load_key_from_env(var_name: str = ENV_VAR) -> bytes | None:
         key = base64.b64decode(raw, validate=True)
     except Exception:
         logger.error(
-            "%s is set but not valid base64 — treating as absent",
+            "%s is set but not valid base64 - treating as absent",
             var_name,
         )
         return None
     if len(key) < 16:
         logger.error(
-            "%s decodes to %d bytes (need >= 16) — treating as absent",
+            "%s decodes to %d bytes (need >= 16) - treating as absent",
             var_name, len(key),
         )
         return None

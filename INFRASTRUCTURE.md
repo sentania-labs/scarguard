@@ -1,4 +1,4 @@
-# ScarGuard — Infrastructure
+# ScarGuard: Infrastructure
 
 Doc last verified: 2026-09-09
 
@@ -14,7 +14,7 @@ scarguard/
 ├── .env.example
 ├── config/
 │   ├── scarguard.example.yml
-│   ├── Caddyfile.template           # REFERENCE ONLY — active Caddyfile is rendered by caddy-entrypoint.sh
+│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy-entrypoint.sh
 │   └── caddy-entrypoint.sh          # Reads tls/* from scarguard.yml, generates Caddyfile at runtime
 ├── services/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
@@ -131,7 +131,7 @@ scarguard/
 │   │   └── tests/
 │   ├── caddy/                       # Reverse proxy (TLS termination)
 │   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
-│   ├── log-streamer/                # Sidecar — tails Docker logs, publishes to Redis
+│   ├── log-streamer/                # Sidecar - tails Docker logs, publishes to Redis
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   ├── src/
@@ -167,8 +167,8 @@ scarguard/
 ## Container Base Images
 
 - **detector (Jetson):** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`docker-compose.gpu.yml` override).
-- **detector (x86):** `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`. The PyTorch tag is parameterized via `ARG PYTORCH_TAG` in `Dockerfile.x86` — override with `--build-arg PYTORCH_TAG=<tag>` to test a different version. Bump the default when cutting a release.
-- **web, notifier, deterrent, log-streamer, training-controller:** `python:3.11-slim` — no GPU needed.
+- **detector (x86):** `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`. The PyTorch tag is parameterized via `ARG PYTORCH_TAG` in `Dockerfile.x86`: override with `--build-arg PYTORCH_TAG=<tag>` to test a different version. Bump the default when cutting a release.
+- **web, notifier, deterrent, log-streamer, training-controller:** `python:3.11-slim`: no GPU needed.
 - **caddy:** `caddy:2-alpine` + Python for config parsing.
 - **redis:** `redis:7-alpine` (digest-pinned in `docker-compose.yml`).
 
@@ -206,7 +206,7 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 |--------|-----------|--------|---------|
 | `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
 | `scarguard-data` | detector, web, notifier, deterrent, trainer | rw (detector, web, deterrent, trainer), ro (notifier) | SQLite DBs, snapshots, training workspace and durable logs |
-| `scarguard-models` | detector, web, notifier | rw (web — model upload), ro (detector, notifier — storage size for digests) | YOLO model files (`.pt`, `.engine`) |
+| `scarguard-models` | detector, web, notifier | rw (web, model upload), ro (detector, notifier, storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
 | `scarguard-redis-data` | redis | rw | Redis persistence |
@@ -226,7 +226,7 @@ Docker access is mediated as follows (never mounted into web or trainer):
 
 ### Migrating from bind mounts (v0.7 and earlier)
 
-Installations that used `DATA_DIR` bind mounts can migrate to named volumes using the one-time `migrate-to-volumes.sh` script (not tracked in git — generate or download it for the upgrade).
+Installations that used `DATA_DIR` bind mounts can migrate to named volumes using the one-time `migrate-to-volumes.sh` script (not tracked in git, generate or download it for the upgrade).
 
 ## Container Registry
 
@@ -237,7 +237,7 @@ All application images pushed to **GitHub Container Registry (ghcr.io)**. Orin p
 ScarGuard works with any RTSP cameras and any Docker host with an NVIDIA GPU. The reference deployment uses:
 
 - **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7), hardwired into UniFi fabric
-- **Cameras:** 2x UniFi cameras (G3 Flex + G5 Flex) streaming RTSP — any RTSP camera works
+- **Cameras:** 2x UniFi cameras (G3 Flex + G5 Flex) streaming RTSP: any RTSP camera works
 - **Deterrence (future):** Physical deterrence hardware (solenoid valves, relays) will be managed by companion project "Scar's Revenge," which receives webhook notifications from ScarGuard
 - **Network:** Host and cameras on the same LAN with layer 2 connectivity to RTSP sources
 
@@ -293,28 +293,28 @@ benchmarks use the host Docker daemon.
 
 ### Orin GPU Lease (CI ↔ production coordination)
 
-The Orin's 8GB unified memory holds exactly one GPU workload: the live detector, a training run, or a CI inference benchmark — the `orin-nano` runner is the same box as production. CI GPU steps (build.yml and release.yml detector jobs) therefore take a lease via `.github/scripts/ci-gpu-lease.sh` before touching the GPU:
+The Orin's 8GB unified memory holds exactly one GPU workload: the live detector, a training run, or a CI inference benchmark, the `orin-nano` runner is the same box as production. CI GPU steps (build.yml and release.yml detector jobs) therefore take a lease via `.github/scripts/ci-gpu-lease.sh` before touching the GPU:
 
-1. **Acquire:** atomically claim the trainer heartbeat key (`SET NX EX 600`) — this waits out an active training run (up to 10 min, then fails with a re-run instruction) and blocks a new one from starting mid-benchmark; then pause the detector over the existing pause protocol (`shared/pause_protocol.py`) and wait for its ack.
+1. **Acquire:** atomically claim the trainer heartbeat key (`SET NX EX 600`): this waits out an active training run (up to 10 min, then fails with a re-run instruction) and blocks a new one from starting mid-benchmark; then pause the detector over the existing pause protocol (`shared/pause_protocol.py`) and wait for its ack.
 2. **Release** (`if: always()`): drop the claim, resume the detector. Never fails the job.
 
 Crash safety: the heartbeat key's TTL plus the detector's pause-timeout auto-resume guarantee a killed CI job cannot leave production paused. If the production stack (or detector) isn't running, acquire is a no-op. Redis access is via `docker exec` into the production redis container, so no Redis secret lives in CI.
 
-Additionally, PRs only run the Jetson detector job when they touch detector-relevant paths (`detector-paths` job in build.yml) **and** carry the `orin-maintenance-approved` label; the PR trainer-image job requires the same label. Pushes to main and releases always run them. The label gate exists because these jobs run on the controlled production Jetson — see `docs/training-remediation-validation.md` for when to apply it.
+Additionally, PRs only run the Jetson detector job when they touch detector-relevant paths (`detector-paths` job in build.yml) **and** carry the `orin-maintenance-approved` label; the PR trainer-image job requires the same label. Pushes to main and releases always run them. The label gate exists because these jobs run on the controlled production Jetson, see `docs/training-remediation-validation.md` for when to apply it.
 
 ### Build & Deploy Flow
 
 ```
-PR to main (ci.yml + build.yml — full validation)
+PR to main (ci.yml + build.yml - full validation)
   ├── GitHub-hosted ubuntu-latest (parallel):
   │   ├── Detect detector changes (git diff path filter)
-  │   ├── Lint (ruff — all services)
-  │   ├── Type check (mypy — web, notifier, deterrent)
-  │   ├── pytest — web
-  │   ├── pytest — notifier
-  │   ├── pytest — deterrent
-  │   └── pytest — training runtime (trainer + lifecycle controller,
-  │       fake children/cgroups/Docker backend — never touches the Orin)
+  │   ├── Lint (ruff - all services)
+  │   ├── Type check (mypy - web, notifier, deterrent)
+  │   ├── pytest - web
+  │   ├── pytest - notifier
+  │   ├── pytest - deterrent
+  │   └── pytest - training runtime (trainer + lifecycle controller,
+  │       fake children/cgroups/Docker backend - never touches the Orin)
   │
   ├── GitHub-hosted ubuntu-latest (parallel):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy
@@ -335,7 +335,7 @@ PR to main (ci.yml + build.yml — full validation)
   │
   └── Compose smoke test (after all builds pass)
 
-Merge to main (build.yml — cache warming only)
+Merge to main (build.yml - cache warming only)
   ├── ubuntu-latest: Multi-arch builds only (warms GHA build cache)
   └── Tests, Trivy, and compose smoke test are SKIPPED (passed on PR)
 
@@ -412,7 +412,7 @@ Defaults are sized for a Jetson Orin Nano:
 
 | Service | mem | cpus | notes |
 |---|---|---|---|
-| detector | 3 GB | 4.0 | largest footprint — model + OpenCV + torch runtime |
+| detector | 3 GB | 4.0 | largest footprint, model + OpenCV + torch runtime |
 | web | 512 MB | 1.0 | FastAPI + Jinja + CSP/HSTS middleware |
 | notifier | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
 | deterrent | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
@@ -449,17 +449,17 @@ schedule (default 24h), writing gzipped output to
 
 The backup volume is the same `scarguard-data` Docker volume that
 holds the source databases, so off-device replication is the
-operator's responsibility — see the `BACKUP.md` guidance on rsync /
+operator's responsibility, see the `BACKUP.md` guidance on rsync /
 rclone / NAS copy.
 
 ### Secret Rotation Playbook
 
 `/data/secret_key` (Fernet key used to encrypt sensitive YAML
-fields — Tuya creds, SMTP passwords, webhook URLs, ntfy tokens):
+fields, Tuya creds, SMTP passwords, webhook URLs, ntfy tokens):
 
 1. `docker compose stop web notifier deterrent`
 2. Back up the current config: copy `scarguard.yml` and
-   `/data/secret_key` somewhere safe — you can't decrypt existing
+   `/data/secret_key` somewhere safe, you can't decrypt existing
    fields once the key is replaced.
 3. Delete `/data/secret_key`. Start `web`; it will generate a new
    key on first boot.
@@ -474,7 +474,7 @@ is v1.15 work (tracked in ROADMAP.md).
 `TRAINING_CONTROLLER_TOKEN` (authenticates the allowlisted detector lifecycle
 API), and `REDIS_PASSWORD`:
 
-1. Regenerate in `.env` — either re-run `setup.sh` (backfill path)
+1. Regenerate in `.env`: either re-run `setup.sh` (backfill path)
    or edit the values directly. See `.env.example` for generation
    one-liners.
 2. `docker compose down && docker compose up -d`.

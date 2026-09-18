@@ -1,4 +1,4 @@
-"""Config backup manager — auto-backup and restore for scarguard.yml."""
+"""Config backup manager - auto-backup and restore for scarguard.yml."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ class ConfigBackupManager:
                 self._last_mtime_ns is not None
                 and current_mtime_ns != self._last_mtime_ns
             ):
-                # Config changed — wait for debounce period to catch rapid edits
+                # Config changed - wait for debounce period to catch rapid edits
                 self._stop.wait(self._debounce)
                 if self._stop.is_set():
                     break

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/restore-from-backup.sh — restore a SQLite DB from a v1.14 backup file.
+# scripts/restore-from-backup.sh - restore a SQLite DB from a v1.14 backup file.
 #
 # Stops the services that hold the target DB open, restores from the
 # named backup file (gunzipping if needed), and restarts. Run from the
@@ -11,7 +11,7 @@
 #   scripts/restore-from-backup.sh deterrent 2026-04-22T08-00-00.db.gz
 #
 # Backups live inside the scarguard-data named volume at
-# /data/backups/{db}/{filename} — list them with:
+# /data/backups/{db}/{filename} - list them with:
 #   docker compose run --rm --entrypoint sh backup -c 'ls -1 /data/backups/scarguard'
 
 set -euo pipefail
@@ -52,7 +52,7 @@ docker compose run --rm --entrypoint sh backup -c "
         cp '${TARGET}' '${TARGET}.pre-restore'
     fi
     if [ ! -f '${SOURCE}' ]; then
-        echo 'Backup file ${SOURCE} not found — listing available:'
+        echo 'Backup file ${SOURCE} not found - listing available:'
         ls -1 /data/backups/${DB_NAME}/ 2>/dev/null || echo '(no backups for ${DB_NAME})'
         exit 3
     fi
@@ -73,7 +73,7 @@ INTEGRITY_OUT=$(docker compose run --rm --entrypoint sh backup -c "
 " 2>&1) || true
 INTEGRITY_FIRST=$(echo "${INTEGRITY_OUT}" | head -1 | tr -d '\r')
 if [[ "${INTEGRITY_FIRST}" != "ok" ]]; then
-    echo "WARNING: integrity_check failed — restoring pre-restore backup"
+    echo "WARNING: integrity_check failed - restoring pre-restore backup"
     echo "    sqlite3 output: ${INTEGRITY_OUT}"
     docker compose run --rm --entrypoint sh backup -c "
         cp '${TARGET}.pre-restore' '${TARGET}'

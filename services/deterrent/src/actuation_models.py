@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
-# Config models — parsed from the ``deterrent`` section of scarguard.yml
+# Config models - parsed from the ``deterrent`` section of scarguard.yml
 # ---------------------------------------------------------------------------
 
 class TuyaCredentials(BaseModel):
@@ -38,7 +38,7 @@ class DeterrentGroup(BaseModel):
     A group references devices from the top-level ``deterrent.devices``
     registry by ``name``.  A device may appear in multiple groups.  Any of
     the *_range fields can be ``None`` (omitted) to inherit from
-    ``deterrent.defaults``.  ``cooldown_seconds`` is per-group — the global
+    ``deterrent.defaults``.  ``cooldown_seconds`` is per-group - the global
     ``deterrent.defaults.cooldown_seconds`` still gates cross-group repeats.
     """
 
@@ -68,7 +68,7 @@ class BatteryMonitorConfig(BaseModel):
 
 
 class ActuationConfig(BaseModel):
-    enabled: bool = False  # opt-in — disabled by default
+    enabled: bool = False  # opt-in - disabled by default
     tuya: TuyaCredentials | None = None
     devices: list[DeviceConfig] = []
     groups: list[DeterrentGroup] = []
@@ -82,7 +82,7 @@ class ActuationConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Event models — published to Redis ``scarguard:actuations``
+# Event models - published to Redis ``scarguard:actuations``
 # ---------------------------------------------------------------------------
 
 class DeviceAction(BaseModel):
@@ -93,13 +93,13 @@ class DeviceAction(BaseModel):
     delay_before_sec: float
     success: bool = False
     error: str | None = None
-    # v0.13.3 latency instrumentation — time from sending the ON command to
+    # v0.13.3 latency instrumentation - time from sending the ON command to
     # Tuya Cloud to receiving a success response.  None if the ON call
     # raised before returning.
     cloud_ack_ms: float | None = None
     # v1.14 OFF reliability instrumentation. ``off_attempts`` is total OFF
     # cloud calls (1 = first-try success, >1 = retries). ``stuck`` is True
-    # iff ON succeeded but every OFF attempt failed — device may be
+    # iff ON succeeded but every OFF attempt failed - device may be
     # physically still-on.
     off_attempts: int = 1
     stuck: bool = False

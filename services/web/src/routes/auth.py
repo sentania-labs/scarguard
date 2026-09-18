@@ -1,4 +1,4 @@
-"""Auth routes — login, logout, and first-run setup."""
+"""Auth routes - login, logout, and first-run setup."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def _read_bootstrap_token() -> str | None:
 def _consume_bootstrap_token() -> None:
     """Delete the bootstrap token file. Called after successful /setup.
 
-    Idempotent — missing file is not an error."""
+    Idempotent - missing file is not an error."""
     try:
         os.unlink(BOOTSTRAP_TOKEN_PATH)
         log.info("Bootstrap token consumed; /setup is now permanently closed")
@@ -242,7 +242,7 @@ async def setup_get(request: Request, token: str = "") -> Response:
     # If users already exist, the route is permanently closed.
     if auth_module.users_exist(AUTH_DB_PATH):
         return RedirectResponse("/login", status_code=302)
-    # Don't pre-validate the token at GET — showing the form with the
+    # Don't pre-validate the token at GET - showing the form with the
     # token-param-as-hidden-field lets the operator paste the full URL
     # once. Validation happens at POST time.
     return _render_setup(request, token=token)
@@ -256,7 +256,7 @@ async def setup_post(
     confirm_password: str = Form(...),
     token: str = Form(""),
 ) -> Response:
-    # Closed-route check — users exist.
+    # Closed-route check - users exist.
     if auth_module.users_exist(AUTH_DB_PATH):
         return RedirectResponse("/login", status_code=302)
 
@@ -271,7 +271,7 @@ async def setup_post(
         )
     if not hmac.compare_digest(token.strip(), expected):
         log.warning(
-            "/setup POST rejected — invalid bootstrap token (client=%s)",
+            "/setup POST rejected - invalid bootstrap token (client=%s)",
             request.client.host if request.client else "unknown",
         )
         return _render_setup(
@@ -296,7 +296,7 @@ async def setup_post(
     if _is_common_password(password):
         return _render_setup(
             request, token=token,
-            error="That password is too common — please pick a less predictable one.",
+            error="That password is too common - please pick a less predictable one.",
             status_code=400,
         )
     if password != confirm_password:
@@ -315,7 +315,7 @@ async def setup_post(
     finally:
         db.close()
 
-    # Consume the bootstrap token — /setup is now permanently closed.
+    # Consume the bootstrap token - /setup is now permanently closed.
     _consume_bootstrap_token()
 
     response = RedirectResponse("/", status_code=302)

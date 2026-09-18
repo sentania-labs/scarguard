@@ -344,7 +344,7 @@ class TestNtfyNotifier:
 
 class TestDispatchFiltering:
     def test_dispatch_suppresses_when_actions_triggered_none(self):
-        """actions_triggered=None means action rules exist but no match — send nothing."""
+        """actions_triggered=None means action rules exist but no match - send nothing."""
         from main import dispatch
 
         event = {**SAMPLE_EVENT, "actions_triggered": None}
@@ -354,7 +354,7 @@ class TestDispatchFiltering:
         n2.send.assert_not_called()
 
     def test_dispatch_notifies_all_when_actions_triggered_empty(self):
-        """actions_triggered=[] means no rules configured — notify all channels."""
+        """actions_triggered=[] means no rules configured - notify all channels."""
         from main import dispatch
 
         event = {**SAMPLE_EVENT, "actions_triggered": []}

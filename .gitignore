@@ -1,19 +1,19 @@
 # User-generated config (keep the example, ignore the live copy)
 config/scarguard.yml
 
-# Runtime data — snapshots, SQLite database
+# Runtime data - snapshots, SQLite database
 data/
 
-# Model files — large binaries not tracked in git
+# Model files - large binaries not tracked in git
 models/
 
-# Version file — generated at build time from git tag, not tracked
+# Version file - generated at build time from git tag, not tracked
 VERSION
 
 # Docker environment overrides
 .env
 
-# One-time migration script (not tracked — only needed for v0.7→v0.8 upgrade)
+# One-time migration script (not tracked - only needed for v0.7→v0.8 upgrade)
 migrate-to-volumes.sh
 
 # Python
@@ -34,7 +34,7 @@ build/
 # macOS
 .DS_Store
 
-# v0.12.7 PoC scratch — bench harness, results, throwaway diagnostics.
+# v0.12.7 PoC scratch - bench harness, results, throwaway diagnostics.
 # Not shipped to GHCR images; lives only in working tree.
 scratch/
 

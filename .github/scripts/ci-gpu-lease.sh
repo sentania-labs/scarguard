@@ -6,10 +6,10 @@
 # CI a proper tenant of the detector pause protocol (shared/pause_protocol.py)
 # instead of barging onto a busy GPU:
 #
-#   acquire — atomically claim the heartbeat key (waits out an active
+#   acquire - atomically claim the heartbeat key (waits out an active
 #             training run), pause the detector, wait for its ack.
-#   refresh — re-arm the heartbeat TTL mid-lease (long retry loops).
-#   release — resume the detector only if THIS run paused it, drop the
+#   refresh - re-arm the heartbeat TTL mid-lease (long retry loops).
+#   release - resume the detector only if THIS run paused it, drop the
 #             claim.  Never fails the job.
 #
 # Crash safety: the heartbeat key carries a TTL and the detector auto-resumes
@@ -30,7 +30,7 @@ HEARTBEAT_KEY="scarguard:trainer:heartbeat"
 
 TRAINER_WAIT_SECS=600  # give up if another tenant holds the GPU this long
 PAUSE_ACK_SECS=60      # detector normally acks a pause within seconds
-LEASE_TTL=600          # heartbeat TTL — detector auto-resumes if CI dies
+LEASE_TTL=600          # heartbeat TTL - detector auto-resumes if CI dies
 PAUSE_TIMEOUT=1800     # detector-side ceiling on the pause itself
 
 # The Orin hosts exactly one compose stack; if that ever changes, add a
@@ -38,7 +38,7 @@ PAUSE_TIMEOUT=1800     # detector-side ceiling on the pause itself
 RID="$(docker ps -q --filter label=com.docker.compose.service=redis | head -n1)"
 
 if [ -z "$RID" ]; then
-  echo "No scarguard redis container running — production stack is down, GPU is free."
+  echo "No scarguard redis container running - production stack is down, GPU is free."
   exit 0
 fi
 
@@ -62,10 +62,10 @@ case "$ACTION" in
     # pause ack) sends us back to waiting rather than failing the job.
     deadline=$(( $(date +%s) + TRAINER_WAIT_SECS ))
     while :; do
-      # Phase 1 — claim.  SET NX fails while a training run (or another CI
+      # Phase 1 - claim.  SET NX fails while a training run (or another CI
       # job) holds the heartbeat key.
       if [ "$(rcli SET "$HEARTBEAT_KEY" "$REQUEST_ID" NX EX "$LEASE_TTL")" != "OK" ]; then
-        echo "GPU lease busy (holder: $(rcli GET "$HEARTBEAT_KEY" || true)) — retrying in 30s"
+        echo "GPU lease busy (holder: $(rcli GET "$HEARTBEAT_KEY" || true)) - retrying in 30s"
         sleep 30
       elif state="$(rcli GET "$STATE_KEY" || true)" \
           && echo "$state" | grep -q '"state": "paused"' && ! we_paused; then
@@ -75,17 +75,17 @@ case "$ACTION" in
         # before writing its first heartbeat.  Wait one trainer heartbeat
         # interval to tell them apart: a live trainer's plain SET overwrites
         # our claim.
-        echo "Detector paused under a foreign request id — checking for a live holder (35s)..."
+        echo "Detector paused under a foreign request id - checking for a live holder (35s)..."
         sleep 35
         if [ "$(rcli GET "$HEARTBEAT_KEY" || true)" = "$REQUEST_ID" ]; then
-          echo "Stale pause (holder crashed) — taking over the lease; GPU is already free."
+          echo "Stale pause (holder crashed) - taking over the lease; GPU is already free."
           exit 0
         fi
-        echo "A live trainer reclaimed the lease — waiting."
+        echo "A live trainer reclaimed the lease - waiting."
       else
-        # Phase 2 — pause the detector and wait for its ack (drain + model
+        # Phase 2 - pause the detector and wait for its ack (drain + model
         # unload takes a few seconds).  PUBLISH returns the subscriber
-        # count — zero means no detector is listening and the GPU is already
+        # count - zero means no detector is listening and the GPU is already
         # free.  The command is re-published every poll round: a pause that
         # raced an auto-resume is silently ignored by the detector, and
         # re-sending converges.
@@ -94,21 +94,21 @@ case "$ACTION" in
         while :; do
           subs="$(rcli PUBLISH "$COMMAND_CHANNEL" "{\"action\": \"pause\", \"request_id\": \"$REQUEST_ID\", \"timeout\": $PAUSE_TIMEOUT}")"
           if [ "$subs" = "0" ]; then
-            echo "No detector subscribed on $COMMAND_CHANNEL — nothing to pause."
+            echo "No detector subscribed on $COMMAND_CHANNEL - nothing to pause."
             exit 0
           fi
           for _ in 1 2 3 4 5; do
             if we_paused; then
-              echo "Detector paused — GPU released for CI."
+              echo "Detector paused - GPU released for CI."
               exit 0
             fi
             sleep 2
           done
           if [ "$(date +%s)" -ge "$ack_deadline" ]; then
-            # A trainer that paused concurrently owns the key now — its
+            # A trainer that paused concurrently owns the key now - its
             # heartbeat must survive, and we go back to waiting it out.
             if [ "$(rcli GET "$HEARTBEAT_KEY" || true)" != "$REQUEST_ID" ]; then
-              echo "Lease reclaimed by a trainer during the pause wait — back to waiting."
+              echo "Lease reclaimed by a trainer during the pause wait - back to waiting."
               break
             fi
             rcli DEL "$HEARTBEAT_KEY" > /dev/null || true
@@ -118,7 +118,7 @@ case "$ACTION" in
         done
       fi
       if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "::error::GPU lease held by '$(rcli GET "$HEARTBEAT_KEY" || true)' for over ${TRAINER_WAIT_SECS}s (training run?) — re-run this job once it finishes."
+        echo "::error::GPU lease held by '$(rcli GET "$HEARTBEAT_KEY" || true)' for over ${TRAINER_WAIT_SECS}s (training run?) - re-run this job once it finishes."
         exit 1
       fi
     done
@@ -146,7 +146,7 @@ case "$ACTION" in
     # request id, or a stale pause we took over (we held the heartbeat while
     # the state carried a dead requester's id).  Resuming unconditionally
     # would restart the detector under a live training run whenever acquire
-    # timed out waiting for it — detector + training on the GPU together is
+    # timed out waiting for it - detector + training on the GPU together is
     # the OOM this lease exists to prevent.
     if echo "$state" | grep -q '"state": "paused"' \
         && { echo "$state" | grep -q "\"request_id\": \"$REQUEST_ID\"" || [ "$holder" = "$REQUEST_ID" ]; }; then
@@ -158,9 +158,9 @@ case "$ACTION" in
         fi
         sleep 2
       done
-      echo "::warning::Detector did not confirm resume — the heartbeat TTL will auto-resume it."
+      echo "::warning::Detector did not confirm resume - the heartbeat TTL will auto-resume it."
     else
-      echo "This run does not hold the detector pause — leaving its state alone."
+      echo "This run does not hold the detector pause - leaving its state alone."
     fi
     exit 0
     ;;

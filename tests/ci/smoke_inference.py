@@ -33,10 +33,10 @@ print(f"CUDA:     {cuda}")
 if gpu_name:
     print(f"GPU:      {gpu_name}")
 
-# Download yolov8n (~6 MB) — same starter model used by setup.sh
+# Download yolov8n (~6 MB) - same starter model used by setup.sh
 model = YOLO("yolov8n.pt")
 
-# Synthetic frames — deterministic shape, no network download needed
+# Synthetic frames - deterministic shape, no network download needed
 frames = [
     np.random.randint(0, 255, (FRAME_HEIGHT, FRAME_WIDTH, 3), dtype=np.uint8)
     for _ in range(NUM_FRAMES)

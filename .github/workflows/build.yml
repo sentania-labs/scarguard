@@ -4,16 +4,16 @@ name: Build
 # Catches Dockerfile / dependency issues before they block a release.
 #
 # PR runs (full validation):
-#   1. Multi-arch build (amd64 + arm64) — validates Dockerfiles
-#   2. Single-arch load (amd64) — loads images for testing and scanning
-#   3. Container pytest — runs tests inside built images to catch import/dep issues
-#   4. Trivy scan — fails on CRITICAL/HIGH CVEs with known fixes
+#   1. Multi-arch build (amd64 + arm64) - validates Dockerfiles
+#   2. Single-arch load (amd64) - loads images for testing and scanning
+#   3. Container pytest - runs tests inside built images to catch import/dep issues
+#   4. Trivy scan - fails on CRITICAL/HIGH CVEs with known fixes
 #
 # Main-push runs (cache only):
-#   1. Multi-arch build only — warms the GHA build cache for future PRs
+#   1. Multi-arch build only - warms the GHA build cache for future PRs
 #   Tests, Trivy, and compose smoke test are skipped (already passed on the PR).
 #
-# Images are built but NOT pushed — this is a build-only validation.
+# Images are built but NOT pushed - this is a build-only validation.
 # Versioned releases and GHCR pushes are handled by release.yml.
 
 on:
@@ -25,7 +25,7 @@ on:
 
 # Default token scope: read-only. Per-job permissions blocks below add the
 # minimum extras (packages: read for cache, security-events: write for SARIF).
-# No job in this workflow pushes images — that's release.yml.
+# No job in this workflow pushes images - that's release.yml.
 permissions:
   contents: read
 
@@ -33,7 +33,7 @@ jobs:
 
   # ── Detect detector-relevant changes (PR only) ──────────────────────────────
   # The Jetson detector job builds on the Orin and runs a GPU benchmark on the
-  # production box.  Most PRs don't touch the detector at all — skip the whole
+  # production box.  Most PRs don't touch the detector at all - skip the whole
   # job for those so CI never contends with the live detector or a training
   # run unnecessarily (GPU OOM incident, PR #170 first run, 2026-07-14).
   detector-paths:
@@ -98,7 +98,7 @@ jobs:
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
 
-      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      # ── Test + scan (PR only - main push only warms build cache) ──────────
       # Single-platform build loaded into local Docker for testing and Trivy
       # scanning.  Uses the default docker driver (not buildx) to avoid
       # BuildKit's persistent layer cache on self-hosted runners, which can
@@ -114,10 +114,10 @@ jobs:
             --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
             .
 
-      # Trivy first — fail fast on CVEs before spending time on container tests.
-      - name: Trivy scan — web
+      # Trivy first - fail fast on CVEs before spending time on container tests.
+      - name: Trivy scan - web
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-web:test-${{ github.run_id }}
           format: table
@@ -178,7 +178,7 @@ jobs:
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
 
-      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      # ── Test + scan (PR only - main push only warms build cache) ──────────
       - name: Build notifier (amd64, load for test)
         if: github.event_name != 'push'
         run: |
@@ -198,9 +198,9 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
-      - name: Trivy scan — notifier
+      - name: Trivy scan - notifier
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-notifier:test-${{ github.run_id }}
           format: table
@@ -246,7 +246,7 @@ jobs:
           cache-from: type=gha,scope=deterrent
           cache-to: type=gha,scope=deterrent,mode=max
 
-      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      # ── Test + scan (PR only - main push only warms build cache) ──────────
       - name: Build deterrent (amd64, load for test)
         if: github.event_name != 'push'
         run: |
@@ -266,9 +266,9 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
-      - name: Trivy scan — deterrent
+      - name: Trivy scan - deterrent
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-deterrent:test-${{ github.run_id }}
           format: table
@@ -314,7 +314,7 @@ jobs:
           cache-from: type=gha,scope=backup
           cache-to: type=gha,scope=backup,mode=max
 
-      # ── Test + scan (PR only — main push only warms build cache) ──────────
+      # ── Test + scan (PR only - main push only warms build cache) ──────────
       - name: Build backup (amd64, load for test)
         if: github.event_name != 'push'
         run: |
@@ -334,9 +334,9 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
-      - name: Trivy scan — backup
+      - name: Trivy scan - backup
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-backup:test-${{ github.run_id }}
           format: table
@@ -420,9 +420,9 @@ jobs:
             --file services/log-streamer/Dockerfile \
             .
 
-      - name: Trivy scan — log-streamer
+      - name: Trivy scan - log-streamer
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-log-streamer:test-${{ github.run_id }}
           format: table
@@ -480,9 +480,9 @@ jobs:
             --file services/training-controller/Dockerfile \
             .
 
-      - name: Trivy scan — training-controller
+      - name: Trivy scan - training-controller
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-training-controller:test-${{ github.run_id }}
           format: table
@@ -495,8 +495,8 @@ jobs:
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-training-controller:test-${{ github.run_id }} || true
 
-  # ── Build trainer — Jetson/L4T (Orin runner, ARM64) ──────────────────────────
-  # Same L4T base as detector — ARM64 only, no x86 variant.  The
+  # ── Build trainer - Jetson/L4T (Orin runner, ARM64) ──────────────────────────
+  # Same L4T base as detector - ARM64 only, no x86 variant.  The
   # orin-maintenance-approved gate was dropped with the move off the Jetson:
   # its only justification was that this job ran on the controlled production
   # host, so keeping it here would silently skip trainer validation on every
@@ -535,7 +535,7 @@ jobs:
         if: always()
         run: docker rmi scarguard-trainer:build-validate-${{ github.run_id }} || true
 
-  # ── Build detector — Jetson/L4T (Orin runner, ARM64) ─────────────────────────
+  # ── Build detector - Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   # PRs run this only when they touch detector-relevant paths AND a captain-
   # approved maintenance window is recorded with the
   # `orin-maintenance-approved` label. Pushes to main retain the release-line
@@ -578,7 +578,7 @@ jobs:
             scarguard-detector:build-validate-${{ github.run_id }} \
             python3 -c "
           import torch
-          assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
+          assert torch.cuda.is_available(), 'CUDA not available - check NVIDIA runtime'
           print(f'GPU:  {torch.cuda.get_device_name(0)}')
           print(f'SM:   {torch.cuda.get_device_capability(0)}')
           print(f'CUDA: {torch.version.cuda}')
@@ -590,7 +590,7 @@ jobs:
       # daemon-topology independent.
       - name: Inference benchmark (GPU)
         run: |
-          # Retry with backoff — absorbs transient memory pressure right
+          # Retry with backoff - absorbs transient memory pressure right
           # after a detector model unload (unified memory frees lazily).
           rc=1
           for attempt in 1 2 3; do
@@ -614,7 +614,7 @@ jobs:
         if: always()
         run: docker rmi scarguard-detector:build-validate-${{ github.run_id }} || true
 
-  # ── Build detector — x86 CUDA+CPU (x86 runner) ─────────────────────────────
+  # ── Build detector - x86 CUDA+CPU (x86 runner) ─────────────────────────────
   build-detector-x86:
     name: Build detector image (x86)
     runs-on: ubuntu-latest
@@ -631,7 +631,7 @@ jobs:
             --tag scarguard-detector-x86:build-validate-${{ github.run_id }} \
             .
 
-      # Uses docker create + cp instead of bind mounts — see comment on Jetson job.
+      # Uses docker create + cp instead of bind mounts - see comment on Jetson job.
       - name: Inference benchmark (CPU)
         if: github.event_name != 'push'
         run: |
@@ -642,9 +642,9 @@ jobs:
           docker rm "$cid" > /dev/null
           exit $rc
 
-      - name: Trivy scan — detector-x86
+      - name: Trivy scan - detector-x86
         if: github.event_name != 'push'
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH — was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
         with:
           image-ref: scarguard-detector-x86:build-validate-${{ github.run_id }}
           format: table
@@ -652,7 +652,7 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           # pytorch base image is ~5GB; disable secret scanner to avoid timeout
-          # severity limited to CRITICAL — base image carries dozens of HIGH
+          # severity limited to CRITICAL - base image carries dozens of HIGH
           # Ubuntu kernel CVEs we cannot fix; only block on actionable findings
           scanners: vuln
           # 20m hit "context deadline exceeded" on this image; scan takes 20m+

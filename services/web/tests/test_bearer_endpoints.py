@@ -1,9 +1,9 @@
-"""Bearer-auth CI sweep — verify every Bearer-accessible endpoint returns non-401.
+"""Bearer-auth CI sweep - verify every Bearer-accessible endpoint returns non-401.
 
 Enumerates the endpoints documented in the README's "Key endpoints available
 with Bearer auth" section and confirms:
   1. A valid Bearer token yields a non-401 response (200, 500, etc. are all
-     acceptable — the test is about the auth gate, not the endpoint logic).
+     acceptable - the test is about the auth gate, not the endpoint logic).
   2. A missing token yields 401 (confirms auth is actually enforced).
 
 SSE stream endpoints use ``stream=True`` so the test reads the status code
@@ -148,16 +148,16 @@ def bearer_client(monkeypatch):
 # ── Endpoint catalogue ───────────────────────────────────────────────────────
 #
 # From the README "Key endpoints available with Bearer auth":
-#   /events           — detection event log
-#   /config           — read or update system configuration
-#   /about            — version, build date, component health
-#   /events/stream    — SSE stream of live detection events
-#   /admin/stats/stream — SSE stream of system resource metrics
-#   /admin/logs/stream  — SSE stream of service logs
+#   /events           - detection event log
+#   /config           - read or update system configuration
+#   /about            - version, build date, component health
+#   /events/stream    - SSE stream of live detection events
+#   /admin/stats/stream - SSE stream of system resource metrics
+#   /admin/logs/stream  - SSE stream of service logs
 #
-# /health is public (no auth required) — tested separately.
+# /health is public (no auth required) - tested separately.
 #
-# SSE endpoints return StreamingResponse — the test client must use
+# SSE endpoints return StreamingResponse - the test client must use
 # ``stream=True`` and close the connection after reading the status code,
 # otherwise the test hangs forever waiting for the generator to finish.
 
@@ -222,7 +222,7 @@ class TestBearerAuthAccepted:
                 f"{method} {path} returned 401 with a valid Bearer token"
             )
         # Timeout without a response means the SSE generator started
-        # streaming (auth passed) — that's a pass.
+        # streaming (auth passed) - that's a pass.
 
 
 class TestBearerAuthEnforced:

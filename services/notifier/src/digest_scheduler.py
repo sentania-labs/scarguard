@@ -1,4 +1,4 @@
-"""Digest scheduler — fires periodic digest report generation and dispatch."""
+"""Digest scheduler - fires periodic digest report generation and dispatch."""
 
 import logging
 import threading
@@ -60,7 +60,7 @@ class DigestScheduler:
                 self._frequency, self._time_str, ", ".join(self._channels),
             )
         elif self._enabled:
-            logger.warning("Digest enabled but no channels configured — digest will not send")
+            logger.warning("Digest enabled but no channels configured - digest will not send")
         else:
             logger.info("Digest scheduler disabled")
 
@@ -112,7 +112,7 @@ class DigestScheduler:
         if now.time() < scheduled:
             return
 
-        # Fire — only mark as sent if dispatch succeeds
+        # Fire - only mark as sent if dispatch succeeds
         if self._send_digest(frequency, channels):
             self._last_sent_date = today
 
@@ -136,5 +136,5 @@ class DigestScheduler:
             logger.info("Digest report dispatched to: %s", ", ".join(channels))
             return True
         except Exception:
-            logger.exception("Failed to generate/dispatch digest report — will retry next tick")
+            logger.exception("Failed to generate/dispatch digest report - will retry next tick")
             return False

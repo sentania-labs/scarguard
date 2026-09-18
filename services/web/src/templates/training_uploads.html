@@ -25,7 +25,7 @@
       <div class="field-group">
         <label>Detector model <span class="muted">(blank = live detector default)</span></label>
         <select name="detector_model">
-          <option value="">— Use live detector default —</option>
+          <option value="">- Use live detector default -</option>
           {% for m in available_models %}
           <option value="{{ m }}">{{ m }}</option>
           {% endfor %}
@@ -37,7 +37,7 @@
       </div>
     </div>
     <button type="submit" class="btn">Upload</button>
-    <p class="hint">All fields except the file are optional — edit them inline on the row below after upload.</p>
+    <p class="hint">All fields except the file are optional - edit them inline on the row below after upload.</p>
   </form>
 </section>
 {% endif %}

@@ -1,4 +1,4 @@
-"""YOLO model wrapper — loads .pt or .engine files and runs inference."""
+"""YOLO model wrapper - loads .pt or .engine files and runs inference."""
 
 import logging
 from dataclasses import dataclass
@@ -69,7 +69,7 @@ class YOLODetector:
         If *target_classes* is provided it overrides the instance-level filter,
         allowing cameras that share a model to detect different class subsets.
         If *confidence* is provided it overrides the instance-level
-        confidence_threshold for this call only — enables per-camera
+        confidence_threshold for this call only - enables per-camera
         confidence tuning on a shared detector.
         """
         conf = confidence if confidence is not None else self.confidence_threshold
@@ -84,7 +84,7 @@ class YOLODetector:
             # existing predict{N} via os.path.exists() to find the next free
             # integer.  Under sustained load the directory count grows without
             # bound and each predict() call becomes O(N) in filesystem syscalls.
-            # (We hit this in production — see docs/archive/INFERENCE_INVESTIGATION.md.)
+            # (We hit this in production - see docs/archive/INFERENCE_INVESTIGATION.md.)
             # exist_ok=True makes increment_path reuse /tmp/runs/predict and
             # short-circuits the scan loop on the very first iteration.
             results = self._model.predict(

@@ -66,7 +66,7 @@ class ActivationResult:
 
     @property
     def stuck(self) -> bool:
-        """ON succeeded but OFF didn't — device may be physically stuck on."""
+        """ON succeeded but OFF didn't - device may be physically stuck on."""
         return self.on_success and self.off_success is False
 
 
@@ -84,7 +84,7 @@ class TuyaCloudController:
             apiSecret=api_secret,
         )
         self._lock = threading.Lock()
-        # Busy tracking — device_id → True while activate_device is running for
+        # Busy tracking - device_id → True while activate_device is running for
         # that device. Consulted by the reconciliation loop so it doesn't
         # race a legitimate in-flight actuation.
         self._busy_lock = threading.Lock()
@@ -95,7 +95,7 @@ class TuyaCloudController:
         """Return the DP code to use for on/off toggling."""
         return device.dp_code or _DEFAULT_DP_CODES.get(device.type, "switch_1")
 
-    # Back-compat alias — older callers may still use the underscore name.
+    # Back-compat alias - older callers may still use the underscore name.
     _dp_code_for = dp_code_for
 
     def is_device_busy(self, device_id: str) -> bool:
@@ -114,7 +114,7 @@ class TuyaCloudController:
         value = status.get(dp)
         if value is None:
             # Fallback: many Tuya SKUs report switch state under a handful of
-            # aliases — try the common ones before giving up.
+            # aliases - try the common ones before giving up.
             for alias in ("switch_1", "switch", "switch_led"):
                 if alias in status:
                     value = status[alias]
@@ -187,7 +187,7 @@ class TuyaCloudController:
             if not result.get("success"):
                 msg = f"ON failed: {result}"
                 logger.error(
-                    "Device %s (%s) — %s [rid=%s type=%s]",
+                    "Device %s (%s) - %s [rid=%s type=%s]",
                     device.name, device.device_id, msg, request_id, event_type,
                 )
                 return ActivationResult(
@@ -201,7 +201,7 @@ class TuyaCloudController:
         except Exception as exc:
             msg = f"ON exception: {exc}"
             logger.error(
-                "Device %s (%s) — %s [rid=%s type=%s]",
+                "Device %s (%s) - %s [rid=%s type=%s]",
                 device.name, device.device_id, msg, request_id, event_type,
             )
             return ActivationResult(
@@ -209,7 +209,7 @@ class TuyaCloudController:
                 on_ack_ms=None, off_attempts=0,
             )
 
-        # Watchdog — unconditional OFF at MAX_ACTUATION_SEC from ON send.
+        # Watchdog - unconditional OFF at MAX_ACTUATION_SEC from ON send.
         # Belt-and-suspenders: if the OFF path below succeeds cleanly we
         # cancel this; if the thread dies, hangs, or the OFF retry budget
         # is exhausted without success, the watchdog still forces OFF.
@@ -249,11 +249,11 @@ class TuyaCloudController:
         *,
         request_id: str | None = None,
     ) -> tuple[bool, str | None]:
-        """Send OFF to *device* with retries — used by the reconciliation loop
+        """Send OFF to *device* with retries - used by the reconciliation loop
         and the admin emergency-off endpoint.
 
         Returns ``(ok, error_message)``. Unlike :meth:`activate_device`,
-        this does not start a watchdog — the caller invokes it precisely
+        this does not start a watchdog - the caller invokes it precisely
         to recover from a stuck state.
         """
         dp_code = self._dp_code_for(device)
@@ -297,7 +297,7 @@ class TuyaCloudController:
             except Exception as exc:
                 last_error = f"OFF exception: {exc}"
             logger.error(
-                "Device %s OFF attempt %d/%d failed — %s [rid=%s]",
+                "Device %s OFF attempt %d/%d failed - %s [rid=%s]",
                 device.name, attempts, total_attempts, last_error, request_id,
             )
 
@@ -312,7 +312,7 @@ class TuyaCloudController:
         """Fires MAX_ACTUATION_SEC after ON send if the normal OFF path hasn't
         cancelled the timer. Unconditional force-OFF backstop."""
         logger.critical(
-            "WATCHDOG — device %s (%s) exceeded %.1fs — forcing OFF [rid=%s]",
+            "WATCHDOG - device %s (%s) exceeded %.1fs - forcing OFF [rid=%s]",
             device.name, device.device_id, MAX_ACTUATION_SEC, request_id,
         )
         try:

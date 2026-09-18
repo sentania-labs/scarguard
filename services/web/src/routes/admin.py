@@ -1,4 +1,4 @@
-"""Admin routes — service log viewer and config backup management."""
+"""Admin routes - service log viewer and config backup management."""
 
 import json
 import logging
@@ -22,7 +22,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 SERVICES = ["detector", "notifier", "deterrent", "web", "caddy", "trainer", "backup"]
 
-# Redis key prefixes — must match log-streamer sidecar constants.
+# Redis key prefixes - must match log-streamer sidecar constants.
 _CHANNEL_PREFIX = "scarguard:logs:"
 _BUFFER_PREFIX = "scarguard:logs:buffer:"
 _BUFFER_ENTRY_MARKER = "scarguard-log-buffer-v1"
@@ -69,7 +69,7 @@ async def logs_stream(
     service: str = "detector",
     tail: int = 500,
 ) -> Response:
-    """SSE endpoint — streams log lines from the log-streamer sidecar via Redis."""
+    """SSE endpoint - streams log lines from the log-streamer sidecar via Redis."""
     gate = require_viewer(request, is_api=True)
     if not isinstance(gate, dict):
         return gate
@@ -89,7 +89,7 @@ async def logs_stream(
                 if not lines:
                     yield (
                         "data: [ScarGuard] No log history available yet "
-                        "— waiting for live lines from log-streamer sidecar...\n\n"
+                        "- waiting for live lines from log-streamer sidecar...\n\n"
                     )
                 else:
                     for raw_entry in reversed(lines):

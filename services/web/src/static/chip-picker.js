@@ -1,4 +1,4 @@
-/* ScarGuard — chip-picker.js
+/* ScarGuard - chip-picker.js
  *
  * A small dependency-free type-ahead token input.  Replaces a plain
  * `<input type="text">` in-place with:
@@ -28,7 +28,7 @@
  *     singleValue: false,              // true = at most one chip
  *     placeholder: "Type a channel name…",
  *     alwaysAvailable: ["*"],          // values not in registry but always valid
- *     readValues: function() { ... }   // optional — re-read values on render
+ *     readValues: function() { ... }   // optional - re-read values on render
  *   });
  *
  *   picker.refresh();                  // re-render (e.g. after registry change)
@@ -91,7 +91,7 @@ window.ChipPicker = (function() {
         chip.innerHTML = _esc(v)
           + ' <button type="button" class="chip-picker-x" aria-label="Remove">✕</button>';
         if (!known) {
-          chip.title = "Not in registry — will not match anything at runtime";
+          chip.title = "Not in registry - will not match anything at runtime";
         }
         chipsEl.appendChild(chip);
       });
@@ -134,7 +134,7 @@ window.ChipPicker = (function() {
         dropEl.appendChild(li);
       });
 
-      // "+ Create" escape hatch — only when nothing matched exactly and
+      // "+ Create" escape hatch - only when nothing matched exactly and
       // allowCreate is enabled.
       var trimmed = (q || "").trim();
       var exact = matches.indexOf(trimmed) >= 0;
@@ -181,7 +181,7 @@ window.ChipPicker = (function() {
       var dropdownWasOpen = dropEl.style.display !== "none";
       values.splice(idx, 1);
       _renderChips();
-      // Only re-render the dropdown if the user already had it open —
+      // Only re-render the dropdown if the user already had it open -
       // clicking ✕ on a chip shouldn't pop a closed dropdown back open.
       if (dropdownWasOpen) _renderDropdown();
       _emit();
@@ -234,7 +234,7 @@ window.ChipPicker = (function() {
         var dropdownWasOpen = dropEl.style.display !== "none";
         _renderChips();
         // Background registry refreshes (async class-list fetch, channel
-        // mutation observer) shouldn't pop the dropdown open — only
+        // mutation observer) shouldn't pop the dropdown open - only
         // re-render if the user already had it open.
         if (dropdownWasOpen) _renderDropdown();
       },

@@ -45,7 +45,7 @@
     {% endif %}
     <a href="/about">About</a>
     {% if _user %}
-    <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ _user.username }}{% if _is_viewer %} <span class="role-badge role-badge--viewer" title="Read-only admin — cannot make changes or see plaintext secrets">VIEWER</span>{% elif _role == 'user' %} <span class="role-badge role-badge--user" title="Regular user — can view dashboard and disarm">USER</span>{% endif %}</span>
+    <span class="muted" style="font-size:0.85rem;margin-left:auto;">{{ _user.username }}{% if _is_viewer %} <span class="role-badge role-badge--viewer" title="Read-only admin - cannot make changes or see plaintext secrets">VIEWER</span>{% elif _role == 'user' %} <span class="role-badge role-badge--user" title="Regular user - can view dashboard and disarm">USER</span>{% endif %}</span>
     <form method="post" action="/logout" style="margin:0;">
       <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
       <button type="submit" style="background:none;border:1px solid var(--border);color:var(--muted);padding:0.25em 0.7em;font-size:0.8rem;">Logout</button>

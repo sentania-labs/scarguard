@@ -1,4 +1,4 @@
-"""ScarGuard deterrent — subscribes to Redis detections and triggers Tuya devices."""
+"""ScarGuard deterrent - subscribes to Redis detections and triggers Tuya devices."""
 
 import json
 import logging
@@ -73,13 +73,13 @@ def _decrypt_secrets(cfg: dict[str, Any]) -> None:
     try:
         secret_box.decrypt_in_place(cfg, key)
     except secret_box.SecretKeyMissing:
-        logger.error("Failed to decrypt deterrent secrets — wrong key on disk?")
+        logger.error("Failed to decrypt deterrent secrets - wrong key on disk?")
 
 
 def setup_logging(log_level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
 
@@ -104,7 +104,7 @@ def build_controller(act_cfg: ActuationConfig) -> TuyaCloudController | None:
 
 
 # ---------------------------------------------------------------------------
-# Worker thread — processes events sequentially (tinytuya.Cloud isn't
+# Worker thread - processes events sequentially (tinytuya.Cloud isn't
 # documented as thread-safe, and actuation sequences are inherently serial).
 # ---------------------------------------------------------------------------
 
@@ -146,7 +146,7 @@ def _fire_group(
     group_devices = _resolve_group_devices(group, act_cfg.devices)
     if not group_devices:
         logger.warning(
-            "Group %r has no enabled devices resolvable from registry — skipping",
+            "Group %r has no enabled devices resolvable from registry - skipping",
             group.name,
         )
         return False
@@ -161,7 +161,7 @@ def _fire_group(
     confidence = event.get("confidence", 0.0)
     request_id = uuid.uuid4().hex[:16]
     logger.info(
-        "Firing group [%s]: %s from %s (conf=%.2f) — %d device(s) [rid=%s]",
+        "Firing group [%s]: %s from %s (conf=%.2f) - %d device(s) [rid=%s]",
         group.name, class_name, camera_name, confidence, len(selected), request_id,
     )
 
@@ -177,7 +177,7 @@ def _fire_group(
             logger.debug("Inter-device delay: %.1fs", inter_delays[i])
             time.sleep(inter_delays[i])
 
-        # Defence-in-depth clamp — the randomizer reads spray_duration_range
+        # Defence-in-depth clamp - the randomizer reads spray_duration_range
         # from config; a misconfigured or tampered config can't drive the
         # physical hold beyond MAX_ACTUATION_SEC. The controller clamps too.
         duration = clamp_duration(
@@ -294,10 +294,10 @@ def _worker(
 
     while True:
         event = event_queue.get()
-        if event is None:  # poison pill — shutdown
+        if event is None:  # poison pill - shutdown
             break
 
-        # Latency instrumentation — dequeue moment.
+        # Latency instrumentation - dequeue moment.
         dequeue_ts = time.time()
         queue_depth = event_queue.qsize()
         event_ts = _parse_event_timestamp(event)
@@ -315,13 +315,13 @@ def _worker(
 
         # Gate checks
         if not act_cfg.enabled:
-            logger.debug("Actuation disabled — ignoring event")
+            logger.debug("Actuation disabled - ignoring event")
             continue
         if not armed_ref.get():
-            logger.debug("System disarmed — ignoring event")
+            logger.debug("System disarmed - ignoring event")
             continue
         if controller is None:
-            logger.warning("No Tuya credentials configured — cannot actuate")
+            logger.warning("No Tuya credentials configured - cannot actuate")
             continue
 
         # Explicit-opt-in per v0.13.3: only fire groups named in matched_groups.
@@ -329,7 +329,7 @@ def _worker(
         matched_groups = event.get("matched_groups") or []
         if not isinstance(matched_groups, list) or not matched_groups:
             logger.debug(
-                "Event from %s has no matched deterrent groups — skipping",
+                "Event from %s has no matched deterrent groups - skipping",
                 event.get("camera_name", "unknown"),
             )
             continue
@@ -339,7 +339,7 @@ def _worker(
         if not cooldown.is_clear(global_cd):
             remaining = cooldown.seconds_remaining(global_cd)
             logger.info(
-                "Global cooldown active (%.0fs remaining) — skipping event",
+                "Global cooldown active (%.0fs remaining) - skipping event",
                 remaining,
             )
             continue
@@ -352,7 +352,7 @@ def _worker(
             group = groups_by_name.get(group_name)
             if group is None:
                 logger.warning(
-                    "Matched group %r not found in deterrent.groups — skipping",
+                    "Matched group %r not found in deterrent.groups - skipping",
                     group_name,
                 )
                 continue
@@ -363,7 +363,7 @@ def _worker(
                     group_name, group.cooldown_seconds,
                 )
                 logger.info(
-                    "Group [%s] cooldown active (%.0fs remaining) — skipping group",
+                    "Group [%s] cooldown active (%.0fs remaining) - skipping group",
                     group_name, remaining,
                 )
                 continue
@@ -395,7 +395,7 @@ def _reconcile_loop(
 
     Catches two scenarios the per-activation watchdog can't:
 
-    1. Deterrent service restarted while a device was energised — no
+    1. Deterrent service restarted while a device was energised - no
        watchdog thread survived the restart.
     2. The per-activation OFF succeeded from the cloud's perspective but the
        device's own state machine failed to apply it. A later status poll
@@ -410,7 +410,7 @@ def _reconcile_loop(
         act_cfg = act_cfg_ref.get()
         interval = act_cfg.reconcile_interval_sec
         if interval <= 0:
-            # Disabled — check config again in 60s in case it gets re-enabled.
+            # Disabled - check config again in 60s in case it gets re-enabled.
             shutdown_event.wait(60)
             continue
 
@@ -437,7 +437,7 @@ def _reconcile_loop(
 
             request_id = f"reconcile-{uuid.uuid4().hex[:12]}"
             logger.critical(
-                "RECONCILE — device %s (%s) reports ON with no activation — forcing OFF [rid=%s]",
+                "RECONCILE - device %s (%s) reports ON with no activation - forcing OFF [rid=%s]",
                 device.name, device.device_id, request_id,
             )
             ok, err = controller.force_off(device, request_id=request_id)
@@ -511,7 +511,7 @@ def _publish_actuation(
 
 
 # ---------------------------------------------------------------------------
-# Subscribe loop — mirrors the notifier pattern
+# Subscribe loop - mirrors the notifier pattern
 # ---------------------------------------------------------------------------
 
 def subscribe_loop(
@@ -523,7 +523,7 @@ def subscribe_loop(
 
     v1.14 verifies an HMAC signature on every event before enqueuing it.
     Because the deterrent fires physical devices, unsigned or tampered
-    events are dropped silently at this layer — the detector is the sole
+    events are dropped silently at this layer - the detector is the sole
     authoritative source. Missing key falls back to accept-all with a loud
     warning so in-place upgrades don't brick actuation.
     """
@@ -534,7 +534,7 @@ def subscribe_loop(
     hmac_key = load_key_from_env()
     if hmac_key is None:
         logger.warning(
-            "DETECTION_HMAC_KEY not set — accepting unsigned detection events. "
+            "DETECTION_HMAC_KEY not set - accepting unsigned detection events. "
             "Run setup.sh to generate the key and restart all services.",
         )
     else:
@@ -576,7 +576,7 @@ def subscribe_loop(
                         if not invalid_warned:
                             logger.error(
                                 "Rejecting detection event with invalid/missing "
-                                "HMAC signature — NOT firing. Camera=%s class=%s. "
+                                "HMAC signature - NOT firing. Camera=%s class=%s. "
                                 "Further invalid events will be logged at DEBUG.",
                                 event.get("camera_name"),
                                 event.get("class_name"),
@@ -605,14 +605,14 @@ def subscribe_loop(
                     with _drop_counter_lock:
                         _drop_counter += 1
                     logger.warning(
-                        "Event queue full — dropping event (total drops: %d)",
+                        "Event queue full - dropping event (total drops: %d)",
                         _drop_counter,
                     )
 
         except redis_lib.RedisError:
             if shutdown_event.is_set():
                 break
-            logger.exception("Redis connection lost — retrying in %ds", delay)
+            logger.exception("Redis connection lost - retrying in %ds", delay)
             time.sleep(delay)
             delay = min(delay * 2, _REDIS_MAX_RECONNECT_DELAY)
         finally:
@@ -656,13 +656,13 @@ def main() -> None:
     actuation_db.init_db()
 
     if not act_cfg.enabled:
-        logger.info("Actuation disabled in config — service will idle until enabled")
+        logger.info("Actuation disabled in config - service will idle until enabled")
     elif controller is None:
-        logger.warning("Actuation enabled but Tuya credentials missing — check config")
+        logger.warning("Actuation enabled but Tuya credentials missing - check config")
     else:
         enabled_count = sum(1 for d in act_cfg.devices if d.enabled)
         logger.info(
-            "Actuation enabled — %d device(s) registered, cooldown %ds",
+            "Actuation enabled - %d device(s) registered, cooldown %ds",
             enabled_count, act_cfg.defaults.cooldown_seconds,
         )
 
@@ -686,7 +686,7 @@ def main() -> None:
     shutdown_event = threading.Event()
 
     def _shutdown(sig: int, _frame: object) -> None:
-        logger.info("Received signal %s — shutting down", sig)
+        logger.info("Received signal %s - shutting down", sig)
         shutdown_event.set()
         event_queue.put(None)  # poison pill for worker
 
@@ -735,7 +735,7 @@ def main() -> None:
 
         enabled_count = sum(1 for d in new_act.devices if d.enabled)
         logger.info(
-            "Config reloaded — actuation %s, %d device(s), armed=%s",
+            "Config reloaded - actuation %s, %d device(s), armed=%s",
             "enabled" if new_act.enabled else "disabled",
             enabled_count,
             new_armed,

@@ -1,13 +1,13 @@
-# ScarGuard — Current Status
+# ScarGuard: Current Status
 
 ## What's Working (Validated)
 
 - **Detection pipeline:** Detector service loads YOLO model, pulls RTSP frames, runs inference, logs to SQLite, publishes to Redis. Running with basic COCO `bird` class model.
-- **Email notifications:** SMTP dispatch with snapshot attachment — tested and confirmed.
-- **Discord notifications:** Webhook dispatch with snapshot image — tested and confirmed.
+- **Email notifications:** SMTP dispatch with snapshot attachment: tested and confirmed.
+- **Discord notifications:** Webhook dispatch with snapshot image: tested and confirmed.
 - **Webhook notifications:** Generic HTTP/HTTPS webhook channel (POST or PUT, optional Bearer auth).
 - **Named notification channels:** Multi-instance per type (`notifications.channels`), each with a unique name. Legacy flat `discord`/`email` keys were removed in v0.13.2 and are stripped from `scarguard.yml` on the next save.
-- **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload — functional.
+- **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload: functional.
 - **CI/CD:** GitHub Actions workflows build and push images to GHCR. `ubuntu-latest` runs x86 builds, the compose smoke test, lint, type checks, and pytest; `ubuntu-24.04-arm` runs the L4T trainer jobs. `build-detector` and `release-detector` use the Orin for real GPU smoke tests and inference benchmarks. No job uses the lab ARC pool. The retired x86 self-hosted runners are not selected, and weekly cleanup prunes only the Orin without pruning volumes. Main pushes warm the build cache without repeating PR validation.
 - **x86 detector:** CUDA+CPU detector image (`scarguard-detector-x86`) runs on any x86 Linux with or without NVIDIA GPU. CPU fallback via PyTorch.
 - **Docker Compose stack:** All seven services (redis, caddy, detector, web, notifier, deterrent, log-streamer) start and communicate correctly.
@@ -58,15 +58,15 @@
 - **Caddy reverse proxy:** TLS termination, automatic HTTPS via Let's Encrypt or manual certs.
 - **Physical deterrence (v0.13.0):** Deterrent service controls Tuya smart devices (sprinklers, lights, sirens, plugs) via Cloud API. Opt-in via `deterrent.enabled`.
 - **Deterrent web UI (v0.13.1):** Actuation log page with live SSE updates, device status panel (online/battery/switch), per-device test-fire button, actuation defaults and battery monitor config UI. Log streaming includes deterrent service.
-- **Per-camera deterrent scoping (v0.13.3):** Deterrent now fires only groups explicitly referenced by per-camera `deterrent_rules`. Groups are named subsets of the device registry with their own randomization + cooldown. No defaults — users opt-in deliberately per camera/class.
+- **Per-camera deterrent scoping (v0.13.3):** Deterrent now fires only groups explicitly referenced by per-camera `deterrent_rules`. Groups are named subsets of the device registry with their own randomization + cooldown. No defaults: users opt-in deliberately per camera/class.
 - **Per-camera confidence override (v0.13.3):** Optional `confidence_threshold` per camera, useful for pairing fine-tuned species models with higher thresholds than a general COCO model. Inherits the global threshold when omitted.
 - **Config + Deterrent UI tabs (v0.13.3):** Config page Settings panel split into System / Detection / Cameras / Notifications / Advanced sub-tabs. Deterrent admin page split into Devices / Groups / Defaults / Battery / Latency tabs. URL-hash deep-linking.
 - **Actuation latency instrumentation (v0.13.3):** Per-event `trigger_delay_ms` (detection → dequeue) and `queue_depth`; per-device `cloud_ack_ms` (ON command → Tuya success). p50/p95 summary on the deterrent Latency tab.
 - **Chip-autocomplete for all registry references (v0.13.4):** Token/chip input replaces comma-list text fields for channel refs, group refs, and class names. Class-name fields autocomplete against the selected model's embedded `.names` via a new Redis-RPC detector endpoint; unknown chips render in warning colour so typos are visible instead of silent.
-- **Model class introspection (v0.13.4):** `/models` admin page grew a Classes column — expand any model to see its full embedded class list as chips, copy-to-clipboard. Backed by `/models/{filename}/classes`. TensorRT `.engine` files without embedded names return a warning pointing at the source `.pt`.
+- **Model class introspection (v0.13.4):** `/models` admin page grew a Classes column: expand any model to see its full embedded class list as chips, copy-to-clipboard. Backed by `/models/{filename}/classes`. TensorRT `.engine` files without embedded names return a warning pointing at the source `.pt`.
 - **Orphan-reference soft-warn (v0.13.4):** Save succeeds, response includes a `warnings` list for any rule or summary-report reference that doesn't resolve to a defined channel or group. Applies to both structured-form saves and raw-YAML edits.
 
-- **Configurable training classes with distractors (v1.16.6):** Training class list is tweakable at training time (`--classes` on `prepare_dataset.py`, Classes field on the Training Jobs page, `training.defaults.classes` in config). Default expanded to `duck, heron, raccoon, person, dog, cat, plant` — the last four are distractor classes pulled from Open Images so the model stops misclassifying humans/pets/vegetation as herons. Runtime untouched: distractors are filtered by `detection.target_classes`.
+- **Configurable training classes with distractors (v1.16.6):** Training class list is tweakable at training time (`--classes` on `prepare_dataset.py`, Classes field on the Training Jobs page, `training.defaults.classes` in config). Default expanded to `duck, heron, raccoon, person, dog, cat, plant`: the last four are distractor classes pulled from Open Images so the model stops misclassifying humans/pets/vegetation as herons. Runtime untouched: distractors are filtered by `detection.target_classes`.
 
 ## Known Issues / Buggy
 
@@ -77,7 +77,7 @@
   device's next beacon.  The `cloud_ack_ms` field in the actuation log
   measures the cloud-side ack latency only; actual physical response can
   be longer.  See `TUYA_SETUP.md` for details.  No mitigation exists for
-  battery devices — the Tuya LAN fallback listed in ROADMAP Future Ideas is
+  battery devices, the Tuya LAN fallback listed in ROADMAP Future Ideas is
   explicitly not viable for sleeping devices.
 
 ## Recently Fixed (unreleased)
@@ -117,7 +117,7 @@
   2-hour mark the detector auto-resumed and reloaded its models while
   training still held the GPU; the resulting memory contention
   OOM-killed the training subprocess mid-validation (job `7eeb0cbb`,
-  2026-07-11 03:21Z). Ceiling raised to 24 hours — the 90s trainer
+  2026-07-11 03:21Z). Ceiling raised to 24 hours, the 90s trainer
   heartbeat TTL remains the crash guard. Also: the detector now acks a
   resume request even when it is already running (previously the
   trainer's post-job resume timed out with a misleading error after
@@ -146,7 +146,7 @@
 ## Not Yet Built
 
 - Custom-trained heron model (have the tooling now, need labeled data)
-- Deterrent response profiles — species-based device routing (e.g. heron = all deterrents, raccoon at night = lights + sound)
+- Deterrent response profiles: species-based device routing (e.g. heron = all deterrents, raccoon at night = lights + sound)
 
 See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–27).
 
@@ -157,13 +157,13 @@ See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_
 | 1 | Detection engine (RTSP + YOLO + SQLite + Redis) | ✅ Complete |
 | 2 | Notifications (Discord webhook + Email SMTP) | ✅ Complete & Validated |
 | 3 | Web UI (dashboard, events, config editor, model upload) | ✅ Complete |
-| — | CI/CD pipeline (GitHub Actions, GHCR, self-hosted runners) | ✅ Complete |
-| — | Docker Compose orchestration + setup.sh installer | ✅ Complete |
-| — | External data directory (config/data/models outside repo) | ✅ Complete |
-| — | Config hot-reload (detector + notifier poll and apply config in-process) | ✅ Complete |
-| — | Form-based config GUI (initial implementation) | ✅ Complete |
-| — | Multi-camera detection (initial implementation) | ✅ Complete  |
-| — | About page to display version and service status | ✅ Complete |
+| n/a | CI/CD pipeline (GitHub Actions, GHCR, self-hosted runners) | ✅ Complete |
+| n/a | Docker Compose orchestration + setup.sh installer | ✅ Complete |
+| n/a | External data directory (config/data/models outside repo) | ✅ Complete |
+| n/a | Config hot-reload (detector + notifier poll and apply config in-process) | ✅ Complete |
+| n/a | Form-based config GUI (initial implementation) | ✅ Complete |
+| n/a | Multi-camera detection (initial implementation) | ✅ Complete  |
+| n/a | About page to display version and service status | ✅ Complete |
 | v0.3 | Admin logs tab (live Docker log tail via SSE, filterable by service and level) | ✅ Complete |
 | v0.3 | SSL/TLS for web UI (self-signed cert generation in setup.sh, HTTP+HTTPS dual-listener) | ✅ Complete |
 | v0.3 | Snapshot retention & cleanup (configurable retention_days, daily pruning in detector) | ✅ Complete |
@@ -200,11 +200,11 @@ See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_
 | v0.12.4 | Hardening: Redis auth, ConfigWatcher dedup, AtomicRef thread safety, live feed removal | ✅ Complete |
 | v0.12.5 | Hardening: run_camera refactor, FairLock inference fairness, stats chart fix, setup.sh upgrade UX | ✅ Complete |
 | v0.12.6 | Hardening: log-streamer sidecar, Docker socket removal from web container | ✅ Complete |
-| v0.12.7 | **Bundled release.** (1) Inference perf fix: pin ultralytics save_dir to `/tmp/runs/predict` with `exist_ok=True`. v0.12.1-v0.12.6 passed `project="/tmp/runs"` to `model.predict()` which triggered `increment_path` to create a new `predict{N}` directory per call and stat every existing one on the next call; after ~24 h the count reached 9998 and predict was spending 45-48% of its wall time in `os.path.exists()`. Fix restores v0.11.0 performance (~50 ms per call) — see `docs/archive/INFERENCE_INVESTIGATION.md`. (2) **New "viewer" role** (read-only admin) with server-side secret redaction: viewers see the full admin UI — dashboard, events, training data, logs, backups, structured config form — but cannot write anything, and every sensitive field (camera RTSP URLs, Discord webhook URLs, SMTP password, webhook auth tokens, ntfy tokens/passwords) is replaced with `***REDACTED***` before reaching the browser. The raw-YAML config tab is hidden for viewers entirely. Last-admin protection prevents a misclick from orphaning the instance. | ✅ Complete |
-| v0.12.8 | **Post-0.12.7 hardening & UX.** (1) Fix log-streamer healthcheck — the v0.12.6 YAML folded-scalar `python -c` produced an IndentationError on every probe, so the container reported `unhealthy` for 23h+ while actually running fine; replaced with exec-form JSON array. (2) Caddy edge deny for bot probe paths (`/.git/*`, `/_ignition/*`, `/aws*config.js`, `/config.js`) — **shipped broken: edited `Caddyfile.template`, which is a reference-only document; the active Caddy config is generated by `config/caddy-entrypoint.sh`. Fixed in v0.12.9.** (3) `caddy fmt` cleanup on Caddyfile template (same no-op bug as #2). (4) Feedback-by-link: token route no longer hard-blocks resubmission, and the form now includes a class picker so users can actually record which class is correct. (5) Events page snapshot overlay auto-closes after feedback submit. (6) **Minimum-viable audit log** at `/admin/audit-log` (admin-only): new `audit_events` table in auth.db, records login success/failure/logout, config saves (structured + raw YAML), user create/delete/role_change/password_reset/disable/enable, api_token create/revoke. Retention, CSV export, structured diffs, and hooks on backup/arm/model/TLS routes are explicitly deferred to 0.13.x. | ✅ Complete |
-| v0.12.9 | **Follow-up: Caddy probe deny actually works now.** v0.12.8 edited `config/Caddyfile.template`, assuming it was the Caddyfile source of truth — it isn't. The live Caddy config is produced by a Python heredoc inside `config/caddy-entrypoint.sh`. v0.12.9 moves the `@probes` matcher + `respond 404` rule into the real heredoc, annotates `Caddyfile.template` as REFERENCE ONLY with an explicit warning, and adds a pointer comment in the entrypoint so future edits land in the right place. | ✅ Complete |
+| v0.12.7 | **Bundled release.** (1) Inference perf fix: pin ultralytics save_dir to `/tmp/runs/predict` with `exist_ok=True`. v0.12.1-v0.12.6 passed `project="/tmp/runs"` to `model.predict()` which triggered `increment_path` to create a new `predict{N}` directory per call and stat every existing one on the next call; after ~24 h the count reached 9998 and predict was spending 45-48% of its wall time in `os.path.exists()`. Fix restores v0.11.0 performance (~50 ms per call), see `docs/archive/INFERENCE_INVESTIGATION.md`. (2) **New "viewer" role** (read-only admin) with server-side secret redaction: viewers see the full admin UI, dashboard, events, training data, logs, backups, structured config form, but cannot write anything, and every sensitive field (camera RTSP URLs, Discord webhook URLs, SMTP password, webhook auth tokens, ntfy tokens/passwords) is replaced with `***REDACTED***` before reaching the browser. The raw-YAML config tab is hidden for viewers entirely. Last-admin protection prevents a misclick from orphaning the instance. | ✅ Complete |
+| v0.12.8 | **Post-0.12.7 hardening & UX.** (1) Fix log-streamer healthcheck, the v0.12.6 YAML folded-scalar `python -c` produced an IndentationError on every probe, so the container reported `unhealthy` for 23h+ while actually running fine; replaced with exec-form JSON array. (2) Caddy edge deny for bot probe paths (`/.git/*`, `/_ignition/*`, `/aws*config.js`, `/config.js`), **shipped broken: edited `Caddyfile.template`, which is a reference-only document; the active Caddy config is generated by `config/caddy-entrypoint.sh`. Fixed in v0.12.9.** (3) `caddy fmt` cleanup on Caddyfile template (same no-op bug as #2). (4) Feedback-by-link: token route no longer hard-blocks resubmission, and the form now includes a class picker so users can actually record which class is correct. (5) Events page snapshot overlay auto-closes after feedback submit. (6) **Minimum-viable audit log** at `/admin/audit-log` (admin-only): new `audit_events` table in auth.db, records login success/failure/logout, config saves (structured + raw YAML), user create/delete/role_change/password_reset/disable/enable, api_token create/revoke. Retention, CSV export, structured diffs, and hooks on backup/arm/model/TLS routes are explicitly deferred to 0.13.x. | ✅ Complete |
+| v0.12.9 | **Follow-up: Caddy probe deny actually works now.** v0.12.8 edited `config/Caddyfile.template`, assuming it was the Caddyfile source of truth, it isn't. The live Caddy config is produced by a Python heredoc inside `config/caddy-entrypoint.sh`. v0.12.9 moves the `@probes` matcher + `respond 404` rule into the real heredoc, annotates `Caddyfile.template` as REFERENCE ONLY with an explicit warning, and adds a pointer comment in the entrypoint so future edits land in the right place. | ✅ Complete |
 | v0.13.0 | **Deterrent service MVP.** New `deterrent` Docker Compose service: subscribes to `scarguard:detections`, triggers Tuya smart devices (sprinklers, lights, sirens, plugs) via Cloud API. Randomized activation patterns, global cooldown, battery monitoring with low-battery alerts. Config hot-reload via ConfigWatcher. | ✅ Complete |
-| v0.13.1 | **Deterrent web UI.** (1) Actuation log page with live SSE updates, filtering, and pagination. (2) Device status panel — online/battery/switch state via Tuya Cloud query. (3) Per-device test-fire button. (4) Actuation defaults + battery monitor config UI. (5) Deterrent in log streaming filter. (6) About page deterrent status. (7) Security fixes: XSS in event stream, login redirect sanitization, /snapshot/send auth guard. (8) Detection publish fix — all detections now reach deterrent service regardless of action rules. | ✅ Complete |
+| v0.13.1 | **Deterrent web UI.** (1) Actuation log page with live SSE updates, filtering, and pagination. (2) Device status panel, online/battery/switch state via Tuya Cloud query. (3) Per-device test-fire button. (4) Actuation defaults + battery monitor config UI. (5) Deterrent in log streaming filter. (6) About page deterrent status. (7) Security fixes: XSS in event stream, login redirect sanitization, /snapshot/send auth guard. (8) Detection publish fix, all detections now reach deterrent service regardless of action rules. | ✅ Complete |
 | v0.13.2 | **Review fixes + deprecation removal.** (1) Atomic config write in detector scheduler. (2) Pin all deps (tinytuya, tzdata, redis image digest). (3) Remove legacy flat notification keys (`notifications.discord` / `notifications.email`). (4) Documentation cleanup: README, CONFIG_REFERENCE, ROADMAP. (5) Redis auth guidance in .env.example. | ✅ Complete |
-| v0.13.3 | **Per-camera deterrent scoping + per-camera confidence + UI tab refactor + latency instrumentation.** (1) New `deterrent.groups` primitive — named subsets of devices with their own randomization + cooldown. (2) New per-camera `deterrent_rules` (first-match-wins) replace the fire-on-every-detection default. (3) Per-camera `confidence_threshold` override. (4) `action_rules` renamed to `notification_rules` with auto-migration on load. (5) Config page Settings panel split into sub-tabs; Deterrent page split into tabs + new Groups editor. (6) Latency instrumentation: `trigger_delay_ms`, `queue_depth`, per-device `cloud_ack_ms` with p50/p95 summary. (7) Tuya battery-device deep-sleep latency documented. (8) Dependabot bump: `python-multipart` 0.0.22 → 0.0.26. | ✅ Complete |
-| v0.13.4 | **Chip autocomplete + model class introspection + orphan-ref soft-warn + banner UX + silent-save hotfix.** (1) Shared `chip-picker.js` type-ahead component replaces comma-list text inputs at 6 call sites (rule channels, rule groups, summary channels, global/per-camera class lists, rule class-name). (2) Detector Redis-RPC model-class introspection + `/models/{filename}/classes` web proxy + expandable Classes view on `/models` page. (3) Server-side orphan-reference check — save succeeds with warnings for rule/summary references that don't resolve to a defined channel/group. (4) Banner scroll-into-view on save. (5) Fixed silent UI save failure (stale `notifications.email` reference in client-side `validate()` threw TypeError synchronously). | 🚧 In progress |
+| v0.13.3 | **Per-camera deterrent scoping + per-camera confidence + UI tab refactor + latency instrumentation.** (1) New `deterrent.groups` primitive, named subsets of devices with their own randomization + cooldown. (2) New per-camera `deterrent_rules` (first-match-wins) replace the fire-on-every-detection default. (3) Per-camera `confidence_threshold` override. (4) `action_rules` renamed to `notification_rules` with auto-migration on load. (5) Config page Settings panel split into sub-tabs; Deterrent page split into tabs + new Groups editor. (6) Latency instrumentation: `trigger_delay_ms`, `queue_depth`, per-device `cloud_ack_ms` with p50/p95 summary. (7) Tuya battery-device deep-sleep latency documented. (8) Dependabot bump: `python-multipart` 0.0.22 → 0.0.26. | ✅ Complete |
+| v0.13.4 | **Chip autocomplete + model class introspection + orphan-ref soft-warn + banner UX + silent-save hotfix.** (1) Shared `chip-picker.js` type-ahead component replaces comma-list text inputs at 6 call sites (rule channels, rule groups, summary channels, global/per-camera class lists, rule class-name). (2) Detector Redis-RPC model-class introspection + `/models/{filename}/classes` web proxy + expandable Classes view on `/models` page. (3) Server-side orphan-reference check, save succeeds with warnings for rule/summary references that don't resolve to a defined channel/group. (4) Banner scroll-into-view on save. (5) Fixed silent UI save failure (stale `notifications.email` reference in client-side `validate()` threw TypeError synchronously). | 🚧 In progress |

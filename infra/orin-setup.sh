@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# orin-setup.sh — Bootstrap Docker + NVIDIA Container Toolkit on Jetson Orin Nano
+# orin-setup.sh - Bootstrap Docker + NVIDIA Container Toolkit on Jetson Orin Nano
 # Run as root or with sudo on JetPack 6.2.1 (L4T 36.4.7)
 #
 # Idempotent: detects existing installs and skips what's already done.
@@ -94,7 +94,7 @@ echo ""
 
 # --- Step 5: Verify GPU access in container ---
 echo "[5/5] Testing GPU access in a container..."
-echo "  (This may pull an image on first run — could take a few minutes)"
+echo "  (This may pull an image on first run - could take a few minutes)"
 echo ""
 docker run --rm --runtime=nvidia --gpus all \
   dustynv/l4t-pytorch:r36.4.0 \

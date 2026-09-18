@@ -44,7 +44,7 @@ async def feedback_page(request: Request, token: str, v: str = "") -> HTMLRespon
     """Show the feedback confirmation page for a detection event.
 
     Token expiry (7 days, enforced in ``db.get_event_by_token``) is the only
-    gate on the form.  Users may re-submit to correct a previous choice —
+    gate on the form.  Users may re-submit to correct a previous choice -
     e.g. when the first submission picked the wrong class.
     """
     row = db.get_event_by_token(token)
@@ -77,7 +77,7 @@ async def feedback_page(request: Request, token: str, v: str = "") -> HTMLRespon
 
 @router.post(
     "/{token}", response_class=HTMLResponse,
-    # Unauthenticated route — limit by IP to prevent a spammer hammering
+    # Unauthenticated route - limit by IP to prevent a spammer hammering
     # every feedback link they can enumerate.
     dependencies=[Depends(rate_limit("feedback-submit", capacity=30, window_seconds=3600))],
 )
@@ -129,7 +129,7 @@ async def submit_feedback(
             ):
                 bbox_str = json.dumps(parsed)
         except (json.JSONDecodeError, TypeError):
-            pass  # ignore malformed bbox — keep original
+            pass  # ignore malformed bbox - keep original
     db.update_feedback(event["id"], value, corr, corrected_bbox=bbox_str)
     # Reflect the saved values back to the template so the success page shows
     # the user's current choice and allows another correction if needed.
