@@ -175,6 +175,11 @@ class TestTimeoutDerivation:
     Hardcoding it drifted twice: 90s against a 120s wait, then a 180s bound
     against a 180s wait with 10ms of margin. Deriving it is only worth
     anything if the derivation itself is pinned.
+
+    That every term is actually clamped is asserted on the deterrent side, in
+    test_group_fire.TestEveryWaitIsBounded. It cannot live here: build.yml
+    runs this suite inside the web image, which does not ship the deterrent
+    source, so a test that reads group_fire.py passes locally and fails in CI.
     """
 
     def test_timeout_exceeds_the_worst_case_sequence(self) -> None:
@@ -198,12 +203,3 @@ class TestTimeoutDerivation:
         assert group_test_fire_timeout_sec() > worst, (
             "the route gives up while hardware may still be firing"
         )
-
-    def test_every_term_is_actually_enforced(self) -> None:
-        """A term that nothing clamps makes the derivation fiction."""
-        src = (
-            __import__("pathlib").Path(__file__).resolve()
-            .parents[3] / "services" / "deterrent" / "src" / "group_fire.py"
-        ).read_text()
-        for name in ("MAX_PRE_DELAY_SEC", "MAX_INTER_DELAY_SEC", "MAX_ACTUATION_SEC"):
-            assert name in src, f"{name} is a term in the bound but is clamped nowhere"
