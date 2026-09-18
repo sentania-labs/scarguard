@@ -90,14 +90,30 @@ def _cfg(**kw: Any) -> ActuationConfig:
 
 
 @pytest.fixture(autouse=True)
-def _no_db(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Persistence is covered by the hash-chain tests."""
-    import sys
-    import types
+def _no_external_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cut every path out of the deterrent worker to Redis or the DB.
 
-    stub = types.ModuleType("actuation_db")
-    stub.insert_event = lambda event: None  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "actuation_db", stub)
+    Patching sys.modules is not enough: main.py binds ``actuation_db`` at
+    import time, and _publish_actuation lazily connects to the configured
+    Redis host. Both are wrapped in try/except so nothing crashes, but the
+    connect attempt is slow enough on a CI runner to blow a 10s thread join,
+    which is how this surfaced: a test that passed locally and failed in CI
+    with "worker did not finish".
+
+    Persistence itself is covered by the hash-chain tests.
+    """
+    import main as deterrent_main
+
+    monkeypatch.setattr(
+        deterrent_main.actuation_db, "insert_event", lambda event: None,
+    )
+    monkeypatch.setattr(
+        deterrent_main, "_publish_actuation", lambda holder, cfg, event: None,
+    )
+    monkeypatch.setattr(
+        deterrent_main, "_publish_stuck",
+        lambda holder, cfg, device, rid, err: None,
+    )
 
 
 # ── Handler half: enqueue only, never fire ───────────────────────────────────
