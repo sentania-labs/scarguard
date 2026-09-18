@@ -418,11 +418,19 @@ class ActuationDeviceConfig(BaseModel):
 
 # ── Deterrent randomisation ranges ───────────────────────────────────────────
 #
-# These drive physical hardware, so they are validated here and not only in the
-# browser. Until v1.17 the only limits were HTML "max" attributes, which meant a
-# hand-edited scarguard.yml could set pre_delay_range: [300, 300] and produce
-# several minutes of sprinkler activity from one button press, long after the
-# web route had timed out and told the operator the service was down.
+# These drive physical hardware, so they are checked on the SAVE path and not
+# only in the browser. Until v1.17 the only limits were HTML "max" attributes,
+# which meant a hand-edited scarguard.yml could set pre_delay_range: [300, 300]
+# and produce several minutes of sprinkler activity from one button press, long
+# after the web route had timed out and told the operator the service was down.
+#
+# Deliberately NOT pydantic field validators on the models below. Those models
+# are also used to LOAD config, and routes/config.py substitutes a default
+# ActuationConfig() for the whole section when parsing raises. A range that is
+# merely out of bounds would therefore silently disable deterrence entirely,
+# drop the device registry and the groups, and the next unrelated save would
+# persist deterrent.enabled: False. Refusing a bad write is right; discarding a
+# working configuration because it is unfashionable is not.
 #
 # Upper bounds match the UI's own min/max so the two cannot disagree. The spray
 # ceiling is MAX_ACTUATION_SEC rather than a literal, because a range above it
@@ -435,29 +443,40 @@ _RANGE_BOUNDS: dict[str, tuple[float, float]] = {
 }
 
 
-def _check_range(
-    field: str,
-    v: list[float] | list[int] | None,
-) -> list[float] | list[int] | None:
-    """Validate a two-element [low, high] randomisation range."""
+def check_actuation_range(field: str, v: Any) -> str | None:
+    """Check one [low, high] randomisation range. Returns an error, or None.
+
+    Returns rather than raises so a save route can report every problem in one
+    response instead of the first one it hits.
+    """
     if v is None:
-        return v
+        return None
     lo_bound, hi_bound = _RANGE_BOUNDS[field]
-    if len(v) != 2:
-        raise ValueError(f"{field} must be exactly two values, [low, high]")
-    lo, hi = v
-    for x in (lo, hi):
-        if not isinstance(x, (int, float)) or isinstance(x, bool):
-            raise ValueError(f"{field} values must be numbers")
+    if not isinstance(v, (list, tuple)) or len(v) != 2:
+        return f"{field} must be exactly two values, [low, high]"
+    nums: list[float] = []
+    for x in v:
+        if isinstance(x, bool) or not isinstance(x, (int, float)):
+            return f"{field} values must be numbers"
         if math.isnan(x) or math.isinf(x):
-            raise ValueError(f"{field} values must be finite")
+            return f"{field} values must be finite"
         if not lo_bound <= x <= hi_bound:
-            raise ValueError(
-                f"{field} values must be between {lo_bound} and {hi_bound}"
-            )
-    if lo > hi:
-        raise ValueError(f"{field} low value must not exceed the high value")
-    return v
+            return f"{field} values must be between {lo_bound} and {hi_bound}"
+        nums.append(float(x))
+    if nums[0] > nums[1]:
+        return f"{field} low value must not exceed the high value"
+    return None
+
+
+def check_actuation_ranges(section: dict[str, Any]) -> list[str]:
+    """Check every randomisation range present in *section*."""
+    errors = []
+    for field in _RANGE_BOUNDS:
+        if field in section:
+            err = check_actuation_range(field, section[field])
+            if err:
+                errors.append(err)
+    return errors
 
 
 class ActuationDefaultsConfig(BaseModel):
@@ -473,14 +492,6 @@ class ActuationDefaultsConfig(BaseModel):
         if not 5 <= v <= 3600:
             raise ValueError("cooldown_seconds must be between 5 and 3600")
         return v
-
-    @field_validator(
-        "device_count_range", "spray_duration_range",
-        "inter_device_delay_range", "pre_delay_range",
-    )
-    @classmethod
-    def ranges_within_bounds(cls, v: Any, info: Any) -> Any:
-        return _check_range(info.field_name, v)
 
 
 class DeterrentGroupConfig(BaseModel):
@@ -508,14 +519,6 @@ class DeterrentGroupConfig(BaseModel):
         if not v.strip():
             raise ValueError("Group name must not be empty")
         return v.strip()
-
-    @field_validator(
-        "device_count_range", "spray_duration_range",
-        "inter_device_delay_range", "pre_delay_range",
-    )
-    @classmethod
-    def ranges_within_bounds(cls, v: Any, info: Any) -> Any:
-        return _check_range(info.field_name, v)
 
     @field_validator("cooldown_seconds")
     @classmethod

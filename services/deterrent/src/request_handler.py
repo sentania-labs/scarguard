@@ -46,6 +46,10 @@ TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 # job is never mistaken for a detection event.
 JOB_TEST_FIRE_GROUP = "test_fire_group"
 
+# How long a blocking read waits before the loop re-checks the shutdown flag.
+# Bounds how long stop() takes on an idle channel.
+SHUTDOWN_POLL_SEC = 1.0
+
 
 class InFlightGuard:
     """At-most-one claim spanning two threads.
@@ -109,9 +113,20 @@ class RequestHandler:
         self._thread.start()
 
     def stop(self) -> None:
+        """Stop accepting requests and wait for the thread to actually exit.
+
+        Callers rely on this having really stopped: the deterrent service stops
+        the handler before joining the worker so a press cannot be accepted
+        onto a queue that no longer has a consumer.
+        """
         self._shutdown.set()
         if self._thread is not None:
             self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                logger.warning(
+                    "Request handler did not stop within 10s; it may still "
+                    "accept a request that nothing will service",
+                )
 
     def _make_client(self) -> redis_lib.Redis:
         host = self._redis_cfg.get("host", "redis")
@@ -142,10 +157,14 @@ class RequestHandler:
                 )
                 delay = 5
 
-                for message in pubsub.listen():
-                    if self._shutdown.is_set():
-                        break
-                    if message["type"] != "message":
+                # Polled rather than pubsub.listen(), which blocks forever on
+                # an idle channel: the shutdown flag would then only be noticed
+                # when a request happened to arrive, so stop() waited out its
+                # full join timeout and returned with this thread still
+                # subscribed and still accepting work.
+                while not self._shutdown.is_set():
+                    message = pubsub.get_message(timeout=SHUTDOWN_POLL_SEC)
+                    if message is None or message["type"] != "message":
                         continue
 
                     channel = message["channel"]

@@ -62,6 +62,8 @@ def group_test_fire_timeout_sec() -> float:
         + MAX_INTER_DELAY_SEC
     )
     return worst * 1.2
+
+
 DEFAULT_TEST_FIRE_SEC: float = 3.0
 
 OFF_RETRY_BACKOFF_SEC: tuple[float, ...] = (1.0, 2.0, 4.0)

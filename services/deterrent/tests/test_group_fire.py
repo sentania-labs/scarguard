@@ -12,7 +12,11 @@ from typing import Any
 
 from actuation_models import ActuationDefaults, DeterrentGroup, DeviceConfig
 from cloud_controller import ActivationResult
-from deterrent_safety import MAX_ACTUATION_SEC, MAX_PRE_DELAY_SEC
+from deterrent_safety import (
+    MAX_ACTUATION_SEC,
+    MAX_INTER_DELAY_SEC,
+    MAX_PRE_DELAY_SEC,
+)
 from group_fire import execute_plan, resolve_group_devices
 
 
@@ -409,3 +413,39 @@ class TestDeadlineEdges:
         assert execution.pre_delay_sec == MAX_PRE_DELAY_SEC
         # total_duration_sec still spans the pre-delay: it is an audit field.
         assert execution.total_duration_sec == MAX_PRE_DELAY_SEC + 10.0
+
+
+class TestEveryWaitIsBounded:
+    """Each term in group_test_fire_timeout_sec() must actually be enforced.
+
+    A term that nothing clamps makes the derived route timeout fiction: the
+    web page gives up and reports the service down while hardware is still
+    running, which is the state that invites a re-press.
+    """
+
+    def test_inter_device_delay_is_clamped(self, monkeypatch: Any) -> None:
+        slept: list[float] = []
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: slept.append(s))
+        defaults = ActuationDefaults(
+            device_count_range=[3, 3],
+            spray_duration_range=[0.0, 0.0],
+            inter_device_delay_range=[300.0, 300.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = _run(FakeController(), [_device(f"v{i}") for i in range(3)], defaults)
+
+        assert slept, "no delay was slept at all"
+        assert max(slept) <= MAX_INTER_DELAY_SEC, f"unbounded inter-device wait: {slept}"
+        # The audit record must show what was actually waited, not what was asked.
+        assert max(a.delay_before_sec for a in execution.actions) <= MAX_INTER_DELAY_SEC
+
+    def test_pre_delay_is_clamped(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: None)
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[0.0, 0.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[500.0, 500.0],
+        )
+        execution = _run(FakeController(), [_device("v1")], defaults)
+        assert execution.pre_delay_sec == MAX_PRE_DELAY_SEC

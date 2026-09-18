@@ -512,3 +512,82 @@ class TestProductionCallSite:
         reply = redis.reply_for("r1")
         assert reply["ok"] is False
         assert "error" in reply, "a bare failure becomes an unexplained 502"
+
+
+class TestShutdown:
+    """stop() must actually stop, and queued work must be answered."""
+
+    def test_stop_returns_promptly_on_an_idle_channel(self) -> None:
+        """pubsub.listen() blocks forever when nothing arrives.
+
+        With it, stop() waited out its full 10s join and returned with the
+        thread still subscribed and still accepting work, so the deterrent
+        service's "stop the handler before joining the worker" ordering bought
+        nothing.
+        """
+        import time as _time
+
+        import redis as redis_lib
+
+        class IdlePubSub:
+            def subscribe(self, *channels: str) -> None:
+                pass
+
+            def get_message(self, timeout: float = 0.0) -> None:
+                _time.sleep(min(timeout, 0.05))
+                return None
+
+            def unsubscribe(self) -> None:
+                pass
+
+            def close(self) -> None:
+                pass
+
+        class IdleClient:
+            def pubsub(self) -> IdlePubSub:
+                return IdlePubSub()
+
+            def close(self) -> None:
+                pass
+
+        handler = RequestHandler({}, AtomicRef(_group_cfg()), AtomicRef(None))
+        handler._make_client = lambda: IdleClient()  # type: ignore[method-assign,assignment]
+        handler.start()
+        _time.sleep(0.2)
+
+        t0 = _time.monotonic()
+        handler.stop()
+        elapsed = _time.monotonic() - t0
+
+        assert elapsed < 5.0, f"stop() took {elapsed:.1f}s on an idle channel"
+        assert handler._thread is not None and not handler._thread.is_alive()
+        assert redis_lib is not None  # keep the import meaningful
+
+    def test_queued_jobs_are_refused_on_shutdown(self) -> None:
+        """A job behind the poison pill would otherwise never be answered."""
+        import queue as _queue
+
+        import main as deterrent_main
+
+        q: _queue.Queue[Any] = _queue.Queue()
+        guard = InFlightGuard()
+        guard.claim()
+        redis = FakeRedis()
+        q.put(None)  # pill first
+        q.put({
+            "__job": JOB_TEST_FIRE_GROUP, "group_name": "g", "request_id": "r9",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r9",
+        })
+
+        import unittest.mock as mock
+        with mock.patch.object(deterrent_main, "_publish_raw",
+                               lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
+            deterrent_main._worker(
+                q, AtomicRef(_group_cfg()), AtomicRef(FakeController()), AtomicRef(True),
+                CooldownTracker(), GroupCooldownTracker(), {}, guard,
+            )
+
+        reply = redis.reply_for("r9")
+        assert reply["ok"] is False
+        assert "shutting down" in reply["error"]
+        assert guard.claimed is False

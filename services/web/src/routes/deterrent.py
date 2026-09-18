@@ -14,6 +14,7 @@ from typing import Any
 import actuation_db
 import config_store
 import redis.asyncio as aioredis
+from config_model import check_actuation_ranges
 from config_redact import REDACTED_PLACEHOLDER
 from deterrent_safety import (
     DEFAULT_TEST_FIRE_SEC,
@@ -237,8 +238,26 @@ async def save_deterrent(request: Request) -> Response:
             clean_groups.append(entry)
         existing_act["groups"] = clean_groups
 
-    # Update defaults
+    # Validate every randomisation range before anything is persisted. These
+    # drive physical hardware, so a bad value must be refused here rather than
+    # clamped silently at fire time or left for the operator to discover when
+    # the sprinklers run for five minutes.
+    range_errors: list[str] = []
     defaults_input = body.get("defaults")
+    if isinstance(defaults_input, dict):
+        range_errors += check_actuation_ranges(defaults_input)
+    for g in (body.get("groups") or []):
+        if isinstance(g, dict):
+            name = g.get("name") or "(unnamed)"
+            range_errors += [
+                f"group {name}: {e}" for e in check_actuation_ranges(g)
+            ]
+    if range_errors:
+        return JSONResponse(
+            {"ok": False, "error": "; ".join(range_errors)}, status_code=400,
+        )
+
+    # Update defaults
     if isinstance(defaults_input, dict):
         existing_defaults = existing_act.get("defaults", {})
         if not isinstance(existing_defaults, dict):

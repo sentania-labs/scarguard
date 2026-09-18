@@ -26,7 +26,12 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from actuation_models import ActuationDefaults, DeterrentGroup, DeviceAction, DeviceConfig
-from deterrent_safety import MAX_ACTUATION_SEC, MAX_PRE_DELAY_SEC, clamp_duration
+from deterrent_safety import (
+    MAX_ACTUATION_SEC,
+    MAX_INTER_DELAY_SEC,
+    MAX_PRE_DELAY_SEC,
+    clamp_duration,
+)
 from pydantic import BaseModel
 from randomizer import build_random_plan
 
@@ -125,9 +130,18 @@ def execute_plan(
     fire_start = time.monotonic()
 
     for i, device in enumerate(selected):
-        if inter_delays[i] > 0:
-            logger.debug("Inter-device delay: %.1fs", inter_delays[i])
-            time.sleep(inter_delays[i])
+        # Clamped for the same reason the pre-delay and the spray are. This
+        # one is also a term in group_test_fire_timeout_sec(), so leaving it
+        # unbounded would make that derivation fiction.
+        inter_delay = min(inter_delays[i], MAX_INTER_DELAY_SEC)
+        if inter_delay < inter_delays[i]:
+            logger.warning(
+                "Inter-device delay %.1fs exceeds the %.0fs cap, clamping [rid=%s]",
+                inter_delays[i], MAX_INTER_DELAY_SEC, request_id,
+            )
+        if inter_delay > 0:
+            logger.debug("Inter-device delay: %.1fs", inter_delay)
+            time.sleep(inter_delay)
 
         if deadline_sec is not None and (time.monotonic() - fire_start) >= deadline_sec:
             logger.info(
@@ -158,7 +172,7 @@ def execute_plan(
             device_id=device.device_id,
             device_type=device.type,
             duration_sec=duration,
-            delay_before_sec=inter_delays[i],
+            delay_before_sec=inter_delay,
             success=result.success,
             error=result.error,
             cloud_ack_ms=result.on_ack_ms,
