@@ -488,6 +488,8 @@ class ActuationDefaultsConfig(BaseModel):
     spray_duration_range: list[float] = [3.0, 8.0]
     inter_device_delay_range: list[float] = [1.0, 5.0]
     pre_delay_range: list[float] = [0.0, 3.0]
+    # None means one pass, the pre-v1.17 behaviour.
+    group_duration_range: list[float] | None = None
 
     @field_validator("cooldown_seconds")
     @classmethod

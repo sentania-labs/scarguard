@@ -8,10 +8,15 @@ the deterrence pattern.
 from __future__ import annotations
 
 import logging
+import math
 import random
 
 from actuation_models import ActuationDefaults, DeviceConfig
-from deterrent_safety import MAX_GROUP_ACTUATION_SEC
+from deterrent_safety import (
+    MAX_GROUP_ACTUATION_SEC,
+    MAX_INTER_DELAY_SEC,
+    MIN_INTER_CYCLE_GAP_SEC,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +82,27 @@ def pick_group_window(defaults: ActuationDefaults) -> float | None:
     rng = defaults.group_duration_range
     if not rng or len(rng) != 2:
         return None
-    lo, hi = float(rng[0]), float(rng[1])
+    try:
+        lo, hi = float(rng[0]), float(rng[1])
+    except (TypeError, ValueError):
+        logger.warning("Group window range is not numeric, ignoring: %r", rng)
+        return None
+    # NaN and inf must be rejected, not clamped. Every comparison against NaN is
+    # False, so a NaN window would make "has the window closed" permanently
+    # False and the sequence would run until the cycle ceiling. Measured at
+    # ~115 minutes of continuous firing on the shipped defaults. inf produces
+    # NaN here too, via inf + (inf - inf) * r.
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        logger.warning(
+            "Group window range is not finite, ignoring and firing one pass: %r",
+            rng,
+        )
+        return None
     if hi <= 0:
         return None
     window = random.uniform(min(lo, hi), max(lo, hi))
+    if not math.isfinite(window):
+        return None
     if window > MAX_GROUP_ACTUATION_SEC:
         logger.warning(
             "Group window %.0fs exceeds the %.0fs cap, clamping",
@@ -88,3 +110,22 @@ def pick_group_window(defaults: ActuationDefaults) -> float | None:
         )
         window = MAX_GROUP_ACTUATION_SEC
     return window
+
+
+def pick_inter_cycle_gap(defaults: ActuationDefaults) -> float:
+    """Pick the off-time between two rotation cycles.
+
+    Drawn from ``inter_device_delay_range`` like any within-pass gap, but never
+    zero: a group small enough to re-select the same device would otherwise
+    drive it continuously for the whole window, with no off-time at all. That
+    is exactly the duty cycle MAX_ACTUATION_SEC is meant to bound.
+    """
+    rng = defaults.inter_device_delay_range or [1.0, 5.0]
+    try:
+        lo, hi = float(rng[0]), float(rng[1])
+    except (TypeError, ValueError, IndexError):
+        lo, hi = 1.0, 5.0
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        lo, hi = 1.0, 5.0
+    gap = random.uniform(min(lo, hi), max(lo, hi))
+    return max(MIN_INTER_CYCLE_GAP_SEC, min(gap, MAX_INTER_DELAY_SEC))

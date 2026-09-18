@@ -33,7 +33,7 @@ from deterrent_safety import (
     clamp_duration,
 )
 from pydantic import BaseModel
-from randomizer import build_random_plan
+from randomizer import build_random_plan, pick_inter_cycle_gap
 
 if TYPE_CHECKING:
     from cloud_controller import TuyaCloudController
@@ -48,10 +48,15 @@ DEFAULT_SPRAY_SEC = 3.0
 STUCK_FALLBACK_ERROR = "OFF failed"
 
 # Hard ceiling on rotation cycles, independent of the window. The window is the
-# real bound; this is here so that a logic error in the exit condition fails
-# loudly and finitely instead of spinning forever driving physical hardware. It
-# is deliberately far above any plausible real count: a 300s window with the
-# shortest useful sprays is well under this.
+# real bound; this exists so a logic error in the exit condition fails loudly
+# and finitely instead of spinning forever driving physical hardware.
+#
+# It IS reachable with a valid configuration: the smallest validated spray is
+# 0.5s, so a one-device group with no delays can complete 500 cycles in 250s
+# and end a 300s window early. That is an odd thing to configure (a group that
+# does nothing but stutter), and stopping early is the safe direction, so the
+# ceiling stays and the log says what actually happened rather than blaming a
+# bug.
 MAX_ROTATION_CYCLES = 500
 
 
@@ -87,6 +92,7 @@ def execute_plan(
     on_stuck: Callable[[DeviceConfig, str], None],
     deadline_sec: float | None = None,
     rotate: bool = False,
+    should_continue: Callable[[], bool] | None = None,
 ) -> PlanExecution:
     """Build a randomised plan over *devices* and fire it, device by device.
 
@@ -119,6 +125,15 @@ def execute_plan(
     window instead of firing one pass and going quiet. Each cycle re-rolls the
     device selection and the durations, so a heron watching cannot learn the
     pattern, which is the same reason the single pass is randomised at all.
+
+    *should_continue* is consulted between cycles and returning False stops the
+    rotation. It exists because the gates that authorise firing (armed,
+    deterrent.enabled) are evaluated once before the sequence starts, and a
+    window can now run for minutes. Without it, disarming or pressing emergency
+    off would send OFF to every device and the next cycle would simply turn
+    them back on. It is checked BETWEEN cycles, never mid-activation, so an
+    in-flight spray still runs to its natural end and nothing races the
+    watchdog.
     """
     # Rotation without a window would never terminate: the loop's only exit
     # test is "window closed", and with no deadline that is never true. Caught
@@ -161,10 +176,23 @@ def execute_plan(
     while cycle < MAX_ROTATION_CYCLES:
         cycle += 1
         if cycle > 1:
+            if should_continue is not None and not should_continue():
+                logger.info(
+                    "%s: aborted before cycle %d after %d device(s) [rid=%s]",
+                    label, cycle, len(actions), request_id,
+                )
+                break
             # Re-roll: new subset, new durations, new delays.
             selected, durations, inter_delays, _ = build_random_plan(devices, defaults)
             if not selected:
                 break
+            # build_random_plan always sets inter_delays[0] to 0, which is right
+            # within a pass but wrong at a cycle boundary: a small group
+            # re-selects the same device and would drive it with no off-time at
+            # all, which is what MAX_ACTUATION_SEC exists to prevent. Give the
+            # first device of a new cycle a real gap.
+            inter_delays = list(inter_delays)
+            inter_delays[0] = pick_inter_cycle_gap(defaults)
             logger.debug("%s: rotating, cycle %d [rid=%s]", label, cycle, request_id)
 
         for i, device in enumerate(selected):
@@ -225,11 +253,11 @@ def execute_plan(
         if not rotate or window_closed():
             break
     else:
-        logger.error(
-            "%s: hit the %d-cycle ceiling with the window still open, stopping. "
-            "This is a bug in the exit condition, not a configuration problem "
-            "[rid=%s]",
-            label, MAX_ROTATION_CYCLES, request_id,
+        logger.warning(
+            "%s: hit the %d-cycle ceiling with the window still open, stopping "
+            "after %d device(s). Either the sprays are configured far shorter "
+            "than the window, or the exit condition is wrong [rid=%s]",
+            label, MAX_ROTATION_CYCLES, len(actions), request_id,
         )
 
     return PlanExecution(

@@ -43,6 +43,11 @@ MAX_GROUP_TEST_FIRE_SEC: float = 60.0
 # keep devices cycling. Validated at config load, not only clamped at fire
 # time, so an operator who asks for more is told rather than silently cut off.
 MAX_GROUP_ACTUATION_SEC: float = 300.0
+# Floor on the off-time between two rotation cycles. Within a pass the first
+# device has no delay, which is correct; at a cycle boundary that would let a
+# small group re-select the same device and hold it on continuously for the
+# whole window, defeating the duty cycle MAX_ACTUATION_SEC is meant to bound.
+MIN_INTER_CYCLE_GAP_SEC: float = 2.0
 # Cap on the randomised wait before a sequence starts. Clamped in group_fire
 # as well as validated in the web config model, because scarguard.yml can be
 # hand-edited and an unbounded pre-delay is invisible (nothing is firing yet)

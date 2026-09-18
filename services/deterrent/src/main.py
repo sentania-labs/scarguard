@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -125,6 +126,8 @@ def _fire_group(
     queue_depth: int,
     pub_holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
+    *,
+    still_authorised: Callable[[], bool] | None = None,
 ) -> bool:
     """Fire a single deterrent group and persist/publish the resulting event.
 
@@ -170,6 +173,7 @@ def _fire_group(
         label=f"Group [{group.name}]",
         deadline_sec=window_sec,
         rotate=window_sec is not None,
+        should_continue=still_authorised,
         on_stuck=lambda device, error: _publish_stuck(
             pub_holder, redis_cfg, device, request_id, error,
         ),
@@ -450,6 +454,7 @@ def _worker(
     group_cooldown: GroupCooldownTracker,
     redis_cfg: dict[str, Any],
     in_flight: InFlightGuard,
+    shutdown_event: threading.Event | None = None,
 ) -> None:
     """Consume detection events and run actuation sequences per matched group."""
     logger.info("Deterrent worker thread started")
@@ -562,10 +567,29 @@ def _worker(
                 )
                 continue
 
+            # Re-read the gates between rotation cycles rather than trusting
+            # the ones checked before the sequence started. A window can run for
+            # minutes, and during it an operator may disarm, set
+            # deterrent.enabled false, or hit emergency off. Without this the
+            # force-off would switch every device off and the next cycle would
+            # switch them straight back on.
+            def _still_authorised() -> bool:
+                if shutdown_event is not None and shutdown_event.is_set():
+                    logger.info("Shutting down, stopping group rotation")
+                    return False
+                if not act_cfg_ref.get().enabled:
+                    logger.info("Deterrent disabled mid-sequence, stopping rotation")
+                    return False
+                if not armed_ref.get():
+                    logger.info("Disarmed mid-sequence, stopping rotation")
+                    return False
+                return True
+
             fired = _fire_group(
                 group, act_cfg, controller, event,
                 trigger_delay_ms, queue_depth,
                 pub_holder, redis_cfg,
+                still_authorised=_still_authorised,
             )
             if fired:
                 group_cooldown.record(group_name)
@@ -950,7 +974,7 @@ def main() -> None:
         daemon=True,
         args=(
             event_queue, act_cfg_ref, controller_ref, armed_ref,
-            cooldown, group_cooldown, redis_cfg, in_flight,
+            cooldown, group_cooldown, redis_cfg, in_flight, shutdown_event,
         ),
     )
     worker_thread.start()
