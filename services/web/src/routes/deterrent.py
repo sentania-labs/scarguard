@@ -232,6 +232,7 @@ async def save_deterrent(request: Request) -> Response:
                 "spray_duration_range",
                 "inter_device_delay_range",
                 "pre_delay_range",
+                "group_duration_range",
             ):
                 if opt_key in g and g[opt_key]:
                     entry[opt_key] = g[opt_key]

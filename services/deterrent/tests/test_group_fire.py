@@ -449,3 +449,105 @@ class TestEveryWaitIsBounded:
         )
         execution = _run(FakeController(), [_device("v1")], defaults)
         assert execution.pre_delay_sec == MAX_PRE_DELAY_SEC
+
+
+class TestRotation:
+    """A group with a window keeps working the position until it closes.
+
+    The point of #189: a heron that waits out a three-second burst has not
+    been deterred. Without rotation the group fires one pass and goes quiet
+    for the whole cooldown.
+    """
+
+    @staticmethod
+    def _clock(monkeypatch: Any) -> dict[str, float]:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        return clock
+
+    @staticmethod
+    def _timed(controller: FakeController, clock: dict[str, float]) -> FakeController:
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        return controller
+
+    @staticmethod
+    def _defaults() -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+
+    def _fire(self, monkeypatch: Any, *, window: float | None, rotate: bool) -> Any:
+        clock = self._clock(monkeypatch)
+        controller = self._timed(FakeController(), clock)
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=window, rotate=rotate,
+        )
+        return controller, execution
+
+    def test_without_a_window_it_is_one_pass(self, monkeypatch: Any) -> None:
+        """The pre-v1.17 behaviour must be exactly preserved."""
+        controller, execution = self._fire(monkeypatch, window=None, rotate=False)
+        assert len(execution.actions) == 2
+
+    def test_with_a_window_it_keeps_cycling(self, monkeypatch: Any) -> None:
+        # 2 devices x 5s = 10s per cycle; a 30s window fits three cycles.
+        controller, execution = self._fire(monkeypatch, window=30.0, rotate=True)
+        assert len(execution.actions) == 6, "group stopped after one pass"
+
+    def test_rotation_stops_at_the_window(self, monkeypatch: Any) -> None:
+        controller, execution = self._fire(monkeypatch, window=12.0, rotate=True)
+        # Cycle 1 ends at t=10 (under 12, so cycle 2 starts); its first device
+        # runs 10->15, then the window has closed.
+        assert len(execution.actions) == 3
+        assert execution.total_duration_sec == 15.0
+
+    def test_an_in_flight_spray_still_finishes(self, monkeypatch: Any) -> None:
+        """Overshoot stays bounded by one spray; no out-of-band OFF is sent."""
+        controller, execution = self._fire(monkeypatch, window=1.0, rotate=True)
+        assert len(execution.actions) == 1
+        assert execution.actions[0].duration_sec == 5.0
+
+    def test_rotate_without_a_window_is_still_one_pass(self, monkeypatch: Any) -> None:
+        """rotate is meaningless without a deadline and must not loop forever."""
+        controller, execution = self._fire(monkeypatch, window=None, rotate=True)
+        assert len(execution.actions) == 2
+
+
+class TestPickGroupWindow:
+    def test_none_when_unset(self) -> None:
+        from randomizer import pick_group_window
+        assert pick_group_window(ActuationDefaults()) is None
+
+    def test_none_when_zero(self) -> None:
+        from randomizer import pick_group_window
+        d = ActuationDefaults(group_duration_range=[0.0, 0.0])
+        assert pick_group_window(d) is None
+
+    def test_within_the_configured_range(self) -> None:
+        from randomizer import pick_group_window
+        d = ActuationDefaults(group_duration_range=[10.0, 20.0])
+        for _ in range(50):
+            w = pick_group_window(d)
+            assert w is not None and 10.0 <= w <= 20.0
+
+    def test_clamped_to_the_ceiling(self) -> None:
+        """One detection must not be able to run the devices indefinitely."""
+        from deterrent_safety import MAX_GROUP_ACTUATION_SEC
+        from randomizer import pick_group_window
+        d = ActuationDefaults(group_duration_range=[99999.0, 99999.0])
+        assert pick_group_window(d) == MAX_GROUP_ACTUATION_SEC

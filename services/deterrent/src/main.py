@@ -31,6 +31,7 @@ from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
 from event_signing import load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
+from randomizer import pick_group_window
 from request_handler import JOB_TEST_FIRE_GROUP, InFlightGuard, RequestHandler
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,17 @@ def _fire_group(
         group.name, class_name, camera_name, confidence, len(group_devices), request_id,
     )
 
+    # None keeps the pre-v1.17 behaviour: one pass and done. With a window the
+    # group re-rolls and keeps working the position until it closes, which is
+    # the point of #189: a heron that waits out a three-second burst has not
+    # been deterred.
+    window_sec = pick_group_window(defaults)
+    if window_sec is not None:
+        logger.info(
+            "Group [%s] will work the position for %.0fs [rid=%s]",
+            group.name, window_sec, request_id,
+        )
+
     execution = execute_plan(
         controller,
         group_devices,
@@ -156,6 +168,8 @@ def _fire_group(
         request_id=request_id,
         event_type="detection",
         label=f"Group [{group.name}]",
+        deadline_sec=window_sec,
+        rotate=window_sec is not None,
         on_stuck=lambda device, error: _publish_stuck(
             pub_holder, redis_cfg, device, request_id, error,
         ),

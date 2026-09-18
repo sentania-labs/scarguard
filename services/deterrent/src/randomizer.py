@@ -7,9 +7,13 @@ the deterrence pattern.
 
 from __future__ import annotations
 
+import logging
 import random
 
 from actuation_models import ActuationDefaults, DeviceConfig
+from deterrent_safety import MAX_GROUP_ACTUATION_SEC
+
+logger = logging.getLogger(__name__)
 
 
 def build_random_plan(
@@ -60,3 +64,27 @@ def build_random_plan(
     pre_delay = random.uniform(pre_min, pre_max)
 
     return selected, durations, inter_delays, pre_delay
+
+
+def pick_group_window(defaults: ActuationDefaults) -> float | None:
+    """Pick this firing's group window, or None for a single pass.
+
+    Randomised like every other range so a heron cannot learn how long the
+    sprinklers run. Clamped to MAX_GROUP_ACTUATION_SEC: the web layer
+    validates the range, but scarguard.yml can be hand-edited and one
+    detection must not be able to run the devices indefinitely.
+    """
+    rng = defaults.group_duration_range
+    if not rng or len(rng) != 2:
+        return None
+    lo, hi = float(rng[0]), float(rng[1])
+    if hi <= 0:
+        return None
+    window = random.uniform(min(lo, hi), max(lo, hi))
+    if window > MAX_GROUP_ACTUATION_SEC:
+        logger.warning(
+            "Group window %.0fs exceeds the %.0fs cap, clamping",
+            window, MAX_GROUP_ACTUATION_SEC,
+        )
+        window = MAX_GROUP_ACTUATION_SEC
+    return window

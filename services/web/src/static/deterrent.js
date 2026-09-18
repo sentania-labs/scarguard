@@ -339,6 +339,10 @@ function renderGroups() {
           '<div class="field-group"><label>Pre-delay (s)</label>' +
             '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-pre_delay_range"></div>' +
           '</div>' +
+          '<div class="field-group">' +
+            '<label title="Blank means one pass. Set a window and the group keeps cycling its devices for that long, re-picking each time.">Group window (s)</label>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-group_duration_range"></div>' +
+          '</div>' +
         '</div>' +
       '</details>' +
       '<div style="margin-top:0.5rem;font-size:0.85rem;"><span class="muted">Used by:</span> <span class="usage-chips"></span></div>';
@@ -413,6 +417,7 @@ function renderGroups() {
       ['spray_duration_range',       g.spray_duration_range,       {min:'0.5', max:'60', step:'0.5'}],
       ['inter_device_delay_range',   g.inter_device_delay_range,   {min:'0',   max:'30', step:'0.5'}],
       ['pre_delay_range',            g.pre_delay_range,            {min:'0',   max:'30', step:'0.5'}],
+      ['group_duration_range',       g.group_duration_range,       {min:'0',   max:'300', step:'5'}],
     ];
     ranges.forEach(function(r) {
       var attrs = Object.assign({}, r[2]);
@@ -461,7 +466,8 @@ function readGroupsFromForm() {
     });
     var entry = {name: name, devices: devices, cooldown_seconds: cooldown};
     ['device_count_range', 'spray_duration_range',
-     'inter_device_delay_range', 'pre_delay_range'].forEach(function(f) {
+     'inter_device_delay_range', 'pre_delay_range',
+     'group_duration_range'].forEach(function(f) {
       var r = _readGroupRange(card, f);
       if (r) entry[f] = r;
     });
