@@ -185,3 +185,152 @@ class TestExecutePlan:
         assert controller.calls == []
         assert execution.actions == []
         assert execution.successes == 0
+
+
+class TestTimingIsPreserved:
+    """Pins the four properties a mutation run found uncovered.
+
+    The refactor that extracted execute_plan out of main._fire_group was
+    behaviour-preserving, but nothing stopped the next edit from silently
+    changing pre_delay placement, index alignment, the persisted
+    delay_before_sec, or the span total_duration_sec measures. The last one
+    matters most: it is written to the actuation audit record.
+    """
+
+    @staticmethod
+    def _timed_defaults(pre: float, inter: float) -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[3, 3],
+            spray_duration_range=[0.0, 0.0],
+            inter_device_delay_range=[inter, inter],
+            pre_delay_range=[pre, pre],
+        )
+
+    def test_pre_delay_is_actually_slept(self, monkeypatch: Any) -> None:
+        slept: list[float] = []
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: slept.append(s))
+        devices = [_device(f"v{i}") for i in range(3)]
+        _run(FakeController(), devices, self._timed_defaults(2.5, 0.0))
+
+        assert 2.5 in slept, "pre_delay was never slept"
+
+    def test_inter_delays_are_index_aligned(self, monkeypatch: Any) -> None:
+        """Device 0 never waits; device i waits inter_delays[i].
+
+        Asserted on the interleaving rather than on totals: with a uniform
+        delay range, an off-by-one shifts which device waits without changing
+        how many sleeps happen, so counting alone cannot see it.
+        """
+        trace: list[tuple[str, Any]] = []
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: trace.append(("sleep", s)))
+        controller = FakeController()
+        real = controller.activate_device
+
+        def traced(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            trace.append(("fire", device.name))
+            return real(device, duration, **kw)
+
+        controller.activate_device = traced  # type: ignore[method-assign]
+        devices = [_device(f"v{i}") for i in range(3)]
+        execution = _run(controller, devices, self._timed_defaults(0.0, 1.5))
+
+        # No pre-delay, so the very first thing that happens is a firing.
+        assert trace[0][0] == "fire", f"device 0 waited before firing: {trace[:2]}"
+        # Thereafter strictly alternating: sleep, fire, sleep, fire.
+        assert [kind for kind, _ in trace] == [
+            "fire", "sleep", "fire", "sleep", "fire",
+        ]
+        assert execution.actions[0].delay_before_sec == 0.0
+        assert [a.delay_before_sec for a in execution.actions[1:]] == [1.5, 1.5]
+
+    def test_delay_before_sec_is_recorded_not_zeroed(self, monkeypatch: Any) -> None:
+        """This lands in the actuation audit record and must be the real value."""
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: None)
+        devices = [_device(f"v{i}") for i in range(3)]
+        execution = _run(FakeController(), devices, self._timed_defaults(0.0, 2.0))
+
+        assert sum(a.delay_before_sec for a in execution.actions) == 4.0
+
+    def test_total_duration_includes_the_pre_delay(self, monkeypatch: Any) -> None:
+        """t_start is taken BEFORE the pre-delay sleep; moving it changes the
+        meaning of a persisted audit field."""
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        devices = [_device("v1")]
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[0.0, 0.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[5.0, 5.0],
+        )
+        execution = _run(FakeController(), devices, defaults)
+
+        assert execution.total_duration_sec == 5.0
+
+
+class TestDeadline:
+    """The window is checked before each device, never during one."""
+
+    @staticmethod
+    def _defaults() -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[4, 4],
+            spray_duration_range=[10.0, 10.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+
+    def _run_with_clock(self, deadline: float, monkeypatch: Any) -> Any:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+
+        # Each activation advances the clock by its duration, as a real hold would.
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        devices = [_device(f"v{i}") for i in range(4)]
+        execution = execute_plan(
+            controller, devices, self._defaults(),
+            request_id="rid", event_type="test_fire_group", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=deadline,
+        )
+        return controller, execution
+
+    def test_stops_picking_up_devices_once_the_window_elapses(self, monkeypatch: Any) -> None:
+        controller, execution = self._run_with_clock(25.0, monkeypatch)
+        # 3 devices x 10s: the third starts at t=20 (under 25), the fourth at
+        # t=30 and is never picked up.
+        assert len(controller.calls) == 3
+        assert len(execution.actions) == 3
+
+    def test_in_flight_device_always_finishes(self, monkeypatch: Any) -> None:
+        """Overshoot is bounded by one spray; no out-of-band OFF is sent."""
+        controller, execution = self._run_with_clock(5.0, monkeypatch)
+        assert len(controller.calls) == 1
+        assert execution.actions[0].duration_sec == 10.0
+        assert execution.total_duration_sec == 10.0
+
+    def test_no_deadline_fires_the_whole_plan(self, monkeypatch: Any) -> None:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: None)
+        controller = FakeController()
+        devices = [_device(f"v{i}") for i in range(4)]
+        execution = execute_plan(
+            controller, devices, self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+        )
+        assert len(execution.actions) == 4

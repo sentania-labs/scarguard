@@ -133,3 +133,73 @@ class TestForceOff:
         assert resp.status_code == 502
         body = resp.json()
         assert body["ok"] is False
+
+
+class TestTestFireGroupValidation:
+    """The route validates only that a group was named.
+
+    Everything physical (enabled, armed, cooldowns, per-device and whole
+    sequence bounds) is enforced by the deterrent worker, because that is the
+    only place that knows the live state. The route's job is to refuse
+    malformed input without bothering the deterrent service.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_rate_limit(self, monkeypatch):
+        """Disable the limiter for this class only.
+
+        It is a fixed-window counter keyed on the principal, which every test
+        here shares. /test-fire-group deliberately allows only 5 per minute
+        (one call can drive a whole group), so the sixth test would get a 429
+        instead of the behaviour it asserts. The limit itself is not under
+        test here.
+        """
+        monkeypatch.setattr("rate_limit_dep._get_limiter", lambda: None)
+
+    def test_rejects_missing_group_name(self, client, fake_redis) -> None:
+        resp = client.post("/admin/deterrent/test-fire-group", json={})
+        assert resp.status_code == 400
+        assert "group_name" in resp.json()["error"]
+        assert fake_redis["payloads"] == []
+
+    def test_rejects_blank_group_name(self, client, fake_redis) -> None:
+        resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": "   "})
+        assert resp.status_code == 400
+        assert fake_redis["payloads"] == []
+
+    def test_rejects_non_string_group_name(self, client, fake_redis) -> None:
+        resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": 42})
+        assert resp.status_code == 400
+        assert fake_redis["payloads"] == []
+
+    def test_rejects_invalid_json(self, client, fake_redis) -> None:
+        resp = client.post(
+            "/admin/deterrent/test-fire-group",
+            content=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 400
+        assert fake_redis["payloads"] == []
+
+    def test_forwards_stripped_group_name(self, client, fake_redis) -> None:
+        fake_redis["response"] = {
+            "ok": True, "group_name": "g", "devices_fired": 2, "devices_succeeded": 2,
+        }
+        resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": "  g  "})
+        assert resp.status_code == 200
+        assert fake_redis["payloads"][0]["payload"]["group_name"] == "g"
+
+    def test_worker_refusal_surfaces_as_502(self, client, fake_redis) -> None:
+        """A disabled or disarmed system must not read as success."""
+        fake_redis["response"] = {"ok": False, "error": "System is disarmed"}
+        resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": "g"})
+        assert resp.status_code == 502
+        assert resp.json()["error"] == "System is disarmed"
+
+    def test_partial_success_is_reported_as_success(self, client, fake_redis) -> None:
+        fake_redis["response"] = {
+            "ok": True, "group_name": "g", "devices_fired": 3, "devices_succeeded": 2,
+        }
+        resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": "g"})
+        assert resp.status_code == 200
+        assert resp.json()["devices_succeeded"] == 2

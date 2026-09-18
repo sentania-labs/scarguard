@@ -27,10 +27,11 @@ from battery_monitor import BatteryMonitor
 from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
 from cooldown import CooldownTracker, GroupCooldownTracker
+from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
 from event_signing import load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
-from request_handler import RequestHandler
+from request_handler import JOB_TEST_FIRE_GROUP, RequestHandler
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,162 @@ def _fire_group(
     return True
 
 
+def _run_group_test_fire(
+    job: dict[str, Any],
+    act_cfg_ref: AtomicRef[ActuationConfig],
+    controller_ref: AtomicRef[TuyaCloudController | None],
+    armed_ref: AtomicRef[bool],
+    cooldown: CooldownTracker,
+    group_cooldown: GroupCooldownTracker,
+    test_fire_lock: threading.Lock,
+    pub_holder: list[redis_lib.Redis | None],
+    redis_cfg: dict[str, Any],
+) -> None:
+    """Run an admin group test-fire on the worker thread.
+
+    Deliberately applies the same gates a detection does. An operator who has
+    set ``deterrent.enabled: false`` or disarmed the system to work on the pond
+    must not be able to start the sprinklers from a button, and a test-fire is
+    the same physical event as a detection so it consumes the same cooldown
+    budget rather than letting a real heron re-fire the group a second later.
+    """
+    request_id = job.get("request_id", "")
+    group_name = job.get("group_name", "")
+    result_channel = job.get("result_channel", "")
+
+    def reply(body: dict[str, Any]) -> None:
+        _publish_raw(pub_holder, redis_cfg, result_channel, body)
+
+    act_cfg = act_cfg_ref.get()
+    controller = controller_ref.get()
+
+    if not act_cfg.enabled:
+        reply({"ok": False, "error": "Deterrent is disabled in config"})
+        return
+    if not armed_ref.get():
+        reply({"ok": False, "error": "System is disarmed"})
+        return
+    if controller is None:
+        reply({"ok": False, "error": "No Tuya credentials configured"})
+        return
+
+    group = next((g for g in act_cfg.groups if g.name == group_name), None)
+    if group is None:
+        reply({"ok": False, "error": f"Group {group_name} not found in config"})
+        return
+
+    global_cd = act_cfg.defaults.cooldown_seconds
+    if not cooldown.is_clear(global_cd):
+        reply({
+            "ok": False,
+            "error": (
+                f"Global cooldown active, {cooldown.seconds_remaining(global_cd):.0f}s remaining"
+            ),
+        })
+        return
+    if not group_cooldown.is_clear(group_name, group.cooldown_seconds):
+        remaining = group_cooldown.seconds_remaining(group_name, group.cooldown_seconds)
+        reply({
+            "ok": False,
+            "error": f"Group cooldown active, {remaining:.0f}s remaining",
+        })
+        return
+
+    group_devices = resolve_group_devices(group, act_cfg.devices)
+    if not group_devices:
+        reply({"ok": False, "error": f"Group {group_name} has no enabled devices"})
+        return
+
+    with test_fire_lock:
+        logger.info(
+            "Test-fire group [%s]: %d eligible device(s) [rid=%s]",
+            group.name, len(group_devices), request_id,
+        )
+        execution = execute_plan(
+            controller,
+            group_devices,
+            group.effective_defaults(act_cfg.defaults),
+            request_id=request_id,
+            event_type="test_fire_group",
+            label=f"Test-fire group [{group.name}]",
+            deadline_sec=MAX_GROUP_TEST_FIRE_SEC,
+            on_stuck=lambda device, error: _publish_stuck(
+                pub_holder, redis_cfg, device, request_id, error,
+            ),
+        )
+
+    group_cooldown.record(group_name)
+    cooldown.record()
+
+    actuation_event = ActuationEvent(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        trigger_class="admin",
+        trigger_camera="test-fire-group",
+        trigger_confidence=0.0,
+        group_name=group.name,
+        pre_delay_sec=execution.pre_delay_sec,
+        actions=execution.actions,
+        total_duration_sec=round(execution.total_duration_sec, 2),
+        request_id=request_id,
+        event_type="test_fire_group",
+    )
+    _publish_actuation(pub_holder, redis_cfg, actuation_event)
+    try:
+        actuation_db.insert_event(actuation_event)
+    except Exception:
+        logger.exception("Failed to persist group test-fire [rid=%s]", request_id)
+
+    # Partial success is not failure: report the counts and let the operator
+    # judge. "ok" means at least one device did what was asked.
+    reply({
+        "ok": execution.successes > 0,
+        "group_name": group.name,
+        "devices_fired": len(execution.actions),
+        "devices_succeeded": execution.successes,
+        "total_duration_sec": round(execution.total_duration_sec, 2),
+        "devices": [
+            {
+                "device_name": a.device_name,
+                "duration_sec": a.duration_sec,
+                "success": a.success,
+                "error": a.error,
+                "stuck": a.stuck,
+            }
+            for a in execution.actions
+        ],
+    })
+    logger.info(
+        "Test-fire group [%s] complete: %d/%d devices in %.1fs [rid=%s]",
+        group.name, execution.successes, len(execution.actions),
+        execution.total_duration_sec, request_id,
+    )
+
+
+def _publish_raw(
+    holder: list[redis_lib.Redis | None],
+    redis_cfg: dict[str, Any],
+    channel: str,
+    body: dict[str, Any],
+) -> None:
+    """Publish a plain dict to *channel*.  Lazily connects, mirrors _publish_actuation."""
+    if not channel:
+        return
+    try:
+        client = holder[0]
+        if client is None:
+            host = redis_cfg.get("host", "redis")
+            port = int(redis_cfg.get("port", 6379))
+            password = os.environ.get("REDIS_PASSWORD", "") or None
+            client = redis_lib.Redis(
+                host=host, port=port, password=password, decode_responses=True,
+            )
+            holder[0] = client
+        client.publish(channel, json.dumps(body))
+    except Exception:
+        logger.exception("Failed to publish to %s", channel)
+        holder[0] = None  # force reconnect on next attempt
+
+
 def _publish_stuck(
     holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
@@ -239,6 +396,7 @@ def _worker(
     cooldown: CooldownTracker,
     group_cooldown: GroupCooldownTracker,
     redis_cfg: dict[str, Any],
+    test_fire_lock: threading.Lock,
 ) -> None:
     """Consume detection events and run actuation sequences per matched group."""
     logger.info("Deterrent worker thread started")
@@ -249,6 +407,17 @@ def _worker(
         event = event_queue.get()
         if event is None:  # poison pill - shutdown
             break
+
+        # Control jobs ride the same queue so they serialise with detection
+        # firing: two sequences can never overlap on one device, which is what
+        # keeps the reconcile loop's busy check meaningful.
+        if event.get("__job") == JOB_TEST_FIRE_GROUP:
+            _run_group_test_fire(
+                event, act_cfg_ref, controller_ref, armed_ref,
+                cooldown, group_cooldown, test_fire_lock,
+                pub_holder, redis_cfg,
+            )
+            continue
 
         # Latency instrumentation - dequeue moment.
         dequeue_ts = time.time()
@@ -697,6 +866,10 @@ def main() -> None:
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
+    # Held for the duration of an admin group test-fire so a second request
+    # is refused rather than queued behind hardware that is already running.
+    test_fire_lock = threading.Lock()
+
     # Start worker thread
     worker_thread = threading.Thread(
         target=_worker,
@@ -704,13 +877,18 @@ def main() -> None:
         daemon=True,
         args=(
             event_queue, act_cfg_ref, controller_ref, armed_ref,
-            cooldown, group_cooldown, redis_cfg,
+            cooldown, group_cooldown, redis_cfg, test_fire_lock,
         ),
     )
     worker_thread.start()
 
-    # Start request handler (test-fire + device status queries from web UI)
-    req_handler = RequestHandler(redis_cfg, act_cfg_ref, controller_ref)
+    # Start request handler (test-fire + device status queries from web UI).
+    # Group test-fires are handed to the worker queue rather than run on the
+    # handler thread, which must stay free to answer emergency force-off.
+    req_handler = RequestHandler(
+        redis_cfg, act_cfg_ref, controller_ref,
+        job_queue=event_queue, test_fire_lock=test_fire_lock,
+    )
     req_handler.start()
 
     # Start reconciliation loop (force-OFF stuck devices)

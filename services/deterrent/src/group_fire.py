@@ -73,6 +73,7 @@ def execute_plan(
     event_type: str,
     label: str,
     on_stuck: Callable[[DeviceConfig, str], None],
+    deadline_sec: float | None = None,
 ) -> PlanExecution:
     """Build a randomised plan over *devices* and fire it, device by device.
 
@@ -80,6 +81,13 @@ def execute_plan(
     test-fire are distinguishable in the log stream. *on_stuck* is invoked once
     per device that reported ON-succeeded-but-OFF-failed; the caller decides how
     to publish it.
+
+    *deadline_sec* bounds the whole sequence. It is checked BEFORE starting each
+    device, never during one: an activation already in flight always runs to its
+    natural end and no further device is picked up. Overshoot is therefore
+    bounded by a single spray duration, and no out-of-band OFF is ever sent, so
+    nothing races the per-activation watchdog. ``None`` means no bound, which is
+    what the detection path uses today.
     """
     selected, durations, inter_delays, pre_delay = build_random_plan(devices, defaults)
 
@@ -91,6 +99,13 @@ def execute_plan(
         time.sleep(pre_delay)
 
     for i, device in enumerate(selected):
+        if deadline_sec is not None and (time.monotonic() - t_start) >= deadline_sec:
+            logger.info(
+                "%s: window of %.0fs elapsed, stopping after %d of %d device(s) [rid=%s]",
+                label, deadline_sec, len(actions), len(selected), request_id,
+            )
+            break
+
         if inter_delays[i] > 0:
             logger.debug("Inter-device delay: %.1fs", inter_delays[i])
             time.sleep(inter_delays[i])
