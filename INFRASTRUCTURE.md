@@ -206,7 +206,7 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 |--------|-----------|--------|---------|
 | `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
 | `scarguard-data` | detector, web, notifier, deterrent, trainer | rw (detector, web, deterrent, trainer), ro (notifier) | SQLite DBs, snapshots, training workspace and durable logs |
-| `scarguard-models` | detector, web, notifier | rw (web, model upload), ro (detector, notifier, storage size for digests) | YOLO model files (`.pt`, `.engine`) |
+| `scarguard-models` | detector, web, notifier | rw (web: model upload), ro (detector, notifier: storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
 | `scarguard-redis-data` | redis | rw | Redis persistence |

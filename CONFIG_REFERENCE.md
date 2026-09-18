@@ -314,7 +314,7 @@ keeping the structure valid for round-tripping.
 
 The user-management routes refuse to delete, disable, or demote the last
 active admin. Attempting any of those returns a `400 cannot demote the
-last admin, promote another user first.` so a misclick can't orphan the
+last admin - promote another user first.` so a misclick can't orphan the
 instance. See `auth.count_active_admins()` and the guards in
 `services/web/src/routes/users.py`.
 
