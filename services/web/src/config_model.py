@@ -266,7 +266,7 @@ class CameraConfig(BaseModel):
     @field_validator("rtsp_url")
     @classmethod
     def rtsp_url_format(cls, v: str) -> str:
-        # Allow the redacted placeholder through — the save handler strips
+        # Allow the redacted placeholder through - the save handler strips
         # it before merging so the existing secret is preserved.
         if v and v != "***REDACTED***" and not v.startswith(("rtsp://", "rtsps://")):
             raise ValueError("RTSP URL must start with rtsp:// or rtsps://")
@@ -349,7 +349,7 @@ class TrainingDefaultsConfig(BaseModel):
         # Coerce rather than raise: a strict validator here would make
         # _parse_cfg fall back to a default TrainingConfig, rendering the
         # form with an empty (not redacted) API key that the next save
-        # would persist — wiping the stored secret.
+        # would persist - wiping the stored secret.
         try:
             f = float(v)  # type: ignore[arg-type]
         except (TypeError, ValueError):
@@ -435,7 +435,7 @@ class DeterrentGroupConfig(BaseModel):
     appear in multiple groups.  Randomization ranges override
     ``deterrent.defaults`` for this group only; set any range to null (omit)
     to inherit.  ``cooldown_seconds`` gates repeat firings of this group
-    only — the top-level ``deterrent.defaults.cooldown_seconds`` still
+    only - the top-level ``deterrent.defaults.cooldown_seconds`` still
     enforces a global cross-group cooldown.
     """
 

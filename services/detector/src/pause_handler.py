@@ -1,4 +1,4 @@
-"""Pause/resume handler for the detector — yields GPU to the trainer.
+"""Pause/resume handler for the detector - yields GPU to the trainer.
 
 Subscribes to Redis ``scarguard:detector:command`` and manages the
 lifecycle: set the paused flag → drain in-flight inference → unload
@@ -88,7 +88,7 @@ class PauseHandler:
     def _do_pause(self, request_id: str, timeout: float) -> None:
         with self._transition_lock:
             if self._paused_ref.get():
-                logger.info("Already paused — ignoring duplicate pause request %s", request_id)
+                logger.info("Already paused - ignoring duplicate pause request %s", request_id)
                 return
 
             logger.info("Pausing detector (request_id=%s, timeout=%ds)", request_id, timeout)
@@ -104,15 +104,15 @@ class PauseHandler:
             self._model_pool.unload_all()
             self._publish_state("paused", request_id=request_id)
             self._start_heartbeat_watcher()
-            logger.info("Detector paused — GPU released")
+            logger.info("Detector paused - GPU released")
 
     def _do_resume(self, request_id: str, reason: str = "command") -> None:
         with self._transition_lock:
             if not self._paused_ref.get():
                 # Still ack: after an auto-resume the trainer's own resume
                 # request must not time out waiting for a state it can never
-                # see — republish "running" under the requester's id.
-                logger.info("Not paused — acking resume request %s as running", request_id)
+                # see - republish "running" under the requester's id.
+                logger.info("Not paused - acking resume request %s as running", request_id)
                 self._publish_state("running", request_id=request_id)
                 return
 
@@ -124,10 +124,10 @@ class PauseHandler:
             try:
                 self._model_pool.reload_all()
             except Exception:
-                logger.exception("Model reload failed during resume — inference will retry on next frame")
+                logger.exception("Model reload failed during resume - inference will retry on next frame")
             self._paused_ref.set(False)
             self._publish_state("running", request_id=request_id)
-            logger.info("Detector resumed — inference active")
+            logger.info("Detector resumed - inference active")
 
     def _publish_state(self, state: str, request_id: str | None = None) -> None:
         data: dict[str, Any] = {
@@ -183,7 +183,7 @@ class PauseHandler:
                 elapsed = time.monotonic() - self._paused_since
                 if elapsed > self._pause_timeout:
                     logger.warning(
-                        "Pause timeout exceeded (%.0fs > %.0fs) — auto-resuming",
+                        "Pause timeout exceeded (%.0fs > %.0fs) - auto-resuming",
                         elapsed, self._pause_timeout,
                     )
                     self._do_resume("auto-timeout", reason="timeout")
@@ -191,7 +191,7 @@ class PauseHandler:
 
                 heartbeat = client.get(HEARTBEAT_KEY)
                 if heartbeat is None and elapsed > 60:
-                    logger.warning("Trainer heartbeat missing — auto-resuming")
+                    logger.warning("Trainer heartbeat missing - auto-resuming")
                     self._do_resume("auto-heartbeat", reason="heartbeat-expired")
                     break
 
@@ -202,7 +202,7 @@ class PauseHandler:
 
                 self._watcher_stop.wait(30)
         except Exception:
-            logger.exception("Heartbeat watcher error — auto-resuming")
+            logger.exception("Heartbeat watcher error - auto-resuming")
             try:
                 self._do_resume("auto-error", reason="watcher-error")
             except Exception:

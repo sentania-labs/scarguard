@@ -1,4 +1,4 @@
-"""On-demand model class-name introspection — Redis request/response.
+"""On-demand model class-name introspection - Redis request/response.
 
 The web service asks "what classes does model X support?" by publishing to
 ``scarguard:model.classes.request``; we respond on a per-request reply
@@ -7,9 +7,9 @@ channel ``scarguard:model.classes.response:<request_id>``.
 Results are cached per ``(path, mtime, size)`` so repeated introspection of
 the same file is instant.  Load-paths, in order of preference:
 
-1. Reuse an already-loaded model from :class:`ModelPool` — zero extra
+1. Reuse an already-loaded model from :class:`ModelPool` - zero extra
    memory, zero GPU contention.
-2. Fall back to ``torch.load(..., map_location="cpu")`` for ``.pt`` files —
+2. Fall back to ``torch.load(..., map_location="cpu")`` for ``.pt`` files -
    reads ``model.names`` without spinning up a CUDA context that would
    compete with live inference on the detector's GPU.
 3. For ``.engine`` (TensorRT) files, use a serialized ``YOLO(path)`` load
@@ -39,14 +39,14 @@ RESPONSE_PREFIX = "scarguard:model.classes.response:"
 _CACHE_MAX = 32
 
 # Where uploaded model files live.  Introspection rejects any request
-# resolving outside this root — defense in depth against a rogue Redis
+# resolving outside this root - defense in depth against a rogue Redis
 # publisher asking the detector to load /etc/passwd as a YOLO model.
 _MODELS_ROOT = Path(os.environ.get("MODELS_DIR", "/models")).resolve()
 _ALLOWED_SUFFIXES = {".pt", ".engine", ".onnx"}
 
 
 class ModelClassesHandler(threading.Thread):
-    """Daemon thread — answers class-list queries by loading models on demand."""
+    """Daemon thread - answers class-list queries by loading models on demand."""
 
     def __init__(
         self,
@@ -106,18 +106,18 @@ class ModelClassesHandler(threading.Thread):
                 if self._stop.is_set():
                     break
                 logger.warning(
-                    "ModelClassesHandler: Redis error — retry in %ds", backoff,
+                    "ModelClassesHandler: Redis error - retry in %ds", backoff,
                     exc_info=True,
                 )
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 60)
             except Exception:
-                # P2-1: any non-Redis exception in the setup path — log and
+                # P2-1: any non-Redis exception in the setup path - log and
                 # retry with backoff instead of reconnect-storming.
                 if self._stop.is_set():
                     break
                 logger.exception(
-                    "ModelClassesHandler: unexpected error — retry in %ds", backoff,
+                    "ModelClassesHandler: unexpected error - retry in %ds", backoff,
                 )
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 60)
@@ -204,25 +204,25 @@ class ModelClassesHandler(threading.Thread):
         Fallback for ``.pt``: CPU-only ``torch.load``.  Fallback for
         ``.engine``: full YOLO load (serialized).
         """
-        # 1. ModelPool hit — zero extra allocation.
+        # 1. ModelPool hit - zero extra allocation.
         pool_classes = _peek_pool_names(self._model_pool, str(safe))
         if pool_classes is not None:
             return _normalize_names(pool_classes, safe.suffix.lower())
 
         suffix = safe.suffix.lower()
-        # 2. CPU-only torch.load for .pt files — avoids spinning a CUDA
+        # 2. CPU-only torch.load for .pt files - avoids spinning a CUDA
         # context that contends with inference.
         if suffix == ".pt":
             names = _names_from_pt_cpu(str(safe))
             if names is not None:
                 return _normalize_names(names, suffix)
 
-        # 3. Fallback — full ultralytics load.
+        # 3. Fallback - full ultralytics load.
         try:
             model = _load_yolo(str(safe))
         except ImportError:
-            return [], "ultralytics not available — cannot introspect model"
-        except Exception as exc:  # pragma: no cover — runtime dependent
+            return [], "ultralytics not available - cannot introspect model"
+        except Exception as exc:  # pragma: no cover - runtime dependent
             logger.exception("Failed to load model for introspection: %s", safe)
             return [], f"Failed to load model: {exc}"
 
@@ -259,7 +259,7 @@ def _safe_model_path(model_path: str) -> Path | None:
 def _peek_pool_names(pool: Any | None, abs_path: str) -> Any | None:
     """Return ``model.names`` from the ``ModelPool`` if already loaded; else None.
 
-    Reads directly without incrementing the pool's refcount — introspection
+    Reads directly without incrementing the pool's refcount - introspection
     is read-only and must not prevent unload when the owning camera stops.
     """
     if pool is None:
@@ -292,7 +292,7 @@ def _names_from_pt_cpu(abs_path: str) -> Any | None:
     try:
         ckpt = torch.load(abs_path, map_location="cpu", weights_only=True)
     except Exception:
-        logger.debug("CPU-only torch.load failed for %s — falling back", abs_path)
+        logger.debug("CPU-only torch.load failed for %s - falling back", abs_path)
         return None
     # Checkpoints may store the model under "model" (typical ultralytics
     # format) or be the model object itself.
@@ -321,7 +321,7 @@ def _normalize_names(names: Any, suffix: str) -> tuple[list[str], str | None]:
 
     if suffix == ".engine" and _looks_like_stub_names(classes):
         return [], (
-            "Class names not embedded in this .engine file — "
+            "Class names not embedded in this .engine file - "
             "exported from a .pt that lacked metadata, or the TensorRT "
             "converter dropped them.  Check the source .pt for the real "
             "class list, or re-export preserving names."
@@ -343,19 +343,19 @@ def _looks_like_stub_names(classes: list[str]) -> bool:
     )
 
 
-# ── Legacy entry point — still used by existing tests ─────────────────────
+# ── Legacy entry point - still used by existing tests ─────────────────────
 
 
 def _extract_classes(abs_path: str) -> tuple[list[str], str | None]:
     """Thin wrapper around ModelClassesHandler._extract_classes for tests."""
     safe = Path(abs_path).resolve()
-    # Tests pass synthetic tmp paths outside MODELS_DIR — accept any path
+    # Tests pass synthetic tmp paths outside MODELS_DIR - accept any path
     # when invoked via this legacy helper.
     suffix = safe.suffix.lower()
     try:
         model = _load_yolo(str(safe))
     except ImportError:
-        return [], "ultralytics not available — cannot introspect model"
+        return [], "ultralytics not available - cannot introspect model"
     except Exception as exc:  # pragma: no cover
         logger.exception("Failed to load model for introspection: %s", safe)
         return [], f"Failed to load model: {exc}"

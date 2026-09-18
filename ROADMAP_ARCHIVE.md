@@ -1,10 +1,10 @@
-# ScarGuard — Completed Features Archive
+# ScarGuard: Completed Features Archive
 
 Features 1 to 27 are fully implemented. This archive keeps completed-feature history out of [ROADMAP.md](ROADMAP.md), which is the owner for active work.
 
 ---
 
-## Feature 27: Beta 1 — HTML Notifications, Feedback Tokens, Config UI Modes & Hardening — ✓ Complete (v0.12)
+## Feature 27: Beta 1: HTML Notifications, Feedback Tokens, Config UI Modes & Hardening, ✓ Complete (v0.12)
 
 Beta 1 milestone combining usability improvements, notification enhancements, and operational hardening.
 
@@ -12,7 +12,7 @@ Beta 1 milestone combining usability improvements, notification enhancements, an
 
 **One-click notification feedback:** Each detection event generates a `feedback_token` (UUID4 hex) stored in `detection_events`. Tokens flow through Redis to the notifier and are embedded in notification URLs. Email includes styled HTML feedback buttons; Discord appends markdown links; ntfy uses native `Actions` header buttons. Standalone feedback page at `/feedback/{token}` with pre-selection via `?v=` query param and POST confirmation. Tokens expire after 7 days. CSRF exempted (token itself is the auth). `system.base_url` config field (expert-only) enables feedback URL generation.
 
-**Config UI normal/expert modes:** Toggle switch at top of Settings tab. CSS class `expert-only` hides advanced fields by default; `body.expert-mode` class reveals them. Expert-only: stats intervals, backup settings, camera health config, summary reports, notification channels section, schedule, auth, TLS, base_url, per-camera model overrides, exclusion zones, action rules. `readForm()` reads ALL fields regardless of visibility — saving in Normal mode preserves expert values. Persisted to `localStorage`.
+**Config UI normal/expert modes:** Toggle switch at top of Settings tab. CSS class `expert-only` hides advanced fields by default; `body.expert-mode` class reveals them. Expert-only: stats intervals, backup settings, camera health config, summary reports, notification channels section, schedule, auth, TLS, base_url, per-camera model overrides, exclusion zones, action rules. `readForm()` reads ALL fields regardless of visibility, saving in Normal mode preserves expert values. Persisted to `localStorage`.
 
 **Quick wins from code audits:** `/health` endpoint (bypasses auth), Docker Compose healthchecks (HTTP for web, touch file for detector/notifier), SSE keepalive comments (15s polling), atomic config writes (`tempfile.mkstemp` + `os.replace`), SQLite indexes on `detection_events`, camera name sanitization in snapshot filenames.
 
@@ -20,61 +20,61 @@ Beta 1 milestone combining usability improvements, notification enhancements, an
 
 ---
 
-## Feature 26: Event Record Pruning & Unified Retention — ✓ Complete (v0.11)
+## Feature 26: Event Record Pruning & Unified Retention: ✓ Complete (v0.11)
 
-Consolidated `snapshot_retention_days` and `metrics_retention_days` into a single `system.retention_days` field (default: 90). The `RetentionCleaner` in the detector service runs a daily cycle that prunes: snapshot files on disk, unlabeled detection events, visit sessions, and system metrics. Labeled events (with feedback) and `_system` events (arm/disarm) are never pruned — training data is always protected. Legacy config keys are auto-migrated on startup (rewrite `scarguard.yml`); migration code removal targeted for x.14.x. Dashboard shows protected vs pruneable event counts.
+Consolidated `snapshot_retention_days` and `metrics_retention_days` into a single `system.retention_days` field (default: 90). The `RetentionCleaner` in the detector service runs a daily cycle that prunes: snapshot files on disk, unlabeled detection events, visit sessions, and system metrics. Labeled events (with feedback) and `_system` events (arm/disarm) are never pruned, training data is always protected. Legacy config keys are auto-migrated on startup (rewrite `scarguard.yml`); migration code removal targeted for x.14.x. Dashboard shows protected vs pruneable event counts.
 
 ---
 
-## Feature 23: Scheduled Summary Reports — ✓ Complete (v0.11)
+## Feature 23: Scheduled Summary Reports: ✓ Complete (v0.11)
 
 Configurable daily/weekly/monthly digest notifications. Notifier service owns end-to-end: read-only SQLite access for report data, scheduler thread for timing, and per-notifier formatters (Discord embed, HTML email, webhook JSON, ntfy plain text). Digest content: detection summary with period-over-period comparison, visit highlights, performance stoplight (green/yellow/red with hardcoded CPU/GPU/camera thresholds), camera health, storage usage (snapshots/DB/models), and training data stats. Config section: `system.summary_report` with `enabled`, `frequency`, `time`, and `channels`. Configurable via web UI.
 
 ---
 
-## Feature 17: x86/CUDA Detector Image — ✓ Complete (v0.10)
+## Feature 17: x86/CUDA Detector Image: ✓ Complete (v0.10)
 
-x86-compatible detector container so ScarGuard can run on non-Jetson hardware. `Dockerfile.x86` based on `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`. Separate image (`scarguard-detector-x86`) — not a multi-arch manifest since L4T and x86 base images are fundamentally different. GPU runtime extracted to `docker-compose.gpu.yml` override; `setup.sh` auto-configures `COMPOSE_FILE` and `DETECTOR_IMAGE`. CPU inference works via PyTorch fallback. Generic ARM64 (non-Jetson) not supported. Inference benchmarks tracked in `BENCHMARKS.md`, auto-updated by release CI.
+x86-compatible detector container so ScarGuard can run on non-Jetson hardware. `Dockerfile.x86` based on `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`. Separate image (`scarguard-detector-x86`), not a multi-arch manifest since L4T and x86 base images are fundamentally different. GPU runtime extracted to `docker-compose.gpu.yml` override; `setup.sh` auto-configures `COMPOSE_FILE` and `DETECTOR_IMAGE`. CPU inference works via PyTorch fallback. Generic ARM64 (non-Jetson) not supported. Inference benchmarks tracked in `BENCHMARKS.md`, auto-updated by release CI.
 
-## Feature 16: CI/CD Pipeline Hardening — ✓ Complete (v0.10)
+## Feature 16: CI/CD Pipeline Hardening: ✓ Complete (v0.10)
 
 Three-gate CI strategy. Gate 1 (push): ruff, mypy, pytest. Gate 2 (PR): build all images (web/notifier/caddy on x86, detector on Orin, detector-x86 on x86), container pytest, Trivy scanning, VERSION check, compose smoke test (full stack health checks), GPU smoke test + inference benchmark on Orin, CPU inference benchmark on x86. Gate 3 (tag): build+push all images to GHCR, VERSION validation, auto-generated release notes, inference benchmarks appended to `BENCHMARKS.md`. Caddy admin API disabled (`CADDY_ADMIN: "off"`).
 
-## Feature 25: On-Demand Camera Snapshot — ✓ Complete (v0.9)
+## Feature 25: On-Demand Camera Snapshot: ✓ Complete (v0.9)
 
 Dashboard snapshot button to grab a live frame from any camera, even when disarmed. Uses Redis request/response pattern: web publishes snapshot request, detector's SnapshotGrabber opens one-shot RTSP connection, writes JPEG, publishes result. Modal display in UI.
 
-## Feature 24: Config Backup & Rollback — ✓ Complete (v0.9)
+## Feature 24: Config Backup & Rollback: ✓ Complete (v0.9)
 
 Auto-backup scarguard.yml on-change (debounced 3 min). Admin UI for listing backups, viewing unified diffs against current config, and restoring with pre-restore safety backup. Configurable max backups and debounce interval.
 
-## Feature 22: Training Data Readiness Nudge — ✓ Complete (v0.9)
+## Feature 22: Training Data Readiness Nudge: ✓ Complete (v0.9)
 
 Dismissible dashboard banner when labeled events since last dataset export exceed a configurable threshold (default 100). Shows per-class breakdown. Export timestamp tracked in SQLite app_state table, resets nudge after each export.
 
-## Feature 21: Metrics Persistence & Historical Trending — ✓ Complete (v0.9)
+## Feature 21: Metrics Persistence & Historical Trending: ✓ Complete (v0.9)
 
 Persist system metrics (CPU, GPU, temp, RAM, per-camera FPS) to SQLite. Chart.js time-series UI with range selector (1h/24h/7d/30d). CSV export endpoint. Configurable retention (default 90 days) with hourly pruning.
 
-## Feature 20: Camera Health Monitoring & Alerts — ✓ Complete (v0.9)
+## Feature 20: Camera Health Monitoring & Alerts: ✓ Complete (v0.9)
 
 Per-camera online/offline state tracking with debounce. Dashboard health indicators (green/yellow/red). Alerts via existing notification channels when offline exceeds threshold. Configurable alert threshold and debounce interval.
 
-## Feature 19: Visit Duration Tracking — ✓ Complete (v0.9)
+## Feature 19: Visit Duration Tracking: ✓ Complete (v0.9)
 
 Groups consecutive detections of same class on same camera into visit sessions. Configurable timeout (default 5 min). Sessions persisted to SQLite. Dedicated Visits page with filtering and pagination.
 
-## Feature 18: Ntfy Push Notifications — ✓ Complete (v0.9)
+## Feature 18: Ntfy Push Notifications: ✓ Complete (v0.9)
 
 Ntfy notification channel type. Supports self-hosted or ntfy.sh, Bearer token or Basic auth, configurable priority (1-5), snapshot attachment. Configurable via web UI.
 
-## CI/CD Improvements — ✓ Complete (v0.9)
+## CI/CD Improvements: ✓ Complete (v0.9)
 
 Container-based pytest (run tests inside built Docker images), Trivy security scanning (CRITICAL/HIGH), VERSION file consistency check (CI + release tag validation), categorized auto-generated release notes.
 
 ---
 
-## Feature 1: Admin Logs Tab — ✓ Complete (v0.3)
+## Feature 1: Admin Logs Tab: ✓ Complete (v0.3)
 
 Add a "Logs" tab under admin/configuration section of the web UI.
 
@@ -94,7 +94,7 @@ Add a "Logs" tab under admin/configuration section of the web UI.
 
 ---
 
-## Feature 2: SSL / TLS for Web UI — ✓ Complete (v0.3)
+## Feature 2: SSL / TLS for Web UI: ✓ Complete (v0.3)
 
 Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert.
 
@@ -115,7 +115,7 @@ Support both HTTP and HTTPS. Self-signed cert by default, option for custom cert
 
 ---
 
-## Feature 3: Snapshot Retention & Cleanup — ✓ Complete (v0.3)
+## Feature 3: Snapshot Retention & Cleanup: ✓ Complete (v0.3)
 
 Snapshots accumulate indefinitely. Add configurable retention policy.
 
@@ -133,11 +133,11 @@ Snapshots accumulate indefinitely. Add configurable retention policy.
 
 ---
 
-## Feature 4: Detection Exclusion Zones — ✓ Complete (v0.4)
+## Feature 4: Detection Exclusion Zones: ✓ Complete (v0.4)
 
 Suppress false positives from static objects (e.g. heron decoy). Two tiers.
 
-**Tier 1 — Manual exclusion zones (implemented):**
+**Tier 1, Manual exclusion zones (implemented):**
 Per-camera rectangular mask regions drawn in the web UI. Detection whose bounding box center falls inside an exclusion zone is silently dropped. Zones saved in `scarguard.yml` under the camera entry.
 
 **Acceptance criteria (Tier 1):**
@@ -147,12 +147,12 @@ Per-camera rectangular mask regions drawn in the web UI. Detection whose boundin
 - ✓ Label is optional (e.g. "heron decoy")
 - ✓ Zones survive config reload and service restart
 
-**Tier 2 — Automatic static object detection (future/stretch):**
+**Tier 2, Automatic static object detection (future/stretch):**
 Track detections that remain in the same position across many frames over hours/days. If an object hasn't moved beyond threshold, prompt user in web UI to add exclusion zone. Never auto-exclude without user approval.
 
 ---
 
-## Feature 5: Enhanced Detection Event Logs — ✓ Complete (v0.4)
+## Feature 5: Enhanced Detection Event Logs: ✓ Complete (v0.4)
 
 Richer detail and filtering in the web UI event log.
 
@@ -164,7 +164,7 @@ Richer detail and filtering in the web UI event log.
 
 ---
 
-## Feature 6: Live Camera Feed in Web UI — ✓ Complete (v0.4)
+## Feature 6: Live Camera Feed in Web UI: ✓ Complete (v0.4)
 
 SSE-based detection-triggered annotated snapshot feed with bounding boxes.
 
@@ -175,9 +175,9 @@ SSE-based detection-triggered annotated snapshot feed with bounding boxes.
 
 ---
 
-## Feature 7: Named Notification Channels & Webhook Support — ✓ Complete (v0.4)
+## Feature 7: Named Notification Channels & Webhook Support: ✓ Complete (v0.4)
 
-Refactor notifications from single-instance-per-type to named, multi-instance channels. Add webhook as a new channel type. Each channel gets a unique name that action rules reference — just like cameras.
+Refactor notifications from single-instance-per-type to named, multi-instance channels. Add webhook as a new channel type. Each channel gets a unique name that action rules reference, just like cameras.
 
 **Acceptance criteria:**
 - ✓ Every notification channel has a unique `name` and a `type` (discord, email, webhook)
@@ -191,13 +191,13 @@ Refactor notifications from single-instance-per-type to named, multi-instance ch
 
 ---
 
-## Feature 8: Scheduled Arm/Disarm — ✓ Complete (v0.4)
+## Feature 8: Scheduled Arm/Disarm: ✓ Complete (v0.4)
 
 Automatically arm and disarm the detection system on a daily schedule. Primary use case: arm at dawn when herons hunt, disarm at dusk when activity is expected around the pond. Eliminates daily manual toggling of `system.armed`.
 
 **Acceptance criteria:**
 - ✓ Config fields: `system.schedule.arm_time` and `system.schedule.disarm_time` (24h format, e.g. `"06:00"`, `"20:30"`)
-- ✓ Optional: `system.schedule.use_solar` — calculates sunrise/sunset from `latitude`/`longitude` via `astral`
+- ✓ Optional: `system.schedule.use_solar`: calculates sunrise/sunset from `latitude`/`longitude` via `astral`
 - ✓ Scheduler runs inside the detector service, checks every 60 seconds
 - ✓ Manual arm/disarm via UI overrides the schedule until the next scheduled transition
 - ✓ Arm/disarm transitions logged as system events visible in the event log
@@ -206,14 +206,14 @@ Automatically arm and disarm the detection system on a daily schedule. Primary u
 
 ---
 
-## Feature 9: App Security & User Accounts — ✓ Complete (v0.6)
+## Feature 9: App Security & User Accounts: ✓ Complete (v0.6)
 
 Add authentication to the web UI. Currently anyone on the network can access the dashboard, config, and admin tools.
 
 **Acceptance criteria:**
-- ✓ Login page gates all web UI routes — no unauthenticated access to dashboard, config, admin, or API endpoints
+- ✓ Login page gates all web UI routes: no unauthenticated access to dashboard, config, admin, or API endpoints
 - ✓ At least one admin user created during `setup.sh` (prompted for username/password)
-- ✓ Passwords hashed (bcrypt), stored in separate `auth.db` — never plaintext
+- ✓ Passwords hashed (bcrypt), stored in separate `auth.db`: never plaintext
 - ✓ Session-based auth with configurable timeout (default: 24h)
 - ✓ User management in admin UI: add/remove/disable users, change passwords
 - ✓ API endpoints (webhook callbacks, SSE feeds) support token-based auth as alternative to session cookies
@@ -222,12 +222,12 @@ Add authentication to the web UI. Currently anyone on the network can access the
 
 **Upgrade path for existing installations:**
 - ✓ If no users exist in auth.db on startup, web UI redirects to a one-time account creation page before anything else is accessible
-- ✓ No default/hardcoded credentials — the user must set their own on first launch
+- ✓ No default/hardcoded credentials: the user must set their own on first launch
 - ✓ Existing API integrations continue to work unauthenticated until `system.auth.require_api_auth: true`
 - ✓ Migration is non-destructive: pulling the new image and restarting is all that's needed
 
 **Implementation notes:**
-- Separate `auth.db` at `/data/auth.db` — web service is the sole writer (keeps single-writer discipline per file)
+- Separate `auth.db` at `/data/auth.db`: web service is the sole writer (keeps single-writer discipline per file)
 - Server-side sessions stored as SHA-256(token) in `sessions` table; raw token sent as `HttpOnly; SameSite=Strict` cookie
 - API tokens similarly hashed; shown to user exactly once (rendered directly, never in URL)
 - `setup.sh` adds a step to create the initial admin via `docker run ... python src/auth.py create-admin`
@@ -236,14 +236,14 @@ Add authentication to the web UI. Currently anyone on the network can access the
 
 ---
 
-## Feature 10: Per-Camera Detection Models, Classes & Action Routing — ✓ Complete (v0.8)
+## Feature 10: Per-Camera Detection Models, Classes & Action Routing: ✓ Complete (v0.8)
 
 Allow each camera to use a different YOLO model, detect different object classes, and route detections to specific notification channels. This is the core of multi-camera/multi-model setups.
 
 **Acceptance criteria:**
 - ✓ Camera config gains optional fields: `model_path`, `detect_classes`, and `action_rules`
 - ✓ If `model_path` or `detect_classes` omitted, camera falls back to global `detection.model_path` / `detection.classes`
-- ✓ `action_rules` is a list of `{classes: [...], actions: [...]}` pairs — matched top-down, first match wins
+- ✓ `action_rules` is a list of `{classes: [...], actions: [...]}` pairs: matched top-down, first match wins
 - ✓ Actions reference notification channels by name (as defined in Feature 7), not by type
 - ✓ Validate at startup that all channel names referenced in action rules exist; log a warning for unresolved references
 - ✓ If no `action_rules` defined on a camera, falls back to global notification behavior (all enabled channels)
@@ -263,13 +263,13 @@ Allow each camera to use a different YOLO model, detect different object classes
 
 ---
 
-## Feature 11: GPU/CPU Load Stats View — ✓ Complete (v0.5)
+## Feature 11: GPU/CPU Load Stats View: ✓ Complete (v0.5)
 
 System health panel in the web UI showing resource utilization of the host. Useful for tuning inference intervals, monitoring thermal throttling, and knowing when hardware limits are hit.
 
 **Acceptance criteria:**
 - ✓ Dashboard widget or dedicated admin page showing: CPU usage (%), GPU usage (%), GPU memory (used/total), system RAM (used/total), CPU temperature, GPU temperature
-- ✓ GPU stats sourced from `jtop`/`tegrastats` (Jetson) or `nvidia-smi` (x86) — auto-detect platform
+- ✓ GPU stats sourced from `jtop`/`tegrastats` (Jetson) or `nvidia-smi` (x86): auto-detect platform
 - ✓ Updates on a polling interval (configurable, default: 5s)
 - ✓ Graceful degradation: if no NVIDIA GPU detected, show CPU-only stats without errors
 - ✓ Per-camera inference FPS and average inference latency displayed alongside resource stats
@@ -284,7 +284,7 @@ System health panel in the web UI showing resource utilization of the host. Usef
 
 ---
 
-## Feature 12: Detection Feedback & Dataset Collection — ✓ Complete (v0.7)
+## Feature 12: Detection Feedback & Dataset Collection: ✓ Complete (v0.7)
 
 Add a feedback mechanism to each detection event so confirmed positives and false positives can be labeled in-app. This is the foundation of the model improvement pipeline (Features 13–15).
 
@@ -293,7 +293,7 @@ Add a feedback mechanism to each detection event so confirmed positives and fals
 - ✓ Feedback written to SQLite: `feedback` column on the events table (`correct` / `false_positive` / `wrong_class`), plus `corrected_class` when applicable
 - ✓ Feedback can be changed after initial submission
 - ✓ Unfeedback'd events are visually distinct from reviewed ones in the event log (e.g. badge or row highlight)
-- ✓ No feedback is required — the system continues to function normally without it; this is purely additive
+- ✓ No feedback is required: the system continues to function normally without it; this is purely additive
 
 **Implementation notes:**
 - Schema migration adds `bbox`, `frame_size`, `feedback`, `corrected_class` columns to `detection_events` table
@@ -303,7 +303,7 @@ Add a feedback mechanism to each detection event so confirmed positives and fals
 
 ---
 
-## Feature 13: Dataset Quality Dashboard & Export — ✓ Complete (v0.7)
+## Feature 13: Dataset Quality Dashboard & Export: ✓ Complete (v0.7)
 
 Give visibility into the labeled dataset being built from feedback, and provide a one-click export for use in model training.
 
@@ -311,7 +311,7 @@ Give visibility into the labeled dataset being built from feedback, and provide 
 - ✓ Admin page (e.g. "Training Data") showing: count of confirmed positives per class, count of false positives per class, count of wrong-class corrections, date range coverage of the dataset, simple bar chart of class distribution
 - ✓ Export button generates a YOLO-format dataset zip: annotated images + per-image `.txt` files (class index + bounding box), plus a `data.yaml` describing classes and splits
 - ✓ Export respects a date range filter (e.g. export only the last 90 days)
-- ✓ Export only includes events with `feedback = correct` — false positives and wrong-class events are excluded from the positive set
+- ✓ Export only includes events with `feedback = correct`: false positives and wrong-class events are excluded from the positive set
 - ✓ Export is downloadable directly from the browser
 
 **Implementation notes:**
@@ -322,19 +322,19 @@ Give visibility into the labeled dataset being built from feedback, and provide 
 
 ---
 
-## Feature 14: Custom Model Training — ✓ Complete (v0.7)
+## Feature 14: Custom Model Training: ✓ Complete (v0.7)
 
 Replace the generic COCO bird model with a fine-tuned model that distinguishes heron species from pond camera imagery. Training is run manually via a committed script; this is not automated.
 
 **Acceptance criteria:**
-- ✓ `training/train.py` script committed to repo — takes an exported dataset (from Feature 13), fine-tunes a YOLOv8 (or current best) checkpoint, validates, and writes a `.pt` to a configurable output path
+- ✓ `training/train.py` script committed to repo: takes an exported dataset (from Feature 13), fine-tunes a YOLOv8 (or current best) checkpoint, validates, and writes a `.pt` to a configurable output path
 - ✓ Script is self-contained: all hyperparameters (epochs, image size, batch size, patience) are configurable via CLI args with sensible defaults
 - ✓ Training dataset: minimum 500 labeled images per target species, sourced from pond cameras and supplemented with public datasets (iNaturalist, Macaulay Library) as needed
 - ✓ Annotations in YOLO format (one `.txt` per image, class + bounding box)
 - ✓ Validation mAP@0.5 ≥ 0.75 on a held-out test set of pond camera images
-- ✓ Species classes at minimum: `great_blue_heron`, `green_heron` — additional species as data allows
+- ✓ Species classes at minimum: `great_blue_heron`, `green_heron`: additional species as data allows
 - ✓ Training notebook or equivalent committed under `training/` for reproducibility
-- ✓ **Model promotion is always manual** — the script produces a `.pt` file; the user places it in `models/` and selects it in config or the web UI. No automated deployment of trained models.
+- ✓ **Model promotion is always manual**: the script produces a `.pt` file; the user places it in `models/` and selects it in config or the web UI. No automated deployment of trained models.
 
 **Implementation notes:**
 - Self-contained `training/train.py` CLI script with argparse, validates dataset structure
@@ -343,14 +343,14 @@ Replace the generic COCO bird model with a fine-tuned model that distinguishes h
 
 ---
 
-## Feature 15: Model Evaluation in Web UI — ✓ Complete (v0.7)
+## Feature 15: Model Evaluation in Web UI: ✓ Complete (v0.7)
 
 Before promoting a newly trained model, compare it against the current one using stored snapshots. Prevents deploying a regression.
 
 **Acceptance criteria:**
 - ✓ Admin page lets user select two models (current active + a candidate from `models/`) and a date range of stored snapshots to evaluate against
 - ✓ Runs both models against the selected snapshots and displays side-by-side: precision, recall, mAP@0.5, and a sample of detections from each
-- ✓ Results are not persisted — this is an interactive comparison tool, not a benchmark database
+- ✓ Results are not persisted: this is an interactive comparison tool, not a benchmark database
 - ✓ Evaluation runs on-device (GPU); show a progress indicator for long runs
 - ✓ User can promote the candidate model directly from this page (updates `scarguard.yml` and triggers hot-reload per Feature 10)
 - ✓ Graceful handling of snapshots where the original annotated bounding box is unavailable (skip or flag)

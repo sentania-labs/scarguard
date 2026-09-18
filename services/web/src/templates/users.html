@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Users — ScarGuard{% endblock %}
+{% block title %}Users - ScarGuard{% endblock %}
 {% block content %}
 <h1>Users &amp; API Tokens</h1>
 
 {% if new_token %}
 <div class="alert alert-ok" style="word-break:break-all;">
-  <strong>API token created.</strong> Copy it now — it will not be shown again.<br>
+  <strong>API token created.</strong> Copy it now - it will not be shown again.<br>
   <code style="display:block;margin-top:0.4rem;font-size:0.85rem;color:var(--ok);">{{ new_token }}</code>
 </div>
 {% endif %}
@@ -123,7 +123,7 @@
   <p class="hint">
     Long-lived tokens for use with external integrations (Home Assistant, cURL, etc.).
     Send as <code>Authorization: Bearer &lt;token&gt;</code>.
-    Tokens are shown only once when created — store them securely.
+    Tokens are shown only once when created - store them securely.
   </p>
   {% if tokens %}
   <table style="margin-bottom:1rem;">
@@ -143,7 +143,7 @@
         <td>{{ t.name }}</td>
         <td class="muted">{{ t.username }}</td>
         <td class="muted" style="font-size:0.8rem;">{{ t.created_at[:10] }}</td>
-        <td class="muted" style="font-size:0.8rem;">{{ t.last_used_at[:10] if t.last_used_at else "—" }}</td>
+        <td class="muted" style="font-size:0.8rem;">{{ t.last_used_at[:10] if t.last_used_at else "-" }}</td>
         <td>
           {% if t.disabled %}
             <span class="badge badge-disarmed">Revoked</span>

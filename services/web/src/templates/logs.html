@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Logs — ScarGuard{% endblock %}
+{% block title %}Logs - ScarGuard{% endblock %}
 {% block content %}
 <h1>Service Logs</h1>
 <p class="hint">Live log tail from running containers via log-streamer sidecar.</p>
@@ -125,7 +125,7 @@
 .log-debug   { color: var(--muted); }
 .log-info    { color: var(--text); }
 
-/* Level filter — CSS-driven visibility */
+/* Level filter - CSS-driven visibility */
 .log-output[data-filter="info"]    .log-debug   { display: none; }
 .log-output[data-filter="warning"] .log-debug,
 .log-output[data-filter="warning"] .log-info    { display: none; }

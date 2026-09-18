@@ -1,4 +1,4 @@
-# ScarGuard — AI-Powered Pond Wildlife Detection & Notification
+# ScarGuard: AI-Powered Pond Wildlife Detection & Notification
 
 Named after Scar (aka Kroger), a survivor fish badly injured by a heron who lived to tell the tale.
 
@@ -10,14 +10,14 @@ A containerized wildlife detection and notification system. Watches RTSP camera 
 
 This workspace is software. The "What this is" / product
 scope above is the charter. Software authors don't touch
-infrastructure outside their charter — even with credentials
+infrastructure outside their charter, even with credentials
 available. For work that needs out-of-charter access, use a
 sanctioned cross-system channel.
 
 ## Tech Stack (Reference Setup)
 
-- **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7) — any NVIDIA GPU host works
-- **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP — any RTSP camera works
+- **Compute:** NVIDIA Jetson Orin Nano, JetPack 6.2.1 (L4T 36.4.7): any NVIDIA GPU host works
+- **Cameras:** 2x UniFi (G3 Flex + G5 Flex) via RTSP: any RTSP camera works
 - **Services:** Docker Compose core: Redis, Caddy, Detector, Web (FastAPI + Jinja), Notifier, Deterrent, Log-Streamer; the opt-in training profile adds Trainer and the narrowly allowlisted Training Controller
 - **Detection:** YOLO model on GPU, OpenCV RTSP ingestion
 - **IPC:** Redis pub/sub as internal message bus
@@ -26,14 +26,14 @@ sanctioned cross-system channel.
 - **CI/CD:** GitHub Actions → GHCR (GitHub-hosted x86 and ARM64 runners, plus the Orin self-hosted GPU runner)
 - **Config:** Single `scarguard.yml` in external data directory
 
-## Design Decisions — Do Not Change Without Discussion
+## Design Decisions: Do Not Change Without Discussion
 
 1. **Docker Compose is the deployment target.** No Kubernetes, no Swarm.
 2. **Single config file** (`scarguard.yml`) is the source of truth. Don't fragment into per-service configs.
 3. **Redis pub/sub** is the inter-service bus. No Kafka, RabbitMQ, or anything heavier.
-4. **SQLite** is the database. Don't switch to Postgres — single Jetson, one writer.
+4. **SQLite** is the database. Don't switch to Postgres: single Jetson, one writer.
 5. **Keep Python and GPU libraries compatible with each pinned base.** Never independently pip-upgrade Torch in an L4T image; follow the target-validation runbook in `docs/training-remediation-validation.md`.
-6. **Notifications are working — don't refactor them.** Email and Discord are validated. New types are additive.
+6. **Notifications are working: don't refactor them.** Email and Discord are validated. New types are additive.
 7. **RTSP streams will drop.** Detector must reconnect gracefully with exponential backoff. Never crash on a dropped stream.
 8. **Snapshots are files on disk**, served by web service. Don't move to blob store or database.
 9. **Prefer REST over MQTT** for external integrations. Keep the dependency surface small.
@@ -62,22 +62,22 @@ collaborators do.
 Run these before considering any code change done (mirrors CI exactly):
 
 ```bash
-# Ruff — all services (detector included; no GPU deps needed)
+# Ruff - all services (detector included; no GPU deps needed)
 ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/backup/src services/trainer/src services/training-controller/src shared training
 
-# mypy — web (detector is excluded from CI: torch/opencv not available outside L4T)
+# mypy - web (detector is excluded from CI: torch/opencv not available outside L4T)
 MYPYPATH=services/web/src:shared \
   python3 -m mypy services/web/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — notifier
+# mypy - notifier
 MYPYPATH=services/notifier/src:shared \
   python3 -m mypy services/notifier/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — deterrent
+# mypy - deterrent
 MYPYPATH=services/deterrent/src:shared \
   python3 -m mypy services/deterrent/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — backup (v1.14+ SQLite backup sidecar)
+# mypy - backup (v1.14+ SQLite backup sidecar)
 MYPYPATH=services/backup/src:shared \
   python3 -m mypy services/backup/src shared --ignore-missing-imports --explicit-package-bases
 ```
@@ -88,7 +88,7 @@ Both checks must pass with zero errors before the task is complete. Fix any issu
 
 ## Reference Documents
 
-Read these as needed — don't load them all for every task.
+Read these as needed, don't load them all for every task.
 
 | Document | When to read |
 |---|---|

@@ -1076,7 +1076,7 @@ body.expert-mode details.expert-only { display: block !important; }
 .label-bbox.state-rejected { border-color: var(--danger); }
 .label-bbox.state-corrected { border-color: var(--warn); }
 /* Original detector box is no longer authoritative once human-drawn
-   boxes are saved — keep it visible but dimmed for reference. */
+   boxes are saved - keep it visible but dimmed for reference. */
 .label-bbox.state-superseded {
   border-style: dashed; border-color: #888; opacity: 0.5;
 }

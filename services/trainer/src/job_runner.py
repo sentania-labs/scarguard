@@ -1,4 +1,4 @@
-"""Job runner — dispatches training job types with pause/resume lifecycle.
+"""Job runner - dispatches training job types with pause/resume lifecycle.
 
 Each job type runs the appropriate pipeline step:
 - process_video: pause → YOLO inference on uploaded video → resume
@@ -367,7 +367,7 @@ def _resolve_upload_model_path(name: str | None, default_path: str) -> str:
     candidate = Path(MODELS_DIR) / Path(name).name
     if candidate.exists() and candidate.is_file():
         return str(candidate)
-    logger.warning("Upload model %r not found in %s — falling back to default", name, MODELS_DIR)
+    logger.warning("Upload model %r not found in %s - falling back to default", name, MODELS_DIR)
     return default_path
 
 
@@ -417,7 +417,7 @@ def _run_process_video(ctx: JobContext) -> dict:
             finally:
                 conn.close()
             if not upload:
-                logger.warning("Upload %s not found — skipping", uid)
+                logger.warning("Upload %s not found - skipping", uid)
                 continue
 
             upload_dir = Path(TRAINING_UPLOADS_DIR) / uid
@@ -438,7 +438,7 @@ def _run_process_video(ctx: JobContext) -> dict:
             if clear_existing:
                 conn = _connect_db()
                 try:
-                    # Detector rows only — manual frame-browser annotations
+                    # Detector rows only - manual frame-browser annotations
                     # (detection_pass='manual') are user work and must survive
                     # a reprocess. Reprocessing only regenerates detector
                     # output; manual rows are independent of model state.
@@ -614,7 +614,7 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
 
     # Class list: job param wins, then training.defaults.classes, then the
     # script's built-in default. YAML gives a list, the jobs form a
-    # comma-string — accept both, and fail fast on malformed values
+    # comma-string - accept both, and fail fast on malformed values
     # rather than preparing a near-empty dataset from unmatched labels.
     classes = ctx.params.get("classes") or defaults.get("classes")
     if classes:
@@ -645,7 +645,7 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
         if not ctx.params.get("skip_roboflow"):
             roboflow_key_missing = True
             ctx.append_log(
-                "WARNING: Roboflow source skipped — training.sources.roboflow.api_key "
+                "WARNING: Roboflow source skipped - training.sources.roboflow.api_key "
                 "is not set in scarguard.yml. Heron coverage depends on Roboflow; "
                 "expect low annotation counts."
             )
@@ -1153,7 +1153,7 @@ def _run_train(ctx: JobContext) -> dict:
     data_yaml = dataset_dir / "data.yaml"
 
     if not data_yaml.exists():
-        return {"error": f"Dataset not found at {data_yaml} — run prepare_dataset first"}
+        return {"error": f"Dataset not found at {data_yaml} - run prepare_dataset first"}
 
     output_name = Path(str(ctx.params.get("output_name", "trained.pt"))).name
     output_path = Path(MODELS_DIR) / output_name

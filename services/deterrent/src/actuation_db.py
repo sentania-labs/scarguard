@@ -77,7 +77,7 @@ def _get_conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     """Create tables and indexes if they don't exist.  v0.13.3 adds three
-    latency columns + group_name — all additive, migrated with ALTER on
+    latency columns + group_name - all additive, migrated with ALTER on
     pre-existing databases."""
     with _lock:
         conn = _get_conn()
@@ -112,12 +112,12 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_actions_event
                 ON device_actions(event_id);
         """)
-        # v0.13.3 additive columns — safe to re-run on existing DBs.
+        # v0.13.3 additive columns - safe to re-run on existing DBs.
         _add_column_if_missing(conn, "actuation_events", "group_name", "TEXT NOT NULL DEFAULT ''")
         _add_column_if_missing(conn, "actuation_events", "trigger_delay_ms", "REAL")
         _add_column_if_missing(conn, "actuation_events", "queue_depth", "INTEGER")
         _add_column_if_missing(conn, "device_actions", "cloud_ack_ms", "REAL")
-        # v1.14 additive columns — request_id for trace correlation,
+        # v1.14 additive columns - request_id for trace correlation,
         # event_type to distinguish detection / test_fire / force_off /
         # reconcile, off_attempts to surface OFF retry pressure.
         _add_column_if_missing(
@@ -185,7 +185,7 @@ def insert_event(event: ActuationEvent) -> int:
             )
         elif not _hmac_key_warned:
             logger.warning(
-                "DETECTION_HMAC_KEY not set — actuation hash chain disabled",
+                "DETECTION_HMAC_KEY not set - actuation hash chain disabled",
             )
             _hmac_key_warned = True
 

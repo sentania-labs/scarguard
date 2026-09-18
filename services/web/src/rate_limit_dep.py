@@ -44,7 +44,7 @@ def _get_limiter() -> RateLimiter | None:
         return _limiter
     except Exception as exc:
         logger.warning(
-            "Rate limiter could not be constructed (%s) — requests will pass",
+            "Rate limiter could not be constructed (%s) - requests will pass",
             exc,
         )
         return None
@@ -78,12 +78,12 @@ def rate_limit(scope: str, capacity: int, window_seconds: int) -> Callable[[Requ
         allowed, retry_after = limiter.check(principal, scope, capacity, window_seconds)
         if not allowed:
             logger.warning(
-                "Rate limit hit [%s] by %s — retry after %ds",
+                "Rate limit hit [%s] by %s - retry after %ds",
                 scope, principal, retry_after,
             )
             raise HTTPException(
                 status_code=429,
-                detail=f"Too many requests — retry in {retry_after}s",
+                detail=f"Too many requests - retry in {retry_after}s",
                 headers={"Retry-After": str(retry_after)},
             )
     return dep

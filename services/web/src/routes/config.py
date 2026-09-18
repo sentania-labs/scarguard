@@ -117,7 +117,7 @@ def _redact_parsed_cfg(cfg: StructuredConfigPayload) -> None:
     happens first against the raw config (so structural validators pass),
     then this walker replaces the sensitive leaves with
     ``REDACTED_PLACEHOLDER``.  Keep this list in sync with the structural
-    paths in `config_redact._STRUCTURAL_PATHS` — both walkers cover the
+    paths in `config_redact._STRUCTURAL_PATHS` - both walkers cover the
     same typed fields, just at different layers (dict vs Pydantic model).
     Per-channel masking for `notifications.channels` still happens via
     `redact_config` on the raw dict that feeds `_channels_json`.
@@ -175,7 +175,7 @@ async def config_page(request: Request) -> Response:
     Viewers get a read-only copy with sensitive fields replaced by
     ``***REDACTED***`` (camera RTSP URLs, Discord webhook URLs, SMTP /
     webhook / ntfy credentials).  The Advanced/raw-YAML tab is hidden
-    for viewers entirely — see config.html for the template branches.
+    for viewers entirely - see config.html for the template branches.
     """
     gate = require_viewer(request)
     if not isinstance(gate, dict):
@@ -197,7 +197,7 @@ async def config_page(request: Request) -> Response:
     # via the /config/secrets endpoint (audit-logged, fetch-only).
     # This closes the XSS amplification vector flagged by the red-team
     # audit: even if an attacker injects script, the DOM contains only
-    # redacted placeholders — not cleartext credentials.
+    # redacted placeholders - not cleartext credentials.
     _redact_parsed_cfg(cfg)
     raw_cfg_for_render = redact_config(raw_cfg)
     raw = yaml.dump(raw_cfg_for_render, default_flow_style=False, sort_keys=False)
@@ -281,7 +281,7 @@ async def get_secrets(request: Request) -> Response:
 
     result: dict[str, Any] = {}
 
-    # Structural paths — tuya keys.  The training Roboflow key is handled
+    # Structural paths - tuya keys.  The training Roboflow key is handled
     # separately below: this loop keys results by last path segment, which
     # would collide with the Tuya ``api_key``.
     for path in _STRUCTURAL_PATHS:
@@ -350,7 +350,7 @@ async def get_secrets(request: Request) -> Response:
 async def save_structured_config(request: Request) -> Response:
     """Accept JSON from the form-based config editor and write to scarguard.yml.
 
-    Admin only — viewers are blocked at the top of the handler.
+    Admin only - viewers are blocked at the top of the handler.
 
     Only updates the sections the form knows about (system, cameras, detection,
     notifications.channels).  All other keys in the existing config (redis,
@@ -366,7 +366,7 @@ async def save_structured_config(request: Request) -> Response:
         body = await request.json()
         payload = StructuredConfigPayload.model_validate(body)
     except ValidationError as exc:
-        # Don't echo pydantic's error text to the client — log it server-side
+        # Don't echo pydantic's error text to the client - log it server-side
         # under a short request ID the operator can grep for. CodeQL
         # py/stack-trace-exposure (issue #95).
         req_id = uuid.uuid4().hex[:8]
@@ -405,12 +405,12 @@ async def save_structured_config(request: Request) -> Response:
                 existing_nested = {}
             system_dump[nested_key] = {**existing_nested, **system_dump[nested_key]}
     existing["system"] = {**existing_system, **system_dump}
-    # base_url removed in v0.12.4 — derived from tls.domain at runtime
+    # base_url removed in v0.12.4 - derived from tls.domain at runtime
     existing["system"].pop("base_url", None)
 
     # Merge cameras: start from the existing entry (preserves exclusion_zones and
     # any other fields the form doesn't know about), then overlay the form values.
-    # Drop REDACTED_PLACEHOLDER values so they don't overwrite real secrets —
+    # Drop REDACTED_PLACEHOLDER values so they don't overwrite real secrets -
     # the form ships redacted placeholders by default; only revealed values
     # should update the persisted config.
     existing_cameras_by_name: dict[str, dict] = {
@@ -431,7 +431,7 @@ async def save_structured_config(request: Request) -> Response:
     existing["detection"] = payload.detection.model_dump()
 
     # Merge notifications: write channels list only (legacy discord/email keys
-    # removed in v0.13.2 — stripped automatically by config_store on save).
+    # removed in v0.13.2 - stripped automatically by config_store on save).
     # Strip redacted placeholders from channel dicts so they don't overwrite
     # real secrets when secrets are not revealed.
     existing.setdefault("notifications", {})
@@ -461,7 +461,7 @@ async def save_structured_config(request: Request) -> Response:
         merged_channels.append(merged_ch)
     existing["notifications"]["channels"] = merged_channels
 
-    # TLS — detect changes so we can tell the UI that Caddy will reload.
+    # TLS - detect changes so we can tell the UI that Caddy will reload.
     def _normalize_tls(raw: dict) -> dict:
         return {
             "mode": raw.get("mode", "off"),
@@ -486,7 +486,7 @@ async def save_structured_config(request: Request) -> Response:
     existing["deterrent"] = existing_act
 
     # Merge training: nested-merge each group so keys the form doesn't know
-    # about survive.  A redacted Roboflow key means "unchanged" — drop it so
+    # about survive.  A redacted Roboflow key means "unchanged" - drop it so
     # the existing secret is preserved.
     existing_training = existing.get("training", {})
     if not isinstance(existing_training, dict):
@@ -537,7 +537,7 @@ def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
     """Return human-readable warnings for rule/report references that don't
     resolve to a defined channel or deterrent group.
 
-    The save still succeeds — this is advisory, per the "you edited the
+    The save still succeeds - this is advisory, per the "you edited the
     YAML, you know what's up" philosophy.  The warnings surface in the
     save response so the UI can remind the user until they fix it.
     """
@@ -606,7 +606,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
-    # Size cap before yaml.safe_load — even safe_load can spend significant
+    # Size cap before yaml.safe_load - even safe_load can spend significant
     # CPU on a multi-MB document, and there's no legitimate scarguard.yml
     # remotely close to this size.
     raw_bytes = len(raw_yaml.encode("utf-8"))
@@ -617,7 +617,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             _MAX_RAW_YAML_BYTES,
         )
         return HTMLResponse(
-            f"<h1>413 — Payload too large</h1>"
+            f"<h1>413 - Payload too large</h1>"
             f"<p>Config exceeds {_MAX_RAW_YAML_BYTES // 1000} KB cap "
             f"(received {raw_bytes // 1000} KB). "
             f"Keep your scarguard.yml lean.</p>",
@@ -627,7 +627,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
     saved = False
     warnings: list[str] = []
     raw_cfg: dict = {}
-    # Reject saves that still contain redacted placeholders — the user
+    # Reject saves that still contain redacted placeholders - the user
     # must reveal secrets before editing raw YAML, otherwise they would
     # overwrite real credentials with "***REDACTED***".
     if REDACTED_PLACEHOLDER in raw_yaml:
@@ -657,7 +657,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
                 details={"form": "raw_yaml", "orphan_warnings": len(warnings)},
             )
         except Exception:
-            # Same scrubbing pattern as save_structured_config — don't surface raw
+            # Same scrubbing pattern as save_structured_config - don't surface raw
             # exception text in the rendered template. Admin-only endpoint, but
             # CodeQL flags the sink and the operator gets a request ID to grep.
             req_id = uuid.uuid4().hex[:8]
@@ -666,7 +666,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
 
     cfg = _parse_cfg(raw_cfg)
 
-    # Redact secrets in the template response — same as config_page().
+    # Redact secrets in the template response - same as config_page().
     _redact_parsed_cfg(cfg)
     raw_cfg_for_render = redact_config(raw_cfg)
     raw_yaml = yaml.dump(raw_cfg_for_render, default_flow_style=False, sort_keys=False)
@@ -690,7 +690,7 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
 
 
 _CERTS_DIR = Path("/config/certs")
-_MAX_CERT_SIZE = 64 * 1024  # 64 KB — generous for PEM bundles
+_MAX_CERT_SIZE = 64 * 1024  # 64 KB - generous for PEM bundles
 
 
 @router.post("/tls/upload-cert", response_class=JSONResponse)
@@ -757,13 +757,13 @@ async def upload_tls_cert(
     if errors:
         return JSONResponse({"ok": False, "error": "; ".join(errors)}, status_code=400)
 
-    # All validation passed — write files. Filenames are hardcoded literals
+    # All validation passed - write files. Filenames are hardcoded literals
     # so no user-controlled value can reach the destination path. (Earlier
     # iterations routed the names through a (name, data) tuple list, which
     # CodeQL's taint tracker over-approximated as path-injection because it
     # could not prove the first tuple element was always literal. Inlining
     # the writes makes the literal nature obvious to both humans and the
-    # analyzer — issue #95.)
+    # analyzer - issue #95.)
     written: list[str] = []
     if cert_ok and cert_data is not None:
         (_CERTS_DIR / "cert.pem").write_bytes(cert_data)
@@ -789,7 +789,7 @@ _DETECTIONS_CHANNEL = "scarguard:detections"
 async def send_test_notification(request: Request) -> Response:
     """Send a test notification to a named channel via the notifier.
 
-    Admin only — viewers are blocked because this fires real outbound
+    Admin only - viewers are blocked because this fires real outbound
     traffic (Discord webhook, email SMTP, etc.).
     """
     gate = require_admin(request, is_api=True)

@@ -1,11 +1,11 @@
-# Emergency OFF — Runbook
+# Emergency OFF: Runbook
 
 **If water is actively hitting fish or property right now, skip to the
 fastest stop (step 1), then read the rest.**
 
 ## Fastest stop (≤ 30 seconds)
 
-**Option A — web UI (the usual one):**
+**Option A, web UI (the usual one):**
 
 1. Browse to **Deterrent** admin page (`/admin/deterrent`).
 2. Click **⚠ Emergency Off**. Confirm.
@@ -16,7 +16,7 @@ The endpoint (`/admin/deterrent/force-off`) sends an OFF command to
 enabled flag. Retried up to 4× per device via the cloud API (1s, 2s,
 4s backoff).
 
-**Option B — host shell (if web UI is unreachable):**
+**Option B, host shell (if web UI is unreachable):**
 
 ```bash
 docker compose stop deterrent
@@ -25,11 +25,11 @@ docker compose stop deterrent
 This kills the deterrent process outright. Any in-flight
 `activate_device` call that's currently in the HOLD phase won't run
 its OFF command, but **the per-activation watchdog timer fires
-unconditional OFF at 60 seconds from ON send** — so the device will
+unconditional OFF at 60 seconds from ON send**, so the device will
 be switched off within a minute of the ON command being issued, even
 with the deterrent container gone.
 
-**Option C — Tuya app (total failure):**
+**Option C, Tuya app (total failure):**
 
 If nothing in the ScarGuard stack responds, open the Tuya Smart Life
 app on your phone. Each configured device appears; tap it and hit the
@@ -43,7 +43,7 @@ API is degraded, the endpoint will fail. Knowing `docker compose stop`
 works even without Redis (because of the activation watchdog) means
 you always have a second-level stop.
 
-The Tuya app is the third level — it bypasses ScarGuard entirely and
+The Tuya app is the third level, it bypasses ScarGuard entirely and
 talks to Tuya Cloud directly. If the app can't reach the device
 either, the device or its upstream is offline; at that point your only
 option is physical (unplug, close a valve, etc.).
@@ -65,7 +65,7 @@ Once the device is confirmed OFF:
    device is still energised. Power-cycle it.
 4. **If this keeps happening:** the Tuya Cloud might be flaky or your
    WiFi/router might be dropping commands. Turn on the firmware-side
-   auto-off timer in the Tuya app as a belt-and-suspenders — the
+   auto-off timer in the Tuya app as a belt-and-suspenders, the
    device will switch off on its own after a bounded time even if
    no ScarGuard layer ever sends OFF.
 
@@ -92,7 +92,7 @@ multiple channel dispatches for the same event.
    - Regenerate `REDIS_PASSWORD` (setup.sh: re-run with the backfill
      paths, or manually edit `.env`).
    - Regenerate `DETECTION_HMAC_KEY` (same).
-   - Optionally rotate `/data/secret_key` — any already-encrypted
+   - Optionally rotate `/data/secret_key`: any already-encrypted
      secrets in `scarguard.yml` become unreadable and will need to
      be re-entered (Tuya, SMTP, webhook).
    - Delete `/data/csrf_secret` and restart web.
@@ -105,14 +105,14 @@ multiple channel dispatches for the same event.
 
 **Symptom:** healthcheck fails repeatedly, container restarts.
 
-1. `docker compose logs detector --tail 200` — look for the last
+1. `docker compose logs detector --tail 200`: look for the last
    stack trace before the restart.
 2. Common causes:
-   - **GPU driver state** — reboot the host.
-   - **OOM** — v1.14 adds `mem_limit: 3g`; if the detector is being
+   - **GPU driver state**: reboot the host.
+   - **OOM**: v1.14 adds `mem_limit: 3g`; if the detector is being
      killed by the OOM killer the log will show it. Raise the limit
      via a compose override if you have headroom on the host.
-   - **Malformed RTSP URL** — v1.14 adds scheme validation, but
+   - **Malformed RTSP URL**: v1.14 adds scheme validation, but
      legacy configs may still pass validation and hang FFmpeg. Check
      `scarguard.yml` cameras vs your actual camera endpoints.
 
@@ -134,6 +134,6 @@ manual backup as a snapshot in case something's about to fall over.
 
 ## See also
 
-* `SECURITY.md` — the trust model these scenarios defend against
-* `BACKUP.md` — how to roll back a compromised or corrupted DB
-* `INFRASTRUCTURE.md` — resource limits, trusted-proxies, host-setup
+* `SECURITY.md`: the trust model these scenarios defend against
+* `BACKUP.md`: how to roll back a compromised or corrupted DB
+* `INFRASTRUCTURE.md`: resource limits, trusted-proxies, host-setup

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Deterrent Log — ScarGuard{% endblock %}
+{% block title %}Deterrent Log - ScarGuard{% endblock %}
 {% block content %}
 <h1>Deterrent Log</h1>
 <p class="muted" style="font-size:0.85rem;margin-bottom:1rem;">
@@ -55,10 +55,10 @@
         <td>{{ ev.trigger_class.replace("_", " ").title() }}</td>
         <td>{{ ev.trigger_camera }}</td>
         <td>{{ "%.0f%%"|format(ev.trigger_confidence * 100) }}</td>
-        <td>{{ ev.group_name or '—' }}</td>
+        <td>{{ ev.group_name or '-' }}</td>
         <td>
           {% for a in ev.actions %}
-            <span class="tag {% if a.success %}tag-ok{% else %}tag-err{% endif %}" title="{{ a.device_type }} — {{ '%.1f'|format(a.duration_sec) }}s{% if a.cloud_ack_ms is not none %} — ack {{ '%.0f'|format(a.cloud_ack_ms) }}ms{% endif %}{% if a.error %} — {{ a.error }}{% endif %}">{{ a.device_name }}</span>
+            <span class="tag {% if a.success %}tag-ok{% else %}tag-err{% endif %}" title="{{ a.device_type }} - {{ '%.1f'|format(a.duration_sec) }}s{% if a.cloud_ack_ms is not none %} - ack {{ '%.0f'|format(a.cloud_ack_ms) }}ms{% endif %}{% if a.error %} - {{ a.error }}{% endif %}">{{ a.device_name }}</span>
           {% endfor %}
         </td>
         <td>
@@ -68,7 +68,7 @@
         </td>
         <td>{{ "%.1f"|format(ev.total_duration_sec) }}s</td>
         <td class="muted" style="font-size:0.8rem;">
-          {% if ev.trigger_delay_ms is not none %}{{ "%.0f"|format(ev.trigger_delay_ms) }}ms{% else %}—{% endif %}
+          {% if ev.trigger_delay_ms is not none %}{{ "%.0f"|format(ev.trigger_delay_ms) }}ms{% else %}-{% endif %}
         </td>
       </tr>
     {% else %}
@@ -80,7 +80,7 @@
   {# Pagination #}
   {% if total_pages > 1 %}
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem;font-size:0.85rem;">
-    <span class="muted">{{ total }} event(s) — page {{ page }}/{{ total_pages }}</span>
+    <span class="muted">{{ total }} event(s) - page {{ page }}/{{ total_pages }}</span>
     <div style="display:flex;gap:0.5rem;">
       {% if page > 1 %}
         <a href="?page={{ page - 1 }}&trigger_class={{ trigger_class }}&camera={{ camera }}&date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-secondary">Newer</a>

@@ -40,7 +40,7 @@ def fresh_auth():
 def legacy_auth():
     """Yield the auth module bound to a temp DB that mimics a pre-v0.12.7 schema.
 
-    The users table exists but has NO ``role`` column — migration fills it.
+    The users table exists but has NO ``role`` column - migration fills it.
     """
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)

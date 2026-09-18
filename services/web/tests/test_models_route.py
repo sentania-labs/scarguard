@@ -1,4 +1,4 @@
-"""Unit tests for /models/{filename}/classes — path-safety + RPC happy/error paths."""
+"""Unit tests for /models/{filename}/classes - path-safety + RPC happy/error paths."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ class TestClassesEndpoint:
         with patch("routes.models._fetch_model_classes_via_redis", side_effect=_boom):
             resp = client.get("/models/yolov8n.pt/classes")
         # Route must return JSON with the normal {ok:false,error:...} shape,
-        # not a raw 500 — UI depends on the structured error path.
+        # not a raw 500 - UI depends on the structured error path.
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is False

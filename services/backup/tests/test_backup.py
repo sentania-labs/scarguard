@@ -1,7 +1,7 @@
 """Tests for the SQLite backup sidecar.
 
 Exercises the backup, prune, and rotation logic with real (in-memory and
-on-disk) SQLite databases. Doesn't touch Redis — that's tested via the
+on-disk) SQLite databases. Doesn't touch Redis - that's tested via the
 integration smoke test."""
 
 from __future__ import annotations

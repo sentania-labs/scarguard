@@ -1,4 +1,4 @@
-"""Audit log viewer — admin-only read endpoint for audit_events.
+"""Audit log viewer - admin-only read endpoint for audit_events.
 
 Shows login/logout activity, config changes, and user/API-token management
 actions recorded by audit.record() in the auth.db audit_events table.

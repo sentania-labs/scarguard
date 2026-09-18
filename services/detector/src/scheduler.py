@@ -1,10 +1,10 @@
-"""Arm/disarm scheduler — applies configured arm/disarm schedule to the armed flag.
+"""Arm/disarm scheduler - applies configured arm/disarm schedule to the armed flag.
 
 Checks every 60 seconds and fires transitions at scheduled arm_time / disarm_time.
 Manual arm/disarm via the UI is naturally respected: the scheduler only changes
 state at scheduled transition boundaries, not continuously.
 
-Note: the scheduler only fires at transition points — it does NOT snap the armed
+Note: the scheduler only fires at transition points - it does NOT snap the armed
 state on startup or reconfigure to match the current window. If the system restarts
 mid-window the armed state remains whatever was last written to config.
 """
@@ -172,7 +172,7 @@ class ArmScheduler:
         """Re-arm if a non-admin auto-rearm timestamp has been reached.
 
         Skips re-arming when the configured schedule currently dictates a
-        disarmed state — this prevents the auto-rearm from overriding a
+        disarmed state - this prevents the auto-rearm from overriding a
         schedule boundary that fired after the non-admin disarm was recorded.
         The pending key is still deleted so it does not trigger on a later tick.
         """
@@ -233,7 +233,7 @@ class ArmScheduler:
         recent = transitions_between(now - timedelta(hours=24), now, get_arm, get_disarm)
         if not recent:
             # No transition found in the look-back window; cannot determine
-            # current window definitively — allow the rearm.
+            # current window definitively - allow the rearm.
             return True
         # The last item is the most recent past transition.
         # True = arm transition → schedule says armed → allow rearm.
@@ -293,7 +293,7 @@ def _sunrise(d: dt_date, lat: float | None, lon: float | None) -> datetime | Non
         result: datetime = s["sunrise"]
         return result
     except ImportError:
-        logger.warning("astral not installed — solar schedule unavailable; pip install astral")
+        logger.warning("astral not installed - solar schedule unavailable; pip install astral")
         return None
     except Exception:
         logger.exception("Failed to compute sunrise for %s", d)
@@ -312,7 +312,7 @@ def _sunset(d: dt_date, lat: float | None, lon: float | None) -> datetime | None
         result: datetime = s["sunset"]
         return result
     except ImportError:
-        logger.warning("astral not installed — solar schedule unavailable; pip install astral")
+        logger.warning("astral not installed - solar schedule unavailable; pip install astral")
         return None
     except Exception:
         logger.exception("Failed to compute sunset for %s", d)

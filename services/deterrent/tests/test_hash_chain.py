@@ -112,7 +112,7 @@ class TestInsertWithHashChain:
         row = conn.execute(
             "SELECT prev_hash, row_hash FROM actuation_events WHERE id = ?", (eid,),
         ).fetchone()
-        assert row["prev_hash"] == ""  # first row — no predecessor
+        assert row["prev_hash"] == ""  # first row - no predecessor
         assert len(row["row_hash"]) == 64  # SHA-256 hex digest
 
     def test_chain_links_sequential_events(self) -> None:

@@ -1,4 +1,4 @@
-"""Web route smoke tests — every page must load, core interactions must work."""
+"""Web route smoke tests - every page must load, core interactions must work."""
 
 import pytest
 
@@ -266,7 +266,7 @@ class TestConfig:
         The form ships redacted placeholders for secrets; they are stripped
         on save and normally re-merged from the existing channel by name.
         After a rename the name no longer matches, so the merge falls back
-        to prev_name — without it the channel would be persisted with no
+        to prev_name - without it the channel would be persisted with no
         webhook_url/smtp_pass.
         """
         existing = {
@@ -431,7 +431,7 @@ class TestConfig:
 
 
 class TestConfigErrorScrubbing:
-    """Issue #95 — exception messages must not leak through the JSON body."""
+    """Issue #95 - exception messages must not leak through the JSON body."""
 
     def test_invalid_payload_returns_generic_message_and_request_id(self, client, monkeypatch):
         # Force pydantic to fail by sending nonsense for a typed field.
@@ -462,7 +462,7 @@ class TestConfigErrorScrubbing:
 
     def test_invalid_json_body_returns_generic_message(self, client):
         # Hits the generic Exception branch (json() raises before pydantic
-        # ever runs) — must also be scrubbed.
+        # ever runs) - must also be scrubbed.
         resp = client.post(
             "/config/structured",
             content=b"this is not json {{{",
@@ -475,7 +475,7 @@ class TestConfigErrorScrubbing:
 
 
 class TestTLSCertContainment:
-    """Issue #95 — defense-in-depth: writes to _CERTS_DIR must stay inside it."""
+    """Issue #95 - defense-in-depth: writes to _CERTS_DIR must stay inside it."""
 
     def test_upload_writes_into_certs_dir(self, client, monkeypatch, tmp_path):
         from routes import config as config_route

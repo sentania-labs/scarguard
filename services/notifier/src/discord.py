@@ -33,7 +33,7 @@ class DiscordNotifier:
         self._mention_role: str = cfg.get("mention_role", "")
         self._include_snapshot: bool = cfg.get("include_snapshot", True)
         self._tz_name: str = tz_name
-        # SSRF defence-in-depth — Discord's URL is a fixed pattern but we
+        # SSRF defence-in-depth - Discord's URL is a fixed pattern but we
         # validate anyway: an admin (or stolen session) could swap in a
         # private-IP URL and turn the channel into an SSRF probe.
         try:
@@ -41,7 +41,7 @@ class DiscordNotifier:
             self._enabled = True
         except UnsafeURLError as exc:
             logger.error(
-                "Discord [%s] disabled — unsafe webhook URL: %s",
+                "Discord [%s] disabled - unsafe webhook URL: %s",
                 self._name, exc,
             )
             self._enabled = False
@@ -53,7 +53,7 @@ class DiscordNotifier:
     def send(self, event: dict) -> None:
         if not self._enabled:
             logger.warning(
-                "Discord [%s] suppressed — channel disabled at construction",
+                "Discord [%s] suppressed - channel disabled at construction",
                 self._name,
             )
             return
@@ -114,7 +114,7 @@ class DiscordNotifier:
     def _send_digest(self, report: dict) -> None:
         """Send a digest report as a Discord embed."""
         if not self._enabled:
-            logger.warning("Discord [%s] digest suppressed — disabled", self._name)
+            logger.warning("Discord [%s] digest suppressed - disabled", self._name)
             return
         from digest import format_discord_embed
 

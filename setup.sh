@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-#  ScarGuard — First-Run Setup
+#  ScarGuard - First-Run Setup
 #
 #  This script prepares a Jetson Orin Nano to run ScarGuard.
 #  It is safe to run more than once (idempotent).
@@ -54,11 +54,11 @@ fi
 echo
 if [[ "$IS_UPGRADE" == "true" ]]; then
     echo "${BOLD}╔════════════════════════════════════════╗${RESET}"
-    echo "${BOLD}║       ScarGuard — Upgrade Check        ║${RESET}"
+    echo "${BOLD}║       ScarGuard - Upgrade Check        ║${RESET}"
     echo "${BOLD}╚════════════════════════════════════════╝${RESET}"
 else
     echo "${BOLD}╔════════════════════════════════════════╗${RESET}"
-    echo "${BOLD}║       ScarGuard — First-Run Setup      ║${RESET}"
+    echo "${BOLD}║       ScarGuard - First-Run Setup      ║${RESET}"
     echo "${BOLD}╚════════════════════════════════════════╝${RESET}"
 fi
 echo "  Running from: $REPO_ROOT"
@@ -118,7 +118,7 @@ else
         error "NVIDIA container runtime is not configured in Docker."
         NEEDS_SETUP=true
     else
-        warn "NVIDIA container runtime not found — detector will use CPU inference."
+        warn "NVIDIA container runtime not found - detector will use CPU inference."
         warn "GPU inference requires: NVIDIA driver + nvidia-container-toolkit"
     fi
 fi
@@ -140,7 +140,7 @@ if [[ "$NEEDS_SETUP" == "true" ]]; then
             if ! docker info --format '{{.Runtimes}}' 2>/dev/null | grep -q nvidia; then
                 warn "NVIDIA runtime still not detected. You may need to log out and back in,"
                 warn "then re-run this script."
-                warn "Continuing anyway — non-GPU services will still start."
+                warn "Continuing anyway - non-GPU services will still start."
             else
                 info "NVIDIA container runtime: found"
                 NVIDIA_OK=true
@@ -161,7 +161,7 @@ fi
 step "Setting up environment (.env)"
 
 if [[ -f ".env" ]]; then
-    info ".env already exists — loading."
+    info ".env already exists - loading."
     set -a
     # shellcheck disable=SC1091
     source .env
@@ -212,7 +212,7 @@ else
     if ! [[ "$HTTP_PORT_VALUE" =~ ^[0-9]+$ ]] || \
        [[ "$HTTP_PORT_VALUE" -lt 1 ]] || \
        [[ "$HTTP_PORT_VALUE" -gt 65535 ]]; then
-        warn "Invalid port '$HTTP_PORT_VALUE' — using 80."
+        warn "Invalid port '$HTTP_PORT_VALUE' - using 80."
         HTTP_PORT_VALUE=80
     fi
 
@@ -240,7 +240,7 @@ else
     # Set detector image based on detected platform
     sed -i "s|^DETECTOR_IMAGE=.*|DETECTOR_IMAGE=${DETECTOR_IMG_DEFAULT}|" .env
 
-    # Set compose files — include GPU override when NVIDIA runtime is available
+    # Set compose files - include GPU override when NVIDIA runtime is available
     if [[ "$NVIDIA_OK" == "true" ]]; then
         sed -i "s|^COMPOSE_FILE=.*|COMPOSE_FILE=docker-compose.yml:docker-compose.gpu.yml|" .env
     else
@@ -260,7 +260,7 @@ CONFIG_IS_NEW=false
 
 # Check whether scarguard.yml already exists in the config volume.
 if docker run --rm -v scarguard-config:/config alpine:3.20 test -f /config/scarguard.yml 2>/dev/null; then
-    info "scarguard.yml already exists in config volume — skipping."
+    info "scarguard.yml already exists in config volume - skipping."
 else
     docker run --rm \
         -v scarguard-config:/config \
@@ -282,12 +282,12 @@ info "scarguard-data volume ready (snapshots directory created)"
 # ── Step 7: TLS setup (first install only) ──────────────────────────────────
 if [[ "$IS_UPGRADE" == "true" ]]; then
     step "TLS configuration"
-    info "Existing install detected — TLS settings preserved. Change via Settings > TLS."
+    info "Existing install detected - TLS settings preserved. Change via Settings > TLS."
 else
     step "TLS configuration"
 
     echo "  How will you access ScarGuard?"
-    echo "    1) LAN only (HTTP, no TLS — default)"
+    echo "    1) LAN only (HTTP, no TLS - default)"
     echo "    2) Internet with automatic HTTPS (Let's Encrypt)"
     echo "    3) Own certificates (manual TLS)"
     echo
@@ -300,14 +300,14 @@ else
             ask "Domain name (e.g. scarguard.example.com): "
             read -r TLS_DOMAIN </dev/tty
             if [[ -n "$TLS_DOMAIN" ]]; then
-                # Update tls section in config volume (idempotent — works regardless of current value)
+                # Update tls section in config volume (idempotent - works regardless of current value)
                 docker run --rm -v scarguard-config:/config alpine:3.20 \
                     sh -c "sed -i 's/mode: \"[^\"]*\"/mode: \"auto\"/' /config/scarguard.yml && \
                            sed -i 's/domain: \"[^\"]*\"/domain: \"${TLS_DOMAIN}\"/' /config/scarguard.yml"
                 info "TLS mode set to auto (Let's Encrypt) with domain: ${TLS_DOMAIN}"
                 warn "Ports 80 and 443 must be reachable from the internet for ACME challenges."
             else
-                warn "No domain provided — keeping TLS off. Change in Settings > TLS later."
+                warn "No domain provided - keeping TLS off. Change in Settings > TLS later."
             fi
             ;;
         3)
@@ -342,13 +342,13 @@ else
     echo
     echo "  ScarGuard needs a YOLO model to detect wildlife."
     echo
-    echo "  Option A — Starter model (recommended for first-time setup):"
+    echo "  Option A - Starter model (recommended for first-time setup):"
     echo "    Downloads yolov8n.pt from Ultralytics (~6 MB)."
     echo "    Detects generic ${BOLD}birds${RESET} (class 'bird' from the COCO dataset)."
     echo "    ${YELLOW}It will NOT distinguish herons from sparrows.${RESET}"
     echo "    Good for verifying the pipeline works before training a custom model."
     echo
-    echo "  Option B — Custom model:"
+    echo "  Option B - Custom model:"
     echo "    Upload your own YOLO model via the web UI Models page after setup."
     echo
 
@@ -396,7 +396,7 @@ fi
 # ── Step 9: Pull images ───────────────────────────────────────────────────────
 step "Pulling Docker images from GHCR"
 
-echo "  This downloads pre-built images — no compilation required."
+echo "  This downloads pre-built images - no compilation required."
 echo
 
 # Source .env so compose picks up the variables
@@ -428,7 +428,7 @@ fi
 
 # ── Step 10: Create initial admin account (first install only) ────────────────
 if [[ "$IS_UPGRADE" == "true" ]]; then
-    # Skip admin account creation on upgrade — account already exists
+    # Skip admin account creation on upgrade - account already exists
     :
 else
     echo

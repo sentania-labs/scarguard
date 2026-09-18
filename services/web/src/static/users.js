@@ -1,4 +1,4 @@
-/* ScarGuard — users page logic */
+/* ScarGuard - users page logic */
 
 document.addEventListener('DOMContentLoaded', function() {
   // Auto-submit role <select> on change.

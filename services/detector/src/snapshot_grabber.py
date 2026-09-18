@@ -1,4 +1,4 @@
-"""On-demand camera snapshot grabber — listens for Redis requests."""
+"""On-demand camera snapshot grabber - listens for Redis requests."""
 
 from __future__ import annotations
 
@@ -77,9 +77,9 @@ class SnapshotGrabber(threading.Thread):
                     self._pool.submit(self._handle_request, client, camera_name, request_id)
 
             except redis_lib.RedisError:
-                logger.warning("SnapshotGrabber Redis error — reconnecting", exc_info=True)
+                logger.warning("SnapshotGrabber Redis error - reconnecting", exc_info=True)
             except Exception:
-                logger.exception("SnapshotGrabber error — reconnecting")
+                logger.exception("SnapshotGrabber error - reconnecting")
             finally:
                 if pubsub is not None:
                     try:

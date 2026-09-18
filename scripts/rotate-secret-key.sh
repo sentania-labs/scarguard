@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/rotate-secret-key.sh — rotate the ScarGuard secrets-at-rest key.
+# scripts/rotate-secret-key.sh - rotate the ScarGuard secrets-at-rest key.
 #
 # Generates a new key, re-encrypts every enc:v1: field in scarguard.yml
 # with the new key, swaps the key file atomically, and restarts affected
@@ -88,7 +88,7 @@ cfg = config_store.load()
 if secret_box.has_plaintext_secrets(cfg):
     print('WARNING: Some secrets are still plaintext')
     raise SystemExit(1)
-print('Verification OK — all secrets encrypted with new key')
+print('Verification OK - all secrets encrypted with new key')
 " || { echo "ERROR: Post-rotation verification failed. Check logs."; exit 3; }
 
 echo ""

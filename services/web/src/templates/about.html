@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}About — ScarGuard{% endblock %}
+{% block title %}About - ScarGuard{% endblock %}
 {% block content %}
 <h1>About ScarGuard</h1>
 <p class="hint">
@@ -63,7 +63,7 @@
       <div>
         <div class="about-status-label">Log Streamer</div>
         <div class="about-status-detail">
-          {% if log_streamer_ok %}Active — streaming container logs{% else %}No log data — sidecar may not be running{% endif %}
+          {% if log_streamer_ok %}Active - streaming container logs{% else %}No log data - sidecar may not be running{% endif %}
         </div>
       </div>
     </div>
@@ -87,7 +87,7 @@
       <div>
         <div class="about-status-label">System</div>
         <div class="about-status-detail">
-          {% if armed %}Armed — detections trigger notifications{% else %}Disarmed{% endif %}
+          {% if armed %}Armed - detections trigger notifications{% else %}Disarmed{% endif %}
         </div>
       </div>
     </div>
@@ -97,8 +97,8 @@
       <div>
         <div class="about-status-label">Deterrent</div>
         <div class="about-status-detail">
-          {% if deterrent_enabled and deterrent_running %}Enabled — service running
-          {% elif deterrent_enabled %}Enabled — service not detected
+          {% if deterrent_enabled and deterrent_running %}Enabled - service running
+          {% elif deterrent_enabled %}Enabled - service not detected
           {% else %}Disabled
           {% endif %}
         </div>
@@ -134,8 +134,8 @@
       {% for cam in cameras %}
       <div class="about-camera-row">
         <span class="status-dot {% if cam.get('enabled', true) %}dot-ok{% else %}dot-muted{% endif %}"></span>
-        <span class="about-camera-name">{{ cam.get('name', '—') }}</span>
-        <span class="muted about-camera-res">{{ cam.get('resolution', '—') }}p</span>
+        <span class="about-camera-name">{{ cam.get('name', '-') }}</span>
+        <span class="muted about-camera-res">{{ cam.get('resolution', '-') }}p</span>
         <span class="muted">{% if not cam.get('enabled', true) %}disabled{% endif %}</span>
       </div>
       {% endfor %}

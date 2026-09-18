@@ -2,7 +2,7 @@
 
 Uses :class:`cryptography.fernet.Fernet` (AES-128-CBC + HMAC-SHA256, with
 authenticated encryption and rotation-friendly key IDs). The on-disk key
-lives at ``/data/secret_key`` as base64 of 32 random bytes — generated
+lives at ``/data/secret_key`` as base64 of 32 random bytes - generated
 automatically on first web startup, chmod 600, never embedded in the
 repo.
 
@@ -11,7 +11,7 @@ Encrypted values get a ``"enc:v1:"`` prefix so:
 * round-trip parsing is unambiguous (callers know whether a value needs
   decryption);
 * a future format bump can use ``"enc:v2:"`` without churn;
-* migration from plaintext is trivial — decrypt is a no-op on
+* migration from plaintext is trivial - decrypt is a no-op on
   unprefixed values, encrypt is a no-op on already-prefixed ones.
 
 Sensitive field paths live here too so the redact and encrypt code share
@@ -35,7 +35,7 @@ PREFIX = "enc:v1:"
 
 # Structural paths (tuple of dict keys) for sensitive fields outside the
 # heterogeneous channels list. Format matches config_redact._STRUCTURAL_PATHS
-# but excludes ``cameras[].rtsp_url`` — encrypting that requires teaching
+# but excludes ``cameras[].rtsp_url`` - encrypting that requires teaching
 # the detector container to decrypt at boot, which is deferred.
 SENSITIVE_FIELD_PATHS: tuple[tuple[str, ...], ...] = (
     ("deterrent", "tuya", "api_key"),
@@ -108,7 +108,7 @@ def decrypt(value: str, key: bytes) -> str:
     """Decrypt *value* if encrypted, reject unencrypted values.
 
     Prior to v1.15 a plaintext passthrough existed for one-time migration
-    from pre-v1.14 configs. That branch has been removed — all sensitive
+    from pre-v1.14 configs. That branch has been removed - all sensitive
     fields must be encrypted before loading.
     """
     if not isinstance(value, str):
@@ -123,7 +123,7 @@ def decrypt(value: str, key: bytes) -> str:
         return _fernet(key).decrypt(token.encode("ascii")).decode("utf-8")
     except InvalidToken as exc:
         raise SecretKeyMissing(
-            "Failed to decrypt — wrong key or corrupted ciphertext",
+            "Failed to decrypt - wrong key or corrupted ciphertext",
         ) from exc
 
 
@@ -168,7 +168,7 @@ def load_key(path: str | None = None) -> bytes:
         raw = f.read().strip()
     if not raw:
         raise SecretKeyMissing(f"Secret key file at {path} is empty")
-    # Validate by normalising — raises on bad data.
+    # Validate by normalising - raises on bad data.
     _normalize_key(raw)
     return raw
 
@@ -178,7 +178,7 @@ def try_load_key(path: str | None = None) -> bytes | None:
     try:
         return load_key(path)
     except SecretKeyMissing as exc:
-        logger.warning("%s — secrets will be read as plaintext", exc)
+        logger.warning("%s - secrets will be read as plaintext", exc)
         return None
 
 

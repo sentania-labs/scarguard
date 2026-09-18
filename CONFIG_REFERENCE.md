@@ -1,4 +1,4 @@
-# ScarGuard — Config & Detection Reference
+# ScarGuard: Config & Detection Reference
 
 ## Config File Format (scarguard.yml)
 
@@ -24,14 +24,14 @@ system:
   backup:
     max_backups: 50             # maximum number of config backups to keep (5-500)
     debounce_seconds: 180       # wait this long after config change before backup (30-600)
-  # schedule:                        # optional — omit entirely for manual-only control
+  # schedule:                        # optional - omit entirely for manual-only control
   #   enabled: false                 # toggle scheduling on/off without clearing times
   #   arm_time: "06:00"              # arm at 6 AM local time (HH:MM, 24-hour)
   #   disarm_time: "20:00"           # disarm at 8 PM local time
   #   use_solar: false               # true = arm at sunrise, disarm at sunset
   #   latitude: null                 # required when use_solar is true
   #   longitude: null                # required when use_solar is true
-  # summary_report:                  # optional — scheduled digest notifications
+  # summary_report:                  # optional - scheduled digest notifications
   #   enabled: false                 # toggle digest on/off (default: disabled)
   #   frequency: daily               # daily | weekly (Mondays) | monthly (1st)
   #   time: "07:00"                  # HH:MM in system timezone
@@ -48,14 +48,14 @@ cameras:
     rtsp_url: "rtsp://172.16.0.1:7447/STREAM_TOKEN_1"
     enabled: true
     resolution: 720
-    model_path: null              # optional — per-camera model override (default: null = use global detection.model_path)
-    detect_classes: null          # optional — per-camera class filter (default: null = use global detection.target_classes)
-    confidence_threshold: null    # optional — per-camera confidence override (default: null = use global detection.confidence_threshold)
+    model_path: null              # optional - per-camera model override (default: null = use global detection.model_path)
+    detect_classes: null          # optional - per-camera class filter (default: null = use global detection.target_classes)
+    confidence_threshold: null    # optional - per-camera confidence override (default: null = use global detection.confidence_threshold)
     # Exclusion zones use normalized polygon coordinates (0.0 to 1.0 relative to frame).
     exclusion_zones:
       - points: [[0.50, 0.40], [0.62, 0.40], [0.62, 0.58], [0.50, 0.58]]
         label: "heron decoy"
-    # Per-camera notification rules — route detections from this camera to
+    # Per-camera notification rules - route detections from this camera to
     # specific named channels.  Rules are evaluated top-down; first match wins.
     # Omit to notify every enabled channel.
     notification_rules:
@@ -86,7 +86,7 @@ detection:
   # each camera block. When an override is null, the corresponding global
   # `detection.*` value is inherited.
   # In the UI, list fields like detect_classes, notification_rules.channels,
-  # and deterrent_rules.groups use a chip-autocomplete control (v0.13.4+) —
+  # and deterrent_rules.groups use a chip-autocomplete control (v0.13.4+) -
   # typos render as amber "unknown" chips.  Unresolved references produce an
   # advisory warning on save (save still succeeds).
 
@@ -156,7 +156,7 @@ and raw-YAML views. It remains plaintext because the trainer reads
 `scarguard.yml` directly and cannot decrypt secret-box values, the same
 trade-off as camera RTSP URLs for the detector. Without a Roboflow
 key, dataset preparation skips the Roboflow Universe sources and logs
-a warning — heron training coverage depends on them.
+a warning, heron training coverage depends on them.
 
 Training jobs stop the detector process through the allowlisted lifecycle
 controller before admission, then restore it only when that job owned the stop.
@@ -167,7 +167,7 @@ Full sanitized stdout/stderr is retained under
 
 | Key | Default | Description |
 |---|---|---|
-| `training.defaults.classes` | `[duck, heron, raccoon, person, dog, cat, plant]` | Ordered training class list — order defines model class indices. Overridable per job via the Classes field on the Training Jobs page. |
+| `training.defaults.classes` | `[duck, heron, raccoon, person, dog, cat, plant]` | Ordered training class list, order defines model class indices. Overridable per job via the Classes field on the Training Jobs page. |
 | `training.defaults.base_model` | `yolov8n.pt` | Base model for fine-tuning |
 | `training.defaults.epochs` | `100` | Training epochs |
 | `training.defaults.batch_size` | `2` | Batch size (Orin 8GB safe) |
@@ -193,23 +193,23 @@ Full sanitized stdout/stderr is retained under
 trained into the model so it learns what *not* to call a heron (humans at
 the pond were previously misclassified as herons), but they are not meant
 to alert or deter. All runtime behavior is driven by existing class
-config — no special handling:
+config, no special handling:
 
 - `detection.target_classes` is an explicit allowlist. Distractor classes
   not listed there are dropped at inference: no events, no snapshots.
   Deploying a 7-class model with an unchanged config needs no edits.
-- **Never add `plant` to `target_classes`** — pond vegetation would fire
+- **Never add `plant` to `target_classes`**: pond vegetation would fire
   constantly.
 - To **log** a distractor (e.g. person) without notifications: add it to
   `target_classes`, then give the camera explicit `notification_rules`
   for the classes you *do* want notifications for, **without a wildcard
   rule**. A class matching no rule is suppressed. Note: a *matched* rule
-  with `channels: []` means "notify all channels" — that is not the
+  with `channels: []` means "notify all channels", that is not the
   suppression recipe.
 - Deterrents are opt-in per class via `deterrent_rules`, so distractors
   can never trigger them unless explicitly configured.
 - The Models page will show all 7 classes for a distractor-trained model
-  while `target_classes` lists fewer — that is expected, not a
+  while `target_classes` lists fewer, that is expected, not a
   misconfiguration.
 
 ### Database Columns (detection_events)
@@ -236,8 +236,8 @@ config — no special handling:
 | `id` | INTEGER | Primary key |
 | `camera_name` | TEXT | Camera that recorded the visit |
 | `class_name` | TEXT | Detected species |
-| `start_time` | TEXT | ISO 8601 UTC — first detection |
-| `end_time` | TEXT | ISO 8601 UTC — last detection |
+| `start_time` | TEXT | ISO 8601 UTC, first detection |
+| `end_time` | TEXT | ISO 8601 UTC, last detection |
 | `duration_secs` | REAL | Visit length in seconds |
 | `detection_count` | INTEGER | Number of detections in the session |
 
@@ -258,7 +258,7 @@ config — no special handling:
 
 | Column | Type | Description |
 |---|---|---|
-| `key` | TEXT | Primary key — state key name |
+| `key` | TEXT | Primary key, state key name |
 | `value` | TEXT | State value |
 
 ## RTSP Notes
@@ -266,8 +266,8 @@ config — no special handling:
 ScarGuard works with any camera that provides an RTSP stream. The notes below reflect the reference setup (UniFi cameras).
 
 - UniFi Protect: RTSP must be enabled per-camera in the Protect UI
-- RTSP URL format varies by vendor — UniFi example: `rtsp://172.16.0.1:7447/<stream_token>`
-- Use a 720p substream for inference where available — 4K wastes GPU cycles
+- RTSP URL format varies by vendor: UniFi example: `rtsp://172.16.0.1:7447/<stream_token>`
+- Use a 720p substream for inference where available: 4K wastes GPU cycles
 - OpenCV `VideoCapture` handles RTSP natively; set `cv2.CAP_PROP_BUFFERSIZE` to 1 to reduce frame lag
 - Reference cameras: UniFi G3 Flex and G5 Flex
 
@@ -283,7 +283,7 @@ a legacy alias for one-release backwards compatibility.
 | **viewer** (read-only admin) | ✓ | ✓ | ✓ *(secrets masked)* | ✗ | ✗ | ✗ |
 | **admin** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-The three roles are **not strictly hierarchical** — a viewer sees *more* than
+The three roles are **not strictly hierarchical**, a viewer sees *more* than
 a user (admin pages, the config form) but writes *less* (no disarm, no
 feedback). The design makes "oversight without write risk" a first-class
 option for family members or sysadmins who need visibility without the
@@ -297,14 +297,14 @@ browser. The following fields are replaced with `***REDACTED***` in the
 cameras/channels JSON hydration, the Pydantic form data, and the
 backups-diff view:
 
-- `cameras[].rtsp_url` — RTSP URLs with embedded auth tokens
-- `notifications.channels[].webhook_url` — per-channel Discord webhook
-- `notifications.channels[].smtp_pass` — per-channel email password
-- `notifications.channels[].auth_token` — webhook Bearer token
-- `notifications.channels[].token` — ntfy Bearer token
-- `notifications.channels[].password` — ntfy Basic auth password
-- `notifications.channels[].headers` — custom HTTP headers (may carry auth)
-- `deterrent.tuya.api_key` / `deterrent.tuya.api_secret` — Tuya Cloud API credentials
+- `cameras[].rtsp_url`: RTSP URLs with embedded auth tokens
+- `notifications.channels[].webhook_url`: per-channel Discord webhook
+- `notifications.channels[].smtp_pass`: per-channel email password
+- `notifications.channels[].auth_token`: webhook Bearer token
+- `notifications.channels[].token`: ntfy Bearer token
+- `notifications.channels[].password`: ntfy Basic auth password
+- `notifications.channels[].headers`: custom HTTP headers (may carry auth)
+- `deterrent.tuya.api_key` / `deterrent.tuya.api_secret`: Tuya Cloud API credentials
 
 The raw-YAML tab (`GET /config/raw`) is admin-only and returns 403 for
 viewers, because there's no lossless way to redact arbitrary YAML while
@@ -314,7 +314,7 @@ keeping the structure valid for round-tripping.
 
 The user-management routes refuse to delete, disable, or demote the last
 active admin. Attempting any of those returns a `400 cannot demote the
-last admin — promote another user first.` so a misclick can't orphan the
+last admin - promote another user first.` so a misclick can't orphan the
 instance. See `auth.count_active_admins()` and the guards in
 `services/web/src/routes/users.py`.
 
@@ -337,33 +337,33 @@ The schedule is entirely optional. If the `schedule` key is missing, `enabled` i
 
 ## Actuation (Physical Deterrence)
 
-The `deterrent` section configures the deterrent service — automated physical deterrence via Tuya Cloud API. See [TUYA_SETUP.md](TUYA_SETUP.md) for obtaining API credentials.
+The `deterrent` section configures the deterrent service, automated physical deterrence via Tuya Cloud API. See [TUYA_SETUP.md](TUYA_SETUP.md) for obtaining API credentials.
 
 **v0.13.3 changed the firing model.** Prior to v0.13.3 any detection fired
 every enabled device.  From v0.13.3 onward, the deterrent service fires only
 **groups** explicitly referenced by a per-camera **`deterrent_rules`** entry
-(see the per-camera config section).  There is no default group — users
+(see the per-camera config section).  There is no default group, users
 deliberately opt-in each camera/class combination that should actuate.
 
 Firing is gated by two cooldown layers:
 
-1. **Per-group cooldown** (`deterrent.groups[].cooldown_seconds`) — prevents
+1. **Per-group cooldown** (`deterrent.groups[].cooldown_seconds`): prevents
    the same group from firing twice in rapid succession.
-2. **Global cooldown** (`deterrent.defaults.cooldown_seconds`) — prevents
+2. **Global cooldown** (`deterrent.defaults.cooldown_seconds`): prevents
    *any* actuation (across all groups) from firing more often than this.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `deterrent.enabled` | bool | `false` | Master toggle for physical deterrence |
-| `deterrent.tuya.api_key` | str | — | Tuya IoT Platform Access ID |
-| `deterrent.tuya.api_secret` | str | — | Tuya IoT Platform Access Secret |
+| `deterrent.tuya.api_key` | str | n/a | Tuya IoT Platform Access ID |
+| `deterrent.tuya.api_secret` | str | n/a | Tuya IoT Platform Access Secret |
 | `deterrent.tuya.api_region` | str | `"us"` | Tuya data center: `us`, `eu`, `cn`, `in` |
-| `deterrent.devices[].name` | str | — | Human-readable device name |
-| `deterrent.devices[].device_id` | str | — | Tuya device ID |
-| `deterrent.devices[].type` | str | — | One of: `sprinkler`, `light`, `sound`, `plug` |
+| `deterrent.devices[].name` | str | n/a | Human-readable device name |
+| `deterrent.devices[].device_id` | str | n/a | Tuya device ID |
+| `deterrent.devices[].type` | str | n/a | One of: `sprinkler`, `light`, `sound`, `plug` |
 | `deterrent.devices[].enabled` | bool | `true` | Whether this device participates in deterrence |
 | `deterrent.devices[].dp_code` | str | (auto) | Override the default DP code for on/off |
-| `deterrent.groups[].name` | str | — | **v0.13.3**: Unique group name (referenced from per-camera `deterrent_rules.groups`) |
+| `deterrent.groups[].name` | str | n/a | **v0.13.3**: Unique group name (referenced from per-camera `deterrent_rules.groups`) |
 | `deterrent.groups[].devices` | list[str] | `[]` | **v0.13.3**: Device names (from the registry) fired by this group. A device may appear in multiple groups. |
 | `deterrent.groups[].cooldown_seconds` | int | `60` | **v0.13.3**: Minimum seconds between firings of this group (on top of the global cooldown). |
 | `deterrent.groups[].device_count_range` | list[int] \| null | inherit | **v0.13.3**: Override `defaults.device_count_range` for this group. `null` to inherit. |
@@ -374,7 +374,7 @@ Firing is gated by two cooldown layers:
 | `deterrent.defaults.spray_duration_range` | list[float] | `[3.0, 8.0]` | Min/max seconds each device stays on |
 | `deterrent.defaults.inter_device_delay_range` | list[float] | `[1.0, 5.0]` | Min/max seconds between device activations |
 | `deterrent.defaults.pre_delay_range` | list[float] | `[0.0, 3.0]` | Min/max seconds before sequence starts |
-| `deterrent.defaults.cooldown_seconds` | int | `60` | **Global** cooldown — minimum gap between *any* two actuations across all groups. Group cooldowns stack on top. |
+| `deterrent.defaults.cooldown_seconds` | int | `60` | **Global** cooldown, minimum gap between *any* two actuations across all groups. Group cooldowns stack on top. |
 | `deterrent.reconcile_interval_sec` | int | `30` | Seconds between reconciliation polls. Detects stuck devices and force-OFFs any that report ON while not actively driven. 0 = disabled. |
 | `deterrent.battery_monitor.enabled` | bool | `true` | Poll battery levels periodically |
 | `deterrent.battery_monitor.check_interval_hours` | int | `24` | Hours between battery checks |

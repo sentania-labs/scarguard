@@ -1,9 +1,9 @@
-"""Database backups admin page — list / trigger / download SQLite backups.
+"""Database backups admin page - list / trigger / download SQLite backups.
 
 Reads the on-disk inventory at ``/data/backups`` produced by the v1.14
 backup sidecar, supports admin-triggered manual backups via Redis
 pub/sub, and serves backup files for download. Filenames are validated
-against the actual directory listing before serving — no path-traversal
+against the actual directory listing before serving - no path-traversal
 input ever reaches the file system.
 
 Distinct from ``/admin/backups`` which manages YAML-config snapshots
@@ -94,7 +94,7 @@ def _safe_resolve(db: str, filename: str) -> Path | None:
     allowlist; then instead of using the user strings to build the
     filesystem path, we iterate the authoritative directory listing and
     return the ``Path`` we built ourselves. The user-supplied strings
-    never reach the filesystem — only a ``Path`` we produced via
+    never reach the filesystem - only a ``Path`` we produced via
     ``iterdir()`` does. This also gives CodeQL a clean break in the
     taint flow."""
     if not db or not filename:
@@ -176,12 +176,12 @@ async def trigger_backup(request: Request) -> Response:
 
     if not subscribers:
         log.warning(
-            "Backup trigger had no subscribers — sidecar offline? [rid=%s]",
+            "Backup trigger had no subscribers - sidecar offline? [rid=%s]",
             request_id,
         )
         return JSONResponse(
             {"ok": False,
-             "error": "No backup sidecar listening — check the backup service is running",
+             "error": "No backup sidecar listening - check the backup service is running",
              "request_id": request_id},
             status_code=503,
         )
@@ -230,10 +230,10 @@ async def download_backup(
     """Stream a backup file to the admin browser.
 
     Filename and db come from the URL but are validated against the
-    actual directory listing — anything else returns 404. This is
+    actual directory listing - anything else returns 404. This is
     audit-logged so manual exfiltration leaves a trail.
 
-    ``auth`` database downloads are blocked via GET — they require the
+    ``auth`` database downloads are blocked via GET - they require the
     POST endpoint below which enforces password re-authentication.
     """
     gate = require_admin(request)
@@ -276,7 +276,7 @@ async def download_backup_post(
 
     Only ``auth`` database backups require re-auth (they contain bcrypt
     password hashes).  For non-auth databases this endpoint behaves
-    identically to the GET variant — the password field is ignored.
+    identically to the GET variant - the password field is ignored.
     """
     gate = require_admin(request, is_api=True)
     if not isinstance(gate, dict):
@@ -331,7 +331,7 @@ async def download_backup_post(
                 detail="Password verification failed",
             )
 
-        # Re-auth succeeded — audit and serve.
+        # Re-auth succeeded - audit and serve.
         audit.record_request(
             request,
             action="backup.download.auth",
@@ -357,7 +357,7 @@ async def download_backup_post(
 
 @router.get("/stream")
 async def backup_status_stream(request: Request) -> Response:
-    """SSE stream — pushes backup status events for the live-status panel."""
+    """SSE stream - pushes backup status events for the live-status panel."""
     gate = require_admin(request, is_api=True)
     if not isinstance(gate, dict):
         return gate

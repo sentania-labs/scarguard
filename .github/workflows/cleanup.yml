@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 # Default token scope: read-only. The cleanup job only runs local docker
-# prune commands on the runner — it does not touch GHCR or the repo.
+# prune commands on the runner - it does not touch GHCR or the repo.
 permissions:
   contents: read
 

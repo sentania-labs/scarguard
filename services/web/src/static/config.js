@@ -1,4 +1,4 @@
-/* ScarGuard — structured config form logic */
+/* ScarGuard - structured config form logic */
 
 // ── Page data from server (CSP-safe JSON data block) ────────────────────────
 (function() {
@@ -390,7 +390,7 @@ function buildCameraCard(cam) {
       <div style="margin-top:0.5rem;">
         <p class="hint">
           Draw polygons to control detection regions. Exclude zones suppress detections; include zones restrict detections to specific areas.
-          ${snapUrl ? "Click on the image to place polygon vertices. Double-click or click near the first vertex to close. Drag vertex handles to reshape." : "No snapshot available yet — wait for the first detection to draw zones."}
+          ${snapUrl ? "Click on the image to place polygon vertices. Double-click or click near the first vertex to close. Drag vertex handles to reshape." : "No snapshot available yet - wait for the first detection to draw zones."}
         </p>
         <div class="zone-canvas-wrap" style="position:relative;display:inline-block;max-width:100%;">
           ${snapUrl ? `<img class="zone-bg-img" src="${_esc(snapUrl)}" style="display:block;max-width:100%;border-radius:4px;" draggable="false">` : '<div class="zone-bg-img" style="width:640px;height:360px;background:#1a1a2e;border-radius:4px;"></div>'}
@@ -403,7 +403,7 @@ function buildCameraCard(cam) {
       <summary style="cursor:pointer;font-weight:500;">Notification Rules (${rules.length})</summary>
       <div style="margin-top:0.5rem;">
         <p class="hint">
-          Route detections to specific named channels. Rules are evaluated in order — first match wins.
+          Route detections to specific named channels. Rules are evaluated in order - first match wins.
           Use <code>*</code> as a wildcard class to match any detection. Leave empty to notify all channels.
         </p>
         <div class="notif-rules-list"></div>
@@ -415,8 +415,8 @@ function buildCameraCard(cam) {
       <div style="margin-top:0.5rem;">
         <p class="hint">
           Fire deterrent groups in response to detections from this camera.
-          Rules are evaluated in order — first match wins.  Use <code>*</code>
-          as a wildcard class.  <strong>Empty = no deterrent action</strong> —
+          Rules are evaluated in order - first match wins.  Use <code>*</code>
+          as a wildcard class.  <strong>Empty = no deterrent action</strong> -
           deterrents are explicit-opt-in.  Create groups on the
           <a href="/admin/deterrent#groups">Deterrent page</a> first.
         </p>
@@ -426,7 +426,7 @@ function buildCameraCard(cam) {
     </details>
   `;
 
-  // Populate initial rules (synchronous — no layout dependency)
+  // Populate initial rules (synchronous - no layout dependency)
   const notifList = div.querySelector(".notif-rules-list");
   rules.forEach(r => notifList.appendChild(_buildRuleRow(r)));
   const detList = div.querySelector(".det-rules-list");
@@ -438,14 +438,14 @@ function buildCameraCard(cam) {
     // a picker calls it.  Swapping the model in the dropdown below will make
     // every chip picker on this card pick up the new class list on the next
     // render, so "unknown" chips re-resolve and autocomplete targets the
-    // right registry — no card-rebuild needed.
+    // right registry - no card-rebuild needed.
     const classReg = () => _classesFor(_cameraModelPath(div));
     _loadClassesForModel(_cameraModelPath(div));
 
     notifList.querySelectorAll(".rule-row").forEach(row => _attachNotifRulePickers(row, classReg));
     detList.querySelectorAll(".rule-row").forEach(row => _attachDeterrentRulePickers(row, classReg));
 
-    // Per-camera detect_classes chip picker — registry is the camera's model.
+    // Per-camera detect_classes chip picker - registry is the camera's model.
     const detectInput = div.querySelector(".cam-detect-classes");
     if (detectInput && !detectInput.dataset.chipAttached) {
       detectInput.dataset.chipAttached = "1";
@@ -461,7 +461,7 @@ function buildCameraCard(cam) {
     }
 
     // When the camera's model changes, fetch the new class list and refresh
-    // all pickers — registry callbacks re-read the model path, so this pass
+    // all pickers - registry callbacks re-read the model path, so this pass
     // resolves unknown chips and retargets autocomplete in place.
     const modelEl = div.querySelector(".cam-model-path");
     if (modelEl && !modelEl.dataset.chipWired) {
@@ -546,7 +546,7 @@ function readForm() {
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
-      // base_url removed in v0.12.4 — derived from tls.domain at runtime
+      // base_url removed in v0.12.4 - derived from tls.domain at runtime
       retention_days: (v => isNaN(v) ? 90 : v)(parseInt(document.getElementById("sys-retention").value, 10)),
       stats_interval: (v => isNaN(v) || v < 1 ? 5 : Math.min(v, 60))(parseInt(document.getElementById("sys-stats-interval").value, 10)),
       visit_timeout_seconds: parseInt(document.getElementById('visit_timeout_seconds')?.value || '300'),
@@ -602,7 +602,7 @@ function readForm() {
           api_key: document.getElementById("training-roboflow-key").value.trim(),
         },
         open_images: {
-          // 0 is a valid cap (skip OID images entirely) — don't || it away.
+          // 0 is a valid cap (skip OID images entirely) - don't || it away.
           max_per_class: (v => isNaN(v) ? 1500 : v)(parseInt(document.getElementById("training-oid-max").value, 10)),
           workers: parseInt(document.getElementById("training-oid-workers").value, 10) || 16,
         },
@@ -643,7 +643,7 @@ function validate(data) {
 
   data.cameras.forEach((cam, i) => {
     if (!cam.name) errors.push(`Camera ${i + 1}: name is required`);
-    // Skip RTSP validation when the value is the redacted placeholder —
+    // Skip RTSP validation when the value is the redacted placeholder -
     // the server will preserve the existing secret on save.
     if (cam.rtsp_url && cam.rtsp_url !== _REDACTED && !cam.rtsp_url.startsWith("rtsp://") && !cam.rtsp_url.startsWith("rtsps://"))
       errors.push(`Camera ${i + 1} (${cam.name || i + 1}): RTSP URL must start with rtsp:// or rtsps://`);
@@ -717,7 +717,7 @@ function _showBanner(kind, text, warnings) {
 }
 
 async function saveConfig() {
-  // Belt-and-braces read-only guard — the DOM hardening in config.html
+  // Belt-and-braces read-only guard - the DOM hardening in config.html
   // already hides the Save button, and the server rejects the POST with
   // 403, but this stops a stray onclick or test script from firing a
   // spurious request.
@@ -744,12 +744,12 @@ async function saveConfig() {
     const result = await resp.json();
     if (result.ok) {
       const base = result.tls_changed
-        ? "Config saved. TLS settings changed — Caddy will reload within a few seconds."
+        ? "Config saved. TLS settings changed - Caddy will reload within a few seconds."
         : "Config saved. Changes take effect within ~10 seconds.";
       const warnings = Array.isArray(result.warnings) ? result.warnings : [];
       _showBanner(warnings.length ? "warn" : "ok", base, warnings);
       // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
-      // (redacted — secrets are never in the default response).
+      // (redacted - secrets are never in the default response).
       try {
         const rawRes = await fetch("/config/raw");
         if (rawRes.ok) {
@@ -765,8 +765,8 @@ async function saveConfig() {
           var yamlBtn = document.getElementById("reveal-yaml-btn");
           if (yamlBtn) yamlBtn.textContent = "Reveal secrets";
         }
-      } catch (_) { /* non-critical — textarea will update on next page load */ }
-      // Renames are now persisted — future saves must merge secrets by the
+      } catch (_) { /* non-critical - textarea will update on next page load */ }
+      // Renames are now persisted - future saves must merge secrets by the
       // new name, so re-stamp each channel's saved name.
       document.querySelectorAll("#channels-list .ch-name").forEach(el => {
         el.dataset.savedName = el.value.trim();
@@ -895,7 +895,7 @@ function readChannels() {
       enabled: card.querySelector(".ch-enabled").checked,
     };
     // On rename, ship the persisted name so the server can carry the
-    // channel's stored secrets over — the form only holds redacted
+    // channel's stored secrets over - the form only holds redacted
     // placeholders, and the server merges secrets by name.
     const savedName = (nameInput.dataset.savedName || "").trim();
     if (savedName && savedName !== ch.name) ch.prev_name = savedName;
@@ -935,7 +935,7 @@ function readChannels() {
       document.getElementById("channels-list").appendChild(buildChannelCard(ch));
     });
   }
-  // Chip-picker wiring (v0.13.4) — run after DOM is populated.
+  // Chip-picker wiring (v0.13.4) - run after DOM is populated.
   requestAnimationFrame(() => _wireGlobalChipPickers());
   _wireConfigStaticControls();
   _wireConfigDelegation();
@@ -993,7 +993,7 @@ function _wireConfigDelegation() {
 }
 
 function _wireGlobalChipPickers() {
-  // Shadow-channel registry — seeded from the channels list, refreshed via
+  // Shadow-channel registry - seeded from the channels list, refreshed via
   // MutationObserver + change events on channel-name inputs.
   _rebuildChannelRegistry();
   const chanList = document.getElementById("channels-list");
@@ -1006,7 +1006,7 @@ function _wireGlobalChipPickers() {
         _rebuildChannelRegistry();
       }
     });
-    // Channel-rename propagation — mirrors the device-rename cascade on the
+    // Channel-rename propagation - mirrors the device-rename cascade on the
     // deterrent page.  On a committed name edit (change, not input, so partial
     // typing doesn't cascade), rewrite every channel-reference picker (camera
     // notification rules, summary report) from the old name to the new one.
@@ -1019,7 +1019,7 @@ function _wireGlobalChipPickers() {
       t.dataset.prevName = newName;
       if (!oldName) return;
       // If a duplicate card still defines the old name, existing references
-      // remain valid — leave them alone.
+      // remain valid - leave them alone.
       const stillDefined = Array.from(
         document.querySelectorAll("#channels-list .ch-name")
       ).some(el => el !== t && el.value.trim() === oldName);
@@ -1225,7 +1225,7 @@ function initZoneEditor(card, initialZones) {
       return;
     }
 
-    // Not drawing, not on a handle/polygon — start drawing a new polygon
+    // Not drawing, not on a handle/polygon - start drawing a new polygon
     const handle = _findHandle(pos.x, pos.y);
     const hit = _hitPolygon(pos.x, pos.y);
     if (!handle && hit < 0) {

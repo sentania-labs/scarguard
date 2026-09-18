@@ -1,4 +1,4 @@
-"""ScarGuard trainer — job consumer loop.
+"""ScarGuard trainer - job consumer loop.
 
 Listens for training job notifications via Redis pub/sub, with a
 fallback poll of the training_jobs table every 30 seconds.  Processes
@@ -78,7 +78,7 @@ def _mark_stale_jobs() -> int:
             except (json.JSONDecodeError, TypeError):
                 execution = {}
             result = {
-                "error": "Trainer restarted — job interrupted",
+                "error": "Trainer restarted - job interrupted",
                 "execution": execution,
                 "recovery": {
                     "detector_restore_requested": True,
@@ -181,7 +181,7 @@ def main() -> None:
     log_level = cfg.get("system", {}).get("log_level", "info")
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
     logger.info("ScarGuard trainer starting")
@@ -196,7 +196,7 @@ def main() -> None:
     stop_event = threading.Event()
 
     def _shutdown(sig: int, _frame: object) -> None:
-        logger.info("Received signal %s — shutting down", sig)
+        logger.info("Received signal %s - shutting down", sig)
         stop_event.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
@@ -236,7 +236,7 @@ def main() -> None:
             client.close()
         except redis.ConnectionError:
             if not stop_event.is_set():
-                logger.warning("Redis connection lost — retrying in 5s")
+                logger.warning("Redis connection lost - retrying in 5s")
                 stop_event.wait(5)
         except Exception:
             logger.exception("Unexpected error in trainer loop")

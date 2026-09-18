@@ -1,4 +1,4 @@
-"""Digest report generation — assembles summary data for periodic notifications."""
+"""Digest report generation - assembles summary data for periodic notifications."""
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -152,7 +152,7 @@ def generate(frequency: str) -> dict:
     }
 
     logger.info(
-        "Digest generated: %s — %d events, status=%s",
+        "Digest generated: %s - %d events, status=%s",
         frequency, total, health_status,
     )
     return report
@@ -167,7 +167,7 @@ def format_plain_text(report: dict) -> str:
     v = report["visits"]
 
     lines = [
-        f"ScarGuard Digest — {report['period_label']}",
+        f"ScarGuard Digest - {report['period_label']}",
         "",
         f"Health: {'OK' if p['status'] == 'green' else 'WARNING' if p['status'] == 'yellow' else 'CRITICAL'}",
         "",
@@ -180,7 +180,7 @@ def format_plain_text(report: dict) -> str:
 
     lines.append(f"\nVisits: {v['total']}")
     for vt in v["top"]:
-        lines.append(f"  {vt['class']} on {vt['camera']} — {vt['duration']} ({vt['detections']} detections)")
+        lines.append(f"  {vt['class']} on {vt['camera']} - {vt['duration']} ({vt['detections']} detections)")
 
     lines.append("\nPerformance:")
     if p["avg_cpu_pct"] is not None:
@@ -219,7 +219,7 @@ def format_discord_embed(report: dict) -> dict:
 
     # Top visits
     visit_lines = "\n".join(
-        f"{vt['class']} on {vt['camera']} — {vt['duration']}"
+        f"{vt['class']} on {vt['camera']} - {vt['duration']}"
         for vt in v["top"]
     ) or "None"
 
@@ -252,7 +252,7 @@ def format_discord_embed(report: dict) -> dict:
 
     return {
         "embeds": [{
-            "title": f"ScarGuard Digest — {report['period_label']}",
+            "title": f"ScarGuard Digest - {report['period_label']}",
             "color": color,
             "fields": fields,
             "footer": {"text": f"Generated {report['generated_at'][:19]}Z"},
@@ -312,7 +312,7 @@ def format_email_html(report: dict) -> str:
       {f"<p style='color:#FFB020;'>Camera offline events: {p['camera_offline_total']}</p>" if p['camera_offline_total'] > 0 else ''}
 
       <h3 style="margin:16px 0 8px 0;">Storage</h3>
-      <p style="margin:4px 0;">{s['total_mb']} MB total — Snapshots: {s['snapshots_mb']} MB | DB: {s['database_mb']} MB | Models: {s['models_mb']} MB</p>
+      <p style="margin:4px 0;">{s['total_mb']} MB total - Snapshots: {s['snapshots_mb']} MB | DB: {s['database_mb']} MB | Models: {s['models_mb']} MB</p>
 
       <h3 style="margin:16px 0 8px 0;">Training Data</h3>
       <p style="margin:4px 0;">{t['protected_events']} labeled (protected) / {t['pruneable_events']} pruneable

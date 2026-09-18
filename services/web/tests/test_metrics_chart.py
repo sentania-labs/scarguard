@@ -1,6 +1,6 @@
 """Regression tests for `db.get_metrics_for_chart` null-bucket fill.
 
-Fix for scarguard issue #93 — historical stats charts over multi-day
+Fix for scarguard issue #93 - historical stats charts over multi-day
 ranges connected a straight line across downtime because the
 `GROUP BY` bucketing query omits empty buckets entirely.  The fix
 emits null-valued placeholder rows for missing buckets so the frontend
@@ -87,7 +87,7 @@ def test_missing_buckets_are_null_filled(metrics_db):
 def test_all_empty_range_still_returns_bucket_grid(metrics_db):
     _, db_module = metrics_db
     rows = db_module.get_metrics_for_chart(range_hours=30 * 24, collection_interval=5)
-    # Fresh DB, zero data — should return a full grid of null buckets
+    # Fresh DB, zero data - should return a full grid of null buckets
     # rather than an empty list (so the chart x-axis spans the whole
     # requested range and the "blank when no data" behaviour from #93 is
     # handled by the frontend's data.length === 0 check on all-null data

@@ -1,4 +1,4 @@
-"""Tests for shared/secret_box.py — at-rest envelope encryption."""
+"""Tests for shared/secret_box.py - at-rest envelope encryption."""
 
 from __future__ import annotations
 

@@ -105,7 +105,7 @@ logs the result. If you see `INTEGRITY CHECK FAILED` in the logs:
 1. Stop the affected services (`docker compose stop detector web
    notifier deterrent`).
 2. `docker compose run --rm --entrypoint sh backup -c 'sqlite3
-   /data/scarguard.db "PRAGMA integrity_check"'` — confirm the
+   /data/scarguard.db "PRAGMA integrity_check"'`, confirm the
    failure.
 3. Restore the most recent clean backup with the script above.
 4. If no backup exists or all are equally corrupted: you can
@@ -139,7 +139,7 @@ docker run --rm \
 **Keep `/data/secret_key` somewhere independent.** If you lose it,
 every encrypted secret in `scarguard.yml` becomes unreadable. A
 password manager entry, a printed QR code, or an offline USB drive
-all work. It's 44 bytes of base64 — low-friction to stash.
+all work. It's 44 bytes of base64, low-friction to stash.
 
 ## Jetson-specific guidance
 
@@ -150,7 +150,7 @@ what `/data/scarguard.db` in WAL mode is). Options:
 1. **Boot from USB SSD.** Repoint `/data` at the SSD and migrate the
    Docker volume: `docker run --rm -v scarguard-data:/src -v
    /mnt/ssd/scarguard-data:/dst alpine cp -a /src/. /dst/`.
-2. **Keep the SD boot but move `/data` to SSD** via a bind mount — add
+2. **Keep the SD boot but move `/data` to SSD** via a bind mount: add
    to `docker-compose.yml`:
    ```yaml
    volumes:
@@ -162,13 +162,13 @@ what `/data/scarguard.db` in WAL mode is). Options:
          device: /mnt/ssd/scarguard-data
    ```
 
-Either way, keep the backup sidecar enabled — the backup files
+Either way, keep the backup sidecar enabled, the backup files
 themselves live on the same volume, so a volume loss takes them too
 unless you're also doing off-device copies.
 
 ## Related
 
-* `SECURITY.md` — secrets handling, including `/data/secret_key`
-* `docs/EMERGENCY_OFF.md` — what to do when a sprinkler is stuck on
-* `services/backup/src/main.py` — sidecar source if you want to
+* `SECURITY.md`: secrets handling, including `/data/secret_key`
+* `docs/EMERGENCY_OFF.md`: what to do when a sprinkler is stuck on
+* `services/backup/src/main.py`: sidecar source if you want to
   understand or extend the backup logic

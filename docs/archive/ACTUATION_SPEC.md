@@ -1,4 +1,4 @@
-# ScarGuard Deterrent Service — Specification
+# ScarGuard Deterrent Service: Specification
 
 **Version:** 0.2
 **Target ScarGuard Release:** v0.13.x
@@ -9,14 +9,14 @@
 
 ## Overview
 
-This document specifies the deterrent subsystem for ScarGuard — the ability to trigger physical deterrence devices (sprinklers, lights, sirens, smart plugs) in response to wildlife detection events. The design uses off-the-shelf Tuya/Smart Life ecosystem devices controlled via the **Tuya Cloud API** (`tinytuya.Cloud`).
+This document specifies the deterrent subsystem for ScarGuard, the ability to trigger physical deterrence devices (sprinklers, lights, sirens, smart plugs) in response to wildlife detection events. The design uses off-the-shelf Tuya/Smart Life ecosystem devices controlled via the **Tuya Cloud API** (`tinytuya.Cloud`).
 
 ### Design Principles
 
 - **No custom hardware.** All deterrent hardware is commercially available, WiFi-connected, and battery or mains powered.
 - **Software-defined deterrence.** Randomization logic, device selection, timing, and cooldowns are handled entirely in a new Docker Compose service (`deterrent`) on the host.
-- **Cloud API control.** Device commands are sent via `tinytuya.Cloud` (HTTPS to Tuya's OpenAPI). Local LAN control is not viable for battery-powered devices — they deep-sleep with WiFi radio off between cloud check-ins.
-- **Multi-device-type support.** Not limited to sprinkler valves — any Tuya-compatible smart device (lights, sirens, smart plugs) can be used as a deterrent.
+- **Cloud API control.** Device commands are sent via `tinytuya.Cloud` (HTTPS to Tuya's OpenAPI). Local LAN control is not viable for battery-powered devices: they deep-sleep with WiFi radio off between cloud check-ins.
+- **Multi-device-type support.** Not limited to sprinkler valves: any Tuya-compatible smart device (lights, sirens, smart plugs) can be used as a deterrent.
 - **Seasonal deployment.** Sprinkler hardware is deployed spring through fall (Wisconsin climate). Batteries are swapped and hoses connected at season start; hoses are disconnected and valves stored for winter. Lights and sirens may remain year-round.
 
 ### Changes from v0.1
@@ -44,7 +44,7 @@ This document specifies the deterrent subsystem for ScarGuard — the ability to
 | 1-4 | Garden hose + sprinkler heads | Water delivery | Varies | Length depends on layout |
 | 16+ | AA batteries | Valve power | $10-15 (bulk) | 4x AA per valve, replace seasonally |
 | 1 | Hose splitter (4-way) | Single hose bib to multiple lines | $15-25 | Brass preferred |
-| 0-2 | Tuya smart lights/plugs | Light deterrence | $10-20 ea | Optional — for night-time raccoon deterrence |
+| 0-2 | Tuya smart lights/plugs | Light deterrence | $10-20 ea | Optional, for night-time raccoon deterrence |
 | 0-1 | Tuya smart siren/alarm | Sound deterrence | $15-30 | Optional |
 
 **Estimated total: $100-350** depending on configuration.
@@ -57,7 +57,7 @@ This document specifies the deterrent subsystem for ScarGuard — the ability to
 4. **Standard garden hose fittings** for sprinkler valves (3/4" GHT).
 
 **Known compatible:**
-- [GreenVation WiFi Sprinkler Timer](https://www.amazon.com/dp/B0G41G99YR) — PoC validated
+- [GreenVation WiFi Sprinkler Timer](https://www.amazon.com/dp/B0G41G99YR): PoC validated
 - VEVOR WiFi Sprinkler Timer (hub-free models)
 - Generic Tuya WiFi irrigation timers (verify Smart Life app compatibility)
 
@@ -96,7 +96,7 @@ This document specifies the deterrent subsystem for ScarGuard — the ability to
 | Config source | `scarguard.yml` (mounted read-only) |
 | Redis dependency | Same Redis instance as detector/notifier |
 | Network requirements | **Outbound HTTPS** to `openapi.tuyaus.com` (or regional equivalent). No inbound ports needed. |
-| Resource usage | Negligible CPU/RAM — event-driven, sleeps between detections |
+| Resource usage | Negligible CPU/RAM, event-driven, sleeps between detections |
 
 ### Service Directory Structure
 
@@ -107,7 +107,7 @@ services/deterrent/
 ├── requirements.txt
 ├── src/
 │   ├── main.py              # Redis subscriber, event dispatcher, config reload
-│   ├── cloud_controller.py  # tinytuya.Cloud wrapper — on/off commands, status queries
+│   ├── cloud_controller.py  # tinytuya.Cloud wrapper - on/off commands, status queries
 │   ├── randomizer.py        # Device selection, duration/delay randomization
 │   ├── cooldown.py          # Global cooldown tracker
 │   ├── models.py            # Pydantic models for config and actuation events
@@ -121,19 +121,19 @@ services/deterrent/
 
 ## Configuration
 
-### scarguard.yml — Actuation Section
+### scarguard.yml: Actuation Section
 
 ```yaml
 deterrent:
   enabled: true
 
-  # Tuya Cloud API credentials — see TUYA_SETUP.md for how to obtain these
+  # Tuya Cloud API credentials - see TUYA_SETUP.md for how to obtain these
   tuya:
     api_key: "your-access-id"
     api_secret: "your-access-secret"
     api_region: "us"              # us | eu | cn | in
 
-  # Device definitions — one entry per physical device
+  # Device definitions - one entry per physical device
   devices:
     - name: pond-north-valve
       device_id: "bf1234567890abcdef"
@@ -164,7 +164,7 @@ deterrent:
 
 - `api_key` and `api_secret` are obtained from the Tuya IoT Platform. See [TUYA_SETUP.md](../../TUYA_SETUP.md) for the full walkthrough.
 - `api_region` must match the Data Center selected during project creation.
-- No `local_key`, `ip`, or `protocol_version` fields — Cloud API doesn't need them.
+- No `local_key`, `ip`, or `protocol_version` fields: Cloud API doesn't need them.
 - Individual devices can be disabled without removing them from config.
 - Config hot-reloads without service restart (via `ConfigWatcher`).
 
@@ -172,7 +172,7 @@ deterrent:
 
 ## Actuation Logic
 
-### Event Flow (MVP — v0.13.0)
+### Event Flow (MVP: v0.13.0)
 
 1. Detector publishes detection event to Redis channel `scarguard:detections`.
 2. Deterrent receives event, checks: is system armed? Is actuation enabled? Is cooldown clear?
@@ -182,7 +182,7 @@ deterrent:
 6. Cooldown timer starts after sequence completes.
 7. Actuation events are published to Redis (channel: `scarguard:actuations`).
 
-### Response Profiles (v0.13.x — future)
+### Response Profiles (v0.13.x: future)
 
 Species-based routing with time-of-day conditions:
 
@@ -237,7 +237,7 @@ Tuya's free tier allows approximately 500 API calls/day. Each actuation uses ~2 
 
 ### Polling
 
-A background thread queries each device's status DPs once per `check_interval_hours` (default: 24). Uses `tinytuya.Cloud.getstatus()` — a single HTTPS call per device.
+A background thread queries each device's status DPs once per `check_interval_hours` (default: 24). Uses `tinytuya.Cloud.getstatus()`, a single HTTPS call per device.
 
 ### Alerting
 
@@ -287,7 +287,7 @@ The deterrent service uses `python:3.11-slim` (same as web and notifier), so it 
 
 1. **DP mapping:** Default DP codes per device type (`switch_1` for sprinklers/plugs, `switch_led` for lights, `switch` for sirens). Per-device `dp_code` override available in config.
 2. **Actuation event schema:** Pydantic `ActuationEvent` model with trigger info, device actions (name, type, duration, success/error), total duration.
-3. **Config hot-reload:** Yes — uses `ConfigWatcher` + `AtomicRef`, matching existing service pattern.
+3. **Config hot-reload:** Yes: uses `ConfigWatcher` + `AtomicRef`, matching existing service pattern.
 4. **Web UI actuation log:** Deferred to 0.13.x. Events published to `scarguard:actuations` Redis channel for future consumption.
 
 ---

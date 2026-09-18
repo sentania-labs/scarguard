@@ -37,7 +37,7 @@ function connect() {
   es.onopen = () => { backoff = 1000; };
 
   es.onerror = () => {
-    setStatus("Connection lost — retrying...", "reconnecting");
+    setStatus("Connection lost - retrying...", "reconnecting");
     es.close();
     setTimeout(connect, Math.min(backoff, 30000));
     backoff *= 2;
@@ -102,7 +102,7 @@ function colorBar(id, pct) {
 
 function setTemp(id, val) {
   const el = document.getElementById(id);
-  if (val == null) { el.textContent = "—"; el.className = "stat-value stat-temp"; return; }
+  if (val == null) { el.textContent = "-"; el.className = "stat-value stat-temp"; return; }
   el.textContent = val.toFixed(1) + "°C";
   if (val >= 80) el.className = "stat-value stat-temp temp-danger";
   else if (val >= 60) el.className = "stat-value stat-temp temp-warn";
@@ -289,9 +289,9 @@ function updateInferenceTable(cameras) {
     const tdName = document.createElement("td");
     tdName.textContent = name;
     const tdFps = document.createElement("td");
-    tdFps.textContent = (c.fps != null) ? c.fps.toFixed(1) : "—";
+    tdFps.textContent = (c.fps != null) ? c.fps.toFixed(1) : "-";
     const tdLat = document.createElement("td");
-    tdLat.textContent = (c.avg_inference_ms != null) ? c.avg_inference_ms.toFixed(1) + " ms" : "—";
+    tdLat.textContent = (c.avg_inference_ms != null) ? c.avg_inference_ms.toFixed(1) + " ms" : "-";
     tr.append(tdName, tdFps, tdLat);
     tbody.appendChild(tr);
   }
@@ -343,7 +343,7 @@ function renderHistCharts(data) {
   // Pick a label format based on the total span of the data: short
   // ranges show HH:MM only, multi-day ranges include the date so the
   // x-axis ticks don't all look like the same hour (#93).  Parsing the
-  // first and last timestamps is cheap — server guarantees ascending
+  // first and last timestamps is cheap - server guarantees ascending
   // order and fills empty buckets, so both endpoints always exist.
   let spanMs = 0;
   if (data.length >= 2) {

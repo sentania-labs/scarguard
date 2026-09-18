@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-# Sample config with a few secrets in it — so we can assert they're masked
+# Sample config with a few secrets in it - so we can assert they're masked
 # for the viewer.
 _SECRET_CFG: dict[str, Any] = {
     "system": {"armed": True, "log_level": "info", "auth": {"enabled": True}},
@@ -100,7 +100,7 @@ def auth_client(monkeypatch):
 
     # Patch validate_session so the middleware resolves the fake cookies in
     # _ROLE_USERS into their corresponding user dicts.  API token validation
-    # is left alone — those tests use the cookie path.
+    # is left alone - those tests use the cookie path.
     import auth as auth_module
 
     def _fake_validate_session(_db, raw_token):
@@ -110,7 +110,7 @@ def auth_client(monkeypatch):
     # Also make users_exist return True so the first-run setup redirect doesn't fire
     monkeypatch.setattr(auth_module, "users_exist", lambda _p: True)
     # Avoid touching the real auth.db for user-management routes.  We only
-    # care that the request reaches the handler with the right role — the
+    # care that the request reaches the handler with the right role - the
     # handler's SQL path is exercised by test_auth_roles.py unit tests.
     monkeypatch.setattr(auth_module, "list_users", lambda _db: [])
     monkeypatch.setattr(auth_module, "list_api_tokens", lambda _db, user_id=None: [])
@@ -226,7 +226,7 @@ class TestViewerRole:
         assert "***REDACTED***" in body
 
     def test_viewer_config_page_keeps_camera_entries(self, auth_client):
-        """Regression for the PR #94 review — feeding a redacted dict into
+        """Regression for the PR #94 review - feeding a redacted dict into
         `_parse_cfg` caused `CameraConfig.rtsp_url` validation to fail on
         the `***REDACTED***` placeholder, dropping the camera from the
         form entirely.  The camera *name* must still reach the rendered
@@ -281,7 +281,7 @@ class TestViewerRole:
     def test_viewer_can_see_backups_list(self, auth_client):
         _as(auth_client, "viewer")
         # backup_manager is None in the test app startup, so the route
-        # falls back to an empty list — still returns 200.
+        # falls back to an empty list - still returns 200.
         r = auth_client.get("/admin/backups")
         assert r.status_code == 200
 

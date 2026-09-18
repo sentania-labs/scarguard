@@ -20,7 +20,7 @@ echo ""
 
 # --- Configure the runner (only if not already configured) ---
 if [ ! -f ".runner" ]; then
-    echo "First run — configuring runner..."
+    echo "First run - configuring runner..."
     ./config.sh \
         --url "${REPO_URL}" \
         --token "${RUNNER_TOKEN}" \

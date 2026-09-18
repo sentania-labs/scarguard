@@ -1,4 +1,4 @@
-"""Tests for shared/url_safety.py — SSRF defence for notifier webhook URLs."""
+"""Tests for shared/url_safety.py - SSRF defence for notifier webhook URLs."""
 
 from __future__ import annotations
 
@@ -66,15 +66,15 @@ class TestLiteralIPs:
             validate_external_url(url)
 
     def test_accepts_public_ip(self) -> None:
-        # 1.1.1.1 (Cloudflare DNS) — not internal, public-routable.
+        # 1.1.1.1 (Cloudflare DNS) - not internal, public-routable.
         validate_external_url("https://1.1.1.1/")
 
     def test_allow_internal_permits_rfc1918(self) -> None:
-        # Home Assistant on RFC1918 — opt-in via allow_internal=True.
+        # Home Assistant on RFC1918 - opt-in via allow_internal=True.
         validate_external_url("http://192.168.1.50/api/", allow_internal=True)
 
     def test_allow_internal_still_rejects_loopback(self) -> None:
-        # Loopback never makes sense — even with allow_internal=True.
+        # Loopback never makes sense - even with allow_internal=True.
         with pytest.raises(UnsafeURLError):
             validate_external_url("http://127.0.0.1/", allow_internal=True)
 
@@ -117,7 +117,7 @@ class TestHostnameResolution:
                 validate_external_url("http://internal.corp/")
 
     def test_accepts_hostname_resolving_to_public(self) -> None:
-        # 1.1.1.1 is real public IP — not in any "reserved" range.
+        # 1.1.1.1 is real public IP - not in any "reserved" range.
         with patch("url_safety.socket.getaddrinfo") as gai:
             import socket
             gai.return_value = [

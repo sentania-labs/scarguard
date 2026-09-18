@@ -1,4 +1,4 @@
-"""Tests for _find_orphan_references — the soft-warn on dangling rule refs."""
+"""Tests for _find_orphan_references - the soft-warn on dangling rule refs."""
 
 from __future__ import annotations
 

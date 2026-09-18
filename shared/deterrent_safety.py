@@ -4,7 +4,7 @@ Hard limits on how long a physical deterrent device (sprinkler, siren,
 light) can be held ON by any code path. Enforced at every layer that
 accepts a duration: web API, deterrent request handler, randomisation
 plan for detection-driven firing, and the cloud controller's own
-watchdog. Multiple layers on purpose — if one gets bypassed, the others
+watchdog. Multiple layers on purpose - if one gets bypassed, the others
 still bound the physical effect.
 
 Do not tighten or loosen these without thinking about the pond. The
@@ -39,7 +39,7 @@ def clamp_duration(
 
     Accepts anything and returns a float. Non-numeric, NaN, infinite, and
     out-of-range inputs fall back to *default* (which is then itself
-    clamped). Used as a last line of defence — callers should still
+    clamped). Used as a last line of defence - callers should still
     validate at their boundary and return an explicit error instead of
     silently clamping.
     """

@@ -1,4 +1,4 @@
-"""ScarGuard detector — main loop.
+"""ScarGuard detector - main loop.
 
 Reads frames from one or more RTSP streams concurrently, runs YOLO inference,
 applies cooldown deduplication, persists events to SQLite, and publishes to Redis.
@@ -74,7 +74,7 @@ def load_config() -> dict:
 def setup_logging(log_level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
 
@@ -97,7 +97,7 @@ def _match_deterrent_rules(class_name: str, rules: list[dict]) -> list[str]:
     """Return deterrent group names for the first matching deterrent rule.
 
     Rules are evaluated in order; the first rule whose class_name matches
-    (or is the wildcard "*") wins.  Returns ``[]`` when no rule matches —
+    (or is the wildcard "*") wins.  Returns ``[]`` when no rule matches -
     no deterrent action should be taken for this class.  Unlike
     notifications (which default to "notify all" when no rules exist),
     deterrents default to "do nothing" per the v0.13.3 explicit-opt-in
@@ -354,7 +354,7 @@ def run_camera(
     health_tracker: CameraHealthTracker | None = None,
     visit_tracker: VisitTracker | None = None,
 ) -> None:
-    """Per-camera detection loop — runs in its own thread.
+    """Per-camera detection loop - runs in its own thread.
 
     Each thread owns its RTSPStream (with independent reconnect backoff) and
     a dedicated RedisPublisher connection.  Stopping the thread is done by
@@ -387,7 +387,7 @@ def run_camera(
     while not stop_event.is_set():
         frame_count += 1
         if frame_count % frame_skip_ref.get() != 0:
-            # Advance stream without decoding — saves CPU/GPU on skipped frames
+            # Advance stream without decoding - saves CPU/GPU on skipped frames
             if not stream.grab():
                 if health_tracker is not None:
                     health_tracker.record_failure(name)
@@ -425,7 +425,7 @@ def run_camera(
                 confidence=confidence_ref.get(),
             )
         except TimeoutError:
-            logger.warning("[%s] Inference lock timed out — skipping frame", name)
+            logger.warning("[%s] Inference lock timed out - skipping frame", name)
             continue
         infer_ms = (time.monotonic() - t0) * 1000.0
         _infer_count += 1
@@ -486,7 +486,7 @@ def main() -> None:
     # ---- Enabled cameras ------------------------------------------------------
     cameras: list[dict] = [c for c in cfg.get("cameras", []) if c.get("enabled", True)]
     if not cameras:
-        logger.error("No enabled cameras found in config — exiting")
+        logger.error("No enabled cameras found in config - exiting")
         sys.exit(1)
 
     # ---- Config sections -------------------------------------------------------
@@ -590,7 +590,7 @@ def main() -> None:
     global_stop = threading.Event()
 
     def _shutdown(sig: int, _frame: object) -> None:
-        logger.info("Received signal %s — shutting down", sig)
+        logger.info("Received signal %s - shutting down", sig)
         global_stop.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
@@ -616,7 +616,7 @@ def main() -> None:
         # Validate model exists on disk.
         if not ModelPool.validate_model_exists(effective_model):
             logger.error(
-                "[%s] Model %s not found — skipping camera",
+                "[%s] Model %s not found - skipping camera",
                 name,
                 effective_model,
             )
@@ -639,7 +639,7 @@ def main() -> None:
         try:
             cam_detector = model_pool.get_detector(cam_model_path)
         except Exception:
-            logger.error("[%s] Failed to load model %s — skipping camera", name, effective_model)
+            logger.error("[%s] Failed to load model %s - skipping camera", name, effective_model)
             return False
 
         cam_stop = threading.Event()
@@ -765,7 +765,7 @@ def main() -> None:
     # ---- Model-class introspection handler -------------------------------------
     # Answers /models/{path}/classes queries from the web service over Redis
     # pub/sub.  Caches by (path, mtime, size) and prefers the ModelPool over
-    # spinning a fresh CUDA context — avoids GPU contention with live inference.
+    # spinning a fresh CUDA context - avoids GPU contention with live inference.
     model_classes_handler = ModelClassesHandler(
         redis_cfg=redis_cfg,
         stop_event=global_stop,
@@ -892,9 +892,9 @@ def main() -> None:
         scheduler.configure(new_schedule, new_tz)
 
         if changes:
-            logger.info("Config reloaded — changes: %s", ", ".join(changes))
+            logger.info("Config reloaded - changes: %s", ", ".join(changes))
         else:
-            logger.info("Config reloaded — no effective changes")
+            logger.info("Config reloaded - no effective changes")
 
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()

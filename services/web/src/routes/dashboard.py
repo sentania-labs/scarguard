@@ -192,8 +192,8 @@ def _get_schedule_info(cfg: dict) -> dict:
         next_time_local = next_t[0].astimezone(tz).strftime("%Y-%m-%d %H:%M %Z")
         next_action = "Arm" if next_t[1] else "Disarm"
     else:
-        next_time_local = "—"
-        next_action = "—"
+        next_time_local = "-"
+        next_action = "-"
 
     return {
         "enabled": True,
@@ -269,7 +269,7 @@ async def dashboard(request: Request):
             "camera_health": camera_health,
             "total_events": total,
             "latest": latest_dict,
-            "model_path": cfg.get("detection", {}).get("model_path", "—"),
+            "model_path": cfg.get("detection", {}).get("model_path", "-"),
             "schedule": _get_schedule_info(cfg),
             "training_nudge": training_nudge,
             "notif_channels": notif_channels,
@@ -292,7 +292,7 @@ async def arm_status(request: Request):
     dependencies=[Depends(rate_limit("arm-toggle", capacity=30, window_seconds=60))],
 )
 async def arm(request: Request) -> Response:
-    # Arming is a write action — viewers and unauth'd users are rejected.
+    # Arming is a write action - viewers and unauth'd users are rejected.
     # Regular users (role=user) historically could hit this route; preserve
     # that so arm/disarm is symmetric for them.
     role = current_role(request)
@@ -312,7 +312,7 @@ async def arm(request: Request) -> Response:
     dependencies=[Depends(rate_limit("arm-toggle", capacity=30, window_seconds=60))],
 )
 async def disarm(request: Request) -> Response:
-    # Viewers are read-only — refuse the disarm action outright and render
+    # Viewers are read-only - refuse the disarm action outright and render
     # the current arm badge unchanged.  Regular users can still disarm with
     # the auto-rearm behaviour.
     role = current_role(request)
@@ -391,7 +391,7 @@ def _deterrent_context(cfg: dict, *, can_toggle: bool) -> dict[str, Any]:
     (``deterrent.defaults.cooldown_seconds``) and the per-group cooldown
     of the group that fired last.  Both layers gate future actuations of
     that same group, so showing the effective block is the accurate
-    signal — reporting only the global would say "Ready" while a
+    signal - reporting only the global would say "Ready" while a
     longer-cooldown group is still blocked.
 
     Derived from the persisted wall-clock timestamp in actuation_db, not
@@ -403,7 +403,7 @@ def _deterrent_context(cfg: dict, *, can_toggle: bool) -> dict[str, Any]:
     """
     det = cfg.get("deterrent", {}) if isinstance(cfg.get("deterrent"), dict) else {}
     enabled = bool(det.get("enabled", False))
-    # Mirror the deterrent service's Pydantic defaults (60s) — see
+    # Mirror the deterrent service's Pydantic defaults (60s) - see
     # services/deterrent/src/actuation_models.py ActuationDefaults /
     # GroupConfig.  A missing value in YAML doesn't mean "no cooldown";
     # the worker applies 60s, so the widget must match or it lies.
@@ -461,7 +461,7 @@ async def _deterrent_partial(request: Request) -> HTMLResponse:
 
 @router.get("/deterrent-status", response_class=HTMLResponse)
 async def deterrent_status(request: Request) -> Response:
-    """HTMX poll endpoint — returns the deterrent widget fragment."""
+    """HTMX poll endpoint - returns the deterrent widget fragment."""
     return await _deterrent_partial(request)
 
 

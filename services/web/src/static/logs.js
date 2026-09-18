@@ -34,7 +34,7 @@ function startStream() {
   };
 
   _es.onerror = () => {
-    setStatus("Connection lost — retrying…", "warn");
+    setStatus("Connection lost - retrying…", "warn");
   };
 }
 
@@ -86,7 +86,7 @@ function appendLine(text) {
 }
 
 function detectLevel(line) {
-  // Caddy outputs JSON logs with "level":"error" — try parsing first
+  // Caddy outputs JSON logs with "level":"error" - try parsing first
   if (line.trimStart().startsWith("{")) {
     try {
       var obj = JSON.parse(line);
@@ -106,7 +106,7 @@ function detectLevel(line) {
   return "info";
 }
 
-// CSS-class-based filter — hides lines by level without removing them from DOM
+// CSS-class-based filter - hides lines by level without removing them from DOM
 function applyFilter() {
   const filter = document.getElementById("level-filter").value;
   document.getElementById("log-output").dataset.filter = filter;

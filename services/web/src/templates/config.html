@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Config — ScarGuard{% endblock %}
+{% block title %}Config - ScarGuard{% endblock %}
 {% block content %}
 <h1>Configuration</h1>
 
@@ -86,7 +86,7 @@
             <p class="hint">Applies to snapshots, events, visits, and metrics</p>
           </div>
         </div>
-        {# base_url removed in v0.12.4 — derived from tls.domain at runtime #}
+        {# base_url removed in v0.12.4 - derived from tls.domain at runtime #}
         <div class="field-row expert-only">
           <div class="field-group">
             <label>Stats polling interval (seconds, 1-60)</label>
@@ -129,7 +129,7 @@
             <label>Backup debounce (seconds)</label>
             <input type="number" id="backup_debounce_seconds" min="30" max="600"
                    value="{{ cfg.system.backup.debounce_seconds | default(180) }}">
-            <p class="hint">Delay after config save before taking backup — prevents rapid-fire backups during editing (30-600)</p>
+            <p class="hint">Delay after config save before taking backup - prevents rapid-fire backups during editing (30-600)</p>
           </div>
         </div>
       </div>
@@ -265,7 +265,7 @@
                  placeholder="Get a free key at roboflow.com → Settings → API Keys">
           <p class="hint">
             Without a key, dataset preparation skips the Roboflow Universe
-            datasets — heron coverage depends on them.
+            datasets - heron coverage depends on them.
           </p>
         </div>
         <div class="field-row">
@@ -371,7 +371,7 @@
     <div class="config-section-body">
       <div class="card">
         <p class="hint">
-          Named notification channels let you send alerts to multiple destinations — multiple
+          Named notification channels let you send alerts to multiple destinations - multiple
           Discord webhooks, email addresses, or custom HTTP endpoints. Each channel has a unique
           name used by action rules.
         </p>
@@ -610,7 +610,7 @@
 
 </div>{# /tab-settings #}
 
-{# ── Advanced tab — hidden for read-only admins (raw YAML may contain secrets) #}
+{# ── Advanced tab - hidden for read-only admins (raw YAML may contain secrets) #}
 {% if not read_only %}
 <div id="tab-advanced" class="tab-panel">
 
@@ -631,7 +631,7 @@
 
   <p class="hint">
     Direct YAML editor. Changes here are applied immediately on save.
-    Services reload within ~10 seconds — no restart required.
+    Services reload within ~10 seconds - no restart required.
     Secrets are redacted by default; click "Reveal secrets" to show them.
   </p>
 
