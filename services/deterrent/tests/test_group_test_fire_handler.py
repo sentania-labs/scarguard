@@ -28,6 +28,7 @@ from cooldown import CooldownTracker, GroupCooldownTracker
 from request_handler import (
     JOB_TEST_FIRE_GROUP,
     TEST_FIRE_GROUP_RESULT_PREFIX,
+    InFlightGuard,
     RequestHandler,
 )
 
@@ -103,18 +104,81 @@ def _no_db(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class TestHandlerEnqueues:
     def _handler(self, q: queue.Queue[Any] | None) -> tuple[RequestHandler, FakeRedis]:
-        return RequestHandler({}, AtomicRef(_cfg()), AtomicRef(FakeController()), job_queue=q), FakeRedis()
+        return (
+            RequestHandler({}, AtomicRef(_group_cfg()), AtomicRef(FakeController()), job_queue=q),
+            FakeRedis(),
+        )
 
     def test_handler_never_touches_the_controller(self) -> None:
-        """The handler thread answers emergency force-off; it must not block."""
+        """The handler thread answers emergency force-off; it must not fire.
+
+        Uses a config with real devices and a real group on purpose. With an
+        empty registry this assertion would hold however the handler behaved,
+        which is how the first version of this test passed while the handler
+        fired hardware directly.
+        """
         controller = FakeController()
         q: queue.Queue[Any] = queue.Queue()
-        handler = RequestHandler({}, AtomicRef(_cfg()), AtomicRef(controller), job_queue=q)
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(controller), job_queue=q,
+        )
         redis = FakeRedis()
         handler._handle_test_fire_group(redis, {"request_id": "r1", "group_name": "g"})
 
         assert controller.calls == []
         assert q.qsize() == 1
+
+    def test_second_press_refused_while_job_is_still_queued(self) -> None:
+        """The claim must span the queued window, not just the running one."""
+        q: queue.Queue[Any] = queue.Queue()
+        guard = InFlightGuard()
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=q, in_flight=guard,
+        )
+        redis = FakeRedis()
+        # Worker has not dequeued anything yet.
+        handler._handle_test_fire_group(redis, {"request_id": "r1", "group_name": "g"})
+        handler._handle_test_fire_group(redis, {"request_id": "r2", "group_name": "g"})
+        handler._handle_test_fire_group(redis, {"request_id": "r3", "group_name": "g"})
+
+        assert q.qsize() == 1, "stacked jobs would keep firing after the operator gave up"
+        assert redis.reply_for("r2")["ok"] is False
+        assert "already in progress" in redis.reply_for("r2")["error"]
+        assert redis.reply_for("r3")["ok"] is False
+
+    def test_full_queue_never_blocks_the_handler(self) -> None:
+        """This thread is the sole consumer of emergency force-off.
+
+        Run on a worker thread with a join timeout rather than called directly:
+        a blocking put on a full queue would hang forever, and a hanging test
+        burns the whole CI job instead of reporting a failure.
+        """
+        q: queue.Queue[Any] = queue.Queue(maxsize=1)
+        q.put_nowait({"filler": True})
+        guard = InFlightGuard()
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=q, in_flight=guard,
+        )
+        redis = FakeRedis()
+        done = threading.Event()
+
+        def call() -> None:
+            handler._handle_test_fire_group(redis, {"request_id": "r1", "group_name": "g"})
+            done.set()
+
+        t = threading.Thread(target=call, daemon=True)
+        t.start()
+        assert done.wait(timeout=5.0), (
+            "handler blocked on a full queue: emergency force-off is unanswerable"
+        )
+
+        reply = redis.reply_for("r1")
+        assert reply["ok"] is False
+        assert "saturated" in reply["error"]
+        # A refused enqueue must not leave the slot claimed forever.
+        assert guard.claimed is False
 
     def test_enqueued_job_carries_what_the_worker_needs(self) -> None:
         q: queue.Queue[Any] = queue.Queue()
@@ -146,25 +210,6 @@ class TestHandlerEnqueues:
         handler._handle_test_fire_group(redis, {"request_id": "r1", "group_name": "g"})
         assert redis.reply_for("r1")["ok"] is False
 
-    def test_second_request_is_refused_while_one_is_in_flight(self) -> None:
-        """Queueing them would keep firing long after the operator gave up."""
-        q: queue.Queue[Any] = queue.Queue()
-        lock = threading.Lock()
-        handler = RequestHandler(
-            {}, AtomicRef(_cfg()), AtomicRef(FakeController()),
-            job_queue=q, test_fire_lock=lock,
-        )
-        redis = FakeRedis()
-        lock.acquire()  # simulate the worker mid-sequence
-        try:
-            handler._handle_test_fire_group(redis, {"request_id": "r2", "group_name": "g"})
-        finally:
-            lock.release()
-
-        reply = redis.reply_for("r2")
-        assert reply["ok"] is False
-        assert "already in progress" in reply["error"]
-        assert q.qsize() == 0
 
 
 # ── Worker half: the gates that keep hardware still ──────────────────────────
@@ -193,7 +238,6 @@ def _run_job(
         AtomicRef(armed),
         cooldown or CooldownTracker(),
         group_cooldown or GroupCooldownTracker(),
-        threading.Lock(),
         holder,
         {},
     )
@@ -298,3 +342,77 @@ class TestWorkerFires:
 
         assert not cd.is_clear(300)
         assert not gc.is_clear("g", 300)
+
+
+class TestWorkerResilience:
+    """A raising job must not take the detection path down with it."""
+
+    def test_worker_survives_a_raising_sequence(self) -> None:
+        """The worker thread runs all detection actuation.
+
+        If a test-fire kills it, every detection stops firing while the
+        container healthcheck keeps reporting healthy, and the only symptom is
+        a 502 on the admin page blaming the wrong component.
+        """
+        import queue as _queue
+        import threading as _threading
+
+        import main as deterrent_main
+
+        class Exploding:
+            def activate_device(self, *a: Any, **kw: Any) -> Any:
+                raise RuntimeError("tuya sdk blew up")
+
+        q: _queue.Queue[Any] = _queue.Queue()
+        redis = FakeRedis()
+        guard = InFlightGuard()
+        guard.claim()
+        cfg = _group_cfg(device_count_range=[2, 2])
+
+        q.put({
+            "__job": JOB_TEST_FIRE_GROUP,
+            "group_name": "g",
+            "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+        })
+        q.put(None)  # poison pill so the worker exits after the job
+
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                deterrent_main._worker(
+                    q, AtomicRef(cfg), AtomicRef(Exploding()), AtomicRef(True),
+                    CooldownTracker(), GroupCooldownTracker(), {}, guard,
+                )
+            except BaseException as exc:  # noqa: BLE001 - the point of the test
+                errors.append(exc)
+
+        # The worker builds its own Redis client lazily; feed it ours.
+        import unittest.mock as mock
+        with mock.patch.object(deterrent_main, "_publish_raw",
+                               lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
+            t = _threading.Thread(target=run)
+            t.start()
+            t.join(timeout=10)
+
+        assert not t.is_alive(), "worker hung"
+        assert errors == [], f"worker died: {errors}"
+        assert redis.reply_for("r1")["ok"] is False
+        # The slot must be freed, or no further test-fire is ever accepted.
+        assert guard.claimed is False
+
+    def test_active_global_cooldown_refuses(self) -> None:
+        """Global cooldown gates all actuation, not just per-group."""
+        cd = CooldownTracker()
+        cd.record()
+        cfg = _cfg(
+            devices=[_device("v1")],
+            groups=[DeterrentGroup(name="g", devices=["v1"], cooldown_seconds=0)],
+        )
+        cfg.defaults.cooldown_seconds = 300
+        controller = FakeController()
+        redis, _ = _run_job(cfg, controller, cooldown=cd)
+
+        assert controller.calls == []
+        assert "cooldown" in redis.reply_for("r1")["error"].lower()

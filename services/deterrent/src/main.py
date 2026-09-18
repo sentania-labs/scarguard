@@ -31,7 +31,7 @@ from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
 from event_signing import load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
-from request_handler import JOB_TEST_FIRE_GROUP, RequestHandler
+from request_handler import JOB_TEST_FIRE_GROUP, InFlightGuard, RequestHandler
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,6 @@ def _run_group_test_fire(
     armed_ref: AtomicRef[bool],
     cooldown: CooldownTracker,
     group_cooldown: GroupCooldownTracker,
-    test_fire_lock: threading.Lock,
     pub_holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
 ) -> None:
@@ -263,23 +262,36 @@ def _run_group_test_fire(
         reply({"ok": False, "error": f"Group {group_name} has no enabled devices"})
         return
 
-    with test_fire_lock:
-        logger.info(
-            "Test-fire group [%s]: %d eligible device(s) [rid=%s]",
-            group.name, len(group_devices), request_id,
-        )
-        execution = execute_plan(
+    logger.info(
+        "Test-fire group [%s]: %d eligible device(s) [rid=%s]",
+        group.name, len(group_devices), request_id,
+    )
+    execution = execute_plan(
             controller,
-            group_devices,
-            group.effective_defaults(act_cfg.defaults),
-            request_id=request_id,
-            event_type="test_fire_group",
-            label=f"Test-fire group [{group.name}]",
-            deadline_sec=MAX_GROUP_TEST_FIRE_SEC,
-            on_stuck=lambda device, error: _publish_stuck(
-                pub_holder, redis_cfg, device, request_id, error,
-            ),
-        )
+        group_devices,
+        group.effective_defaults(act_cfg.defaults),
+        request_id=request_id,
+        event_type="test_fire_group",
+        label=f"Test-fire group [{group.name}]",
+        deadline_sec=MAX_GROUP_TEST_FIRE_SEC,
+        on_stuck=lambda device, error: _publish_stuck(
+            pub_holder, redis_cfg, device, request_id, error,
+        ),
+    )
+
+    if not execution.actions:
+        # Nothing physical happened, so do not burn a cooldown the operator
+        # would then be locked out by, and say why rather than returning a
+        # bare failure the web route turns into an unexplained 502.
+        reply({
+            "ok": False,
+            "error": "No device fired: the firing window elapsed before any could start",
+            "group_name": group.name,
+            "devices_fired": 0,
+            "devices_succeeded": 0,
+            "devices": [],
+        })
+        return
 
     group_cooldown.record(group_name)
     cooldown.record()
@@ -396,7 +408,7 @@ def _worker(
     cooldown: CooldownTracker,
     group_cooldown: GroupCooldownTracker,
     redis_cfg: dict[str, Any],
-    test_fire_lock: threading.Lock,
+    in_flight: InFlightGuard,
 ) -> None:
     """Consume detection events and run actuation sequences per matched group."""
     logger.info("Deterrent worker thread started")
@@ -412,11 +424,25 @@ def _worker(
         # firing: two sequences can never overlap on one device, which is what
         # keeps the reconcile loop's busy check meaningful.
         if event.get("__job") == JOB_TEST_FIRE_GROUP:
-            _run_group_test_fire(
-                event, act_cfg_ref, controller_ref, armed_ref,
-                cooldown, group_cooldown, test_fire_lock,
-                pub_holder, redis_cfg,
-            )
+            # A raise here would kill this thread and with it every
+            # detection-driven actuation, while the healthcheck kept reporting
+            # the container healthy. The pond would be unprotected and the only
+            # symptom would be a 502 on the admin page blaming the wrong thing.
+            try:
+                _run_group_test_fire(
+                    event, act_cfg_ref, controller_ref, armed_ref,
+                    cooldown, group_cooldown, pub_holder, redis_cfg,
+                )
+            except Exception:
+                logger.exception(
+                    "Group test-fire raised [rid=%s]", event.get("request_id", ""),
+                )
+                _publish_raw(
+                    pub_holder, redis_cfg, event.get("result_channel", ""),
+                    {"ok": False, "error": "Group test-fire failed, see deterrent logs"},
+                )
+            finally:
+                in_flight.release()
             continue
 
         # Latency instrumentation - dequeue moment.
@@ -866,9 +892,10 @@ def main() -> None:
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
-    # Held for the duration of an admin group test-fire so a second request
-    # is refused rather than queued behind hardware that is already running.
-    test_fire_lock = threading.Lock()
+    # Claimed by the request handler before it enqueues and released by the
+    # worker when the sequence ends, so a second press is refused for the whole
+    # queued-and-running window rather than stacking behind live hardware.
+    in_flight = InFlightGuard()
 
     # Start worker thread
     worker_thread = threading.Thread(
@@ -877,7 +904,7 @@ def main() -> None:
         daemon=True,
         args=(
             event_queue, act_cfg_ref, controller_ref, armed_ref,
-            cooldown, group_cooldown, redis_cfg, test_fire_lock,
+            cooldown, group_cooldown, redis_cfg, in_flight,
         ),
     )
     worker_thread.start()
@@ -887,7 +914,7 @@ def main() -> None:
     # handler thread, which must stay free to answer emergency force-off.
     req_handler = RequestHandler(
         redis_cfg, act_cfg_ref, controller_ref,
-        job_queue=event_queue, test_fire_lock=test_fire_lock,
+        job_queue=event_queue, in_flight=in_flight,
     )
     req_handler.start()
 

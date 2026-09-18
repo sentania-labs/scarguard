@@ -47,6 +47,37 @@ TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 JOB_TEST_FIRE_GROUP = "test_fire_group"
 
 
+class InFlightGuard:
+    """At-most-one claim spanning two threads.
+
+    The request handler claims before enqueuing; the deterrent worker releases
+    once the sequence has finished. A plain Lock is the wrong primitive here
+    because the claim is made on one thread and released on another, and
+    because the window that matters includes the time the job spends queued.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._claimed = False
+
+    def claim(self) -> bool:
+        """Take the slot if free. Returns False if one is already in flight."""
+        with self._lock:
+            if self._claimed:
+                return False
+            self._claimed = True
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            self._claimed = False
+
+    @property
+    def claimed(self) -> bool:
+        with self._lock:
+            return self._claimed
+
+
 class RequestHandler:
     """Handles test-fire and device-status requests from the web service."""
 
@@ -56,13 +87,13 @@ class RequestHandler:
         act_cfg_ref: AtomicRef[ActuationConfig],
         controller_ref: AtomicRef[TuyaCloudController | None],
         job_queue: queue.Queue[dict[str, Any] | None] | None = None,
-        test_fire_lock: threading.Lock | None = None,
+        in_flight: InFlightGuard | None = None,
     ) -> None:
         self._redis_cfg = redis_cfg
         self._act_cfg_ref = act_cfg_ref
         self._controller_ref = controller_ref
         self._job_queue = job_queue
-        self._test_fire_lock = test_fire_lock or threading.Lock()
+        self._in_flight = in_flight or InFlightGuard()
         self._shutdown = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -256,23 +287,37 @@ class RequestHandler:
             }))
             return
 
-        # One in flight at a time. The queue would serialise them anyway, but
-        # queued sequences would keep firing long after the operator gave up
-        # waiting, and the rate limiter alone allows several to stack.
-        if not self._test_fire_lock.acquire(blocking=False):
+        # One in flight at a time. Claimed here and released by the worker when
+        # the sequence finishes, so the claim covers the queued-but-not-started
+        # window too. Probing a lock and releasing it before enqueuing would
+        # not: this thread handles requests one at a time, so three presses
+        # arriving before the worker dequeues would all see a free lock and all
+        # enqueue, which is exactly the stacking the guard exists to stop.
+        if not self._in_flight.claim():
             client.publish(result_channel, json.dumps({
                 "ok": False,
                 "error": "A group test-fire is already in progress",
             }))
             return
-        self._test_fire_lock.release()
 
-        self._job_queue.put({
-            "__job": JOB_TEST_FIRE_GROUP,
-            "group_name": group_name,
-            "request_id": request_id,
-            "result_channel": result_channel,
-        })
+        try:
+            # NEVER a blocking put. The worker queue is bounded, and this thread
+            # is the sole consumer of the emergency force-off channel: blocking
+            # here would make the panic button unanswerable, which is the whole
+            # reason the sequence was moved off this thread in the first place.
+            self._job_queue.put_nowait({
+                "__job": JOB_TEST_FIRE_GROUP,
+                "group_name": group_name,
+                "request_id": request_id,
+                "result_channel": result_channel,
+            })
+        except queue.Full:
+            self._in_flight.release()
+            client.publish(result_channel, json.dumps({
+                "ok": False,
+                "error": "Deterrent worker is saturated, try again shortly",
+            }))
+            return
         logger.info(
             "Queued group test-fire for [%s] [rid=%s]", group_name, request_id,
         )

@@ -404,14 +404,15 @@ async def test_fire_group(request: Request) -> Response:
             {"ok": False, "error": "group_name is required"}, status_code=400,
         )
 
-    # A group sequence can legitimately run longer than a single device: every
-    # selected device fires in turn, each with its own pre/inter delay. Allow
-    # headroom over the default so a slow Tuya Cloud round-trip on the last
-    # device does not surface as a spurious timeout.
+    # Must outlast the deterrent side's worst case (150s: pre-delay, then the
+    # 60s firing window, then one final spray of up to MAX_ACTUATION_SEC that
+    # always runs to completion). Timing out early would tell the operator the
+    # service is down while hardware is still running, which is exactly the
+    # state that invites a re-press. See MAX_GROUP_TEST_FIRE_SEC.
     result = await _redis_request(
         TEST_FIRE_GROUP_CHANNEL, TEST_FIRE_GROUP_RESULT_PREFIX,
         {"group_name": group_name.strip()},
-        timeout_sec=120.0,
+        timeout_sec=180.0,
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)

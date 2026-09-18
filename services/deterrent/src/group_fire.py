@@ -82,12 +82,23 @@ def execute_plan(
     per device that reported ON-succeeded-but-OFF-failed; the caller decides how
     to publish it.
 
-    *deadline_sec* bounds the whole sequence. It is checked BEFORE starting each
-    device, never during one: an activation already in flight always runs to its
-    natural end and no further device is picked up. Overshoot is therefore
-    bounded by a single spray duration, and no out-of-band OFF is ever sent, so
-    nothing races the per-activation watchdog. ``None`` means no bound, which is
-    what the detection path uses today.
+    *deadline_sec* bounds the firing window. It is checked immediately before
+    each activation starts, never during one, so an activation already in
+    flight always runs to its natural end and no further device is picked up.
+    No out-of-band OFF is ever sent, so nothing races the per-activation
+    watchdog.
+
+    Two details the obvious implementation gets wrong:
+
+    * the clock starts after the pre-delay, not before, so a pre_delay_range
+      at or above the window cannot consume it and yield a zero-device
+      sequence. ``total_duration_sec`` still spans the pre-delay, because it
+      is persisted to the audit record and must mean wall time;
+    * the check sits after the inter-device sleep rather than before it,
+      so overshoot past the window is bounded by one spray duration rather
+      than by a delay plus a spray.
+
+    ``None`` means no bound, which is what the detection path uses.
     """
     selected, durations, inter_delays, pre_delay = build_random_plan(devices, defaults)
 
@@ -98,17 +109,20 @@ def execute_plan(
         logger.debug("Pre-delay: %.1fs", pre_delay)
         time.sleep(pre_delay)
 
+    # The firing window starts once waiting is done (see docstring).
+    fire_start = time.monotonic()
+
     for i, device in enumerate(selected):
-        if deadline_sec is not None and (time.monotonic() - t_start) >= deadline_sec:
+        if inter_delays[i] > 0:
+            logger.debug("Inter-device delay: %.1fs", inter_delays[i])
+            time.sleep(inter_delays[i])
+
+        if deadline_sec is not None and (time.monotonic() - fire_start) >= deadline_sec:
             logger.info(
                 "%s: window of %.0fs elapsed, stopping after %d of %d device(s) [rid=%s]",
                 label, deadline_sec, len(actions), len(selected), request_id,
             )
             break
-
-        if inter_delays[i] > 0:
-            logger.debug("Inter-device delay: %.1fs", inter_delays[i])
-            time.sleep(inter_delays[i])
 
         # Defence-in-depth clamp - the randomizer reads spray_duration_range
         # from config; a misconfigured or tampered config can't drive the

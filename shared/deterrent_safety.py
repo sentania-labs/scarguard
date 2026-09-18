@@ -21,12 +21,22 @@ from typing import Any
 MIN_ACTUATION_SEC: float = 0.5
 MAX_TEST_FIRE_SEC: float = 15.0
 MAX_ACTUATION_SEC: float = 60.0
-# Ceiling on a whole admin group test-fire sequence. Bounds what one button
-# press can do: the per-device clamp above limits each spray, this limits how
-# many of them one request can chain. Deliberately below the web route's
-# 120s wait so the reply always arrives before the caller gives up, which is
-# what stops an operator re-pressing while hardware is still running.
-MAX_GROUP_TEST_FIRE_SEC: float = 90.0
+# Ceiling on the firing window of an admin group test-fire. Bounds what one
+# button press can do: the per-device clamp above limits each spray, this
+# limits how many of them one request can chain.
+#
+# The web route must outlast the worst case or the operator is told the service
+# is down while hardware is still running, which invites a re-press. Worst case
+# wall time is:
+#
+#   pre_delay (<= 30s, outside the window)
+#   + this window (60s, the last device may start just under it)
+#   + one spray (<= MAX_ACTUATION_SEC = 60s, it always finishes)
+#   = 150s
+#
+# so the route waits 180s. Changing either number without the other reopens
+# that gap.
+MAX_GROUP_TEST_FIRE_SEC: float = 60.0
 DEFAULT_TEST_FIRE_SEC: float = 3.0
 
 OFF_RETRY_BACKOFF_SEC: tuple[float, ...] = (1.0, 2.0, 4.0)

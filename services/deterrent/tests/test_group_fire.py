@@ -334,3 +334,70 @@ class TestDeadline:
             on_stuck=lambda d, e: None,
         )
         assert len(execution.actions) == 4
+
+
+class TestDeadlineEdges:
+    """The two properties the obvious deadline implementation gets wrong."""
+
+    @staticmethod
+    def _clock(monkeypatch: Any) -> dict[str, float]:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        return clock
+
+    @staticmethod
+    def _timed_controller(clock: dict[str, float]) -> FakeController:
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        return controller
+
+    def test_overshoot_is_one_spray_even_with_long_inter_delays(self, monkeypatch: Any) -> None:
+        """The check sits AFTER the inter-device sleep.
+
+        Checking before it instead would make overshoot delay+spray, not spray.
+        """
+        clock = self._clock(monkeypatch)
+        controller = self._timed_controller(clock)
+        defaults = ActuationDefaults(
+            device_count_range=[4, 4],
+            spray_duration_range=[10.0, 10.0],
+            inter_device_delay_range=[20.0, 20.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = execute_plan(
+            controller, [_device(f"v{i}") for i in range(4)], defaults,
+            request_id="rid", event_type="test_fire_group", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=25.0,
+        )
+        # Window 25s: device 0 fires at t=0, device 1 at t=30 after its delay,
+        # which is past the window, so it never starts.
+        assert len(execution.actions) == 1
+        assert execution.total_duration_sec <= 25.0 + 10.0
+
+    def test_pre_delay_cannot_consume_the_window(self, monkeypatch: Any) -> None:
+        """A long pre-delay must not yield a zero-device sequence."""
+        clock = self._clock(monkeypatch)
+        controller = self._timed_controller(clock)
+        defaults = ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[100.0, 100.0],
+        )
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], defaults,
+            request_id="rid", event_type="test_fire_group", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=30.0,
+        )
+        assert len(execution.actions) == 2, "pre-delay ate the firing window"
+        # total_duration_sec still spans the pre-delay: it is an audit field.
+        assert execution.total_duration_sec == 110.0
