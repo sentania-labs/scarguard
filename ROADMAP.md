@@ -514,6 +514,122 @@ for them while runtime behavior stays config-driven via
 
 ---
 
+## v1.17: deterrent group control (planned)
+
+Feature minor driven by #189. The deterrent rule engine has grown
+groups, per-group randomization, and per-group cooldown since v0.13.3,
+but two things never followed: you cannot exercise a group without
+waiting for a real heron, and a group fires exactly one pass rather
+than holding a position for a window. Both are gaps in the
+operator-facing half of a subsystem whose detection-facing half is
+well covered.
+
+Also closes the last live line of the v1.15 security workstream and
+reconciles this roadmap with six untracked patch releases.
+
+**Feature work:**
+
+1. **Group test-fire.** New `/test-fire-group` endpoint taking a group
+   name, dispatched over Redis to the deterrent service the same way
+   `/test-fire` and `/force-off` already are
+   (`web/src/routes/deterrent.py:326-395`). Runs the real
+   `build_random_plan` path so what you see is the actual randomization
+   the group would produce, not a simulation. Admin-gated,
+   rate-limited alongside the existing physical-control routes, and
+   persisted to `actuation_events` with `event_type="test_fire_group"`
+   so it joins the hash chain added in v1.15. Button on the deterrent
+   admin page next to the existing per-device test-fire.
+
+2. **Group duration with device rotation.** New `group_duration_range`
+   on `DeterrentGroupConfig` (`config_model.py:431`), inheriting from
+   `deterrent.defaults` when omitted like the other ranges.
+   `_fire_group` (`deterrent/src/main.py:131`) loops its plan until the
+   group window expires instead of falling out after one pass,
+   re-rolling the plan each cycle so device selection stays
+   unpredictable across the window.
+
+   The window is checked **before starting each device**, not per
+   cycle: once the window has elapsed, the in-flight activation runs to
+   its natural end and no further device is picked up, mid-plan or
+   otherwise. Overshoot is therefore bounded by a single spray duration
+   (typically 3 to 8s, hard-capped at 60s by `MAX_ACTUATION_SEC`), and
+   no out-of-band OFF is ever sent, so nothing races the watchdog.
+
+   The safety model survives this unchanged, and that is the point
+   worth protecting in review: rotation must be implemented as
+   **repeated normal activations**, never as one long hold. Each
+   individual spray stays bounded by `clamp_duration(...,
+   max_sec=MAX_ACTUATION_SEC)` at 60s
+   (`shared/deterrent_safety.py:23`), keeps its own watchdog OFF, and
+   keeps setting the controller busy flag that `_reconcile_loop`
+   checks via `is_device_busy` before force-OFF
+   (`deterrent/src/main.py:432`). A long hold would break all three.
+
+   Adds `MAX_GROUP_ACTUATION_SEC` to `shared/deterrent_safety.py` as a
+   hard ceiling on the window, validated at config load rather than
+   only clamped at fire time.
+
+3. **Cooldown anchors to window end.** `cooldown_seconds` gates repeat
+   firings of a group; with a window it starts counting when the
+   spraying stops. A 60s window with a 60s cooldown yields 60s of
+   quiet after the last device goes off. Documented explicitly in
+   CONFIG_REFERENCE, since the alternative reading (anchor at window
+   start) would make short cooldowns silently meaningless for long
+   windows.
+
+**Security:**
+
+4. **Tighten the Caddy CSP.** `config/Caddyfile.template:21` still
+   sends `script-src 'self' 'unsafe-inline' https://unpkg.com`.
+
+   The `unpkg.com` grant is dead and can go immediately: v1.15 vendored
+   htmx and Chart.js into `static/vendor/` and nothing loads from the
+   CDN any more.
+
+   The `'unsafe-inline'` grant is **not** dead. There are no `<script>`
+   blocks left in the templates, but four inline event handlers remain,
+   and those need `'unsafe-inline'` in `script-src` just as much:
+
+   - `templates/training_label.html` (2x `onclick=`)
+   - `templates/partials/training_upload_rows.html` (1x `onclick=`)
+   - `templates/partials/training_job_rows.html` (1x `onclick=`)
+
+   Dropping the grant before converting these breaks those buttons
+   silently in the browser with only a CSP console error to show for it.
+
+   Most of this conversion is already done but unmerged: branch
+   `fix/csp-inline-handlers` (999f585, in a locked worktree under
+   `/home/scott/vault/workspaces/scarguard/`) moves inline handlers to
+   `addEventListener` across 19 files. v1.17 should land that branch
+   first, convert whatever remains, verify in a browser that the
+   affected pages still work, and only then tighten the header.
+   Tracked here rather than as a separate issue.
+
+**Documentation and reconciliation:**
+
+5. **ROADMAP.md rewrite.** Mark v1.14.4, v1.15, and v1.16.6 shipped
+   against the evidence (all three are tagged). Record v1.16.7 through
+   v1.16.12, which are absent entirely. Move the three genuinely open
+   verification items to their issues (#190, #191, #192) rather than
+   carrying prose copies here.
+
+6. **STATUS.md reconciliation.** "Not Yet Built" still lists deterrent
+   response profiles, which shipped in v0.13.3. "Recently Fixed
+   (unreleased)" describes work tagged months ago. Custom heron model
+   status needs a decision: pond_v3 finished at mAP50 0.687 but was
+   never activated in config.
+
+7. **CONFIG_REFERENCE.md.** Document `group_duration_range`, the
+   cooldown anchor, and the group test-fire endpoint.
+
+**Explicitly out of scope:** #190 (setup.sh starter-model
+verification), #191 (TensorRT export re-verify), and #192 (non-Jetson
+platform verification). The first two need Orin bench time and would
+block the release on hardware; the third is evidence gathering whose
+outcome may open a feature minor of its own.
+
+---
+
 ## Future Ideas (Unprioritized)
 
 - Twilio SMS notifications: paid per-message, but works on any phone without an app
