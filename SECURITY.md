@@ -93,7 +93,7 @@ and logged to stdout at startup:
 ```
 $ docker compose logs web | grep 'First-run'
 ═══════════════════════════════════════════════════════════
-  First-run setup, complete within 24 hours:
+  First-run setup - complete within 24 hours:
     Browse to: /setup?token=<value>
   Token also stored at /data/bootstrap_token (chmod 600).
 ═══════════════════════════════════════════════════════════
