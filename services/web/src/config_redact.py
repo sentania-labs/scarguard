@@ -1,7 +1,7 @@
 """Sensitive-field redaction for read-only admin ("viewer") role.
 
 The `viewer` role can view the config editor form but must not see any
-plaintext secrets — RTSP URLs (contain auth tokens), Discord webhook URLs
+plaintext secrets - RTSP URLs (contain auth tokens), Discord webhook URLs
 (entirely sensitive), SMTP passwords, webhook auth tokens, ntfy tokens and
 basic-auth passwords, and any custom auth headers.
 
@@ -21,7 +21,7 @@ import yaml
 
 REDACTED_PLACEHOLDER = "***REDACTED***"
 
-# Structural paths — these are masked by walking the config tree explicitly.
+# Structural paths - these are masked by walking the config tree explicitly.
 # Handles the known Pydantic model shapes from config_model.py.
 _STRUCTURAL_PATHS: tuple[tuple[str, ...], ...] = (
     ("cameras", "[]", "rtsp_url"),
@@ -66,7 +66,7 @@ def redact_config(
 
     Preserves field *presence* (so a viewer can see *that* a Discord webhook
     is configured for channel X, just not its URL).  Handles missing
-    optional sections without raising — if ``cfg`` has no ``notifications``
+    optional sections without raising - if ``cfg`` has no ``notifications``
     key, nothing in that subtree is touched.
 
     Idempotent: redacting an already-redacted config is a no-op.
@@ -84,7 +84,7 @@ def redact_config(
 
     # Walk notifications.channels (a list of heterogeneous dicts) and mask
     # any key matching the sensitive-keys heuristic.  ``headers`` is special-
-    # cased: it's a sub-dict whose keys are HTTP header names — walk it and
+    # cased: it's a sub-dict whose keys are HTTP header names - walk it and
     # mask values whose header name looks like a credential, preserving the
     # structural type (still a dict) so the form's JS hydration doesn't
     # break.
@@ -134,7 +134,7 @@ def redact_yaml(
     Used by the backup-diff code path where we have raw YAML strings rather
     than parsed dicts.  Preserves valid YAML output; comments and ordering
     are NOT preserved (PyYAML limitation).  For the diff viewer that's
-    acceptable — the reader still sees structure and knows which fields
+    acceptable - the reader still sees structure and knows which fields
     exist, just not the plaintext secret values.
     """
     try:
@@ -164,7 +164,7 @@ def _mask_path(
 
     Path segments are dict keys, with the special token ``"[]"`` meaning
     "iterate every element of the list at this position".  Missing keys are
-    silently skipped — this is a best-effort masker, not a validator.
+    silently skipped - this is a best-effort masker, not a validator.
     """
     if not path:
         return

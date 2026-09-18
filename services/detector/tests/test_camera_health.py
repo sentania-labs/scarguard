@@ -127,7 +127,7 @@ def test_post_recovery_outage_cycles_cleanly(clock):
     clock.advance(11)
     assert _alert_types(t.check_alerts()) == ["camera_recovered"]
 
-    # Second outage cycle — must fire its own offline alert
+    # Second outage cycle - must fire its own offline alert
     clock.advance(5)
     t.record_failure("cam-a")
     clock.advance(15)
@@ -153,7 +153,7 @@ def test_brief_mid_outage_recovery_does_not_emit_premature_recovery(clock):
     clock.advance(2)
     t.record_frame("cam-a")
     clock.advance(4)
-    assert t.check_alerts() == []  # no recovery yet — not stable
+    assert t.check_alerts() == []  # no recovery yet - not stable
 
     # Goes offline again before stability
     t.record_failure("cam-a")

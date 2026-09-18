@@ -152,9 +152,9 @@ def get_latency_summary(last_n: int = 100) -> dict[str, Any]:
     """Return p50/p95 summary over the last *last_n* actuations.
 
     Aggregates three latency signals:
-    - ``trigger_delay_ms`` — detection timestamp → deterrent dequeue
-    - ``cloud_ack_ms`` — per-device: ON command sent → Tuya Cloud ack
-    - ``total_duration_sec`` — full actuation sequence wall clock
+    - ``trigger_delay_ms`` - detection timestamp → deterrent dequeue
+    - ``cloud_ack_ms`` - per-device: ON command sent → Tuya Cloud ack
+    - ``total_duration_sec`` - full actuation sequence wall clock
 
     Returns ``{"count": N, "trigger_delay": {"p50":..., "p95":...}, ...}``
     with None values when not enough samples are available.

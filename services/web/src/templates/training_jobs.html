@@ -39,7 +39,7 @@
         </label>
         {% endfor %}
         {% if not upload_options %}
-        <p class="muted" style="margin:0;">No uploads yet — upload a video first.</p>
+        <p class="muted" style="margin:0;">No uploads yet - upload a video first.</p>
         {% endif %}
       </div>
       <label style="display:block;margin-top:0.5rem;">
@@ -52,7 +52,7 @@
     <div class="field-group" id="classes-field">
       <label>Classes <span class="muted">(comma-separated; order defines model class indices)</span></label>
       <input type="text" name="classes" id="classes-input" value="{{ training_classes_default }}">
-      <p class="hint">Classes beyond detection targets are distractors — trained so the model learns what <em>not</em> to call a heron, but never alerted on. Overrides a "classes" key in the JSON parameters.</p>
+      <p class="hint">Classes beyond detection targets are distractors - trained so the model learns what <em>not</em> to call a heron, but never alerted on. Overrides a "classes" key in the JSON parameters.</p>
     </div>
 
     <div class="field-group" id="train-fields">

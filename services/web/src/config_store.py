@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = Path(os.environ.get("CONFIG_PATH", "/config/scarguard.yml"))
 
 # Dead config keys stripped on save.  Add keys here when removing deprecated
-# features — no per-feature migration function needed.
+# features - no per-feature migration function needed.
 _STALE_TOP_KEYS: set[str] = {"ssl"}
 # Nested keys under ``notifications`` stripped on save (legacy flat format).
 _STALE_NOTIFICATION_KEYS: set[str] = {"discord", "email"}
@@ -76,7 +76,7 @@ def _decrypt_secrets_in_place(cfg: dict) -> None:
 
     Plaintext values pass through unchanged (migration mode). When the key
     is absent (e.g. /data not yet writable, or a fresh upgrade) we leave
-    encrypted values as-is — the consumer will get the ``enc:v1:`` prefix
+    encrypted values as-is - the consumer will get the ``enc:v1:`` prefix
     and surface a configuration error rather than a silently-broken
     integration.
     """
@@ -87,7 +87,7 @@ def _decrypt_secrets_in_place(cfg: dict) -> None:
         secret_box.decrypt_in_place(cfg, key)
     except secret_box.SecretKeyMissing:
         logger.error(
-            "Failed to decrypt one or more secrets — wrong key on disk?",
+            "Failed to decrypt one or more secrets - wrong key on disk?",
         )
 
 
@@ -148,7 +148,7 @@ def save(cfg: dict) -> None:
                 continue
             for key in _STALE_CAMERA_KEYS:
                 cam.pop(key, None)
-    # Encrypt sensitive fields before writing to disk. Idempotent — values
+    # Encrypt sensitive fields before writing to disk. Idempotent - values
     # already in ``enc:v1:`` form pass through. If no key is available we
     # write plaintext (migration mode), and a one-shot startup migration in
     # main.py will re-save once the key is generated.
@@ -185,7 +185,7 @@ def set_armed(armed: bool) -> None:
 def set_deterrent_enabled(enabled: bool) -> None:
     cfg = load()
     # Tolerate a non-mapping `deterrent:` in YAML (e.g. `false`, null, or
-    # a stray scalar) — coerce to a fresh dict before subscripting,
+    # a stray scalar) - coerce to a fresh dict before subscripting,
     # matching how _deterrent_context() defensively reads it.
     if not isinstance(cfg.get("deterrent"), dict):
         cfg["deterrent"] = {}

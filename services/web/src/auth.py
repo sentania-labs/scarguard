@@ -1,4 +1,4 @@
-"""ScarGuard auth module — user accounts, sessions, and API tokens.
+"""ScarGuard auth module - user accounts, sessions, and API tokens.
 
 This module has no FastAPI dependencies so it can be imported standalone
 (e.g. from setup.sh via `docker run ... python auth.py create-admin`).
@@ -25,14 +25,14 @@ AUTH_DB_PATH: str = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
 #
 # Three role tiers as of v0.12.7:
 #
-#   ROLE_USER   — authenticated; can view dashboard/events/visits/about,
+#   ROLE_USER   - authenticated; can view dashboard/events/visits/about,
 #                 disarm with auto-rearm, label feedback.  No admin pages,
 #                 no config editing, no user management.
-#   ROLE_VIEWER — "read-only admin".  Can view everything the admin can
+#   ROLE_VIEWER - "read-only admin".  Can view everything the admin can
 #                 (including admin pages and the structured config form),
 #                 but with sensitive fields redacted and no write access.
 #                 Cannot disarm or modify feedback either.
-#   ROLE_ADMIN  — full access, no restrictions.
+#   ROLE_ADMIN  - full access, no restrictions.
 #
 # These are NOT strictly hierarchical: a VIEWER sees more than a USER
 # (e.g. admin pages) but writes less (no disarm, no feedback).  Route-level
@@ -341,7 +341,7 @@ def set_user_password(db: sqlite3.Connection, user_id: int, new_password: str) -
     """Set a user's password. Returns True iff a row was updated.
 
     Returning a bool lets callers (e.g. the audit-log hook in routes/users.py)
-    skip logging a "success" when the target user_id no longer exists —
+    skip logging a "success" when the target user_id no longer exists -
     otherwise a stale id produces a false-positive audit entry.
     """
     cur = db.execute(

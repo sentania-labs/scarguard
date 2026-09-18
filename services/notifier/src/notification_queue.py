@@ -85,7 +85,7 @@ class NotificationQueue:
                 )
             elif expired:
                 logger.info(
-                    "All %d persisted notification(s) expired during downtime — discarded",
+                    "All %d persisted notification(s) expired during downtime - discarded",
                     expired,
                 )
         except Exception:
@@ -133,7 +133,7 @@ class NotificationQueue:
             if len(self._entries) >= _MAX_QUEUE_SIZE:
                 dropped = self._entries.pop(0)
                 logger.warning(
-                    "Queue full (%d items) — dropped oldest entry: %s queued at %s",
+                    "Queue full (%d items) - dropped oldest entry: %s queued at %s",
                     _MAX_QUEUE_SIZE,
                     dropped.notifier_type,
                     datetime.fromtimestamp(dropped.first_failed, tz=timezone.utc).isoformat(),
@@ -155,7 +155,7 @@ class NotificationQueue:
         """
         now = time.time()
 
-        # Snapshot entries that are due — don't hold the lock during network I/O.
+        # Snapshot entries that are due - don't hold the lock during network I/O.
         with self._lock:
             due = [e for e in self._entries if e.next_retry <= now]
             queue_depth = len(self._entries)
@@ -180,7 +180,7 @@ class NotificationQueue:
             if target is None:
                 # Notifier was disabled in config; leave entry in queue.
                 logger.debug(
-                    "Retry deferred — %s is not currently enabled", entry.notifier_type
+                    "Retry deferred - %s is not currently enabled", entry.notifier_type
                 )
                 continue
 
@@ -200,7 +200,7 @@ class NotificationQueue:
                 elapsed = now - entry.first_failed
                 if elapsed >= _MAX_AGE_SECONDS:
                     logger.warning(
-                        "Dropping %s notification after %.1fh and %d attempt(s) — "
+                        "Dropping %s notification after %.1fh and %d attempt(s) - "
                         "max retry window exceeded",
                         entry.notifier_type,
                         elapsed / 3600,
@@ -211,7 +211,7 @@ class NotificationQueue:
                     delay = _BACKOFF_STEPS[min(entry.attempt, len(_BACKOFF_STEPS) - 1)]
                     entry.next_retry = now + delay
                     logger.info(
-                        "Retry %d for %s failed — next attempt in %ds "
+                        "Retry %d for %s failed - next attempt in %ds "
                         "(%.1fh elapsed, queue depth: %d)",
                         entry.attempt,
                         entry.notifier_type,

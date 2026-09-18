@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ScarGuard — Fine-tune a YOLO model on an exported dataset.
+"""ScarGuard - Fine-tune a YOLO model on an exported dataset.
 
 Usage:
     python train.py --data /path/to/dataset/data.yaml \
@@ -258,7 +258,7 @@ def main() -> None:
 
     # Print summary metrics
     print("\n" + "=" * 60)
-    print("Training Complete — Summary")
+    print("Training Complete - Summary")
     print("=" * 60)
 
     if hasattr(results, "results_dict"):

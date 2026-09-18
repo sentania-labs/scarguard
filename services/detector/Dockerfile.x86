@@ -8,11 +8,11 @@
 ARG PYTORCH_TAG=2.6.0-cuda12.4-cudnn9-runtime
 FROM pytorch/pytorch:${PYTORCH_TAG}
 
-# OpenCV headless deps (no GStreamer needed on x86 — cv2 handles RTSP directly)
+# OpenCV headless deps (no GStreamer needed on x86 - cv2 handles RTSP directly)
 # upgrade -y: the pytorch base image ships stale Ubuntu packages
 # (e.g. linux-libc-dev kernel-header CVEs) that trip the Trivy gate.
 # APT_CACHE_BUST: CI passes a fresh value per run so this layer is never
-# served from the self-hosted runner's Docker layer cache — a cached layer
+# served from the self-hosted runner's Docker layer cache - a cached layer
 # pins pre-upgrade packages and trips the Trivy gate once a fix publishes.
 ARG APT_CACHE_BUST=dev
 RUN echo "apt cache bust: ${APT_CACHE_BUST}" && \
@@ -26,7 +26,7 @@ WORKDIR /app
 
 # Install Python deps before copying source (layer caching)
 # torch / torchvision / torchaudio are provided by the pytorch base image.
-# Do NOT add them here — pip will skip reinstalling compatible versions.
+# Do NOT add them here - pip will skip reinstalling compatible versions.
 COPY services/detector/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

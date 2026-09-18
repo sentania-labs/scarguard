@@ -68,7 +68,7 @@ def discover_services(
     result: dict[str, docker.models.containers.Container] = {}
     for c in containers:
         service = c.labels.get("com.docker.compose.service")
-        # Skip ourselves — tailing our own logs creates a feedback loop
+        # Skip ourselves - tailing our own logs creates a feedback loop
         # when Redis is down (failed-publish warnings get re-tailed).
         if service and service != "log-streamer":
             result[service] = c
@@ -82,7 +82,7 @@ def tail_container(
     """Tail logs from *container* and publish to Redis.  Runs in a thread.
 
     Creates its own Redis connection so a Redis restart does not require
-    restarting the entire sidecar — only affected tail threads reconnect.
+    restarting the entire sidecar - only affected tail threads reconnect.
     """
     channel = f"{CHANNEL_PREFIX}{service}"
     buffer_key = f"{BUFFER_PREFIX}{service}"
@@ -108,7 +108,7 @@ def tail_container(
                 pipe.ltrim(buffer_key, 0, BUFFER_MAX - 1)
                 pipe.execute()
             except redislib.RedisError:
-                logger.warning("Redis publish failed for %s — will retry", service)
+                logger.warning("Redis publish failed for %s - will retry", service)
     except Exception:
         if not _stop.is_set():
             logger.warning("Log stream ended for %s", service, exc_info=True)
@@ -126,7 +126,7 @@ def main() -> None:
     active: dict[str, tuple[threading.Thread, str]] = {}
 
     def _shutdown(signum: int, _frame: FrameType | None) -> None:
-        logger.info("Received signal %d — shutting down", signum)
+        logger.info("Received signal %d - shutting down", signum)
         _stop.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
@@ -138,7 +138,7 @@ def main() -> None:
         # Stop threads for services that disappeared
         for svc in list(active):
             if svc not in services:
-                logger.info("Service %s gone — stopping tail", svc)
+                logger.info("Service %s gone - stopping tail", svc)
                 del active[svc]
 
         # Stop threads where the container ID changed (restarted container)
@@ -146,7 +146,7 @@ def main() -> None:
             if svc in active:
                 _, old_id = active[svc]
                 if container.id != old_id:
-                    logger.info("Service %s restarted — restarting tail", svc)
+                    logger.info("Service %s restarted - restarting tail", svc)
                     del active[svc]
 
         # Start threads for new/restarted services
@@ -165,13 +165,13 @@ def main() -> None:
         for svc in list(active):
             thread, _ = active[svc]
             if not thread.is_alive():
-                logger.debug("Tail thread for %s died — will respawn on next cycle", svc)
+                logger.debug("Tail thread for %s died - will respawn on next cycle", svc)
                 del active[svc]
 
         _stop.wait(DISCOVERY_INTERVAL)
 
     # Cleanup
-    logger.info("Shutting down — waiting for tail threads")
+    logger.info("Shutting down - waiting for tail threads")
     docker_client.close()
     logger.info("Log-streamer stopped")
 

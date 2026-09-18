@@ -126,7 +126,7 @@ def reconnect_loop(
         except redis_lib.RedisError:
             if shutdown.is_set():
                 break
-            _log.exception("Redis connection lost — retrying in %ds", delay)
+            _log.exception("Redis connection lost - retrying in %ds", delay)
             shutdown.wait(delay)
             delay = min(delay * 2, _MAX_RECONNECT_DELAY)
         finally:

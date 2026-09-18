@@ -1,4 +1,4 @@
-"""Model evaluation runner — compares two YOLO models against labeled snapshots.
+"""Model evaluation runner - compares two YOLO models against labeled snapshots.
 
 Listens on Redis channel ``scarguard:eval:request`` for evaluation requests from
 the web service.  Runs inference with each model sequentially (to conserve GPU
@@ -64,7 +64,7 @@ class EvaluationRunner:
         )
 
     def _run(self) -> None:
-        logger.info("EvaluationRunner started — listening on %s", REQUEST_CHANNEL)
+        logger.info("EvaluationRunner started - listening on %s", REQUEST_CHANNEL)
         while not self._stop.is_set():
             try:
                 client = self._get_redis()
@@ -91,7 +91,7 @@ class EvaluationRunner:
                 client.close()
             except redis.ConnectionError:
                 if not self._stop.is_set():
-                    logger.warning("Redis connection lost in evaluator — retrying in 5s")
+                    logger.warning("Redis connection lost in evaluator - retrying in 5s")
                     self._stop.wait(5)
             except Exception:
                 logger.exception("Unexpected error in evaluator loop")
@@ -101,7 +101,7 @@ class EvaluationRunner:
         if self._paused_ref is not None and self._paused_ref.get():
             self._publish_error(
                 client,
-                "Detector is paused for training — evaluation unavailable until training completes",
+                "Detector is paused for training - evaluation unavailable until training completes",
             )
             return
 
@@ -154,7 +154,7 @@ class EvaluationRunner:
         }
         client.set(RESULT_KEY, json.dumps(result), ex=RESULT_TTL)
         self._set_progress(client, "complete", len(ground_truth) * 2, len(ground_truth) * 2)
-        logger.info("Evaluation complete — results published")
+        logger.info("Evaluation complete - results published")
 
     def _load_ground_truth(
         self,
@@ -211,7 +211,7 @@ class EvaluationRunner:
                 row["resolved_path"] = str(snap_path)
                 result.append(row)
             else:
-                logger.debug("Skipping event %d — snapshot not found: %s", row["id"], row["snapshot_path"])
+                logger.debug("Skipping event %d - snapshot not found: %s", row["id"], row["snapshot_path"])
 
         return result
 
@@ -232,7 +232,7 @@ class EvaluationRunner:
             return None
 
         if self._paused_ref is not None and self._paused_ref.get():
-            self._publish_error(client, "Detector paused — aborting evaluation before model load")
+            self._publish_error(client, "Detector paused - aborting evaluation before model load")
             return None
 
         try:
@@ -332,7 +332,7 @@ class EvaluationRunner:
                         fn += 1
                         fp += len(cls_preds)
                 else:
-                    # No ground truth for this class here — all predictions are FP
+                    # No ground truth for this class here - all predictions are FP
                     fp += len(cls_preds)
 
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0

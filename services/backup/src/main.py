@@ -2,9 +2,9 @@
 
 Three SQLite databases live on the shared ``scarguard-data`` volume:
 
-* ``scarguard.db`` — detection events, training feedback, performance metrics
-* ``auth.db`` — users, sessions, API tokens, audit log
-* ``deterrent.db`` — actuation events
+* ``scarguard.db`` - detection events, training feedback, performance metrics
+* ``auth.db`` - users, sessions, API tokens, audit log
+* ``deterrent.db`` - actuation events
 
 Pre-v1.14 there was no documented backup story; a volume-level rm or an
 SD-card failure on a Jetson lost everything. This sidecar runs SQLite's
@@ -60,7 +60,7 @@ DATABASES: tuple[tuple[str, Path], ...] = (
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
 
@@ -298,7 +298,7 @@ def trigger_listener(
         except redis_lib.RedisError:
             if shutdown_event.is_set():
                 break
-            logger.exception("Redis error in trigger listener — retrying in %ds", delay)
+            logger.exception("Redis error in trigger listener - retrying in %ds", delay)
             shutdown_event.wait(delay)
             delay = min(delay * 2, 60)
         finally:
@@ -331,13 +331,13 @@ def main() -> None:
 
     backup_cfg = load_backup_config()
     if not _enabled(backup_cfg):
-        logger.info("Backup disabled in config — sidecar will idle")
+        logger.info("Backup disabled in config - sidecar will idle")
 
     cfg_holder = {"cfg": backup_cfg}
     shutdown_event = threading.Event()
 
     def _shutdown(sig: int, _frame: object) -> None:
-        logger.info("Received signal %s — shutting down", sig)
+        logger.info("Received signal %s - shutting down", sig)
         shutdown_event.set()
 
     signal.signal(signal.SIGTERM, _shutdown)
@@ -377,7 +377,7 @@ def main() -> None:
             try:
                 run_backup_cycle(backup_cfg, publisher, triggered_by="schedule")
             except Exception:
-                logger.exception("Backup cycle raised — continuing")
+                logger.exception("Backup cycle raised - continuing")
 
         # Wait for next interval, exit early on shutdown.
         if shutdown_event.wait(_interval_seconds(backup_cfg)):

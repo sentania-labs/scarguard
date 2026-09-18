@@ -3,11 +3,11 @@
 The detector / notifier / deterrent services touch ``/tmp/healthy`` and
 the Docker healthcheck verifies it was touched within the last minute
 (``find /tmp/healthy -mmin -1``). Pre-v1.14 the file was only touched
-on incoming messages — long quiet periods would flip the container to
+on incoming messages - long quiet periods would flip the container to
 unhealthy unjustly. This module spins a background thread that touches
 the file on a fixed interval regardless of traffic.
 
-The thread is a daemon — no clean shutdown needed; it dies with the
+The thread is a daemon - no clean shutdown needed; it dies with the
 process.
 """
 

@@ -1,5 +1,5 @@
 """Tests for the OFF-retry, watchdog, and force-off behaviour of the
-TuyaCloudController. The Tuya Cloud client is mocked — we're testing the
+TuyaCloudController. The Tuya Cloud client is mocked - we're testing the
 state machine around it, not the network."""
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ class TestActivationResult:
         assert r.stuck is True
 
     def test_on_failure_is_not_stuck(self) -> None:
-        # If ON never succeeded, the device isn't physically on — not stuck.
+        # If ON never succeeded, the device isn't physically on - not stuck.
         r = ActivationResult(
             on_success=False, off_success=None, error="ON failed",
             on_ack_ms=10.0, off_attempts=0,
@@ -76,7 +76,7 @@ class TestActivateDevice:
         assert result.success is True
         assert result.stuck is False
         assert result.off_attempts == 1
-        # Sent ON then OFF — exactly two cloud calls on the happy path.
+        # Sent ON then OFF - exactly two cloud calls on the happy path.
         assert controller._cloud.sendcommand.call_count == 2
 
     def test_clamps_oversized_duration(

@@ -4,9 +4,9 @@ Thanks for your interest in contributing. ScarGuard is a small project and we we
 
 ## Getting Started
 
-1. **Read the docs** — [README.md](README.md), [ROADMAP.md](ROADMAP.md), and [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md) cover what's built, what's planned, and how the system works.
-2. **Check the roadmap** — Features 17–26 are planned and open for contribution. If you want to work on one, open an issue first so we can coordinate.
-3. **Check existing issues** — your bug or idea may already be tracked.
+1. **Read the docs**: [README.md](README.md), [ROADMAP.md](ROADMAP.md), and [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md) cover what's built, what's planned, and how the system works.
+2. **Check the roadmap**: Features 17–26 are planned and open for contribution. If you want to work on one, open an issue first so we can coordinate.
+3. **Check existing issues**: your bug or idea may already be tracked.
 
 ## Reporting Bugs
 
@@ -19,14 +19,14 @@ Use the [bug report template](https://github.com/sentania-labs/scarguard/issues/
 
 ## Suggesting Features
 
-Use the [feature request template](https://github.com/sentania-labs/scarguard/issues/new?template=feature_request.yml). Focus on the problem you're trying to solve — we'll figure out the implementation together.
+Use the [feature request template](https://github.com/sentania-labs/scarguard/issues/new?template=feature_request.yml). Focus on the problem you're trying to solve, we'll figure out the implementation together.
 
 ## Pull Requests
 
 ### Before You Start
 
 - **Open an issue first** for anything non-trivial (new features, architectural changes). This avoids wasted effort if the approach doesn't fit.
-- **Small PRs are better** — one feature or fix per PR. Don't bundle unrelated changes.
+- **Small PRs are better**: one feature or fix per PR. Don't bundle unrelated changes.
 - Bug fixes and documentation improvements are always welcome without prior discussion.
 
 ### Development Setup
@@ -39,7 +39,7 @@ cd scarguard
 pip install ruff mypy types-PyYAML types-requests types-redis
 ```
 
-You don't need a Jetson or GPU to work on the web service or notifier — only the detector requires GPU access.
+You don't need a Jetson or GPU to work on the web service or notifier, only the detector requires GPU access.
 
 ### Code Standards
 
@@ -47,29 +47,29 @@ You don't need a Jetson or GPU to work on the web service or notifier — only t
 - **Type hints** on all functions
 - **Pydantic models** for data structures
 - **Logging** via Python `logging` module, structured JSON output
-- **No over-engineering** — this is a pond guardian, not a distributed platform
+- **No over-engineering**: this is a pond guardian, not a distributed platform
 
 ### Linting & Type Checking
 
 These must pass before submitting a PR (mirrors CI):
 
 ```bash
-# Ruff — all services
+# Ruff: all services
 ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/backup/src shared
 
-# mypy — web
+# mypy: web
 MYPYPATH=services/web/src:shared \
   python3 -m mypy services/web/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — notifier
+# mypy: notifier
 MYPYPATH=services/notifier/src:shared \
   python3 -m mypy services/notifier/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — deterrent
+# mypy: deterrent
 MYPYPATH=services/deterrent/src:shared \
   python3 -m mypy services/deterrent/src shared --ignore-missing-imports --explicit-package-bases
 
-# mypy — backup
+# mypy: backup
 MYPYPATH=services/backup/src:shared \
   python3 -m mypy services/backup/src shared --ignore-missing-imports --explicit-package-bases
 ```
@@ -108,7 +108,7 @@ self-review via subagent before considering the task done:
 2. Make your changes
 3. Run linting and type checks (see above)
 4. Push and open a PR against `main`
-5. Describe what your PR does and why — link the related issue if there is one
+5. Describe what your PR does and why: link the related issue if there is one
 
 CI will run linting, type checking, tests, and image builds on your PR automatically.
 
@@ -129,12 +129,12 @@ Services communicate via Redis pub/sub. All config lives in a single `scarguard.
 
 These are intentional and should not be changed without discussion:
 
-1. **Docker Compose** is the deployment target — no Kubernetes
-2. **Single config file** (`scarguard.yml`) — no per-service configs
-3. **Redis pub/sub** for IPC — no Kafka or RabbitMQ
-4. **SQLite** — no Postgres (single device, one writer)
-5. **Python 3.11** — pinned to match L4T base image compatibility
-6. **Snapshots are files on disk** — no blob store or database storage
+1. **Docker Compose** is the deployment target: no Kubernetes
+2. **Single config file** (`scarguard.yml`): no per-service configs
+3. **Redis pub/sub** for IPC: no Kafka or RabbitMQ
+4. **SQLite**: no Postgres (single device, one writer)
+5. **Python 3.11**: pinned to match L4T base image compatibility
+6. **Snapshots are files on disk**: no blob store or database storage
 
 See [CLAUDE.md](CLAUDE.md) for the full list.
 

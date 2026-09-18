@@ -1,7 +1,7 @@
 """Manages multiple YOLODetector instances keyed by model path.
 
 Reference-counted so that models shared by several cameras are loaded once and
-unloaded when no camera references them any more.  Thread-safe — the pool lock
+unloaded when no camera references them any more.  Thread-safe - the pool lock
 serialises load/unload operations while each YOLODetector uses its own inference
 lock for GPU access.
 """

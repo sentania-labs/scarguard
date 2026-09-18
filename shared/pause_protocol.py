@@ -26,9 +26,9 @@ STATE_TTL = 3600  # 1 hour
 # Redis key written by the trainer while the detector is paused.
 HEARTBEAT_KEY = "scarguard:trainer:heartbeat"
 HEARTBEAT_INTERVAL = 30  # seconds between heartbeat writes
-HEARTBEAT_TTL = 90  # key TTL — expires if trainer stops writing
+HEARTBEAT_TTL = 90  # key TTL - expires if trainer stops writing
 
-# Default pause timeout — detector auto-resumes after this many seconds.
+# Default pause timeout - detector auto-resumes after this many seconds.
 # This is a last-resort ceiling for a trainer that is alive (heartbeating)
 # but never finishes; the 90s heartbeat TTL is the crash guard. It must
 # comfortably exceed a real training run: a full prepare_and_train on the

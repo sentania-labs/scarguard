@@ -135,7 +135,7 @@ class TestStaleSystemKeysStrip:
         assert reloaded["system"]["retention_days"] == 90
 
     def test_save_does_not_invent_system_section(self, tmp_path, monkeypatch):
-        """If system isn't a mapping, leave it alone — don't crash."""
+        """If system isn't a mapping, leave it alone - don't crash."""
         cfg_path = tmp_path / "scarguard.yml"
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
         config_store.save({"system": "broken-string"})

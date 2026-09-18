@@ -1,7 +1,7 @@
 """Video processing: frame extraction + YOLO inference + IoU deduplication.
 
 Standalone module imported by the trainer service's job runner. Does NOT
-write to the database — returns data for the caller to persist. This
+write to the database - returns data for the caller to persist. This
 keeps the module testable without a DB dependency.
 
 Requires: opencv-python-headless, ultralytics, torch.

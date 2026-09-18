@@ -38,7 +38,7 @@ LOGS_DIR = WORKSPACE_DIR / "logs"
 _VALID_JOB_TYPES = {"process_video", "prepare_dataset", "train", "prepare_and_train"}
 
 # Default training class list. Keep in sync with DEFAULT_CLASSES in
-# training/prepare_dataset.py (standalone by design — copied into the
+# training/prepare_dataset.py (standalone by design - copied into the
 # trainer image, so it can't be imported here). person/dog/cat/plant are
 # distractor classes: trained so the model stops calling them herons,
 # filtered at runtime via detection.target_classes.
@@ -109,7 +109,7 @@ async def jobs_page(
             d["resume_candidate"] = str(newest_resume[1])
         job_list.append(d)
 
-    # Pull uploads available for the Process Videos picker (any state — user can
+    # Pull uploads available for the Process Videos picker (any state - user can
     # re-process processed ones with clear_existing_events).
     upload_rows = db_module.get_training_uploads(limit=200)
     upload_options = [
@@ -249,7 +249,7 @@ async def submit_job(request: Request) -> Response:
         client.publish(JOB_NOTIFY_CHANNEL, json.dumps({"job_id": job_id}))
         client.close()
     except Exception:
-        logger.warning("Failed to notify trainer via Redis — trainer will pick up via poll")
+        logger.warning("Failed to notify trainer via Redis - trainer will pick up via poll")
 
     logger.info("Training job submitted: %s (type=%s)", job_id, job_type)
     from starlette.responses import RedirectResponse
@@ -387,7 +387,7 @@ async def job_stream(request: Request, job_id: str) -> Response:
 
     async def _stream():
         # Use the async Redis client so .get/.llen/.lrange don't block
-        # the asyncio event loop — a sync client here was starving
+        # the asyncio event loop - a sync client here was starving
         # neighbouring SSE generators (logs, deterrent-stuck) for the
         # duration of a job, breaking them with apparent "connection lost".
         client = aioredis.Redis(

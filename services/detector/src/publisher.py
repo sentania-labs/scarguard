@@ -26,7 +26,7 @@ class RedisPublisher:
         self._sign_key: bytes | None = load_key_from_env()
         if self._sign_key is None:
             logger.warning(
-                "DETECTION_HMAC_KEY not set — publishing unsigned detection "
+                "DETECTION_HMAC_KEY not set - publishing unsigned detection "
                 "events. Run setup.sh to generate the key.",
             )
         else:
@@ -43,7 +43,7 @@ class RedisPublisher:
         except redis_lib.RedisError:
             self._buffer.append(payload)
             logger.warning(
-                "Redis publish failed — buffered (%d/%d)",
+                "Redis publish failed - buffered (%d/%d)",
                 len(self._buffer),
                 _BUFFER_MAX,
             )

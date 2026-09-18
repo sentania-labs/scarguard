@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}System Stats — ScarGuard{% endblock %}
+{% block title %}System Stats - ScarGuard{% endblock %}
 {% block content %}
 <h1>System Stats</h1>
 <p class="hint">Live resource utilization from the detector host. Updates every {{ interval }}s.</p>
@@ -16,16 +16,16 @@
     <div class="stat-item">
       <span class="stat-label">CPU</span>
       <div class="stat-bar"><div class="stat-bar-fill" id="cpu-bar" style="width:0%"></div></div>
-      <span class="stat-value" id="cpu-val">—</span>
+      <span class="stat-value" id="cpu-val">-</span>
     </div>
     <div class="stat-item">
       <span class="stat-label">RAM</span>
       <div class="stat-bar"><div class="stat-bar-fill stat-bar-fill--ram" id="ram-bar" style="width:0%"></div></div>
-      <span class="stat-value" id="ram-val">—</span>
+      <span class="stat-value" id="ram-val">-</span>
     </div>
     <div class="stat-item">
       <span class="stat-label">CPU Temp</span>
-      <span class="stat-value stat-temp" id="cpu-temp">—</span>
+      <span class="stat-value stat-temp" id="cpu-temp">-</span>
     </div>
   </div>
 </section>
@@ -37,16 +37,16 @@
     <div class="stat-item">
       <span class="stat-label">GPU Usage</span>
       <div class="stat-bar"><div class="stat-bar-fill stat-bar-fill--gpu" id="gpu-bar" style="width:0%"></div></div>
-      <span class="stat-value" id="gpu-val">—</span>
+      <span class="stat-value" id="gpu-val">-</span>
     </div>
     <div class="stat-item" id="gpu-mem-item" style="display:none;">
       <span class="stat-label">GPU Memory</span>
       <div class="stat-bar"><div class="stat-bar-fill stat-bar-fill--gpu" id="gpu-mem-bar" style="width:0%"></div></div>
-      <span class="stat-value" id="gpu-mem-val">—</span>
+      <span class="stat-value" id="gpu-mem-val">-</span>
     </div>
     <div class="stat-item">
       <span class="stat-label">GPU Temp</span>
-      <span class="stat-value stat-temp" id="gpu-temp">—</span>
+      <span class="stat-value stat-temp" id="gpu-temp">-</span>
     </div>
   </div>
 </section>

@@ -1,6 +1,6 @@
 """Randomisation engine for actuation sequences.
 
-Stateless by design — randomisation IS the anti-habituation strategy.
+Stateless by design - randomisation IS the anti-habituation strategy.
 Each call produces independent random output so wildlife cannot predict
 the deterrence pattern.
 """
@@ -29,10 +29,10 @@ def build_random_plan(
     -------
     (selected_devices, durations, inter_delays, pre_delay)
 
-    * ``selected_devices`` — ordered list of devices to fire
-    * ``durations`` — per-device activation duration in seconds
-    * ``inter_delays`` — delay *before* each device (index 0 is always 0)
-    * ``pre_delay`` — initial delay before the sequence starts
+    * ``selected_devices`` - ordered list of devices to fire
+    * ``durations`` - per-device activation duration in seconds
+    * ``inter_delays`` - delay *before* each device (index 0 is always 0)
+    * ``pre_delay`` - initial delay before the sequence starts
     """
     if not devices:
         return [], [], [], 0.0

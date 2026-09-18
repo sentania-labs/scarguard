@@ -1,4 +1,4 @@
-"""ScarGuard config-API service — startup script.
+"""ScarGuard config-API service - startup script.
 
 Starts uvicorn on HTTP port 8081.  Only active when the ``config-api``
 compose profile is enabled.  Caddy routes config-write POSTs here;
@@ -14,7 +14,7 @@ import yaml
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+    format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
     stream=sys.stdout,
 )
 log = logging.getLogger("start")

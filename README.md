@@ -1,6 +1,6 @@
 # ScarGuard
 
-An AI-powered wildlife detection and notification system. ScarGuard watches RTSP camera feeds for target species — primarily great blue herons — and sends real-time notifications so you (or downstream automation) can respond to protect a backyard koi pond.
+An AI-powered wildlife detection and notification system. ScarGuard watches RTSP camera feeds for target species, primarily great blue herons, and sends real-time notifications so you (or downstream automation) can respond to protect a backyard koi pond.
 
 The reference deployment runs on an NVIDIA Jetson Orin Nano with UniFi cameras, but ScarGuard works with any RTSP-capable camera and any system that can run Docker with an NVIDIA GPU.
 
@@ -10,7 +10,7 @@ Named after Scar (aka Kroger), a koi who survived a heron attack and lived to te
 
 ## The Problem
 
-Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents — plastic owls, reflective tape — lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a response that varies in timing and pattern, triggered only when a bird is actually present.
+Great blue herons are patient, methodical hunters. A single bird can empty a koi pond in a morning. Traditional deterrents, plastic owls, reflective tape, lose their effectiveness quickly as the birds habituate to them. What works is unpredictability: a response that varies in timing and pattern, triggered only when a bird is actually present.
 
 ScarGuard watches the pond around the clock, identifies threats with a YOLO vision model, sends targeted notifications (Discord, email, webhooks, ntfy), and triggers physical deterrent devices (sprinklers, lights, sirens) via the Tuya Cloud API. The detect → notify → deter loop runs end-to-end with no external dependencies.
 
@@ -18,12 +18,12 @@ ScarGuard watches the pond around the clock, identifies threats with a YOLO visi
 
 ## Goals
 
-- **Accurate, low-latency detection** — identify herons, ducks, and raccoons from live camera feeds with enough confidence to act, fast enough to matter
-- **Flexible notification routing** — route detections to the right channels (Discord, email, webhooks) based on species, camera, and time of day; downstream systems decide what action to take
-- **Minimal false positives** — don't fire notifications every time a leaf blows past; confidence thresholds, cooldown windows, and exclusion zones keep the system from crying wolf
-- **Always-on, self-healing** — RTSP streams drop; cameras reboot; the system must reconnect gracefully and resume without human intervention
-- **Observable** — a web UI shows live status, recent detections with annotated snapshots, and configuration; Discord, email, and webhook notifications keep the owner in the loop
-- **Maintainable** — the whole stack runs in Docker Compose; deploying a new model or changing config requires no SSH access
+- **Accurate, low-latency detection**: identify herons, ducks, and raccoons from live camera feeds with enough confidence to act, fast enough to matter
+- **Flexible notification routing**: route detections to the right channels (Discord, email, webhooks) based on species, camera, and time of day; downstream systems decide what action to take
+- **Minimal false positives**: don't fire notifications every time a leaf blows past; confidence thresholds, cooldown windows, and exclusion zones keep the system from crying wolf
+- **Always-on, self-healing**: RTSP streams drop; cameras reboot; the system must reconnect gracefully and resume without human intervention
+- **Observable**: a web UI shows live status, recent detections with annotated snapshots, and configuration; Discord, email, and webhook notifications keep the owner in the loop
+- **Maintainable**: the whole stack runs in Docker Compose; deploying a new model or changing config requires no SSH access
 
 ---
 
@@ -31,7 +31,7 @@ ScarGuard watches the pond around the clock, identifies threats with a YOLO visi
 
 ### Detection
 - Real-time inference on live RTSP streams using a YOLO model on GPU (TensorRT-optimized on Jetson; CUDA on x86)
-- Multi-camera support — each camera runs in its own thread with independent cooldown tracking
+- Multi-camera support: each camera runs in its own thread with independent cooldown tracking
 - Target species configurable via `detection.target_classes` (extensible via model swap)
 - Per-camera exclusion zones to suppress detections from static false-positive sources
 - Action rules for per-class, per-camera routing to specific notification channels
@@ -39,41 +39,41 @@ ScarGuard watches the pond around the clock, identifies threats with a YOLO visi
 - Clean snapshots saved per detection with bounding box coordinates stored separately (rendered in browser)
 
 ### Notifications
-- **Discord** — webhook messages with optional snapshot attachment and role mention
-- **Email** — SMTP with optional snapshot attachment, multiple recipients
-- **Webhooks** — generic HTTP/HTTPS POST or GET to any URL, with custom headers
-- Named, multi-instance channels — run two Discord webhooks, two email addresses, multiple webhooks side-by-side
-- Per-camera notification rules — route heron detections on pond-south to the heron alert channel, raccoon detections on back-yard to email only, etc. (v0.13.3: renamed from `action_rules`)
+- **Discord**: webhook messages with optional snapshot attachment and role mention
+- **Email**: SMTP with optional snapshot attachment, multiple recipients
+- **Webhooks**: generic HTTP/HTTPS POST or GET to any URL, with custom headers
+- Named, multi-instance channels: run two Discord webhooks, two email addresses, multiple webhooks side-by-side
+- Per-camera notification rules: route heron detections on pond-south to the heron alert channel, raccoon detections on back-yard to email only, etc. (v0.13.3: renamed from `action_rules`)
 - Retry with exponential backoff on transient failures
 
 ### Web UI
-- **Dashboard** — arm/disarm toggle, latest detection, today's count, schedule status
-- **Events** — paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
-- **Live Feed** — SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
-- **Settings** — sub-tabbed config editor (System / Detection / Cameras / Notifications / Advanced), plus raw YAML view. Per-camera model, confidence, classes, exclusion zones, notification rules, and deterrent rules.
-- **System Stats** — real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
-- **Logs** — live service log tail with level filtering and pause/resume
-- **Training Data** — per-class feedback breakdown, dataset quality warnings, YOLO export
-- **Model Evaluation** — side-by-side model comparison on labeled snapshots, SSE progress, promotion button
-- **Models** — upload, list, and manage YOLO model files
-- **Users** — add/disable/delete users, change passwords, manage API tokens
-- **About** — version, build date, component health, active model
+- **Dashboard**: arm/disarm toggle, latest detection, today's count, schedule status
+- **Events**: paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
+- **Live Feed**: SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
+- **Settings**: sub-tabbed config editor (System / Detection / Cameras / Notifications / Advanced), plus raw YAML view. Per-camera model, confidence, classes, exclusion zones, notification rules, and deterrent rules.
+- **System Stats**: real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
+- **Logs**: live service log tail with level filtering and pause/resume
+- **Training Data**: per-class feedback breakdown, dataset quality warnings, YOLO export
+- **Model Evaluation**: side-by-side model comparison on labeled snapshots, SSE progress, promotion button
+- **Models**: upload, list, and manage YOLO model files
+- **Users**: add/disable/delete users, change passwords, manage API tokens
+- **About**: version, build date, component health, active model
 
 ### Operations
-- Docker Compose stack — `docker compose up` is the full deployment
-- All config in a single `scarguard.yml` — hot-reloaded by all services without restart
-- CI/CD via GitHub Actions — x86 runners for web/notifier; self-hosted Orin runner for ARM64 detector
+- Docker Compose stack: `docker compose up` is the full deployment
+- All config in a single `scarguard.yml`: hot-reloaded by all services without restart
+- CI/CD via GitHub Actions: x86 runners for web/notifier; self-hosted Orin runner for ARM64 detector
 - Images published to GitHub Container Registry (ghcr.io)
-- HTTPS support — Caddy reverse proxy with automatic Let's Encrypt, manual certs, or HTTP-only mode
-- Session-based authentication — bcrypt passwords, configurable session timeout, login lockout
-- Scheduled arm/disarm — fixed time or solar (sunrise/sunset via `astral`)
-- Snapshot retention policy — configurable retention days, daily pruning
+- HTTPS support: Caddy reverse proxy with automatic Let's Encrypt, manual certs, or HTTP-only mode
+- Session-based authentication: bcrypt passwords, configurable session timeout, login lockout
+- Scheduled arm/disarm: fixed time or solar (sunrise/sunset via `astral`)
+- Snapshot retention policy: configurable retention days, daily pruning
 
 ---
 
 ## Hardware
 
-ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA GPU. The table below is the **reference setup** — not a requirements list.
+ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA GPU. The table below is the **reference setup**, not a requirements list.
 
 | Component | Reference Setup | Minimum Requirement |
 |-----------|----------------|---------------------|
@@ -140,7 +140,7 @@ The script will:
 - Ask which HTTP port to use (default: 80)
 - Create `config/scarguard.yml` from the example template (stored in the `scarguard-config` named volume)
 - Ask how you'll access ScarGuard (LAN only / internet with Let's Encrypt / own certificates)
-- Offer to download a starter YOLO model (detects generic birds — good for testing the pipeline)
+- Offer to download a starter YOLO model (detects generic birds: good for testing the pipeline)
 - Pull all pre-built images from GHCR
 - Prompt you to create the initial admin account
 
@@ -278,11 +278,11 @@ docker compose pull && docker compose up -d
 
 ScarGuard uses a Caddy reverse proxy for TLS termination. Three modes are available, configurable via the web UI (Settings > TLS) or `scarguard.yml`:
 
-#### Mode 1 — Off (default)
+#### Mode 1: Off (default)
 
 HTTP only. No TLS configuration needed. This is the right choice for LAN-only access.
 
-#### Mode 2 — Automatic (Let's Encrypt)
+#### Mode 2: Automatic (Let's Encrypt)
 
 Caddy obtains and renews a certificate from Let's Encrypt automatically. Requires a public domain name pointing to your server's IP.
 
@@ -298,7 +298,7 @@ tls:
 
 Caddy picks up the change within a few seconds. Port 443 must be reachable from the internet for the ACME challenge.
 
-#### Mode 3 — Manual (your own certificates)
+#### Mode 3: Manual (your own certificates)
 
 Use certificates from an internal CA or another provider. Place `cert.pem` and `key.pem` in the config volume's `certs/` directory:
 
@@ -346,7 +346,7 @@ newer releases (including `TRAINING_CONTROLLER_TOKEN`), pulls the updated
 images, and recreates the services. HTTP continues to work on the existing port
 with no config changes.
 
-#### Breaking change in v1.14.2 — non-root containers (handled automatically)
+#### Breaking change in v1.14.2: non-root containers (handled automatically)
 
 Starting in v1.14.2 the `redis` and `caddy` containers run as non-root (uid 999) to match every other service in the stack. Installations from **0.13.x, v1.14.0, or v1.14.1** have volume data owned by root that the new non-root containers cannot read on their own.
 
@@ -364,7 +364,7 @@ docker run --rm \
 docker compose up -d
 ```
 
-The `/config` chown is the one manual-TLS users (Mode 3 above) in particular need — copies of `cert.pem`/`key.pem` placed via the documented `docker run … alpine` flow land as root-owned and are otherwise unreadable by the non-root caddy.
+The `/config` chown is the one manual-TLS users (Mode 3 above) in particular need, copies of `cert.pem`/`key.pem` placed via the documented `docker run … alpine` flow land as root-owned and are otherwise unreadable by the non-root caddy.
 
 ---
 
@@ -372,14 +372,14 @@ The `/config` chown is the one manual-TLS users (Mode 3 above) in particular nee
 
 ### Notifications & Named Channels
 
-ScarGuard sends alerts through named notification channels. Each channel has a unique name, a type (discord, email, or webhook), and its own settings. You can define multiple instances of the same type — for example, one Discord webhook for the pond camera and a separate one for a home-automation channel.
+ScarGuard sends alerts through named notification channels. Each channel has a unique name, a type (discord, email, or webhook), and its own settings. You can define multiple instances of the same type, for example, one Discord webhook for the pond camera and a separate one for a home-automation channel.
 
 All channels are defined under `notifications.channels` in `scarguard.yml`:
 
 ```yaml
 notifications:
   channels:
-    # Discord webhook — pond alerts channel
+    # Discord webhook: pond alerts channel
     - name: pond-discord
       type: discord
       enabled: true
@@ -400,7 +400,7 @@ notifications:
         - partner@gmail.com
       include_snapshot: true
 
-    # Generic HTTP webhook — notify a downstream system (e.g. Scar's Revenge deterrent controller)
+    # Generic HTTP webhook: notify a downstream system (e.g. Scar's Revenge deterrent controller)
     - name: deterrent-webhook
       type: webhook
       enabled: true
@@ -424,18 +424,18 @@ All channels can be added, edited, and enabled/disabled from the **Settings → 
 
 ---
 
-### Per-Camera Rules — Notifications and Deterrents
+### Per-Camera Rules: Notifications and Deterrents
 
 Two parallel rule systems live on each camera.  Both are lists of `{class_name,
-<target>}` entries evaluated top-down — the first rule whose `class_name` matches
+<target>}` entries evaluated top-down, the first rule whose `class_name` matches
 wins (`*` is the wildcard).
 
-- **`notification_rules`** — routes detections to specific named channels.
+- **`notification_rules`**: routes detections to specific named channels.
   Without any rules defined, every detection notifies every enabled channel.
   *(v0.13.3 renamed this from `action_rules`; old configs are auto-migrated on
   load.)*
-- **`deterrent_rules`** (v0.13.3+) — fires named deterrent groups.  Empty means
-  *no deterrent action* — deterrents are explicit opt-in.
+- **`deterrent_rules`** (v0.13.3+): fires named deterrent groups.  Empty means
+  *no deterrent action*, deterrents are explicit opt-in.
 
 Example camera block:
 
@@ -463,7 +463,7 @@ Deterrent groups themselves live on **/admin/deterrent → Groups**.
 
 ### Detection Exclusion Zones
 
-Exclusion zones suppress detections from specific areas of a camera frame — useful for ignoring a heron decoy statue, a bush that blows in the wind, or any other persistent false-positive source.
+Exclusion zones suppress detections from specific areas of a camera frame, useful for ignoring a heron decoy statue, a bush that blows in the wind, or any other persistent false-positive source.
 
 **Drawing zones in the web UI:**
 1. Open **Settings → Cameras**
@@ -471,7 +471,7 @@ Exclusion zones suppress detections from specific areas of a camera frame — us
 3. A snapshot from the camera is displayed with an overlay canvas
 4. Click and drag to draw a rectangular zone
 5. Optionally add a label (e.g. "heron decoy") for reference
-6. Click **Save** — the zones are written to `scarguard.yml` and hot-reloaded into the detector
+6. Click **Save**: the zones are written to `scarguard.yml` and hot-reloaded into the detector
 
 Zones are stored as normalized coordinates (0–1) relative to frame size, so they remain accurate even if resolution changes:
 
@@ -535,16 +535,16 @@ Schedule settings are available in the web UI under **Settings → Schedule**.
 
 ScarGuard includes a complete pipeline for collecting labeled training data from live detections and using it to improve the YOLO model. The workflow is:
 
-**Step 1 — Label detections as they happen**
+**Step 1, Label detections as they happen**
 
 On the **Events** page, each detection has feedback buttons:
-- **Correct** — the detection is accurate (right species, right bounding box)
-- **False Positive** — the system fired on something that isn't a target
-- **Wrong Class** — the detection is real, but the class is wrong (select the correct class from the dropdown)
+- **Correct**: the detection is accurate (right species, right bounding box)
+- **False Positive**: the system fired on something that isn't a target
+- **Wrong Class**: the detection is real, but the class is wrong (select the correct class from the dropdown)
 
 Unreviewed events have a distinct visual treatment in the table. Feedback can be changed after initial submission.
 
-**Step 2 — Check dataset quality**
+**Step 2, Check dataset quality**
 
 Open **Admin → Training Data** to see:
 - How many labeled events exist per class
@@ -554,16 +554,16 @@ Open **Admin → Training Data** to see:
 
 Use the date range filter to limit the dashboard to a specific collection period.
 
-**Step 3 — Export the dataset**
+**Step 3, Export the dataset**
 
 Click **Export Dataset** in the Training Data dashboard. This downloads a `.zip` with:
-- `dataset/images/train/` — the detection snapshots
-- `dataset/labels/train/` — YOLO-format annotation files (class index, normalized bounding box)
-- `data.yaml` — class names and dataset structure for Ultralytics training
+- `dataset/images/train/`: the detection snapshots
+- `dataset/labels/train/`: YOLO-format annotation files (class index, normalized bounding box)
+- `data.yaml`: class names and dataset structure for Ultralytics training
 
 Only `feedback = correct` events are exported as positive training samples. `wrong_class` events are included with the corrected label as ground truth. False positives are excluded.
 
-**Step 4 — Train a new model**
+**Step 4, Train a new model**
 
 Run the included training script on a machine with a GPU (the Orin works, but a workstation GPU is faster for training):
 
@@ -584,28 +584,28 @@ auto-resumes a job.
 
 Run `python train.py --help` for the full CLI reference and recommended hyperparameters.
 
-**Step 5 — Upload the trained model**
+**Step 5, Upload the trained model**
 
 In the web UI, go to **Admin → Models** and upload the `.pt` file produced by training. It will appear in the model list.
 
-**Step 6 — Evaluate before promoting**
+**Step 6, Evaluate before promoting**
 
 Go to **Admin → Model Evaluation** and compare the new model against the current active model:
 1. Select the current model and the candidate model
 2. Choose a date range of labeled snapshots to test against
-3. Click **Run Evaluation** — the detector runs both models on your GPU and streams progress
+3. Click **Run Evaluation**: the detector runs both models on your GPU and streams progress
 4. Review per-class precision, recall, and F1 scores side-by-side
 
-If the new model wins, click **Promote** on the evaluation results page. This updates `scarguard.yml` and triggers a hot-reload — no restart required.
+If the new model wins, click **Promote** on the evaluation results page. This updates `scarguard.yml` and triggers a hot-reload, no restart required.
 
 ---
 
 ### Model Management
 
 ScarGuard supports three model formats:
-- `.pt` — PyTorch/Ultralytics YOLOv8 (best for flexibility and training)
-- `.engine` — TensorRT-optimized (best inference speed on the Jetson)
-- `.onnx` — ONNX Runtime (cross-platform, moderate speed)
+- `.pt`: PyTorch/Ultralytics YOLOv8 (best for flexibility and training)
+- `.engine`: TensorRT-optimized (best inference speed on the Jetson)
+- `.onnx`: ONNX Runtime (cross-platform, moderate speed)
 
 **Uploading a model:**
 
@@ -617,7 +617,7 @@ Each row on the Models page has a **Show classes** button that expands to reveal
 
 **Setting the active model:**
 
-Update `detection.model_path` in `scarguard.yml` (or via **Settings → Detection** in the UI) and click Save. The detector hot-reloads the new model within ~10 seconds — no container restart needed.
+Update `detection.model_path` in `scarguard.yml` (or via **Settings → Detection** in the UI) and click Save. The detector hot-reloads the new model within ~10 seconds, no container restart needed.
 
 ```yaml
 detection:
@@ -649,7 +649,7 @@ The exported `.engine` file will appear in the models volume alongside the `.pt`
 
 ### User Management
 
-ScarGuard requires authentication — all web UI routes and API endpoints are gated behind login. The first admin account is created during `setup.sh`.
+ScarGuard requires authentication, all web UI routes and API endpoints are gated behind login. The first admin account is created during `setup.sh`.
 
 **Adding users:**
 
@@ -681,11 +681,11 @@ These settings are also available in the web UI under **Settings → Authenticat
 
 ### API Tokens
 
-API tokens allow programmatic access to ScarGuard's REST API without a browser session — useful for scripts, Home Assistant automations, or any external integration.
+API tokens allow programmatic access to ScarGuard's REST API without a browser session, useful for scripts, Home Assistant automations, or any external integration.
 
 **Creating a token:**
 
-Go to **Admin → Users** and click **Create API Token**. Give it a descriptive name (e.g. "home-assistant-integration"). The token is shown exactly once — copy it and store it securely.
+Go to **Admin → Users** and click **Create API Token**. Give it a descriptive name (e.g. "home-assistant-integration"). The token is shown exactly once, copy it and store it securely.
 
 **Using a token:**
 
@@ -696,16 +696,16 @@ curl -H "Authorization: Bearer YOUR_TOKEN_HERE" \
   http://your-orin/events
 ```
 
-The Caddy reverse proxy listens on port 80 by default (or your configured `HTTP_PORT` / `HTTPS_PORT`) — there is no need to target the internal web container port directly.
+The Caddy reverse proxy listens on port 80 by default (or your configured `HTTP_PORT` / `HTTPS_PORT`), there is no need to target the internal web container port directly.
 
 **Key endpoints available with Bearer auth:**
-- `/events` — detection event log (filterable by camera, class, date)
-- `/config` — read or update system configuration
-- `/about` — version, build date, component health
-- `/feed/stream` — SSE stream of live annotated detection snapshots
-- `/events/stream` — SSE stream of live detection events
-- `/admin/stats/stream` — SSE stream of system resource metrics
-- `/admin/logs/stream` — SSE stream of service logs
+- `/events`: detection event log (filterable by camera, class, date)
+- `/config`: read or update system configuration
+- `/about`: version, build date, component health
+- `/feed/stream`: SSE stream of live annotated detection snapshots
+- `/events/stream`: SSE stream of live detection events
+- `/admin/stats/stream`: SSE stream of system resource metrics
+- `/admin/logs/stream`: SSE stream of service logs
 
 FastAPI's built-in Swagger UI is also available at `/docs` after login, providing an interactive API reference.
 
@@ -717,7 +717,7 @@ Tokens are listed under **Admin → Users → API Tokens**. Click **Revoke** nex
 
 ### System Stats & Logs
 
-**Stats page** — **Admin → System Stats**
+**Stats page**, **Admin → System Stats**
 
 Shows real-time system resource utilization, updated on a configurable interval (default: 5 seconds):
 - CPU usage (%)
@@ -728,7 +728,7 @@ Shows real-time system resource utilization, updated on a configurable interval 
 - Rolling 10-minute mini-charts for CPU and GPU usage
 - Per-camera inference FPS and average latency
 
-GPU stats are auto-detected from the Jetson sysfs, tegrastats, or nvidia-smi — no manual configuration needed.
+GPU stats are auto-detected from the Jetson sysfs, tegrastats, or nvidia-smi, no manual configuration needed.
 
 To change the update interval:
 
@@ -737,7 +737,7 @@ system:
   stats_interval: 10   # seconds, 1–60
 ```
 
-**Logs page** — **Admin → Logs**
+**Logs page**, **Admin → Logs**
 
 Live tail of container logs from all services (detector, notifier, deterrent, web, caddy, trainer, backup). Filter by:
 - Service
@@ -757,7 +757,7 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 | v0.3 | Admin logs tab, SSL/TLS, snapshot retention, SSL config UI | Complete |
 | v0.4 | Exclusion zones, enhanced event log, action rules, live feed, named channels, scheduling | Complete |
 | v0.5 | GPU/CPU stats view (live metrics, per-camera FPS, rolling charts) | Complete |
-| v0.6 | App security — session auth, first-run setup, user management, API tokens, lockout | Complete |
+| v0.6 | App security, session auth, first-run setup, user management, API tokens, lockout | Complete |
 | v0.7 | Detection feedback, training data dashboard, YOLO export, training script, model evaluation | Complete |
 | v0.8 | Per-camera models, named Docker volumes, CI PR build validation | Complete |
 | v0.9 | Ntfy, visit tracking, camera health, metrics persistence, training nudge, config backup, on-demand snapshot, CI hardening | Complete |
@@ -765,8 +765,8 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 | v0.11 | Unified retention, scheduled digest reports, mobile-friendly admin menu, event pruning | Complete |
 | v0.12 | HTML email, notification feedback tokens, config UI modes, health checks, Caddy TLS reverse proxy (Beta 1) | Complete |
 | v0.12.3–v0.12.10 | Hardening patch cycle (Redis auth, FairLock, log-streamer sidecar, inference perf, viewer role, audit log, CodeQL) | Complete |
-| v0.13.0 | Deterrent service MVP — Tuya Cloud control of sprinklers, lights, sirens, plugs | Complete |
-| v0.13.1 | Deterrent web UI — actuation log, device status, test-fire, config UI | Complete |
+| v0.13.0 | Deterrent service MVP, Tuya Cloud control of sprinklers, lights, sirens, plugs | Complete |
+| v0.13.1 | Deterrent web UI, actuation log, device status, test-fire, config UI | Complete |
 | v0.13.2 | Review fixes, legacy notification key removal, doc cleanup | Complete |
 | v0.13.3 | Per-camera deterrent scoping, confidence thresholds, UI tabs, latency instrumentation | Complete |
 | v0.13.4 | Chip autocomplete, model-class introspection, Docker Hub auth | Complete |

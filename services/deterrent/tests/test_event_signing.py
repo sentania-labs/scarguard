@@ -1,7 +1,7 @@
 """Tests for the shared HMAC event-signing module.
 
 Lives under the deterrent tests because it's the deterrent service that
-can't tolerate signature bypass — fake events there cause physical
+can't tolerate signature bypass - fake events there cause physical
 actuation. Exercising the module from here also covers the exact import
 path deterrent/main.py uses."""
 
@@ -99,7 +99,7 @@ class TestLoadKeyFromEnv:
             assert load_key_from_env() is None
 
     def test_rejects_short_key(self) -> None:
-        # 8 bytes is below the 16-byte floor — too short.
+        # 8 bytes is below the 16-byte floor - too short.
         encoded = base64.b64encode(b"shortkey").decode()
         with patch.dict(os.environ, {ENV_VAR: encoded}):
             assert load_key_from_env() is None
@@ -118,6 +118,6 @@ class TestSignatureFieldExclusion:
 
     def test_signing_twice_does_not_chain(self) -> None:
         e1 = sign_event({"x": 1}, KEY_A)
-        # Sign again with _sig present — should produce same signature.
+        # Sign again with _sig present - should produce same signature.
         e2 = sign_event(e1, KEY_A)
         assert e2[SIGNATURE_FIELD] == e1[SIGNATURE_FIELD]

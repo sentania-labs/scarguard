@@ -450,7 +450,7 @@ def _recovery_loop(stop: threading.Event) -> None:
 def main() -> None:
     logging.basicConfig(
         level=_configured_log_level(),
-        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
     )
     if len(CONTROLLER_TOKEN) < 32:
         raise RuntimeError("TRAINING_CONTROLLER_TOKEN must contain at least 32 characters")

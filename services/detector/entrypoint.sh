@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-# Fix volume ownership — setup.sh creates volumes as root; the scarguard
+# Fix volume ownership - setup.sh creates volumes as root; the scarguard
 # user needs write access to /data (SQLite + snapshots).
 # Only run the recursive chown once (sentinel file prevents slow restarts
 # when /data/snapshots contains thousands of images).
@@ -8,8 +8,8 @@ set -e
 # skip chown/gosu and just exec the command directly.
 if [ "$(id -u)" = "0" ]; then
     if [ ! -f /data/.ownership-fixed-detector ]; then
-        chown -R scarguard:scarguard /data /models 2>/dev/null || echo "WARNING: chown failed on /data or /models — check volume mounts" >&2
-        chown -R scarguard:scarguard /config 2>/dev/null || echo "WARNING: chown failed on /config — check volume mounts" >&2
+        chown -R scarguard:scarguard /data /models 2>/dev/null || echo "WARNING: chown failed on /data or /models - check volume mounts" >&2
+        chown -R scarguard:scarguard /config 2>/dev/null || echo "WARNING: chown failed on /config - check volume mounts" >&2
         touch /data/.ownership-fixed-detector 2>/dev/null || true
     else
         # On subsequent starts, just fix top-level dirs (fast)
@@ -24,7 +24,7 @@ if [ "$(id -u)" = "0" ]; then
     # slot.  See INFERENCE_INVESTIGATION.md.
     #
     # The glob 'predict[0-9]*' intentionally matches predict2..predict9998
-    # but NOT the bare 'predict' directory we create immediately above —
+    # but NOT the bare 'predict' directory we create immediately above -
     # that's the single directory all pinned save_dirs now resolve to.
     mkdir -p /tmp/runs/predict
     stale_count=$(find /tmp/runs -mindepth 1 -maxdepth 1 -type d -name 'predict[0-9]*' 2>/dev/null | wc -l)

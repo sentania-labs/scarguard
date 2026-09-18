@@ -29,7 +29,7 @@ class _CameraState:
 class CameraHealthTracker:
     """Tracks per-camera health and generates alerts for prolonged outages.
 
-    Thread-safe — called from multiple camera threads and the stats collector.
+    Thread-safe - called from multiple camera threads and the stats collector.
     """
 
     def __init__(
@@ -43,7 +43,7 @@ class CameraHealthTracker:
         self._lock = threading.Lock()
 
     def record_frame(self, camera_name: str) -> None:
-        """Record a successful frame read — camera is online."""
+        """Record a successful frame read - camera is online."""
         now = time.monotonic()
         with self._lock:
             state = self._cameras.setdefault(camera_name, _CameraState())
@@ -55,7 +55,7 @@ class CameraHealthTracker:
                 state.reconnect_count += 1
                 if state.outage_alerted:
                     # Stash for the eventual recovery alert (only fired
-                    # after sustained uptime — see check_alerts).
+                    # after sustained uptime - see check_alerts).
                     state.last_outage_duration = duration
                 state.offline_since = None
                 state.online_since = now
@@ -71,7 +71,7 @@ class CameraHealthTracker:
                 state.online_since = now
 
     def record_failure(self, camera_name: str) -> None:
-        """Record a failed frame read — camera may be going offline."""
+        """Record a failed frame read - camera may be going offline."""
         now = time.monotonic()
         with self._lock:
             state = self._cameras.setdefault(camera_name, _CameraState())
@@ -92,7 +92,7 @@ class CameraHealthTracker:
           - ``camera_recovered``: emitted after the camera has been back
             online >= ``alert_threshold_seconds`` *and* an offline alert was
             sent during the prior outage. The sustained-uptime requirement
-            is the flap suppressor — a camera that reconnects briefly only
+            is the flap suppressor - a camera that reconnects briefly only
             to fail again does not page the user with a "recovered" notice.
         """
         now = time.monotonic()
@@ -114,7 +114,7 @@ class CameraHealthTracker:
                         "reconnect_count": state.reconnect_count,
                     })
                     logger.warning(
-                        "[%s] Camera offline alert — down for %.0fs",
+                        "[%s] Camera offline alert - down for %.0fs",
                         name,
                         offline_secs,
                     )
@@ -138,7 +138,7 @@ class CameraHealthTracker:
                     state.outage_alerted = False
                     state.last_outage_duration = None
                     logger.info(
-                        "[%s] Camera recovery alert — was down %.0fs, "
+                        "[%s] Camera recovery alert - was down %.0fs, "
                         "stable for %.0fs",
                         name,
                         outage_secs,

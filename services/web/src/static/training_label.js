@@ -240,7 +240,7 @@
     var rect = canvas.getBoundingClientRect();
     var cw = canvas.width || 1;
     var ch = canvas.height || 1;
-    /* Clamp endpoints to canvas bounds — mouseup is document-wide, so
+    /* Clamp endpoints to canvas bounds - mouseup is document-wide, so
        releases outside the frame would otherwise produce boxes whose
        extents fall outside [0, 1] after normalization. */
     var endX = Math.max(0, Math.min(cw, e.clientX - rect.left));

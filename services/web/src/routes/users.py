@@ -2,7 +2,7 @@
 
 In v0.12.7 the binary ``is_admin`` flag was replaced with a three-value
 ``role`` enum (user / viewer / admin).  User management is still gated to
-admins only — viewers do not see this page at all.
+admins only - viewers do not see this page at all.
 
 Lockout protection: the "last admin" cannot be demoted, disabled, or
 deleted.  A SELECT COUNT guard in auth.count_active_admins() enforces
@@ -84,7 +84,7 @@ async def create_user(
 ) -> RedirectResponse:
     gate = require_admin(request)
     if not isinstance(gate, dict):
-        # require_admin returned a RedirectResponse — it happens to be the
+        # require_admin returned a RedirectResponse - it happens to be the
         # right type here, but cast for mypy.
         return gate  # type: ignore[return-value]
 
@@ -94,7 +94,7 @@ async def create_user(
     if len(password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
     if _is_common_password(password):
-        return _redirect_err("That password is too common — please pick a less predictable one.")
+        return _redirect_err("That password is too common - please pick a less predictable one.")
 
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
@@ -139,7 +139,7 @@ async def change_role(
         if target is None:
             return _redirect_err("User not found.")
 
-        # Cannot demote yourself (defence in depth — the UI also blocks this)
+        # Cannot demote yourself (defence in depth - the UI also blocks this)
         if target["id"] == current_user["user_id"] and role != ROLE_ADMIN:
             return _redirect_err("Cannot change your own role.")
 
@@ -150,7 +150,7 @@ async def change_role(
         ok = auth_module.try_demote_admin(db, user_id, role)
         if not ok:
             return _redirect_err(
-                "Cannot demote the last admin — promote another user first."
+                "Cannot demote the last admin - promote another user first."
             )
         uid, uname, ip = _actor(request)
         audit.record(
@@ -186,11 +186,11 @@ async def toggle_disable(request: Request, user_id: int) -> RedirectResponse:
             return _redirect_err("Cannot disable your own account.")
 
         new_disabled = not bool(target["disabled"])
-        # Atomic last-admin guard — see try_disable_admin docstring.
+        # Atomic last-admin guard - see try_disable_admin docstring.
         ok = auth_module.try_disable_admin(db, user_id, new_disabled)
         if not ok:
             return _redirect_err(
-                "Cannot disable the last active admin — promote another user first."
+                "Cannot disable the last active admin - promote another user first."
             )
         uid, uname, ip = _actor(request)
         audit.record(
@@ -227,7 +227,7 @@ async def change_password(
     if len(new_password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
     if _is_common_password(new_password):
-        return _redirect_err("That password is too common — please pick a less predictable one.")
+        return _redirect_err("That password is too common - please pick a less predictable one.")
 
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
@@ -267,11 +267,11 @@ async def delete_user(request: Request, user_id: int) -> RedirectResponse:
         target = auth_module.get_user_by_id(db, user_id)
         if target is None:
             return _redirect_err("User not found.")
-        # Atomic last-admin guard — see try_delete_admin docstring.
+        # Atomic last-admin guard - see try_delete_admin docstring.
         ok = auth_module.try_delete_admin(db, user_id)
         if not ok:
             return _redirect_err(
-                "Cannot delete the last active admin — promote another user first."
+                "Cannot delete the last active admin - promote another user first."
             )
         uid, uname, ip = _actor(request)
         audit.record(

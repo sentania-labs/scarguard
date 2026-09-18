@@ -236,7 +236,7 @@ class EmailNotifier:
 
         html = format_email_html(report)
         period = report.get("period_label", "Summary")
-        subject = f"ScarGuard Digest — {period}"
+        subject = f"ScarGuard Digest - {period}"
 
         msg = MIMEMultipart("alternative")
         msg["From"] = self._smtp_user

@@ -112,7 +112,7 @@ async def event_rows(
     date_from: str = "",
     date_to: str = "",
 ):
-    """HTMX partial — just the table body rows."""
+    """HTMX partial - just the table body rows."""
     offset = (page - 1) * PAGE_SIZE
     rows = db.get_events(
         limit=PAGE_SIZE, offset=offset,
@@ -169,7 +169,7 @@ async def submit_feedback(
             ):
                 bbox_str = json.dumps(parsed)
         except (json.JSONDecodeError, TypeError):
-            pass  # ignore malformed bbox — keep original
+            pass  # ignore malformed bbox - keep original
     db.update_feedback(event_id, feedback, corr, corrected_bbox=bbox_str)
     row = db.get_event(event_id)
     if row is None:
@@ -185,7 +185,7 @@ async def submit_feedback(
 
 @router.get("/stream")
 async def event_stream(request: Request):
-    """SSE stream — pushes a new event row fragment whenever a detection fires."""
+    """SSE stream - pushes a new event row fragment whenever a detection fires."""
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")

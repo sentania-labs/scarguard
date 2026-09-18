@@ -64,7 +64,7 @@ class TestRedactConfig:
         red = redact_config(full_config)
         assert red["cameras"][0]["rtsp_url"] == REDACTED_PLACEHOLDER
         assert red["cameras"][1]["rtsp_url"] == REDACTED_PLACEHOLDER
-        # Empty rtsp_url stays empty (not masked — nothing to hide)
+        # Empty rtsp_url stays empty (not masked - nothing to hide)
         assert red["cameras"][2]["rtsp_url"] == ""
 
     def test_masks_named_channels(self, full_config):

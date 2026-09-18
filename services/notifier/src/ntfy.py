@@ -1,4 +1,4 @@
-"""Ntfy push notification dispatcher — sends detection alerts via ntfy.sh."""
+"""Ntfy push notification dispatcher - sends detection alerts via ntfy.sh."""
 
 import logging
 from datetime import datetime
@@ -94,7 +94,7 @@ class NtfyNotifier:
         text = format_plain_text(report)
         url = f"{self._server}/{self._topic}"
         headers: dict[str, str] = {
-            "Title": f"ScarGuard Digest — {report.get('period_label', 'Summary')}",
+            "Title": f"ScarGuard Digest - {report.get('period_label', 'Summary')}",
             "Priority": "3",
             "Tags": "chart_with_upwards_trend",
         }

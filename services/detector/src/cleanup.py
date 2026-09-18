@@ -1,4 +1,4 @@
-"""Data retention — periodically prune old snapshots, events, visits, and metrics."""
+"""Data retention - periodically prune old snapshots, events, visits, and metrics."""
 
 import logging
 import sqlite3
@@ -38,7 +38,7 @@ class RetentionCleaner:
 
     def start(self) -> None:
         self._thread.start()
-        logger.info("Retention cleaner started — retention=%d days", self.retention_days)
+        logger.info("Retention cleaner started - retention=%d days", self.retention_days)
 
     def stop(self) -> None:
         self._stop.set()
@@ -59,7 +59,7 @@ class RetentionCleaner:
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.retention_days)
         cutoff_iso = cutoff.isoformat()
-        logger.info("Retention cleanup — cutoff=%s", cutoff.date().isoformat())
+        logger.info("Retention cleanup - cutoff=%s", cutoff.date().isoformat())
 
         self._prune_snapshots(cutoff)
         self._prune_db(cutoff_iso)

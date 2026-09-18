@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║              ScarGuard — Example Configuration File                        ║
+# ║              ScarGuard - Example Configuration File                        ║
 # ║                                                                              ║
 # ║  Copy this file to config/scarguard.yml and fill in your values.           ║
 # ║  Lines starting with '#' are comments and are ignored.                     ║
@@ -15,7 +15,7 @@ system:
   log_level: info
 
   # IANA timezone name used when displaying timestamps in the web UI and
-  # notifications.  All events are stored in UTC — this only affects display.
+  # notifications.  All events are stored in UTC - this only affects display.
   # Examples: "America/Los_Angeles", "America/Chicago", "America/New_York",
   #           "Europe/London", "Asia/Tokyo"
   # Leave as "UTC" to keep the existing behaviour.
@@ -82,14 +82,14 @@ system:
 # List one or more UniFi Protect cameras by their RTSP stream URL.
 #
 # Set the RTSP URL for each camera. The URL format depends on your camera
-# vendor — consult your camera's documentation. Examples:
+# vendor - consult your camera's documentation. Examples:
 #   UniFi Protect:  rtsp://<CAMERA-IP>:7447/<stream-token>
 #   Hikvision:      rtsp://<CAMERA-IP>:554/Streaming/Channels/102
 #   Reolink:        rtsp://<CAMERA-IP>:554/h264Preview_01_sub
 #
-# Use a 720p substream where available — 4K wastes GPU cycles.
+# Use a 720p substream where available - 4K wastes GPU cycles.
 cameras:
-  - name: pond-north                              # REQUIRED — display name
+  - name: pond-north                              # REQUIRED - display name
     rtsp_url: "rtsp://YOUR_CAMERA_IP:7447/YOUR_STREAM_TOKEN_1"  # REQUIRED
     enabled: true
     resolution: 720                               # Substream resolution hint (informational)
@@ -109,7 +109,7 @@ cameras:
   # Use class_name: "*" as a catch-all.  Omit notification_rules to notify
   # all channels.
   #
-  # v0.13.3 renamed this from `action_rules` — legacy key auto-migrated on
+  # v0.13.3 renamed this from `action_rules` - legacy key auto-migrated on
   # load.
   #
   # notification_rules:
@@ -148,8 +148,8 @@ detection:
   # Examples:
   #   model_path: /models/best.engine   # TensorRT engine (fastest on Jetson)
   #   model_path: /models/best.pt       # PyTorch weights (universal, slower)
-  #   model_path: /models/yolov8n.pt    # Starter model — detects generic "bird" class
-  model_path: /models/yolov8n.pt        # REQUIRED — update after adding your model
+  #   model_path: /models/yolov8n.pt    # Starter model - detects generic "bird" class
+  model_path: /models/yolov8n.pt        # REQUIRED - update after adding your model
 
   # Only trigger events above this confidence level (0.0–1.0).
   # Lower = more sensitive (more false positives); higher = stricter.
@@ -161,7 +161,7 @@ detection:
   # If using a custom heron model, use the classes it was trained with:
   #   [great_blue_heron, green_heron, duck, raccoon]
   target_classes:
-    - bird                                        # starter model — replace for custom model
+    - bird                                        # starter model - replace for custom model
 
   # Minimum time (seconds) between events for the same class on the same camera.
   # Prevents dozens of events for a heron standing still. 30s is a reasonable start.
@@ -183,7 +183,7 @@ detection:
 # were removed in v0.13.2 and are stripped from the file on the next save.
 notifications:
   channels: []
-  # Example channels — uncomment and adjust:
+  # Example channels - uncomment and adjust:
   #
   # channels:
   #   - name: pond-alerts
@@ -223,15 +223,15 @@ notifications:
 # ── TLS ───────────────────────────────────────────────────────────────────────
 # TLS is handled by the Caddy reverse proxy container.
 # Three modes:
-#   off     — HTTP only (default, for LAN use)
-#   auto    — Automatic HTTPS via Let's Encrypt (set domain to your public hostname)
-#   manual  — Your own cert/key files in the config volume's certs/ directory
+#   off     - HTTP only (default, for LAN use)
+#   auto    - Automatic HTTPS via Let's Encrypt (set domain to your public hostname)
+#   manual  - Your own cert/key files in the config volume's certs/ directory
 #
 # Changes are picked up by Caddy within a few seconds (no restart needed).
 # You can also configure this in the web UI under Settings > TLS.
 tls:
   mode: "off"                           # off | auto | manual
-  domain: ""                            # Public hostname — used for TLS and notification feedback links
+  domain: ""                            # Public hostname - used for TLS and notification feedback links
   cert_path: /config/certs/cert.pem     # Used in manual mode
   key_path: /config/certs/key.pem       # Used in manual mode
 
@@ -284,13 +284,13 @@ redis:
 # deterrent:
 #   enabled: true
 #
-#   # Tuya Cloud API credentials — get these from iot.tuya.com
+#   # Tuya Cloud API credentials - get these from iot.tuya.com
 #   tuya:
 #     api_key: "your-access-id"
 #     api_secret: "your-access-secret"
 #     api_region: "us"              # us | eu | cn | in
 #
-#   # Devices to control — one entry per physical device
+#   # Devices to control - one entry per physical device
 #   devices:
 #     - name: pond-north-valve
 #       device_id: "bf1234567890abcdef"
@@ -301,7 +301,7 @@ redis:
 #     #   type: light
 #     #   enabled: true
 #
-#   # Randomisation ranges — vary the response to prevent wildlife habituation
+#   # Randomisation ranges - vary the response to prevent wildlife habituation
 #   defaults:
 #     device_count_range: [1, 4]       # how many devices to fire per event
 #     spray_duration_range: [3, 8]     # seconds each device stays on
@@ -309,7 +309,7 @@ redis:
 #     pre_delay_range: [0, 3]          # seconds before sequence starts
 #     cooldown_seconds: 60             # minimum gap between actuation sequences
 #
-#   # Battery monitoring — alerts when device batteries run low
+#   # Battery monitoring - alerts when device batteries run low
 #   battery_monitor:
 #     enabled: true
 #     check_interval_hours: 24
@@ -334,7 +334,7 @@ backup:
 # training:
 #   sources:
 #     roboflow:
-#       api_key: ""                   # SENSITIVE — encrypted at rest
+#       api_key: ""                   # SENSITIVE - encrypted at rest
 #       datasets:
 #         - workspace: "your-workspace"
 #           project: "your-project"
@@ -347,7 +347,7 @@ backup:
 #       enabled: true                 # Include video upload annotations
 #
 #   defaults:
-#     # Ordered class list — order defines model class indices.
+#     # Ordered class list - order defines model class indices.
 #     # person/dog/cat/plant are distractors: trained so the model stops
 #     # calling humans/pets/vegetation "heron"; filtered at runtime via
 #     # detection.target_classes (never add plant there).

@@ -1,4 +1,4 @@
-/* ScarGuard — deterrent configuration page logic */
+/* ScarGuard - deterrent configuration page logic */
 
 // ── Page data from server (CSP-safe JSON data blocks) ─────────────────────────
 var _devices = JSON.parse(document.getElementById('devices-data').textContent);
@@ -304,7 +304,7 @@ function renderGroups() {
     card.className = 'camera-card';
     card.style.marginBottom = '0.75rem';
 
-    // Static structure only — no data interpolation in innerHTML.
+    // Static structure only - no data interpolation in innerHTML.
     card.innerHTML =
       '<div class="camera-card-header">' +
         '<span class="camera-card-title"></span>' +
@@ -366,13 +366,13 @@ function renderGroups() {
     cdInput.dataset.idx = i;
     if (_readOnly) cdInput.disabled = true;
 
-    // Device checkboxes — built entirely via DOM.
+    // Device checkboxes - built entirely via DOM.
     var devContainer = card.querySelector('.devices-container');
     if (!_devices.length) {
       var hint = document.createElement('span');
       hint.className = 'muted';
       hint.style.fontSize = '0.85rem';
-      hint.textContent = 'No devices registered yet — add some on the Devices tab.';
+      hint.textContent = 'No devices registered yet - add some on the Devices tab.';
       devContainer.appendChild(hint);
     } else {
       _devices.forEach(function(d) {
@@ -470,8 +470,8 @@ async function refreshLatency() {
       countEl.textContent = '';
       return;
     }
-    function fmtMs(v) { return v == null ? '—' : v.toFixed(0) + ' ms'; }
-    function fmtS(v) { return v == null ? '—' : v.toFixed(1) + ' s'; }
+    function fmtMs(v) { return v == null ? '-' : v.toFixed(0) + ' ms'; }
+    function fmtS(v) { return v == null ? '-' : v.toFixed(1) + ' s'; }
     tbody.innerHTML =
       '<tr><td style="padding:0.4rem 0.5rem;">Trigger delay <span class="muted" style="font-size:0.75rem;">(detection → dequeue)</span></td>' +
         '<td style="padding:0.4rem 0.5rem;">' + fmtMs(data.trigger_delay_ms.p50) + '</td>' +

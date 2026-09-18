@@ -1,4 +1,4 @@
-# ScarGuard — Model Training
+# ScarGuard: Model Training
 
 Fine-tune a YOLO model on detection data collected and labeled through ScarGuard.
 
@@ -11,8 +11,8 @@ Fine-tune a YOLO model on detection data collected and labeled through ScarGuard
 
 ## Workflow
 
-1. **Label detections** in the ScarGuard web UI — mark events as Correct, False Positive, or Wrong Class on the Events page
-2. **Export dataset** from the Training Data admin page — downloads a YOLO-format zip
+1. **Label detections** in the ScarGuard web UI: mark events as Correct, False Positive, or Wrong Class on the Events page
+2. **Export dataset** from the Training Data admin page: downloads a YOLO-format zip
 3. **Extract the zip** and run the training script
 4. **Evaluate** the trained model against stored snapshots using the Model Evaluation page
 5. **Promote** the model by copying the `.pt` file to your models directory and selecting it in config
@@ -22,7 +22,7 @@ Fine-tune a YOLO model on detection data collected and labeled through ScarGuard
 | Feedback | What lands in the export |
 |---|---|
 | **Correct** | Image + bbox label using the model's predicted class |
-| **Wrong Class** + corrected label | Image + bbox label using the *corrected* class. The bbox is the model's *original* detection — see the gotcha below. |
+| **Wrong Class** + corrected label | Image + bbox label using the *corrected* class. The bbox is the model's *original* detection, see the gotcha below. |
 | **False Positive** | Image + **empty** `.txt` label file. YOLO treats this as a background sample ("nothing of interest here") and learns what the *absence* of a target looks like in your specific environment. |
 
 ### Gotcha: corrected_class bbox
@@ -31,17 +31,17 @@ When you mark an event as **Wrong Class** and provide a corrected label
 (e.g. model said "person", you typed "heron"), the **bbox stored on
 that event is the model's original detection**, not a fresh box around
 the actual heron. So the corrected label is only useful when the model
-detected *near* the right place — i.e. it boxed something that overlaps
+detected *near* the right place, i.e. it boxed something that overlaps
 the real target.
 
 For events where the model boxed the wrong thing entirely (heron in the
 upper-right of the frame, model boxed a person in the foreground), the
 corrected label points YOLO at the wrong pixels. Two ways to handle:
 
-- **Skip those events** when labelling — leave them unlabelled rather
+- **Skip those events** when labelling: leave them unlabelled rather
   than corrupting the training set with bad bboxes.
-- **Wait for v1.15** — a "redraw bbox" UI affordance is planned for
-  v1.15 (paired with the polygon zone editor — same canvas tooling) so
+- **Wait for v1.15**: a "redraw bbox" UI affordance is planned for
+  v1.15 (paired with the polygon zone editor, same canvas tooling) so
   you can drop a fresh box on the actual target when correcting class.
 
 For the missing-detection case (heron in the frame, model didn't detect
@@ -103,7 +103,7 @@ dataset/
 └── labels/
     └── train/
         ├── 123.txt    # YOLO annotation: class_id x_center y_center width height
-        ├── 456.txt    # (empty file — false-positive event = background sample)
+        ├── 456.txt    # (empty file: false-positive event = background sample)
         └── ...
 ```
 
@@ -112,7 +112,7 @@ the snapshot with a zero-byte label file, which YOLO interprets as
 "no targets in this image." These act as negative / background
 samples during training.
 
-## prepare_dataset.py — merged dataset builder
+## prepare_dataset.py: merged dataset builder
 
 `prepare_dataset.py` automates the dataset merge: ScarGuard feedback
 events (via SSH or local DB), training-upload annotations, Roboflow
@@ -140,13 +140,13 @@ target silhouette (humans at the pond used to come back as "heron").
 Distractor training data is pulled automatically from Open Images;
 person/dog/cat/plant boxes you draw in the labeling UI count too.
 
-- `--classes` takes a comma-separated **ordered** list — order defines
+- `--classes` takes a comma-separated **ordered** list: order defines
   the model's class indices, so keep it stable between runs you intend
   to compare.
 - Labels that don't map to an active class are dropped with a warning:
   `--classes duck,heron,raccoon` reproduces the original 3-class
   behavior exactly.
-- At runtime, distractors are filtered by `detection.target_classes` —
+- At runtime, distractors are filtered by `detection.target_classes` , 
   see CONFIG_REFERENCE.md ("Distractor Classes & Runtime Behavior").
 
 ## Mixing third-party datasets
@@ -160,7 +160,7 @@ without targets).
 Workflow:
 
 1. Extract the ScarGuard export: `unzip scarguard_dataset.zip -d my_dataset`
-2. Note its `dataset/data.yaml` — list of class names and their
+2. Note its `dataset/data.yaml`: list of class names and their
    indices (e.g. `names: ['heron', 'person', 'raccoon']`).
 3. For each third-party dataset, **renumber its label files** so the
    class indices match your `data.yaml`. If a third-party heron
@@ -184,7 +184,7 @@ from your own false-positive captures.
 ## Jetson Orin Tips
 
 - Use `--batch 4` or `--batch 8` to fit in 8GB GPU memory
-- Use `--imgsz 640` (default) — larger sizes may OOM
+- Use `--imgsz 640` (default): larger sizes may OOM
 - Training runs significantly slower than x86 GPUs; consider training on a workstation and copying the `.pt` file to the Jetson
 - The trained `.pt` file can be converted to TensorRT `.engine` format for faster inference using `yolo export model=heron_v1.pt format=engine`
 
@@ -196,4 +196,4 @@ Training produces a `.pt` file. To use it:
 2. Update `detection.model_path` in `scarguard.yml` to point to the new model, or select it via the web UI Config page
 3. The detector service will hot-reload the new model without a restart
 
-**Model promotion is always manual** — the system never automatically deploys a trained model.
+**Model promotion is always manual**, the system never automatically deploys a trained model.

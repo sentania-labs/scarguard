@@ -20,7 +20,7 @@ permissions:
 
 jobs:
 
-  # ── Build & push — web (x86 runner) ─────────────────────────────────────────
+  # ── Build & push - web (x86 runner) ─────────────────────────────────────────
   release-web:
     name: Release web image
     runs-on: ubuntu-latest
@@ -48,7 +48,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push — web
+      - name: Build and push - web
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -67,7 +67,7 @@ jobs:
           cache-to: type=gha,scope=web,mode=max
 
 
-  # ── Build & push — notifier (x86 runner) ───────────────────────────────────
+  # ── Build & push - notifier (x86 runner) ───────────────────────────────────
   release-notifier:
     name: Release notifier image
     runs-on: ubuntu-latest
@@ -89,7 +89,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push — notifier
+      - name: Build and push - notifier
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -104,7 +104,7 @@ jobs:
           cache-to: type=gha,scope=notifier,mode=max
 
 
-  # ── Build & push — deterrent (x86 runner) ──────────────────────────────────
+  # ── Build & push - deterrent (x86 runner) ──────────────────────────────────
   release-deterrent:
     name: Release deterrent image
     runs-on: ubuntu-latest
@@ -126,7 +126,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push — deterrent
+      - name: Build and push - deterrent
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -141,7 +141,7 @@ jobs:
           cache-to: type=gha,scope=deterrent,mode=max
 
 
-  # ── Build & push — backup (x86 runner) ─────────────────────────────────────
+  # ── Build & push - backup (x86 runner) ─────────────────────────────────────
   release-backup:
     name: Release backup image
     runs-on: ubuntu-latest
@@ -163,7 +163,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push — backup
+      - name: Build and push - backup
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -178,7 +178,7 @@ jobs:
           cache-to: type=gha,scope=backup,mode=max
 
 
-  # ── Build & push — caddy (x86 runner) ──────────────────────────────────────
+  # ── Build & push - caddy (x86 runner) ──────────────────────────────────────
   release-caddy:
     name: Release caddy image
     runs-on: ubuntu-latest
@@ -200,7 +200,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push — caddy
+      - name: Build and push - caddy
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -215,7 +215,7 @@ jobs:
           cache-to: type=gha,scope=caddy,mode=max
 
 
-  # ── Build & push — log-streamer (x86 runner) ───────────────────────────────
+  # ── Build & push - log-streamer (x86 runner) ───────────────────────────────
   release-log-streamer:
     name: Release log-streamer image
     runs-on: ubuntu-latest
@@ -237,7 +237,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push — log-streamer
+      - name: Build and push - log-streamer
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -252,7 +252,7 @@ jobs:
           cache-to: type=gha,scope=log-streamer,mode=max
 
 
-  # ── Build & push — training lifecycle controller ─────────────────────────
+  # ── Build & push - training lifecycle controller ─────────────────────────
   release-training-controller:
     name: Release training-controller image
     runs-on: ubuntu-latest
@@ -270,7 +270,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push — training-controller
+      - name: Build and push - training-controller
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -284,7 +284,7 @@ jobs:
           cache-from: type=gha,scope=training-controller
           cache-to: type=gha,scope=training-controller,mode=max
 
-  # ── Build & push — detector (Orin runner, ARM64) ──────────────────────────
+  # ── Build & push - detector (Orin runner, ARM64) ──────────────────────────
   release-detector:
     name: Release detector image (Jetson)
     # ORIN-ONLY: real GPU smoke test and inference benchmark under the
@@ -318,7 +318,7 @@ jobs:
             --tag "$DETECTOR_IMAGE:latest" \
             .
 
-      # The Orin's GPU is single-tenant — take the pause-protocol lease so
+      # The Orin's GPU is single-tenant - take the pause-protocol lease so
       # the release benchmark never contends with the live detector or a
       # training run (v1.16.8 release benchmark was cancelled by exactly
       # that contention).
@@ -333,7 +333,7 @@ jobs:
             "$DETECTOR_IMAGE:$TAG" \
             python3 -c "
           import torch
-          assert torch.cuda.is_available(), 'CUDA not available — check NVIDIA runtime'
+          assert torch.cuda.is_available(), 'CUDA not available - check NVIDIA runtime'
           name = torch.cuda.get_device_name(0)
           cap  = torch.cuda.get_device_capability(0)
           print(f'GPU : {name}')
@@ -342,7 +342,7 @@ jobs:
           print('Smoke test passed')
           "
 
-      # Uses docker create + cp instead of bind mounts — self-hosted DinD
+      # Uses docker create + cp instead of bind mounts - self-hosted DinD
       # paths don't translate for volume mounts.
       - name: Inference benchmark (GPU)
         id: benchmark
@@ -380,8 +380,8 @@ jobs:
             | sort -u \
             | xargs -r docker rmi -f || true
 
-  # ── Build & push — trainer (Orin runner, ARM64) ─────────────────────────────
-  # Same L4T base as detector — ARM64 only, built on the Jetson runner.
+  # ── Build & push - trainer (Orin runner, ARM64) ─────────────────────────────
+  # Same L4T base as detector - ARM64 only, built on the Jetson runner.
   release-trainer:
     name: Release trainer image
     # Native arm64 GitHub-hosted runner. Build and push only, no GPU step.
@@ -423,7 +423,7 @@ jobs:
           docker push "$TRAINER_IMAGE:latest"
 
 
-  # ── Build & push — detector x86 (x86 runner) ─────────────────────────────
+  # ── Build & push - detector x86 (x86 runner) ─────────────────────────────
   release-detector-x86:
     name: Release detector image (x86)
     runs-on: ubuntu-latest
@@ -455,7 +455,7 @@ jobs:
             --tag "$DETECTOR_X86_IMAGE:latest" \
             .
 
-      # Uses docker create + cp instead of bind mounts — self-hosted DinD.
+      # Uses docker create + cp instead of bind mounts - self-hosted DinD.
       - name: Inference benchmark (CPU)
         id: benchmark
         run: |

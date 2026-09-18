@@ -5,7 +5,7 @@ line-length = 100
 [tool.ruff.lint]
 # E/W = pycodestyle, F = pyflakes, I = isort
 select = ["E", "F", "W", "I"]
-# E501 line-length — already enforced by the formatter, not the linter
+# E501 line-length - already enforced by the formatter, not the linter
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]

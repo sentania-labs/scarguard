@@ -1,4 +1,4 @@
-"""Webhook dispatcher — sends detection events as HTTP POST/PUT to a configured URL."""
+"""Webhook dispatcher - sends detection events as HTTP POST/PUT to a configured URL."""
 
 import logging
 from datetime import datetime
@@ -35,7 +35,7 @@ class WebhookNotifier:
         self._tz_name: str = tz_name
         if self._auth_token:
             self._headers.setdefault("Authorization", f"Bearer {self._auth_token}")
-        # SSRF defence-in-depth — Pydantic validates at config save, but a
+        # SSRF defence-in-depth - Pydantic validates at config save, but a
         # raw-YAML edit would bypass that. Validate again here so an
         # internal-pointing URL never reaches requests.request().
         allow_internal = bool(cfg.get("allow_internal", False))
@@ -44,7 +44,7 @@ class WebhookNotifier:
             self._enabled = True
         except UnsafeURLError as exc:
             logger.error(
-                "Webhook [%s] disabled — unsafe URL %r: %s",
+                "Webhook [%s] disabled - unsafe URL %r: %s",
                 self._name, self._url, exc,
             )
             self._enabled = False
@@ -56,7 +56,7 @@ class WebhookNotifier:
     def send(self, event: dict) -> None:
         if not self._enabled:
             logger.warning(
-                "Webhook [%s] suppressed — channel disabled at construction",
+                "Webhook [%s] suppressed - channel disabled at construction",
                 self._name,
             )
             return
@@ -91,7 +91,7 @@ class WebhookNotifier:
         """Send digest report as structured JSON."""
         if not self._enabled:
             logger.warning(
-                "Webhook [%s] digest suppressed — channel disabled",
+                "Webhook [%s] digest suppressed - channel disabled",
                 self._name,
             )
             return

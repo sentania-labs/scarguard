@@ -7,7 +7,7 @@ valves, lights, sirens, smart plugs).
 **Time required:** ~15 minutes
 
 **Difficulty:** Moderate (you'll be creating a developer account and linking
-your smart home app — no coding required)
+your smart home app, no coding required)
 
 ---
 
@@ -16,7 +16,7 @@ your smart home app — no coding required)
 Before you begin, make sure you have:
 
 1. **Smart Life or Tuya Smart app** installed on your phone (iOS or Android)
-2. **All deterrent devices paired** and controllable in the app — test each
+2. **All deterrent devices paired** and controllable in the app: test each
    device (turn on/off) before proceeding
 3. **An email address** for your Tuya IoT Platform developer account (use
    the **same email** as your Smart Life app account to simplify linking)
@@ -50,7 +50,7 @@ Before you begin, make sure you have:
      - **China** → `cn`
      - **India** → `in`
      
-     > **Important:** Remember which Data Center you choose — you'll need
+     > **Important:** Remember which Data Center you choose, you'll need
      > this as the `api_region` value in your ScarGuard config.
 
 4. Click **Create**
@@ -100,8 +100,8 @@ This step connects your physical devices to the Cloud API.
 
 1. Navigate to your project's **Overview** page (click the project name)
 2. Find these two values:
-   - **Access ID / Client ID** — this is your `api_key`
-   - **Access Secret / Client Secret** — click "Show" to reveal, then copy
+   - **Access ID / Client ID**: this is your `api_key`
+   - **Access Secret / Client Secret**: click "Show" to reveal, then copy
 
 > **Keep these secret.** Anyone with these credentials can control your devices.
 
@@ -172,7 +172,7 @@ deterrent:
    ```
    ScarGuard deterrent service starting
    Tuya Cloud controller initialised (region=us)
-   Actuation enabled — N device(s) registered, cooldown 60s
+   Actuation enabled - N device(s) registered, cooldown 60s
    Subscribed to Redis channel: scarguard:detections
    ```
 4. When a detection event fires, the deterrent service will activate your
@@ -183,7 +183,7 @@ deterrent:
 ## Troubleshooting
 
 ### "sign invalid" error
-- Double-check `api_key` and `api_secret` — copy-paste directly from iot.tuya.com
+- Double-check `api_key` and `api_secret`: copy-paste directly from iot.tuya.com
 - Verify `api_region` matches the Data Center you selected in Step 2
   (Western America = `us`, Central Europe = `eu`)
 
@@ -193,7 +193,7 @@ deterrent:
 
 ### "device offline" error
 - Open the Smart Life app and verify you can still control the device
-- Battery-powered devices sleep between cloud check-ins — this is normal.
+- Battery-powered devices sleep between cloud check-ins: this is normal.
   The Cloud API queues commands for pickup on the next wake cycle (~1-2s)
 
 ### No devices appear after linking
@@ -205,7 +205,7 @@ deterrent:
 - Tuya's free tier allows approximately 500 API calls/day
 - Each actuation sequence uses ~2 API calls per device (ON + OFF)
 - With 4 devices and a 60-second cooldown, you'd need ~60 events/day
-  to approach the limit — unlikely in normal operation
+  to approach the limit, unlikely in normal operation
 
 ---
 
@@ -221,18 +221,18 @@ deterrent:
 
 ---
 
-## Known Latency Caveat — Battery Devices
+## Known Latency Caveat: Battery Devices
 
 Battery-powered Tuya devices (hose-timer valves, battery sirens) **sleep
 their WiFi radio between Cloud beacons** to extend battery life.  When
 ScarGuard sends an ON command:
 
-1. Tuya Cloud accepts the command and queues it (fast — returns `success`
+1. Tuya Cloud accepts the command and queues it (fast: returns `success`
    on the ack channel in ~100–500 ms).
 2. The physical device doesn't act until its next beacon checks in, which
    can be **seconds to tens of seconds** after the ack.
 
-The Latency tab on `/admin/deterrent` shows `cloud_ack_ms` — the cloud-side
+The Latency tab on `/admin/deterrent` shows `cloud_ack_ms`, the cloud-side
 ack time only.  The actual physical response can be longer.  The actuation
 log also persists `trigger_delay_ms` (detection → deterrent dequeue) for
 full end-to-end diagnosis.
@@ -240,7 +240,7 @@ full end-to-end diagnosis.
 If first-shot latency on a battery valve proves consistently unworkable for
 your pond-protection use case, practical mitigations are limited.  The
 parked "Tuya LAN fallback" idea in the ROADMAP is explicitly NOT viable
-for battery devices — LAN TCP cannot reach a sleeping WiFi radio.  Mains-
+for battery devices, LAN TCP cannot reach a sleeping WiFi radio.  Mains-
 powered devices (light switches, plug-in sirens) do not have this problem.
 
 ## What's Next
@@ -249,7 +249,7 @@ From v0.13.3, the deterrent service only fires when you **opt-in per
 camera/class**.  The flow is:
 
 1. Register devices on `/admin/deterrent` → **Devices** tab.
-2. Create one or more **groups** on the **Groups** tab — each group is a
+2. Create one or more **groups** on the **Groups** tab: each group is a
    named subset of devices with its own randomization + cooldown.
 3. On the Config page, open a camera card (Cameras sub-tab) and add
    **Deterrent Rules** linking a detection class (e.g. `great_blue_heron`)

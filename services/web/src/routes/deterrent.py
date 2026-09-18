@@ -1,4 +1,4 @@
-"""Deterrent admin page — Tuya credentials, device management, test-fire, status."""
+"""Deterrent admin page - Tuya credentials, device management, test-fire, status."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 @router.get("", response_class=HTMLResponse)
 async def deterrent_page(request: Request) -> Response:
-    """Deterrent config page — Tuya credentials and device list."""
+    """Deterrent config page - Tuya credentials and device list."""
     gate = require_viewer(request)
     if not isinstance(gate, dict):
         return gate
@@ -106,7 +106,7 @@ async def deterrent_page(request: Request) -> Response:
 
 @router.post("", response_class=JSONResponse)
 async def save_deterrent(request: Request) -> Response:
-    """Save deterrent config — admin only."""
+    """Save deterrent config - admin only."""
     gate = require_admin(request, is_api=True)
     if not isinstance(gate, dict):
         return gate
@@ -121,7 +121,7 @@ async def save_deterrent(request: Request) -> Response:
     if not isinstance(existing_act, dict):
         existing_act = {}
 
-    # Update tuya credentials — only persist if both required fields are
+    # Update tuya credentials - only persist if both required fields are
     # present to avoid writing a partial block that breaks service startup.
     # Redacted placeholder values are ignored (viewer submitted the form).
     tuya_input = body.get("tuya", {})
@@ -145,11 +145,11 @@ async def save_deterrent(request: Request) -> Response:
             existing_tuya["api_region"] = eff_region
             existing_act["tuya"] = existing_tuya
         elif not eff_key and not eff_secret:
-            # Both cleared — remove tuya block entirely
+            # Both cleared - remove tuya block entirely
             existing_act.pop("tuya", None)
-        # else: one field set, one empty — keep existing tuya unchanged
+        # else: one field set, one empty - keep existing tuya unchanged
 
-    # Update devices list — preserve dp_code overrides not exposed in UI
+    # Update devices list - preserve dp_code overrides not exposed in UI
     devices_input = body.get("devices")
     if isinstance(devices_input, list):
         # Build lookup of existing dp_code by device_id
@@ -194,7 +194,7 @@ async def save_deterrent(request: Request) -> Response:
         if isinstance(d, dict) and isinstance(d.get("name"), str)
     }
 
-    # Update groups — list of {name, devices[], cooldown_seconds,
+    # Update groups - list of {name, devices[], cooldown_seconds,
     # optional *_range overrides}.  Validates and coerces types; unknown
     # extra fields are dropped; device names unknown to the registry are
     # filtered out (orphan rejection) with a warning log.
@@ -217,7 +217,7 @@ async def save_deterrent(request: Request) -> Response:
             orphaned = [n for n in requested_names if n not in registered_names]
             if orphaned:
                 log.warning(
-                    "Group %r references unknown device name(s) %s — dropping",
+                    "Group %r references unknown device name(s) %s - dropping",
                     name, orphaned,
                 )
             entry: dict[str, Any] = {
@@ -263,7 +263,7 @@ async def save_deterrent(request: Request) -> Response:
     existing["deterrent"] = existing_act
     config_store.save(existing)
 
-    log.info("Deterrent config saved — %d device(s)", len(existing_act.get("devices", [])))
+    log.info("Deterrent config saved - %d device(s)", len(existing_act.get("devices", [])))
     return JSONResponse({"ok": True})
 
 
@@ -316,7 +316,7 @@ async def _redis_request(
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-        return {"ok": False, "error": "Request timed out — deterrent service may not be running"}
+        return {"ok": False, "error": "Request timed out - deterrent service may not be running"}
     finally:
         await pubsub.unsubscribe(result_channel)
         await client.close()
@@ -327,7 +327,7 @@ async def _redis_request(
     dependencies=[Depends(rate_limit("test-fire", capacity=10, window_seconds=60))],
 )
 async def test_fire(request: Request) -> Response:
-    """Fire a single device for testing — admin only."""
+    """Fire a single device for testing - admin only."""
     gate = require_admin(request, is_api=True)
     if not isinstance(gate, dict):
         return gate
@@ -379,9 +379,9 @@ async def test_fire(request: Request) -> Response:
     dependencies=[Depends(rate_limit("force-off", capacity=5, window_seconds=60))],
 )
 async def force_off(request: Request) -> Response:
-    """Emergency OFF — force every configured device OFF regardless of state.
+    """Emergency OFF - force every configured device OFF regardless of state.
 
-    Admin only. No duration, no retry logic — the deterrent service sends
+    Admin only. No duration, no retry logic - the deterrent service sends
     OFF to each device and returns a per-device success map. Use this when
     a sprinkler is stuck on or you suspect the actuation state has drifted.
     """
@@ -401,7 +401,7 @@ async def force_off(request: Request) -> Response:
 async def latency_summary(request: Request) -> Response:
     """Return p50/p95 latency percentiles over the last N actuations.
 
-    Viewer-accessible — diagnostic data, no secrets.
+    Viewer-accessible - diagnostic data, no secrets.
     """
     gate = require_viewer(request)
     if not isinstance(gate, dict):
@@ -427,7 +427,7 @@ async def device_status(request: Request) -> Response:
 
 # ── Deterrent stuck-device SSE stream ───────────────────────────────────────
 # Separate router so the endpoint lives at /deterrent-stuck/stream (global,
-# not admin-prefixed — the banner shows on every page via base.html).
+# not admin-prefixed - the banner shows on every page via base.html).
 
 STUCK_CHANNEL = "scarguard:deterrent:stuck"
 
@@ -436,7 +436,7 @@ stuck_router = APIRouter(prefix="/deterrent-stuck")
 
 @stuck_router.get("/stream")
 async def stuck_stream(request: Request) -> StreamingResponse:
-    """SSE stream — pushes stuck-device events for the global sticky banner."""
+    """SSE stream - pushes stuck-device events for the global sticky banner."""
     cfg = config_store.load_cached()
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")

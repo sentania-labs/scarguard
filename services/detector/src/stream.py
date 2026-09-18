@@ -100,7 +100,7 @@ class RTSPStream:
         if self._consecutive_failures >= self.LONG_BACKOFF_AFTER_FAILURES:
             wait_sec = self.LONG_BACKOFF_SEC
             logger.warning(
-                "[%s] Stream offline for %d attempts — backing off to %.0f min between retries",
+                "[%s] Stream offline for %d attempts - backing off to %.0f min between retries",
                 self.name, self._consecutive_failures, wait_sec / 60.0,
             )
         else:
@@ -112,7 +112,7 @@ class RTSPStream:
                 min(self._current_delay * 2, self._max_reconnect_delay),
             )
         # wait() returns True immediately if stop_event is already set,
-        # or when it becomes set during the wait — either way we abort.
+        # or when it becomes set during the wait - either way we abort.
         if self._stop_event.wait(timeout=wait_sec):
             return False
         success = self._open()
@@ -131,7 +131,7 @@ class RTSPStream:
 
         ret, frame = self._cap.read()
         if not ret:
-            logger.warning("[%s] Read failed — stream dropped", self.name)
+            logger.warning("[%s] Read failed - stream dropped", self.name)
             self._cap.release()
             self._cap = None
             return False, None
@@ -152,7 +152,7 @@ class RTSPStream:
 
         ret = self._cap.grab()
         if not ret:
-            logger.warning("[%s] Grab failed — stream dropped", self.name)
+            logger.warning("[%s] Grab failed - stream dropped", self.name)
             self._cap.release()
             self._cap = None
             return False

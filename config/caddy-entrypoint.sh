@@ -1,14 +1,14 @@
 #!/bin/sh
-# ScarGuard — Caddy entrypoint
+# ScarGuard - Caddy entrypoint
 #
 # Reads the tls section from scarguard.yml, generates a Caddyfile, starts
 # Caddy, and watches for config changes (same mtime-polling pattern used by
 # the detector and notifier services).
 #
 # TLS modes:
-#   off     — HTTP only on :80 (default)
-#   auto    — Let's Encrypt via domain name
-#   manual  — User-provided cert/key files
+#   off     - HTTP only on :80 (default)
+#   auto    - Let's Encrypt via domain name
+#   manual  - User-provided cert/key files
 #
 # Requires: caddy, python3 (Alpine base includes both in the Caddy image
 # when python3 is added; see docker-compose.yml).
@@ -46,12 +46,12 @@ https_port = os.environ.get("HTTPS_PORT", "443").strip()
 
 # Common snippet: security headers + probe-path deny + reverse proxy.
 #
-# NOTE: this is the *active* Caddy config — config/Caddyfile.template is
+# NOTE: this is the *active* Caddy config - config/Caddyfile.template is
 # a reference document only and is NOT read at runtime.  Keep any config
 # changes here, not there (an earlier attempt in v0.12.8 edited the
 # template and had no effect in production).
 #
-# NOTE: Caddy's `caddy fmt` linter expects tab indentation. Edit with care —
+# NOTE: Caddy's `caddy fmt` linter expects tab indentation. Edit with care -
 # replacing tabs with spaces will resurrect the "Caddyfile input is not
 # formatted" warning v0.12.10 cleared (the v0.12.8 fmt fix was applied to
 # Caddyfile.template by mistake and never reached the active config).
@@ -87,7 +87,7 @@ if config_api_enabled:
 \treverse_proxy @config_writes config-api:8081
 \treverse_proxy @config_restore config-api:8081
 """
-    print("[caddy-entrypoint] Config-API split enabled — routing write POSTs to config-api:8081", file=sys.stderr)
+    print("[caddy-entrypoint] Config-API split enabled - routing write POSTs to config-api:8081", file=sys.stderr)
 else:
     config_api_block = ""
 
@@ -103,7 +103,7 @@ snippet = """(scarguard) {
 \t\t-Server
 \t}
 \t# Drop common bot-probe paths at the edge so they never reach FastAPI.
-\t# 404 (not 403) is intentional — quieter, looks like the path doesn't
+\t# 404 (not 403) is intentional - quieter, looks like the path doesn't
 \t# exist so scanners are less likely to follow up with more probes.
 \t@probes {
 \t\tpath /.git/* /_ignition/* /aws*config.js /config.js
@@ -140,7 +140,7 @@ elif mode == "manual":
             missing.append(f"cert ({cert_path})")
         if not key_ok:
             missing.append(f"key ({key_path})")
-        print(f"[caddy-entrypoint] TLS mode=manual but missing: {', '.join(missing)} — falling back to HTTP", file=sys.stderr)
+        print(f"[caddy-entrypoint] TLS mode=manual but missing: {', '.join(missing)} - falling back to HTTP", file=sys.stderr)
         body = f"""{snippet}
 :80 {{
 \timport scarguard
@@ -148,7 +148,7 @@ elif mode == "manual":
 """
 else:
     if mode not in ("off", ""):
-        print(f"[caddy-entrypoint] Unknown tls.mode '{mode}' — defaulting to HTTP", file=sys.stderr)
+        print(f"[caddy-entrypoint] Unknown tls.mode '{mode}' - defaulting to HTTP", file=sys.stderr)
     body = f"""{snippet}
 :80 {{
 \timport scarguard
@@ -178,11 +178,11 @@ watch_config() {
         fi
 
         if [ "$CURRENT_MTIME" != "$LAST_MTIME" ] && [ -n "$CURRENT_MTIME" ]; then
-            echo "[caddy-entrypoint] Config changed — regenerating Caddyfile and reloading Caddy" >&2
+            echo "[caddy-entrypoint] Config changed - regenerating Caddyfile and reloading Caddy" >&2
             generate_caddyfile
             # Caddy reloads config from the Caddyfile via its admin API.
             caddy reload --config "$CADDYFILE" --adapter caddyfile 2>&1 || \
-                echo "[caddy-entrypoint] WARNING: Caddy reload failed — check Caddyfile syntax" >&2
+                echo "[caddy-entrypoint] WARNING: Caddy reload failed - check Caddyfile syntax" >&2
             LAST_MTIME="$CURRENT_MTIME"
         fi
     done

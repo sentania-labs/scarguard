@@ -6,14 +6,14 @@ previously duplicated across route files.  Defines the three role tiers
 
 Predicates (return bool, no side effects):
     - is_authenticated(request)
-    - has_user_access(request)   — any authenticated role
-    - has_viewer_access(request) — viewer or admin
-    - has_admin_access(request)  — admin only
-    - current_user(request)      — the user dict, or None
-    - current_role(request)      — 'user' / 'viewer' / 'admin' / ''
+    - has_user_access(request)   - any authenticated role
+    - has_viewer_access(request) - viewer or admin
+    - has_admin_access(request)  - admin only
+    - current_user(request)      - the user dict, or None
+    - current_role(request)      - 'user' / 'viewer' / 'admin' / ''
 
 Guards (return the user dict on success, or a Response to return from the
-route handler — the caller checks ``isinstance(result, dict)``):
+route handler - the caller checks ``isinstance(result, dict)``):
     - require_user(request, is_api=False)
     - require_viewer(request, is_api=False)
     - require_admin(request, is_api=False)

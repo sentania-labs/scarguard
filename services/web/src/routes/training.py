@@ -52,7 +52,7 @@ async def training_dashboard(
     # Build per-class data for the bar chart.  Training-positive count =
     # correct + wrong_class (a wrong_class correction relabels the bbox to
     # this effective class, so it's a training sample for it).  False
-    # positives are tracked separately — they become background samples in
+    # positives are tracked separately - they become background samples in
     # the export, not labeled instances.
     by_class = stats["by_class"]
     max_positive = max(
@@ -99,7 +99,7 @@ async def export_dataset(
 ) -> Response:
     """Generate a YOLO-format dataset zip from confirmed detections.
 
-    Admin only — exporting labeled data is treated as a write-equivalent
+    Admin only - exporting labeled data is treated as a write-equivalent
     action (data leaves the system) so viewers are blocked.
     """
     gate = require_admin(request)
@@ -117,7 +117,7 @@ async def export_dataset(
         )
 
     # Build class-to-index mapping from distinct labels.  Skip false
-    # positives — they become background samples (image with empty label
+    # positives - they become background samples (image with empty label
     # file) and don't contribute a class to data.yaml.
     class_set: set[str] = set()
     for r in rows:
@@ -156,7 +156,7 @@ async def export_dataset(
             snapshot_path = row["snapshot_path"]
             is_negative = row["feedback"] == "false_positive"
 
-            # Copy snapshot image (always — positives and negatives both
+            # Copy snapshot image (always - positives and negatives both
             # need the pixels; only the label file differs)
             src_path = Path(snapshot_path)
             if not src_path.exists():
@@ -273,7 +273,7 @@ async def start_evaluation(
 ) -> Response:
     """Publish an evaluation request to Redis for the detector to process.
 
-    Admin only — kicking off an evaluation runs GPU inference on the
+    Admin only - kicking off an evaluation runs GPU inference on the
     detector and is a write-equivalent action.
     """
     gate = require_admin(request)
@@ -284,7 +284,7 @@ async def start_evaluation(
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
 
-    # Resolve model paths — validate against directory listing to avoid
+    # Resolve model paths - validate against directory listing to avoid
     # path traversal (CodeQL py/path-injection).
     allowed = {f.name for f in MODELS_DIR.iterdir() if f.is_file()} if MODELS_DIR.is_dir() else set()
     for raw_name in (model_a, model_b):
@@ -319,7 +319,7 @@ async def start_evaluation(
 
 @router.get("/evaluate/stream")
 async def evaluate_stream(request: Request) -> Response:
-    """SSE stream — polls Redis for evaluation progress and results.
+    """SSE stream - polls Redis for evaluation progress and results.
 
     Read-only; viewers can watch an in-flight evaluation kicked off by an
     admin.
@@ -375,7 +375,7 @@ async def promote_model(
 ) -> Response:
     """Update the active model in scarguard.yml, triggering hot-reload.
 
-    Admin only — changes the active detection model for all cameras.
+    Admin only - changes the active detection model for all cameras.
     """
     gate = require_admin(request)
     if not isinstance(gate, dict):

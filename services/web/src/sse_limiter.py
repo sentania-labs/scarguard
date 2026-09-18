@@ -67,7 +67,7 @@ async def sse_connection(
         pipe.expire(_GLOBAL_KEY, SET_TTL_SEC)
         await pipe.execute()
     except Exception:
-        logger.debug("Failed to register SSE stream — allowing anyway")
+        logger.debug("Failed to register SSE stream - allowing anyway")
         yield stream_id
         return
 

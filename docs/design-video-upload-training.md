@@ -4,18 +4,18 @@
 
 Two features in one branch, sharing the pause/resume infrastructure:
 
-**Feature A — Video-as-training-source.** Upload short video clips (UniFi
+**Feature A, Video-as-training-source.** Upload short video clips (UniFi
 exports, phone recordings), run low-confidence YOLO inference across every
 frame, surface candidate detections in a labeling queue, feed approved labels
 into the training dataset as a fourth source alongside Orin DB / Roboflow /
 Open Images.
 
-**Feature B — Web UI training.** Kick off `prepare_dataset.py` →
+**Feature B, Web UI training.** Kick off `prepare_dataset.py` →
 `train.py` from the admin UI.  The detector pauses inference in-process,
 yielding the GPU to the trainer.  On completion (or failure), the detector
 resumes automatically.
 
-Both features build on the existing training pipeline — `prepare_dataset.py`
+Both features build on the existing training pipeline, `prepare_dataset.py`
 and `train.py` remain CLI-runnable with no behavioral changes.
 
 ---
@@ -48,9 +48,9 @@ and `train.py` remain CLI-runnable with no behavioral changes.
           ▼                              ▼
   ┌───────────────────────────────────────────────────┐
   │  Shared Volumes                                   │
-  │  /data    — scarguard.db, snapshots, training_uploads │
-  │  /models  — .pt / .engine files                   │
-  │  /config  — scarguard.yml                         │
+  │  /data   : scarguard.db, snapshots, training_uploads │
+  │  /models : .pt / .engine files                   │
+  │  /config : scarguard.yml                         │
   └───────────────────────────────────────────────────┘
 ```
 
@@ -212,16 +212,16 @@ timeout is generous.
 
 Add to `services/detector/src/main.py`:
 
-1. **`paused_ref: AtomicRef[bool]`** — checked in `run_camera()` before
+1. **`paused_ref: AtomicRef[bool]`**: checked in `run_camera()` before
    `detector.predict()`, same position as the existing `armed_ref` check.
    When True, the camera thread skips inference and sleeps 1 second (drops
    frames; this is a maintenance window).
 
-2. **`_command_listener` thread** — subscribes to
+2. **`_command_listener` thread**: subscribes to
    `scarguard:detector:command`, calls `_handle_pause()` /
    `_handle_resume()` on the ModelPool and AtomicRef.
 
-3. **Heartbeat watcher** — when paused, polls
+3. **Heartbeat watcher**: when paused, polls
    `scarguard:trainer:heartbeat` every 30s.  Auto-resumes if the key
    is missing (trainer died) OR if `timeout` seconds have elapsed since
    pause began.
@@ -243,8 +243,8 @@ pipeline logic.
 | Training child is host-OOM killed | Trainer parent records signal/resource evidence and releases; if the parent also dies, controller recovery applies |
 
 **Hard requirement:** the detector must never remain paused indefinitely.
-The persisted controller lease—not `torch.cuda.empty_cache()` or a hoped-for
-trainer container restart—is the recovery authority. The older Redis pause
+The persisted controller lease, not `torch.cuda.empty_cache()` or a hoped-for
+trainer container restart, is the recovery authority. The older Redis pause
 protocol remains available to CI's short GPU lease, but production training
 uses the hard-isolation path below.
 
@@ -283,14 +283,14 @@ User                Web Service              Disk
 
 - **Max duration: 1 minute.**  The upload handler probes the video with
   OpenCV (`CAP_PROP_FRAME_COUNT / CAP_PROP_FPS`) and rejects anything over
-  60 seconds.  At 30 fps that's ≤ 1,800 frames (~180 MB of JPEGs) — bounded
+  60 seconds.  At 30 fps that's ≤ 1,800 frames (~180 MB of JPEGs), bounded
   and manageable on the Orin's storage.
 - Max upload file size: configurable via `TRAINING_UPLOAD_MAX_BYTES` env var
   (default 500 MB).  Chunked upload using the same pattern as model uploads
   (`routes/models.py`).
 - Accepted formats: `.mp4`, `.avi`, `.mkv`, `.mov` (validated by extension +
   OpenCV probe on first frame).
-- `target_class_hint`: form dropdown — duck / heron / raccoon / background.
+- `target_class_hint`: form dropdown: duck / heron / raccoon / background.
 
 ### 5.2 Video processing
 
@@ -337,10 +337,10 @@ acquires once, processes all uploads sequentially, releases once. The
 There is a single inference pass per frame at `conf=0.05`.  The "two-pass"
 label is a post-hoc classification:
 
-- **`pass='normal'`** — confidence ≥ the model's configured threshold
+- **`pass='normal'`**: confidence ≥ the model's configured threshold
   (from `detection.confidence_threshold` in scarguard.yml).  These are
   detections the live system would have caught.
-- **`pass='low'`** — confidence between 0.05 and the normal threshold.
+- **`pass='low'`**: confidence between 0.05 and the normal threshold.
   These are the high-value training samples the model is uncertain about.
 
 The labeling UI exposes a filter/sort by pass so the user can prioritize
@@ -377,7 +377,7 @@ These can also be overridden per-job in the POST body.
 
 The labeling queue is a web UI for reviewing `training_events` records.
 
-**View:** Renders one detection at a time — frame image with bbox overlay,
+**View:** Renders one detection at a time, frame image with bbox overlay,
 predicted class and confidence, pass (easy/hard badge), target class hint.
 
 **Actions (one keystroke each):**
@@ -395,9 +395,9 @@ pending detections sorted by confidence descending within each upload.
 
 **Bulk operations:**
 
-- "Approve All Normal" — approves all `pass='normal'` detections in an
+- "Approve All Normal": approves all `pass='normal'` detections in an
   upload (the model was confident; these are likely correct).
-- "Reject All" — rejects all pending detections in an upload.
+- "Reject All": rejects all pending detections in an upload.
 
 ### 5.6 Background uploads
 
@@ -412,7 +412,7 @@ When `target_class_hint = 'background'`:
 - The sample interval is configurable via
   `training.video.background_sample_interval` (default `10`) and can be
   overridden per-job.
-- The labeling UI shows a banner: "Background upload — sampled frames will
+- The labeling UI shows a banner: "Background upload: sampled frames will
   be exported as negative samples.  Review detections below to reject false
   alarms."
 
@@ -537,7 +537,7 @@ New `training` section alongside existing top-level sections:
 training:
   sources:
     roboflow:
-      api_key: ""                           # SENSITIVE — encrypted at rest
+      api_key: ""                           # SENSITIVE: encrypted at rest
       datasets:
         - workspace: "louis-berndroth2-gmail-com"
           project: "heron-detection"
@@ -590,7 +590,7 @@ credential pattern:
   the training key.  The config form's "Reveal Secrets" button works as-is.
 - **Fail fast:** When a job requires Roboflow data and the key is empty or
   missing, the job fails immediately with error `"Roboflow API key not
-  configured — set training.sources.roboflow.api_key in scarguard.yml"`.
+  configured, set training.sources.roboflow.api_key in scarguard.yml"`.
 
 ---
 
@@ -800,7 +800,7 @@ Add to the admin nav (alongside existing Training, Evaluate links):
 
 - Upload form at top: file input + target class hint dropdown + submit
   button.
-- Table below: all uploads with columns — filename, hint, frame count,
+- Table below: all uploads with columns: filename, hint, frame count,
   detection count, status, created, actions (Process / Label / Delete).
 - "Process All Pending" button submits a `process_video` job for all
   `status='uploaded'` entries.
@@ -851,7 +851,7 @@ New "Training" sub-tab in the config page (`/config`):
   patience, val split.
 - Video processing params: low confidence, dedupe IoU, dedupe window.
 
-Follows the existing config form pattern — fields organized in
+Follows the existing config form pattern, fields organized in
 `.card` / `.field-group` / `.field-row` divs, expert-mode toggle for
 advanced params.
 
@@ -978,7 +978,7 @@ Atomic commits per logical chunk, in implementation order:
 
 1. **Max video duration: 1 minute.**  Upload handler rejects videos over
    60 seconds (configurable via `training.video.max_duration_seconds`).
-   At 30 fps that's ≤ 1,800 frames / ~180 MB of JPEGs — bounded.
+   At 30 fps that's ≤ 1,800 frames / ~180 MB of JPEGs, bounded.
 
 2. **Background sample volume: auto-sample every Nth frame** (default
    N=10, configurable via `training.video.background_sample_interval`).

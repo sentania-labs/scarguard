@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Audit Log — ScarGuard{% endblock %}
+{% block title %}Audit Log - ScarGuard{% endblock %}
 {% block content %}
 <h1>Audit Log</h1>
 <p class="muted" style="font-size:0.85rem;margin-bottom:1rem;">
@@ -44,7 +44,7 @@
     {% for e in events %}
       <tr>
         <td class="muted" style="font-size:0.8rem;white-space:nowrap;">{{ e.ts[:19] | replace("T", " ") }}</td>
-        <td>{{ e.username or "—" }}</td>
+        <td>{{ e.username or "-" }}</td>
         <td><code style="font-size:0.85rem;">{{ e.action }}</code></td>
         <td class="muted" style="font-size:0.85rem;">{{ e.resource or "" }}</td>
         <td class="muted" style="font-size:0.85rem;">{{ e.client_ip or "" }}</td>

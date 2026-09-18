@@ -31,9 +31,9 @@ services:
       # GitHub is retiring Node 20 action runtimes; runners are Node 24-capable
       - FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true
     volumes:
-      # Persistent runner config — survives rebuilds, avoids re-registration
+      # Persistent runner config - survives rebuilds, avoids re-registration
       - runner-data:/home/runner
-      # Docker socket mount — runner issues commands to host Docker daemon
+      # Docker socket mount - runner issues commands to host Docker daemon
       - /var/run/docker.sock:/var/run/docker.sock
       # Timezone sync
       - /etc/localtime:/etc/localtime:ro

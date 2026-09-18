@@ -2,11 +2,11 @@
 
 Two layers:
 
-- ``CooldownTracker`` — a single global gate protecting against repeat
+- ``CooldownTracker`` - a single global gate protecting against repeat
   actuations of any kind inside ``defaults.cooldown_seconds``.  Prevents
   cross-group rapid-fire (e.g. camera A firing "minor" and camera B firing
   "thermonuclear" 50 ms apart).
-- ``GroupCooldownTracker`` — per-group gate gating repeat firings of the
+- ``GroupCooldownTracker`` - per-group gate gating repeat firings of the
   same named group.  Lets you run a long group cooldown (10 min for
   "thermonuclear") on top of a short global one (30 s).
 """

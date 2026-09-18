@@ -1,4 +1,4 @@
-"""Tests for shared/rate_limit.py — Redis-backed fixed-window counter.
+"""Tests for shared/rate_limit.py - Redis-backed fixed-window counter.
 
 Lives under deterrent tests because any service importing the shared
 module needs the same coverage; running from here exercises the exact
@@ -73,7 +73,7 @@ def test_fail_open_on_redis_error(fake_redis: MagicMock) -> None:
 
 
 def test_zero_capacity_always_allows(fake_redis: MagicMock) -> None:
-    """Degenerate config — capacity=0 or window=0 disables the limit."""
+    """Degenerate config - capacity=0 or window=0 disables the limit."""
     limiter = RateLimiter(fake_redis)
     allowed, _ = limiter.check("user:1", "s", capacity=0, window_seconds=60)
     assert allowed is True

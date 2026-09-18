@@ -13,7 +13,7 @@ permissions:
 jobs:
 
   # ── Lint ────────────────────────────────────────────────────────────────────
-  # Ruff is a static analyser — no packages need to be installed.
+  # Ruff is a static analyser - no packages need to be installed.
   # We lint all services including detector (where GPU deps aren't available).
   lint:
     name: Lint (ruff)
@@ -44,7 +44,7 @@ jobs:
             training
 
   # ── Type check ──────────────────────────────────────────────────────────────
-  # Detector is excluded — it requires torch/opencv/ultralytics which are
+  # Detector is excluded - it requires torch/opencv/ultralytics which are
   # only available on the L4T base image (ARM64, CUDA).
   typecheck:
     name: Type check (mypy)
@@ -65,7 +65,7 @@ jobs:
             -r services/notifier/requirements.txt \
             -r services/deterrent/requirements.txt
 
-      - name: mypy — web
+      - name: mypy - web
         env:
           MYPYPATH: services/web/src:shared
         run: |
@@ -73,7 +73,7 @@ jobs:
             --ignore-missing-imports \
             --explicit-package-bases
 
-      - name: mypy — notifier
+      - name: mypy - notifier
         env:
           MYPYPATH: services/notifier/src:shared
         run: |
@@ -81,7 +81,7 @@ jobs:
             --ignore-missing-imports \
             --explicit-package-bases
 
-      - name: mypy — deterrent
+      - name: mypy - deterrent
         env:
           MYPYPATH: services/deterrent/src:shared
         run: |
@@ -89,9 +89,9 @@ jobs:
             --ignore-missing-imports \
             --explicit-package-bases
 
-  # ── Tests — web ─────────────────────────────────────────────────────────────
+  # ── Tests - web ─────────────────────────────────────────────────────────────
   test-web:
-    name: Tests — web
+    name: Tests - web
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     steps:
@@ -110,9 +110,9 @@ jobs:
           PYTHONPATH: services/web/src:shared
         run: pytest services/web/tests/ -v
 
-  # ── Tests — notifier ────────────────────────────────────────────────────────
+  # ── Tests - notifier ────────────────────────────────────────────────────────
   test-notifier:
-    name: Tests — notifier
+    name: Tests - notifier
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     steps:
@@ -131,9 +131,9 @@ jobs:
           PYTHONPATH: services/notifier/src:shared
         run: pytest services/notifier/tests/ -v
 
-  # ── Tests — deterrent ──────────────────────────────────────────────────────
+  # ── Tests - deterrent ──────────────────────────────────────────────────────
   test-deterrent:
-    name: Tests — deterrent
+    name: Tests - deterrent
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     steps:
@@ -152,11 +152,11 @@ jobs:
           PYTHONPATH: services/deterrent/src:shared
         run: pytest services/deterrent/tests/ -v
 
-  # ── Tests — training ────────────────────────────────────────────────────────
+  # ── Tests - training ────────────────────────────────────────────────────────
   # prepare_dataset.py keeps its heavy imports (roboflow, requests, yaml)
   # function-local, so the class-handling unit tests run on stdlib + pytest.
   test-training:
-    name: Tests — training
+    name: Tests - training
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     steps:
@@ -173,11 +173,11 @@ jobs:
       - name: pytest
         run: pytest training/tests/ -v
 
-  # ── Tests — trainer execution + lifecycle controller ──────────────────────
+  # ── Tests - trainer execution + lifecycle controller ──────────────────────
   # These use fake children, fake cgroup evidence, and a fake Docker backend.
   # They never contact the production Orin or drive a live detector.
   test-training-runtime:
-    name: Tests — training runtime
+    name: Tests - training runtime
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
     steps:

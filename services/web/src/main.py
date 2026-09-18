@@ -1,4 +1,4 @@
-"""ScarGuard web service — FastAPI application entry point."""
+"""ScarGuard web service - FastAPI application entry point."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ def _check_db_integrity() -> None:
 
     A clean ``ok`` reply means the file is structurally sound; anything
     else surfaces as a loud warning so the operator knows to restore from
-    backup. We do NOT refuse to start — the alternative would brick the
+    backup. We do NOT refuse to start - the alternative would brick the
     deployment, and an integrity failure on auth.db is recoverable
     (re-run `setup` with the bootstrap token) where a startup refusal
     isn't.
@@ -119,7 +119,7 @@ def _check_db_integrity() -> None:
             log.info("Integrity check ok for %s", name)
         else:
             log.error(
-                "INTEGRITY CHECK FAILED for %s — restore from backup. "
+                "INTEGRITY CHECK FAILED for %s - restore from backup. "
                 "First failure: %r",
                 name, result,
             )
@@ -136,7 +136,7 @@ def _ensure_bootstrap_token() -> None:
     verifies it and deletes the file on success, making the route
     permanently inactive afterwards.
 
-    If users already exist, there is nothing to guard — skip."""
+    If users already exist, there is nothing to guard - skip."""
     import logging
 
     log = logging.getLogger("startup")
@@ -162,7 +162,7 @@ def _ensure_bootstrap_token() -> None:
 
         log.warning(
             "═══════════════════════════════════════════════════════════\n"
-            "  First-run setup — complete within 24 hours:\n"
+            "  First-run setup - complete within 24 hours:\n"
             "    Browse to: /setup?token=%s\n"
             "  Token also stored at %s (chmod 600).\n"
             "═══════════════════════════════════════════════════════════",
@@ -175,7 +175,7 @@ def _ensure_bootstrap_token() -> None:
 def _ensure_secret_key() -> None:
     """Generate the at-rest encryption key on first boot.
 
-    The web service is the canonical writer of this key — notifier and
+    The web service is the canonical writer of this key - notifier and
     deterrent only read it. Web has /data RW, so it can create the file
     with chmod 600. If the key already exists, this is a no-op."""
     import logging
@@ -213,7 +213,7 @@ def _parse_auth_enabled(value: object) -> bool:
     A naive ``bool(value)`` cast would report ``"false"`` as truthy,
     which silently keeps auth on when an operator quoted the value in
     hand-edited YAML.  Accept real bools plus the usual false-ish string
-    spellings.  Default (missing value) is True — fail closed.
+    spellings.  Default (missing value) is True - fail closed.
     """
     if isinstance(value, str):
         return value.strip().lower() not in ("false", "0", "no", "off", "")
@@ -341,7 +341,7 @@ def _load_or_create_csrf_secret() -> str:
         finally:
             os.close(fd)
     except Exception:
-        # If /data isn't writable yet, fall back to in-memory — better than
+        # If /data isn't writable yet, fall back to in-memory - better than
         # crashing. Subsequent restart will retry persistence.
         pass
     return fresh
@@ -407,7 +407,7 @@ async def csrf_middleware(request: Request, call_next):
         # Token can come from X-CSRF-Token header (htmx/fetch) or
         # _csrf_token form field (plain HTML forms).
         #
-        # IMPORTANT: We must NOT call request.form() here — doing so in
+        # IMPORTANT: We must NOT call request.form() here - doing so in
         # BaseHTTPMiddleware consumes the body stream, preventing downstream
         # route handlers from reading Form() fields.  Instead, parse the raw
         # body bytes (which Starlette caches without breaking form parsing).

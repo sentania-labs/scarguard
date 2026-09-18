@@ -2,7 +2,7 @@
 
 Uses a fixed-window counter with atomic ``INCR`` + ``EXPIRE`` rather than
 a true token bucket. The goal here is defence against session-theft
-hammering and misbehaving scripts — not precise QoS — so a fixed window
+hammering and misbehaving scripts - not precise QoS - so a fixed window
 is fine and avoids the Lua complexity of a sliding window or bucket.
 
 The limiter degrades open on Redis failure: if the Redis call raises, the
@@ -27,7 +27,7 @@ class RateLimiter:
 
     Each ``check()`` call is an ``INCR``; when the count first crosses 1
     we set ``EXPIRE`` on the key so it rolls over. Windows are absolute
-    wall-clock, not sliding — at most ``2 * capacity`` requests over a
+    wall-clock, not sliding - at most ``2 * capacity`` requests over a
     2-window cusp is possible in the worst case, which is acceptable.
     """
 
@@ -57,7 +57,7 @@ class RateLimiter:
             if count < 0:
                 return True, 0
             if count == 1:
-                # First hit of this window — set the TTL.
+                # First hit of this window - set the TTL.
                 self._redis.expire(key, window_seconds)
         except (redis_lib.RedisError, ValueError, TypeError) as exc:
             logger.warning("Rate limiter Redis error (fail-open): %s", exc)
@@ -66,7 +66,7 @@ class RateLimiter:
         if count <= capacity:
             return True, 0
 
-        # Over the limit — read the TTL for Retry-After. TTL can briefly be
+        # Over the limit - read the TTL for Retry-After. TTL can briefly be
         # -1 (no expiry yet) or -2 (no key); clamp conservatively.
         try:
             ttl_raw: Any = self._redis.ttl(key)
