@@ -42,11 +42,22 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
     original_insert = processor._insert_event
     state = {"fail_once": True}
 
-    def flaky_insert(timestamp, det_arg, camera_name, snapshot_path, actions_triggered, frame_size=None):
+    def flaky_insert(
+        timestamp: datetime,
+        det_arg: Detection,
+        camera_name: str,
+        snapshot_path: str | None,
+        actions_triggered: list[str] | None,
+        frame_size: tuple[int, int] | None = None,
+        feedback_token: str | None = None,
+    ) -> None:
         if state["fail_once"]:
             state["fail_once"] = False
             raise sqlite3.OperationalError("simulated insert failure")
-        return original_insert(timestamp, det_arg, camera_name, snapshot_path, actions_triggered, frame_size)
+        original_insert(
+            timestamp, det_arg, camera_name, snapshot_path,
+            actions_triggered, frame_size, feedback_token,
+        )
 
     monkeypatch.setattr(processor, "_insert_event", flaky_insert)
 
@@ -118,15 +129,35 @@ def test_process_matching_rule_notifies_named_channels(tmp_path):
     processor.close()
 
 
-def test_process_non_matching_rule_suppresses_event(tmp_path):
-    """Non-matching class with action rules → persisted but not published."""
+def test_process_non_matching_rule_publishes_with_none_actions(tmp_path):
+    """Non-matching notification rule: published with actions_triggered=None.
+
+    Since v0.13 the detector publishes every detection and the notifier
+    does the suppressing (actions_triggered=None means "rules exist, none
+    matched"). See e348592 and ROADMAP.md:143.
+
+    What this test does NOT establish: that a notification-suppressed class
+    cannot fire hardware. Deterrent routing runs off matched_groups, which is
+    computed from deterrent_rules independently of actions_by_class. A
+    deterrent rule that omits class_name defaults to "*" (main.py:107), so a
+    wildcard rule produces actions_triggered=None together with a non-empty
+    matched_groups and the sprinklers run. matched_groups is empty here only
+    because this processor has no deterrent rules configured at all.
+
+    The invariant that actually guards the pond lives in the deterrent
+    service (main.py, the matched_groups bail-out before _fire_group), which
+    this suite cannot see. See #201.
+    """
     processor = _make_processor(tmp_path)
     det = Detection(class_name="bench", confidence=0.5, bbox=(10, 10, 50, 50))
-    # Rules only match "bird"; "bench" should be suppressed.
+    # Rules only match "bird"; "bench" matches nothing.
     actions_by_class = {"bench": None}
     events = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=actions_by_class)
-    assert len(events) == 0
-    # But the detection should still be persisted to DB.
+    assert len(events) == 1
+    assert events[0]["actions_triggered"] is None
+    # No deterrent rule matched, so no device can fire off this event.
+    assert events[0]["matched_groups"] == []
+    # The detection is still persisted to DB.
     assert _count_rows(str(tmp_path / "events.db")) == 1
     processor.close()
 
