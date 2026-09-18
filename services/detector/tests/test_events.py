@@ -134,8 +134,19 @@ def test_process_non_matching_rule_publishes_with_none_actions(tmp_path):
 
     Since v0.13 the detector publishes every detection and the notifier
     does the suppressing (actions_triggered=None means "rules exist, none
-    matched"). Deterrents stay safe because they are explicit opt-in via
-    matched_groups, which is empty here.
+    matched"). See e348592 and ROADMAP.md:143.
+
+    What this test does NOT establish: that a notification-suppressed class
+    cannot fire hardware. Deterrent routing runs off matched_groups, which is
+    computed from deterrent_rules independently of actions_by_class. A
+    deterrent rule that omits class_name defaults to "*" (main.py:107), so a
+    wildcard rule produces actions_triggered=None together with a non-empty
+    matched_groups and the sprinklers run. matched_groups is empty here only
+    because this processor has no deterrent rules configured at all.
+
+    The invariant that actually guards the pond lives in the deterrent
+    service (main.py, the matched_groups bail-out before _fire_group), which
+    this suite cannot see. See #201.
     """
     processor = _make_processor(tmp_path)
     det = Detection(class_name="bench", confidence=0.5, bbox=(10, 10, 50, 50))
