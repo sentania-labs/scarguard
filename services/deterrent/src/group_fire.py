@@ -26,7 +26,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from actuation_models import ActuationDefaults, DeterrentGroup, DeviceAction, DeviceConfig
-from deterrent_safety import MAX_ACTUATION_SEC, clamp_duration
+from deterrent_safety import MAX_ACTUATION_SEC, MAX_PRE_DELAY_SEC, clamp_duration
 from pydantic import BaseModel
 from randomizer import build_random_plan
 
@@ -101,6 +101,18 @@ def execute_plan(
     ``None`` means no bound, which is what the detection path uses.
     """
     selected, durations, inter_delays, pre_delay = build_random_plan(devices, defaults)
+
+    # Clamped for the same reason durations are: the web layer validates the
+    # range, but scarguard.yml can be hand-edited and this service must not
+    # take an unbounded wait on the word of a config file. An unclamped
+    # pre-delay is invisible to the operator (nothing is firing yet) and pushes
+    # the whole sequence past the web route's wait.
+    if pre_delay > MAX_PRE_DELAY_SEC:
+        logger.warning(
+            "Pre-delay %.1fs exceeds the %.0fs cap, clamping [rid=%s]",
+            pre_delay, MAX_PRE_DELAY_SEC, request_id,
+        )
+        pre_delay = MAX_PRE_DELAY_SEC
 
     t_start = time.monotonic()
     actions: list[DeviceAction] = []

@@ -392,11 +392,12 @@ class TestWorkerResilience:
         import unittest.mock as mock
         with mock.patch.object(deterrent_main, "_publish_raw",
                                lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
-            t = _threading.Thread(target=run)
+            t = _threading.Thread(target=run, daemon=True)
             t.start()
             t.join(timeout=10)
+            assert not t.is_alive(), "worker hung"
 
-        assert not t.is_alive(), "worker hung"
+        
         assert errors == [], f"worker died: {errors}"
         assert redis.reply_for("r1")["ok"] is False
         # The slot must be freed, or no further test-fire is ever accepted.
@@ -416,3 +417,98 @@ class TestWorkerResilience:
 
         assert controller.calls == []
         assert "cooldown" in redis.reply_for("r1")["error"].lower()
+
+
+class TestProductionCallSite:
+    """Pins the wiring, not just the helpers it calls.
+
+    execute_plan's deadline, the guard's release point and the
+    do-not-burn-cooldown branch were all previously verified only in isolation,
+    so mutating the real call site left the suite green.
+    """
+
+    def test_worker_passes_the_sequence_cap_to_execute_plan(self, monkeypatch: Any) -> None:
+        """Without this the admin path is unbounded: 20 devices x 60s."""
+        import group_fire
+        import main as deterrent_main
+        from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
+
+        seen: dict[str, Any] = {}
+        real = group_fire.execute_plan
+
+        def spy(*a: Any, **kw: Any) -> Any:
+            seen["deadline_sec"] = kw.get("deadline_sec")
+            return real(*a, **kw)
+
+        monkeypatch.setattr(deterrent_main, "execute_plan", spy)
+        _run_job(_group_cfg(device_count_range=[1, 1]), FakeController())
+
+        assert seen["deadline_sec"] == MAX_GROUP_TEST_FIRE_SEC
+
+    def test_claim_is_held_for_the_whole_sequence(self) -> None:
+        """Releasing before the sequence makes the guard a no-op while firing."""
+        import queue as _queue
+        import threading as _threading
+
+        import main as deterrent_main
+
+        observed: list[bool] = []
+        gate = _threading.Event()
+
+        class Slow:
+            def activate_device(self, device: Any, duration: float, **kw: Any) -> Any:
+                observed.append(guard.claimed)
+                gate.set()
+                return ActivationResult(
+                    on_success=True, off_success=True, error=None,
+                    on_ack_ms=1.0, off_attempts=1,
+                )
+
+        q: _queue.Queue[Any] = _queue.Queue()
+        guard = InFlightGuard()
+        guard.claim()
+        q.put({
+            "__job": JOB_TEST_FIRE_GROUP, "group_name": "g", "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+        })
+        q.put(None)
+        redis = FakeRedis()
+        import unittest.mock as mock
+        with mock.patch.object(deterrent_main, "_publish_raw",
+                               lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
+            t = _threading.Thread(target=lambda: deterrent_main._worker(
+                q, AtomicRef(_group_cfg(device_count_range=[1, 1])),
+                AtomicRef(Slow()), AtomicRef(True),
+                CooldownTracker(), GroupCooldownTracker(), {}, guard,
+            ), daemon=True)
+            t.start()
+            t.join(timeout=10)
+            # Assert inside the patch: a thread that outlives the join escapes
+            # the _publish_raw stub and tries to reach a real Redis, which
+            # surfaces as an unrelated connection error in a later test.
+            assert not t.is_alive(), "worker did not finish"
+
+        assert observed == [True], "guard was released before the hardware ran"
+        assert guard.claimed is False
+
+    def test_zero_devices_fired_does_not_burn_a_cooldown(self, monkeypatch: Any) -> None:
+        """A no-op test-fire must not lock out real heron detections."""
+        import group_fire
+        import main as deterrent_main
+        from group_fire import PlanExecution
+
+        monkeypatch.setattr(
+            deterrent_main, "execute_plan",
+            lambda *a, **kw: PlanExecution(
+                actions=[], pre_delay_sec=0.0, total_duration_sec=0.0,
+            ),
+        )
+        cd = CooldownTracker()
+        gc = GroupCooldownTracker()
+        redis, _ = _run_job(_group_cfg(), FakeController(), cooldown=cd, group_cooldown=gc)
+
+        assert cd.is_clear(300), "cooldown burned after firing nothing"
+        assert gc.is_clear("g", 300)
+        reply = redis.reply_for("r1")
+        assert reply["ok"] is False
+        assert "error" in reply, "a bare failure becomes an unexplained 502"

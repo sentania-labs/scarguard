@@ -37,6 +37,31 @@ MAX_ACTUATION_SEC: float = 60.0
 # so the route waits 180s. Changing either number without the other reopens
 # that gap.
 MAX_GROUP_TEST_FIRE_SEC: float = 60.0
+# Cap on the randomised wait before a sequence starts. Clamped in group_fire
+# as well as validated in the web config model, because scarguard.yml can be
+# hand-edited and an unbounded pre-delay is invisible (nothing is firing yet)
+# while still pushing the sequence past the web route's wait.
+MAX_PRE_DELAY_SEC: float = 30.0
+# Cap on the randomised wait between devices, same reasoning.
+MAX_INTER_DELAY_SEC: float = 30.0
+
+
+def group_test_fire_timeout_sec() -> float:
+    """Worst-case wall time of an admin group test-fire, plus a margin.
+
+    Derived rather than hardcoded so the web route cannot drift from the
+    deterrent side's real bound. The terms are, in order: the pre-delay before
+    anything fires, the firing window itself, one final spray that always runs
+    to completion once started, and the inter-device wait the loop performs
+    before it notices the window has closed.
+    """
+    worst = (
+        MAX_PRE_DELAY_SEC
+        + MAX_GROUP_TEST_FIRE_SEC
+        + MAX_ACTUATION_SEC
+        + MAX_INTER_DELAY_SEC
+    )
+    return worst * 1.2
 DEFAULT_TEST_FIRE_SEC: float = 3.0
 
 OFF_RETRY_BACKOFF_SEC: tuple[float, ...] = (1.0, 2.0, 4.0)

@@ -12,7 +12,7 @@ from typing import Any
 
 from actuation_models import ActuationDefaults, DeterrentGroup, DeviceConfig
 from cloud_controller import ActivationResult
-from deterrent_safety import MAX_ACTUATION_SEC
+from deterrent_safety import MAX_ACTUATION_SEC, MAX_PRE_DELAY_SEC
 from group_fire import execute_plan, resolve_group_devices
 
 
@@ -383,8 +383,14 @@ class TestDeadlineEdges:
         assert len(execution.actions) == 1
         assert execution.total_duration_sec <= 25.0 + 10.0
 
-    def test_pre_delay_cannot_consume_the_window(self, monkeypatch: Any) -> None:
-        """A long pre-delay must not yield a zero-device sequence."""
+    def test_pre_delay_is_clamped_and_cannot_consume_the_window(self, monkeypatch: Any) -> None:
+        """A long pre-delay must be capped AND must not eat the firing window.
+
+        Two separate protections. The clamp bounds an unbounded value that a
+        hand-edited scarguard.yml can still carry past the web validators; the
+        window starting after the pre-delay is what stops even a legal
+        pre-delay from yielding a zero-device sequence.
+        """
         clock = self._clock(monkeypatch)
         controller = self._timed_controller(clock)
         defaults = ActuationDefaults(
@@ -399,5 +405,7 @@ class TestDeadlineEdges:
             on_stuck=lambda d, e: None, deadline_sec=30.0,
         )
         assert len(execution.actions) == 2, "pre-delay ate the firing window"
+        # 100s requested, clamped to MAX_PRE_DELAY_SEC, then two 5s sprays.
+        assert execution.pre_delay_sec == MAX_PRE_DELAY_SEC
         # total_duration_sec still spans the pre-delay: it is an audit field.
-        assert execution.total_duration_sec == 110.0
+        assert execution.total_duration_sec == MAX_PRE_DELAY_SEC + 10.0

@@ -19,6 +19,7 @@ from deterrent_safety import (
     DEFAULT_TEST_FIRE_SEC,
     MAX_TEST_FIRE_SEC,
     MIN_ACTUATION_SEC,
+    group_test_fire_timeout_sec,
 )
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -275,6 +276,11 @@ STATUS_REQUEST_CHANNEL = "scarguard:deterrent:status-request"
 STATUS_RESULT_PREFIX = "scarguard:deterrent:status:result:"
 FORCE_OFF_CHANNEL = "scarguard:deterrent:force-off"
 FORCE_OFF_RESULT_PREFIX = "scarguard:deterrent:force-off:result:"
+# Sentinel so a caller can tell a real timeout from an error the deterrent
+# service reported. Callers that know the request can outlive the wait replace
+# it with something more accurate.
+TIMEOUT_ERROR = "Request timed out - deterrent service may not be running"
+
 TEST_FIRE_GROUP_CHANNEL = "scarguard:deterrent:test-fire-group"
 TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 
@@ -318,7 +324,7 @@ async def _redis_request(
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-        return {"ok": False, "error": "Request timed out - deterrent service may not be running"}
+        return {"ok": False, "error": TIMEOUT_ERROR}
     finally:
         await pubsub.unsubscribe(result_channel)
         await client.close()
@@ -404,16 +410,28 @@ async def test_fire_group(request: Request) -> Response:
             {"ok": False, "error": "group_name is required"}, status_code=400,
         )
 
-    # Must outlast the deterrent side's worst case (150s: pre-delay, then the
-    # 60s firing window, then one final spray of up to MAX_ACTUATION_SEC that
-    # always runs to completion). Timing out early would tell the operator the
-    # service is down while hardware is still running, which is exactly the
-    # state that invites a re-press. See MAX_GROUP_TEST_FIRE_SEC.
+    # Derived from the deterrent side's own constants rather than hardcoded,
+    # so the two cannot drift. Timing out before the hardware stops would tell
+    # the operator the service is down while sprinklers are still running,
+    # which is exactly the state that invites a re-press.
     result = await _redis_request(
         TEST_FIRE_GROUP_CHANNEL, TEST_FIRE_GROUP_RESULT_PREFIX,
         {"group_name": group_name.strip()},
-        timeout_sec=180.0,
+        timeout_sec=group_test_fire_timeout_sec(),
     )
+    if result.get("error") == TIMEOUT_ERROR:
+        # The generic message blames the service for being down. Here the
+        # service is almost certainly running and may still be firing, so say
+        # that instead of sending the operator to check the wrong thing.
+        result = {
+            "ok": False,
+            "error": (
+                "No result after "
+                f"{group_test_fire_timeout_sec():.0f}s. The group may still be "
+                "firing; check the deterrent log and the actuation history "
+                "before trying again."
+            ),
+        }
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
 

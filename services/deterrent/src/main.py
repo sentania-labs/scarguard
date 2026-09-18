@@ -145,7 +145,7 @@ def _fire_group(
     confidence = event.get("confidence", 0.0)
     request_id = uuid.uuid4().hex[:16]
     logger.info(
-        "Firing group [%s]: %s from %s (conf=%.2f) - %d eligible device(s) [rid=%s]",
+        "Firing group [%s]: %s from %s (conf=%.2f) - up to %d device(s) [rid=%s]",
         group.name, class_name, camera_name, confidence, len(group_devices), request_id,
     )
 
@@ -195,6 +195,33 @@ def _fire_group(
         logger.exception("Failed to persist actuation event")
 
     return True
+
+
+def _drain_pending_jobs(
+    event_queue: "queue.Queue[dict[str, Any] | None]",
+    in_flight: InFlightGuard,
+    pub_holder: list[redis_lib.Redis | None],
+    redis_cfg: dict[str, Any],
+) -> None:
+    """Refuse control jobs still queued when the worker is shutting down."""
+    drained = 0
+    while True:
+        try:
+            item = event_queue.get_nowait()
+        except queue.Empty:
+            break
+        if item is None:
+            continue  # another pill; keep draining
+        if item.get("__job") != JOB_TEST_FIRE_GROUP:
+            continue  # detection events are simply dropped on shutdown
+        drained += 1
+        _publish_raw(
+            pub_holder, redis_cfg, item.get("result_channel", ""),
+            {"ok": False, "error": "Deterrent service is shutting down"},
+        )
+    in_flight.release()
+    if drained:
+        logger.info("Refused %d queued test-fire job(s) on shutdown", drained)
 
 
 def _run_group_test_fire(
@@ -418,6 +445,11 @@ def _worker(
     while True:
         event = event_queue.get()
         if event is None:  # poison pill - shutdown
+            # Anything queued behind the pill will never run. Refuse it
+            # explicitly rather than leaving the operator on a multi-minute
+            # wait that ends in a timeout blaming the service, and release the
+            # claim so a test-fire is possible again after restart.
+            _drain_pending_jobs(event_queue, in_flight, pub_holder, redis_cfg)
             break
 
         # Control jobs ride the same queue so they serialise with detection
@@ -944,10 +976,13 @@ def main() -> None:
     subscribe_loop(redis_cfg, event_queue, shutdown_event)
 
     # Cleanup
+    # Stop the request handler FIRST. Joining the worker first leaves a window
+    # where a press is accepted, claims the guard and lands on a queue with no
+    # consumer, so nothing is ever published and the caller hangs to timeout.
+    req_handler.stop()
     event_queue.put(None)  # ensure worker exits
     worker_thread.join(timeout=10)
     reconcile_thread.join(timeout=10)
-    req_handler.stop()
     watcher.stop()
     if battery_monitor is not None:
         battery_monitor.stop()

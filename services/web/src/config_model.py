@@ -1,8 +1,10 @@
 """Pydantic models for structured config validation (form-based editor)."""
 
-from typing import Literal
+import math
+from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from deterrent_safety import MAX_ACTUATION_SEC
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -413,6 +415,51 @@ class ActuationDeviceConfig(BaseModel):
         return v.strip()
 
 
+
+# ── Deterrent randomisation ranges ───────────────────────────────────────────
+#
+# These drive physical hardware, so they are validated here and not only in the
+# browser. Until v1.17 the only limits were HTML "max" attributes, which meant a
+# hand-edited scarguard.yml could set pre_delay_range: [300, 300] and produce
+# several minutes of sprinkler activity from one button press, long after the
+# web route had timed out and told the operator the service was down.
+#
+# Upper bounds match the UI's own min/max so the two cannot disagree. The spray
+# ceiling is MAX_ACTUATION_SEC rather than a literal, because a range above it
+# would be silently clamped at fire time and the operator would never be told.
+_RANGE_BOUNDS: dict[str, tuple[float, float]] = {
+    "device_count_range": (1, 20),
+    "spray_duration_range": (0.5, MAX_ACTUATION_SEC),
+    "inter_device_delay_range": (0.0, 30.0),
+    "pre_delay_range": (0.0, 30.0),
+}
+
+
+def _check_range(
+    field: str,
+    v: list[float] | list[int] | None,
+) -> list[float] | list[int] | None:
+    """Validate a two-element [low, high] randomisation range."""
+    if v is None:
+        return v
+    lo_bound, hi_bound = _RANGE_BOUNDS[field]
+    if len(v) != 2:
+        raise ValueError(f"{field} must be exactly two values, [low, high]")
+    lo, hi = v
+    for x in (lo, hi):
+        if not isinstance(x, (int, float)) or isinstance(x, bool):
+            raise ValueError(f"{field} values must be numbers")
+        if math.isnan(x) or math.isinf(x):
+            raise ValueError(f"{field} values must be finite")
+        if not lo_bound <= x <= hi_bound:
+            raise ValueError(
+                f"{field} values must be between {lo_bound} and {hi_bound}"
+            )
+    if lo > hi:
+        raise ValueError(f"{field} low value must not exceed the high value")
+    return v
+
+
 class ActuationDefaultsConfig(BaseModel):
     cooldown_seconds: int = 60
     device_count_range: list[int] = [1, 4]
@@ -426,6 +473,14 @@ class ActuationDefaultsConfig(BaseModel):
         if not 5 <= v <= 3600:
             raise ValueError("cooldown_seconds must be between 5 and 3600")
         return v
+
+    @field_validator(
+        "device_count_range", "spray_duration_range",
+        "inter_device_delay_range", "pre_delay_range",
+    )
+    @classmethod
+    def ranges_within_bounds(cls, v: Any, info: Any) -> Any:
+        return _check_range(info.field_name, v)
 
 
 class DeterrentGroupConfig(BaseModel):
@@ -453,6 +508,14 @@ class DeterrentGroupConfig(BaseModel):
         if not v.strip():
             raise ValueError("Group name must not be empty")
         return v.strip()
+
+    @field_validator(
+        "device_count_range", "spray_duration_range",
+        "inter_device_delay_range", "pre_delay_range",
+    )
+    @classmethod
+    def ranges_within_bounds(cls, v: Any, info: Any) -> Any:
+        return _check_range(info.field_name, v)
 
     @field_validator("cooldown_seconds")
     @classmethod
