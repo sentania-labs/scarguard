@@ -623,6 +623,40 @@ reconciles this roadmap with six untracked patch releases.
 7. **CONFIG_REFERENCE.md.** Document `group_duration_range`, the
    cooldown anchor, and the group test-fire endpoint.
 
+**CI and test coverage:**
+
+8. **Fix the two detector test failures (#197).** Both fail on `main`
+   today. `test_persist_recovers_after_write_exception` is stale
+   scaffolding: the local `flaky_insert` stub takes 5 to 6 args while
+   the real signature now passes 7, so the stub never runs.
+   `test_process_non_matching_rule_suppresses_event` is the one to look
+   at properly: a detection that a non-matching rule should have
+   suppressed is persisted anyway. That is either a stale test or a
+   real gap in rule matching, and the deterrent fires physical devices
+   off that path, so decide which rather than assuming.
+
+9. **Put log-streamer's tests in CI (#198).** #187 shipped 18 tests for
+   the self-heal logic that no pipeline runs. There is no
+   `tests/conftest.py` (every other service has one), so
+   `pytest tests` errors at collection, and `ci.yml` mentions
+   log-streamer only in the ruff path list. A regression in the
+   generation-counter or quick-EOF logic would reach `main` with CI
+   green.
+
+10. **Gate expensive CI on what actually changed (#199).** Promoted
+    from Future Ideas. The em-dash sweep ran the entire matrix,
+    including every per-service pytest job and both multi-arch image
+    builds, for a 188-file change with zero logic in it.
+
+    Use job-level conditionals, not `paths-ignore` on the trigger. A
+    workflow suppressed at the trigger never reports a conclusion, so
+    the day anyone configures a required status check it blocks every
+    docs PR forever waiting on a check that will not arrive. `main` has
+    no branch protection today, which is exactly why this is cheap to
+    get right now and expensive to get wrong later. Lint should
+    probably stay unconditional even for docs-only changes, since a
+    broken fenced command is a docs bug CI can catch.
+
 **Explicitly out of scope:** #190 (setup.sh starter-model
 verification), #191 (TensorRT export re-verify), and #192 (non-Jetson
 platform verification). The first two need Orin bench time and would
