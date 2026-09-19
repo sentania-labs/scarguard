@@ -33,7 +33,12 @@ from event_signing import load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
 from randomizer import pick_group_window
-from request_handler import JOB_TEST_FIRE_GROUP, InFlightGuard, RequestHandler
+from request_handler import (
+    JOB_TEST_FIRE_GROUP,
+    ForceOffLatch,
+    InFlightGuard,
+    RequestHandler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -327,14 +332,36 @@ def _run_group_test_fire(
         "Test-fire group [%s]: %d eligible device(s) [rid=%s]",
         group.name, len(group_devices), request_id,
     )
+    # The button says it runs the group's real plan, so it has to rotate when
+    # the group is configured to. Otherwise the one behaviour an operator most
+    # wants to see before heron season, the group working a position for a
+    # minute, is the one thing the test cannot show.
+    #
+    # Bounded by the test-fire limit rather than the configured window: an
+    # admin pressing a button should not start a 300s sequence, and the web
+    # route's wait is derived from the shorter number.
+    group_defaults = group.effective_defaults(act_cfg.defaults)
+    configured_window = pick_group_window(group_defaults)
+    test_window = min(
+        configured_window or MAX_GROUP_TEST_FIRE_SEC, MAX_GROUP_TEST_FIRE_SEC,
+    )
+    if configured_window is not None:
+        logger.info(
+            "Test-fire group [%s] will rotate for %.0fs (config asks %.0fs, "
+            "capped at %.0fs) [rid=%s]",
+            group.name, test_window, configured_window,
+            MAX_GROUP_TEST_FIRE_SEC, request_id,
+        )
+
     execution = execute_plan(
-            controller,
+        controller,
         group_devices,
-        group.effective_defaults(act_cfg.defaults),
+        group_defaults,
         request_id=request_id,
         event_type="test_fire_group",
         label=f"Test-fire group [{group.name}]",
-        deadline_sec=MAX_GROUP_TEST_FIRE_SEC,
+        deadline_sec=test_window,
+        rotate=configured_window is not None,
         on_stuck=lambda device, error: _publish_stuck(
             pub_holder, redis_cfg, device, request_id, error,
         ),
@@ -471,8 +498,10 @@ def _worker(
     redis_cfg: dict[str, Any],
     in_flight: InFlightGuard,
     shutdown_event: threading.Event | None = None,
+    force_off_latch: ForceOffLatch | None = None,
 ) -> None:
     """Consume detection events and run actuation sequences per matched group."""
+    force_off_latch = force_off_latch or ForceOffLatch()
     logger.info("Deterrent worker thread started")
 
     pub_holder: list[redis_lib.Redis | None] = [None]
@@ -589,7 +618,18 @@ def _worker(
             # deterrent.enabled false, or hit emergency off. Without this the
             # force-off would switch every device off and the next cycle would
             # switch them straight back on.
+            started_generation = force_off_latch.generation
+
             def _still_authorised() -> bool:
+                # Emergency off changes none of the gates below: it just sends
+                # OFF to every device. Without this the next cycle would turn
+                # them straight back on, so the panic button would work for a
+                # moment and then undo itself.
+                if force_off_latch.generation != started_generation:
+                    logger.warning(
+                        "Emergency off pressed mid-sequence, stopping rotation",
+                    )
+                    return False
                 if shutdown_event is not None and shutdown_event.is_set():
                     logger.info("Shutting down, stopping group rotation")
                     return False
@@ -982,6 +1022,9 @@ def main() -> None:
     # worker when the sequence ends, so a second press is refused for the whole
     # queued-and-running window rather than stacking behind live hardware.
     in_flight = InFlightGuard()
+    # Shared so an emergency off on the handler thread is visible to a
+    # rotation already running on the worker.
+    force_off_latch = ForceOffLatch()
 
     # Start worker thread
     worker_thread = threading.Thread(
@@ -991,6 +1034,7 @@ def main() -> None:
         args=(
             event_queue, act_cfg_ref, controller_ref, armed_ref,
             cooldown, group_cooldown, redis_cfg, in_flight, shutdown_event,
+            force_off_latch,
         ),
     )
     worker_thread.start()
@@ -1001,6 +1045,7 @@ def main() -> None:
     req_handler = RequestHandler(
         redis_cfg, act_cfg_ref, controller_ref,
         job_queue=event_queue, in_flight=in_flight,
+        force_off_latch=force_off_latch,
     )
     req_handler.start()
 

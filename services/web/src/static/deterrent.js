@@ -94,6 +94,18 @@ function esc(s) {
                         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function _readOptionalRange(minId, maxId) {
+  var lo = document.getElementById(minId).value.trim();
+  var hi = document.getElementById(maxId).value.trim();
+  if (lo === '' && hi === '') return null;
+  // One side filled is almost certainly a half-finished edit. Treat the blank
+  // side as equal to the filled one rather than silently substituting zero,
+  // which would mean "start immediately and stop immediately".
+  if (lo === '') lo = hi;
+  if (hi === '') hi = lo;
+  return [parseFloat(lo), parseFloat(hi)];
+}
+
 async function saveDeterrent() {
   var btn = document.getElementById('save-deterrent-btn');
   var msg = document.getElementById('deterrent-msg');
@@ -143,6 +155,10 @@ async function saveDeterrent() {
         parseFloat(document.getElementById('def-pre-min').value) || 0.0,
         parseFloat(document.getElementById('def-pre-max').value) || 3.0,
       ],
+      // Blank means one pass, so send null rather than coercing to 0: an
+      // explicit [0, 0] and "not configured" mean the same thing downstream,
+      // but null is what the schema documents and what groups inherit.
+      group_duration_range: _readOptionalRange('def-window-min', 'def-window-max'),
     },
     battery_monitor: {
       enabled: document.getElementById('batt-enabled').checked,

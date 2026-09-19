@@ -413,7 +413,7 @@ class TestWorkerResilience:
             t.join(timeout=10)
             assert not t.is_alive(), "worker hung"
 
-        
+
         assert errors == [], f"worker died: {errors}"
         assert redis.reply_for("r1")["ok"] is False
         # The slot must be freed, or no further test-fire is ever accepted.
@@ -509,7 +509,6 @@ class TestProductionCallSite:
 
     def test_zero_devices_fired_does_not_burn_a_cooldown(self, monkeypatch: Any) -> None:
         """A no-op test-fire must not lock out real heron detections."""
-        import group_fire
         import main as deterrent_main
         from group_fire import PlanExecution
 
@@ -696,3 +695,63 @@ class TestQueuedJobExpiry:
         )
         job = q.get_nowait()
         assert job["expires_at"] > _time.monotonic()
+
+
+def _capture(seen: dict[str, Any]) -> Any:
+    """Record execute_plan's arguments without running it.
+
+    Deliberately does NOT call through. These tests assert what the production
+    call site passes, and running the real sequence would burn the window in
+    wall-clock: a 60s cap made one test take 60 real seconds. Rotation
+    behaviour itself is tested against a fake clock in test_group_fire.
+    """
+    from group_fire import PlanExecution
+
+    def spy(*a: Any, **kw: Any) -> PlanExecution:
+        seen.update(kw)
+        return PlanExecution(actions=[], pre_delay_sec=0.0, total_duration_sec=0.0)
+
+    return spy
+
+
+class TestTestFireRotatesLikeADetection:
+    """The button claims it runs the group's real plan, so it must rotate.
+
+    Otherwise the one behaviour an operator most wants to see before heron
+    season, the group working a position, is the one thing the test cannot
+    show.
+    """
+
+    def test_a_configured_window_makes_the_test_fire_rotate(self, monkeypatch: Any) -> None:
+        import main as deterrent_main
+
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(deterrent_main, "execute_plan", _capture(seen))
+        cfg = _group_cfg(device_count_range=[1, 1], group_duration_range=[20.0, 20.0])
+        _run_job(cfg, FakeController())
+
+        assert seen["rotate"] is True
+        assert seen["deadline_sec"] == 20.0
+
+    def test_no_window_means_one_pass(self, monkeypatch: Any) -> None:
+        import main as deterrent_main
+        from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
+
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(deterrent_main, "execute_plan", _capture(seen))
+        _run_job(_group_cfg(device_count_range=[1, 1]), FakeController())
+
+        assert seen["rotate"] is False
+        assert seen["deadline_sec"] == MAX_GROUP_TEST_FIRE_SEC
+
+    def test_window_is_capped_by_the_test_fire_limit(self, monkeypatch: Any) -> None:
+        """A button press must not start a 300s sequence."""
+        import main as deterrent_main
+        from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
+
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(deterrent_main, "execute_plan", _capture(seen))
+        cfg = _group_cfg(device_count_range=[1, 1], group_duration_range=[300.0, 300.0])
+        _run_job(cfg, FakeController())
+
+        assert seen["deadline_sec"] == MAX_GROUP_TEST_FIRE_SEC

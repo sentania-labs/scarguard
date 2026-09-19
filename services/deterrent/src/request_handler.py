@@ -52,6 +52,35 @@ JOB_TEST_FIRE_GROUP = "test_fire_group"
 SHUTDOWN_POLL_SEC = 1.0
 
 
+class ForceOffLatch:
+    """Records that an emergency off happened, so a rotation can see it.
+
+    Force-off sends OFF to every device, but it changes no state that the
+    firing path consults: not ``enabled``, not armed, not the shutdown event.
+    Before this, a windowed sequence checked those three between cycles,
+    found nothing changed, and turned the devices it had just switched off
+    straight back on. The panic button worked for a moment and then undid
+    itself, which is worse than not working at all.
+
+    A counter rather than a boolean so it never needs clearing: a sequence
+    records the value it started under and stops if it has moved. The next
+    detection reads the new value and proceeds normally.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._generation = 0
+
+    def bump(self) -> None:
+        with self._lock:
+            self._generation += 1
+
+    @property
+    def generation(self) -> int:
+        with self._lock:
+            return self._generation
+
+
 class InFlightGuard:
     """At-most-one claim spanning two threads.
 
@@ -93,12 +122,14 @@ class RequestHandler:
         controller_ref: AtomicRef[TuyaCloudController | None],
         job_queue: queue.Queue[dict[str, Any] | None] | None = None,
         in_flight: InFlightGuard | None = None,
+        force_off_latch: ForceOffLatch | None = None,
     ) -> None:
         self._redis_cfg = redis_cfg
         self._act_cfg_ref = act_cfg_ref
         self._controller_ref = controller_ref
         self._job_queue = job_queue
         self._in_flight = in_flight or InFlightGuard()
+        self._force_off_latch = force_off_latch or ForceOffLatch()
         self._shutdown = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -424,6 +455,11 @@ class RequestHandler:
         ack so the operator can see which devices the cloud actually
         reached.
         """
+        # Latch FIRST, before any OFF is sent. A windowed sequence checks this
+        # between cycles; latching after the OFFs would leave a gap in which
+        # the next cycle could re-energise a device this call had just shut.
+        self._force_off_latch.bump()
+
         request_id = payload.get("request_id", "")
         result_channel = f"{FORCE_OFF_RESULT_PREFIX}{request_id}"
         if not request_id:

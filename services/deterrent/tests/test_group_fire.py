@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import group_fire as group_fire_module
+import pytest
 from actuation_models import ActuationDefaults, DeterrentGroup, DeviceConfig
+from atomic_ref import AtomicRef
 from cloud_controller import ActivationResult
 from deterrent_safety import (
     MAX_ACTUATION_SEC,
@@ -18,8 +21,6 @@ from deterrent_safety import (
     MAX_PRE_DELAY_SEC,
     MIN_INTER_CYCLE_GAP_SEC,
 )
-import group_fire as group_fire_module
-import pytest
 from group_fire import execute_plan, resolve_group_devices
 
 
@@ -826,3 +827,79 @@ class TestEmptyPlanMidRotation:
         t.join(timeout=20.0)
         assert not t.is_alive(), "an empty re-roll spun instead of stopping"
         assert len(result["execution"].actions) == 1
+
+
+class TestForceOffStopsRotation:
+    """Emergency off must survive the next cycle.
+
+    It sends OFF to every device but changes none of the gates the rotation
+    checks: not enabled, not armed, not the shutdown event. Before the latch,
+    the next cycle turned the devices it had just switched off straight back
+    on, so the panic button worked for a moment and then undid itself.
+    """
+
+    def test_bumping_the_latch_stops_the_rotation(self, monkeypatch: Any) -> None:
+        from request_handler import ForceOffLatch
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+        latch = ForceOffLatch()
+        started = latch.generation
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            if len(controller.calls) == 1:
+                latch.bump()  # operator hits emergency off mid-sequence
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        defaults = ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], defaults,
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            should_continue=lambda: latch.generation == started,
+        )
+        # The cycle in flight finishes; nothing new starts.
+        assert len(execution.actions) == 2
+
+    def test_latch_generation_only_moves_on_bump(self) -> None:
+        from request_handler import ForceOffLatch
+
+        latch = ForceOffLatch()
+        g = latch.generation
+        assert latch.generation == g
+        latch.bump()
+        assert latch.generation != g
+
+    def test_force_off_handler_latches_before_sending_off(self) -> None:
+        """Latching after the OFFs would leave a gap for the next cycle."""
+        import queue as _queue
+
+        from request_handler import ForceOffLatch, RequestHandler
+
+        latch = ForceOffLatch()
+        started = latch.generation
+        handler = RequestHandler(
+            {}, AtomicRef(None), AtomicRef(None),
+            job_queue=_queue.Queue(), force_off_latch=latch,
+        )
+        # No controller, so the handler bails early; the latch must already
+        # have moved by then.
+        handler._handle_force_off(FakeRedisPub(), {"request_id": "r1"})
+        assert latch.generation != started
+
+
+class FakeRedisPub:
+    def publish(self, channel: str, payload: str) -> None:
+        pass
