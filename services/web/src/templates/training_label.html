@@ -24,12 +24,12 @@
     <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <input type="hidden" name="action" value="approved">
     <input type="hidden" name="filter_pass" value="normal">
-    <button type="submit" class="btn" onclick="return confirm('Approve all normal-confidence pending detections?')">Approve All Normal</button>
+    <button type="submit" class="btn" data-confirm="Approve all normal-confidence pending detections?">Approve All Normal</button>
   </form>
   <form method="post" action="/admin/training/uploads/{{ upload.id }}/bulk-review" style="display:inline;">
     <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <input type="hidden" name="action" value="rejected">
-    <button type="submit" class="btn btn-danger" onclick="return confirm('Reject all pending detections?')">Reject All Pending</button>
+    <button type="submit" class="btn btn-danger" data-confirm="Reject all pending detections?">Reject All Pending</button>
   </form>
   <span class="muted" style="margin-left:auto;">
     <a href="/admin/training/uploads/{{ upload.id }}?review_state=pending">Pending only</a> |

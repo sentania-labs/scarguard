@@ -76,7 +76,7 @@
     {% if j.status == 'running' and _is_admin %}
     <form method="post" action="/admin/training/jobs/{{ j.id }}/cancel" style="display:inline;">
       <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-      <button type="submit" class="btn btn-small btn-danger" onclick="return confirm('Cancel this job?')">Cancel</button>
+      <button type="submit" class="btn btn-small btn-danger" data-confirm="Cancel this job?">Cancel</button>
     </form>
     {% elif j.status == 'queued' and _is_admin %}
     <form method="post" action="/admin/training/jobs/{{ j.id }}/cancel" style="display:inline;">

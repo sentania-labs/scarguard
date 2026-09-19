@@ -7,12 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (el.form) el.form.submit();
     });
   });
-  // Forms that require a confirm() before submitting.
-  document.querySelectorAll('form[data-confirm]').forEach(function(form) {
-    form.addEventListener('submit', function(e) {
-      if (!window.confirm(form.dataset.confirm)) {
-        e.preventDefault();
-      }
-    });
-  });
+  // form[data-confirm] is handled by static/confirm-submit.js, which is
+  // loaded for every page. Keeping a second listener here made a button
+  // inside a confirming form prompt twice.
 });
