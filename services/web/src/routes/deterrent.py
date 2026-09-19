@@ -14,11 +14,13 @@ from typing import Any
 import actuation_db
 import config_store
 import redis.asyncio as aioredis
+from config_model import check_actuation_ranges
 from config_redact import REDACTED_PLACEHOLDER
 from deterrent_safety import (
     DEFAULT_TEST_FIRE_SEC,
     MAX_TEST_FIRE_SEC,
     MIN_ACTUATION_SEC,
+    group_test_fire_timeout_sec,
 )
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -236,8 +238,26 @@ async def save_deterrent(request: Request) -> Response:
             clean_groups.append(entry)
         existing_act["groups"] = clean_groups
 
-    # Update defaults
+    # Validate every randomisation range before anything is persisted. These
+    # drive physical hardware, so a bad value must be refused here rather than
+    # clamped silently at fire time or left for the operator to discover when
+    # the sprinklers run for five minutes.
+    range_errors: list[str] = []
     defaults_input = body.get("defaults")
+    if isinstance(defaults_input, dict):
+        range_errors += check_actuation_ranges(defaults_input)
+    for g in (body.get("groups") or []):
+        if isinstance(g, dict):
+            name = g.get("name") or "(unnamed)"
+            range_errors += [
+                f"group {name}: {e}" for e in check_actuation_ranges(g)
+            ]
+    if range_errors:
+        return JSONResponse(
+            {"ok": False, "error": "; ".join(range_errors)}, status_code=400,
+        )
+
+    # Update defaults
     if isinstance(defaults_input, dict):
         existing_defaults = existing_act.get("defaults", {})
         if not isinstance(existing_defaults, dict):
@@ -275,6 +295,13 @@ STATUS_REQUEST_CHANNEL = "scarguard:deterrent:status-request"
 STATUS_RESULT_PREFIX = "scarguard:deterrent:status:result:"
 FORCE_OFF_CHANNEL = "scarguard:deterrent:force-off"
 FORCE_OFF_RESULT_PREFIX = "scarguard:deterrent:force-off:result:"
+# Sentinel so a caller can tell a real timeout from an error the deterrent
+# service reported. Callers that know the request can outlive the wait replace
+# it with something more accurate.
+TIMEOUT_ERROR = "Request timed out - deterrent service may not be running"
+
+TEST_FIRE_GROUP_CHANNEL = "scarguard:deterrent:test-fire-group"
+TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 
 
 def _redis_params() -> dict[str, Any]:
@@ -316,7 +343,7 @@ async def _redis_request(
                 except (json.JSONDecodeError, TypeError):
                     continue
 
-        return {"ok": False, "error": "Request timed out - deterrent service may not be running"}
+        return {"ok": False, "error": TIMEOUT_ERROR}
     finally:
         await pubsub.unsubscribe(result_channel)
         await client.close()
@@ -370,6 +397,60 @@ async def test_fire(request: Request) -> Response:
         TEST_FIRE_CHANNEL, TEST_FIRE_RESULT_PREFIX,
         {"device_id": device_id, "duration_sec": duration},
     )
+    status_code = 200 if result.get("ok") else 502
+    return JSONResponse(result, status_code=status_code)
+
+
+@router.post(
+    "/test-fire-group", response_class=JSONResponse,
+    dependencies=[Depends(rate_limit("test-fire-group", capacity=5, window_seconds=60))],
+)
+async def test_fire_group(request: Request) -> Response:
+    """Fire one configured group exactly as a detection would - admin only.
+
+    Runs the real randomisation plan rather than a simulation, so a group can
+    be exercised before heron season without waiting for a heron. The deterrent
+    service owns duration bounds; this route only validates that a group name
+    was supplied. Rate limited more tightly than single-device test-fire
+    because one call can drive every device in a group.
+    """
+    gate = require_admin(request, is_api=True)
+    if not isinstance(gate, dict):
+        return gate
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+
+    group_name = body.get("group_name", "")
+    if not isinstance(group_name, str) or not group_name.strip():
+        return JSONResponse(
+            {"ok": False, "error": "group_name is required"}, status_code=400,
+        )
+
+    # Derived from the deterrent side's own constants rather than hardcoded,
+    # so the two cannot drift. Timing out before the hardware stops would tell
+    # the operator the service is down while sprinklers are still running,
+    # which is exactly the state that invites a re-press.
+    result = await _redis_request(
+        TEST_FIRE_GROUP_CHANNEL, TEST_FIRE_GROUP_RESULT_PREFIX,
+        {"group_name": group_name.strip()},
+        timeout_sec=group_test_fire_timeout_sec(),
+    )
+    if result.get("error") == TIMEOUT_ERROR:
+        # The generic message blames the service for being down. Here the
+        # service is almost certainly running and may still be firing, so say
+        # that instead of sending the operator to check the wrong thing.
+        result = {
+            "ok": False,
+            "error": (
+                "No result after "
+                f"{group_test_fire_timeout_sec():.0f}s. The group may still be "
+                "firing; check the deterrent log and the actuation history "
+                "before trying again."
+            ),
+        }
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
 

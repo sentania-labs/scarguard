@@ -1,8 +1,10 @@
 """Pydantic models for structured config validation (form-based editor)."""
 
-from typing import Literal
+import math
+from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from deterrent_safety import MAX_ACTUATION_SEC
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -411,6 +413,70 @@ class ActuationDeviceConfig(BaseModel):
         if not v.strip():
             raise ValueError("Device ID must not be empty")
         return v.strip()
+
+
+
+# ── Deterrent randomisation ranges ───────────────────────────────────────────
+#
+# These drive physical hardware, so they are checked on the SAVE path and not
+# only in the browser. Until v1.17 the only limits were HTML "max" attributes,
+# which meant a hand-edited scarguard.yml could set pre_delay_range: [300, 300]
+# and produce several minutes of sprinkler activity from one button press, long
+# after the web route had timed out and told the operator the service was down.
+#
+# Deliberately NOT pydantic field validators on the models below. Those models
+# are also used to LOAD config, and routes/config.py substitutes a default
+# ActuationConfig() for the whole section when parsing raises. A range that is
+# merely out of bounds would therefore silently disable deterrence entirely,
+# drop the device registry and the groups, and the next unrelated save would
+# persist deterrent.enabled: False. Refusing a bad write is right; discarding a
+# working configuration because it is unfashionable is not.
+#
+# Upper bounds match the UI's own min/max so the two cannot disagree. The spray
+# ceiling is MAX_ACTUATION_SEC rather than a literal, because a range above it
+# would be silently clamped at fire time and the operator would never be told.
+_RANGE_BOUNDS: dict[str, tuple[float, float]] = {
+    "device_count_range": (1, 20),
+    "spray_duration_range": (0.5, MAX_ACTUATION_SEC),
+    "inter_device_delay_range": (0.0, 30.0),
+    "pre_delay_range": (0.0, 30.0),
+}
+
+
+def check_actuation_range(field: str, v: Any) -> str | None:
+    """Check one [low, high] randomisation range. Returns an error, or None.
+
+    Returns rather than raises so a save route can report every problem in one
+    response instead of the first one it hits.
+    """
+    if v is None:
+        return None
+    lo_bound, hi_bound = _RANGE_BOUNDS[field]
+    if not isinstance(v, (list, tuple)) or len(v) != 2:
+        return f"{field} must be exactly two values, [low, high]"
+    nums: list[float] = []
+    for x in v:
+        if isinstance(x, bool) or not isinstance(x, (int, float)):
+            return f"{field} values must be numbers"
+        if math.isnan(x) or math.isinf(x):
+            return f"{field} values must be finite"
+        if not lo_bound <= x <= hi_bound:
+            return f"{field} values must be between {lo_bound} and {hi_bound}"
+        nums.append(float(x))
+    if nums[0] > nums[1]:
+        return f"{field} low value must not exceed the high value"
+    return None
+
+
+def check_actuation_ranges(section: dict[str, Any]) -> list[str]:
+    """Check every randomisation range present in *section*."""
+    errors = []
+    for field in _RANGE_BOUNDS:
+        if field in section:
+            err = check_actuation_range(field, section[field])
+            if err:
+                errors.append(err)
+    return errors
 
 
 class ActuationDefaultsConfig(BaseModel):

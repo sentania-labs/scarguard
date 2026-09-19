@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import threading
 import time
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from deterrent_safety import (
     DEFAULT_TEST_FIRE_SEC,
     MAX_TEST_FIRE_SEC,
     clamp_duration,
+    group_test_fire_timeout_sec,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,47 @@ STATUS_REQUEST_CHANNEL = "scarguard:deterrent:status-request"
 STATUS_RESULT_PREFIX = "scarguard:deterrent:status:result:"
 FORCE_OFF_CHANNEL = "scarguard:deterrent:force-off"
 FORCE_OFF_RESULT_PREFIX = "scarguard:deterrent:force-off:result:"
+TEST_FIRE_GROUP_CHANNEL = "scarguard:deterrent:test-fire-group"
+TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
+
+# Discriminator for control jobs placed on the deterrent worker's queue, so a
+# job is never mistaken for a detection event.
+JOB_TEST_FIRE_GROUP = "test_fire_group"
+
+# How long a blocking read waits before the loop re-checks the shutdown flag.
+# Bounds how long stop() takes on an idle channel.
+SHUTDOWN_POLL_SEC = 1.0
+
+
+class InFlightGuard:
+    """At-most-one claim spanning two threads.
+
+    The request handler claims before enqueuing; the deterrent worker releases
+    once the sequence has finished. A plain Lock is the wrong primitive here
+    because the claim is made on one thread and released on another, and
+    because the window that matters includes the time the job spends queued.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._claimed = False
+
+    def claim(self) -> bool:
+        """Take the slot if free. Returns False if one is already in flight."""
+        with self._lock:
+            if self._claimed:
+                return False
+            self._claimed = True
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            self._claimed = False
+
+    @property
+    def claimed(self) -> bool:
+        with self._lock:
+            return self._claimed
 
 
 class RequestHandler:
@@ -48,10 +91,14 @@ class RequestHandler:
         redis_cfg: dict[str, Any],
         act_cfg_ref: AtomicRef[ActuationConfig],
         controller_ref: AtomicRef[TuyaCloudController | None],
+        job_queue: queue.Queue[dict[str, Any] | None] | None = None,
+        in_flight: InFlightGuard | None = None,
     ) -> None:
         self._redis_cfg = redis_cfg
         self._act_cfg_ref = act_cfg_ref
         self._controller_ref = controller_ref
+        self._job_queue = job_queue
+        self._in_flight = in_flight or InFlightGuard()
         self._shutdown = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -67,9 +114,20 @@ class RequestHandler:
         self._thread.start()
 
     def stop(self) -> None:
+        """Stop accepting requests and wait for the thread to actually exit.
+
+        Callers rely on this having really stopped: the deterrent service stops
+        the handler before joining the worker so a press cannot be accepted
+        onto a queue that no longer has a consumer.
+        """
         self._shutdown.set()
         if self._thread is not None:
             self._thread.join(timeout=10)
+            if self._thread.is_alive():
+                logger.warning(
+                    "Request handler did not stop within 10s; it may still "
+                    "accept a request that nothing will service",
+                )
 
     def _make_client(self) -> redis_lib.Redis:
         host = self._redis_cfg.get("host", "redis")
@@ -91,17 +149,23 @@ class RequestHandler:
                 pubsub = client.pubsub()
                 pubsub.subscribe(
                     TEST_FIRE_CHANNEL, STATUS_REQUEST_CHANNEL, FORCE_OFF_CHANNEL,
+                    TEST_FIRE_GROUP_CHANNEL,
                 )
                 logger.info(
-                    "Subscribed to %s, %s, %s",
+                    "Subscribed to %s, %s, %s, %s",
                     TEST_FIRE_CHANNEL, STATUS_REQUEST_CHANNEL, FORCE_OFF_CHANNEL,
+                    TEST_FIRE_GROUP_CHANNEL,
                 )
                 delay = 5
 
-                for message in pubsub.listen():
-                    if self._shutdown.is_set():
-                        break
-                    if message["type"] != "message":
+                # Polled rather than pubsub.listen(), which blocks forever on
+                # an idle channel: the shutdown flag would then only be noticed
+                # when a request happened to arrive, so stop() waited out its
+                # full join timeout and returned with this thread still
+                # subscribed and still accepting work.
+                while not self._shutdown.is_set():
+                    message = pubsub.get_message(timeout=SHUTDOWN_POLL_SEC)
+                    if message is None or message["type"] != "message":
                         continue
 
                     channel = message["channel"]
@@ -115,6 +179,8 @@ class RequestHandler:
                         self._handle_test_fire(client, payload)
                     elif channel == STATUS_REQUEST_CHANNEL:
                         self._handle_status_request(client, payload)
+                    elif channel == TEST_FIRE_GROUP_CHANNEL:
+                        self._handle_test_fire_group(client, payload)
                     elif channel == FORCE_OFF_CHANNEL:
                         self._handle_force_off(client, payload)
 
@@ -207,6 +273,79 @@ class RequestHandler:
         logger.info(
             "Test-fire result: %s - %s",
             device.name, "success" if result.success else (result.error or "failed"),
+        )
+
+    def _handle_test_fire_group(
+        self,
+        client: redis_lib.Redis,
+        payload: dict[str, Any],
+    ) -> None:
+        """Hand a group test-fire to the deterrent worker; do not fire here.
+
+        This thread is the only consumer of FORCE_OFF_CHANNEL. A group
+        sequence can run for many seconds across several devices, and running
+        it inline would make the emergency-off button unanswerable for that
+        whole time: the request would sit in the pubsub buffer, the web route
+        would time out and report the service as down, and the force-off would
+        eventually execute with nobody watching. So the sequence goes to the
+        worker thread instead, which is also where the enabled/armed gates and
+        both cooldown trackers already live, and which serialises with
+        detection firing so two sequences cannot overlap on one device.
+
+        The worker publishes the reply on the result channel when it is done.
+        """
+        request_id = payload.get("request_id", "")
+        group_name = payload.get("group_name", "")
+        result_channel = f"{TEST_FIRE_GROUP_RESULT_PREFIX}{request_id}"
+
+        if not request_id or not group_name:
+            return
+
+        if self._job_queue is None:
+            client.publish(result_channel, json.dumps({
+                "ok": False, "error": "Deterrent worker unavailable",
+            }))
+            return
+
+        # One in flight at a time. Claimed here and released by the worker when
+        # the sequence finishes, so the claim covers the queued-but-not-started
+        # window too. Probing a lock and releasing it before enqueuing would
+        # not: this thread handles requests one at a time, so three presses
+        # arriving before the worker dequeues would all see a free lock and all
+        # enqueue, which is exactly the stacking the guard exists to stop.
+        if not self._in_flight.claim():
+            client.publish(result_channel, json.dumps({
+                "ok": False,
+                "error": "A group test-fire is already in progress",
+            }))
+            return
+
+        try:
+            # NEVER a blocking put. The worker queue is bounded, and this thread
+            # is the sole consumer of the emergency force-off channel: blocking
+            # here would make the panic button unanswerable, which is the whole
+            # reason the sequence was moved off this thread in the first place.
+            self._job_queue.put_nowait({
+                "__job": JOB_TEST_FIRE_GROUP,
+                "group_name": group_name,
+                "request_id": request_id,
+                "result_channel": result_channel,
+                # The worker is FIFO and a detection sequence can hold it for
+                # minutes, so this job can outlive the caller's wait. Without
+                # an expiry the worker would dequeue it afterwards and fire
+                # real hardware with nobody watching, after the operator had
+                # already been told the request failed.
+                "expires_at": time.monotonic() + group_test_fire_timeout_sec(),
+            })
+        except queue.Full:
+            self._in_flight.release()
+            client.publish(result_channel, json.dumps({
+                "ok": False,
+                "error": "Deterrent worker is saturated, try again shortly",
+            }))
+            return
+        logger.info(
+            "Queued group test-fire for [%s] [rid=%s]", group_name, request_id,
         )
 
     @staticmethod

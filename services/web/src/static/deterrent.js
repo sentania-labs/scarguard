@@ -346,6 +346,22 @@ function renderGroups() {
     // Populate dynamic values via DOM properties (breaks CodeQL taint).
     card.querySelector('.camera-card-title').textContent = 'Group: ' + (g.name || '(unnamed)');
 
+    // Fire the whole group, exactly as a detection would. Reads from saved
+    // config on the deterrent side, so an unsaved rename cannot be fired.
+    if (!_readOnly && g.name) {
+      var fireBtn = document.createElement('button');
+      fireBtn.type = 'button';
+      fireBtn.className = 'btn-secondary';
+      fireBtn.textContent = 'Fire group';
+      fireBtn.style.cssText = 'font-size:0.75rem;padding:0.2em 0.6em;margin-left:0.5rem;';
+      fireBtn.title = 'Fire this group now using its real randomization plan';
+      fireBtn.dataset.groupName = g.name;
+      fireBtn.addEventListener('click', function() {
+        testFireGroup(fireBtn.dataset.groupName, fireBtn);
+      });
+      card.querySelector('.camera-card-header').appendChild(fireBtn);
+    }
+
     if (!_readOnly) {
       var rmBtn = document.createElement('button');
       rmBtn.type = 'button';
@@ -506,6 +522,60 @@ async function testFire(deviceId, btn) {
       btn.textContent = 'Fail';
       btn.style.color = 'var(--danger)';
       showMsg('Test-fire failed: ' + (data.error || 'Unknown error'), true);
+    }
+  } catch (e) {
+    btn.textContent = 'Err';
+    btn.style.color = 'var(--danger)';
+    showMsg('Network error: ' + e.message, true);
+  }
+  setTimeout(function() {
+    btn.textContent = origText;
+    btn.style.color = '';
+    btn.disabled = false;
+  }, 3000);
+}
+
+async function testFireGroup(groupName, btn) {
+  if (!confirm(
+    'Fire the group "' + groupName + '" now?\n\n' +
+    'This runs the real randomization plan against real hardware: the same ' +
+    'device subset, durations and delays a detection would produce. It uses ' +
+    'the SAVED configuration, so unsaved edits on this page are ignored.\n\n' +
+    'Proceed?'
+  )) return;
+  var origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Firing...';
+  try {
+    var resp = await fetch('/admin/deterrent/test-fire-group', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()},
+      body: JSON.stringify({group_name: groupName}),
+    });
+    var data = await resp.json();
+    if (data.ok) {
+      btn.textContent = 'OK';
+      btn.style.color = 'var(--ok)';
+      showMsg(
+        'Group "' + groupName + '": ' + data.devices_succeeded + '/' +
+        data.devices_fired + ' device(s) fired in ' + data.total_duration_sec + 's',
+        false
+      );
+    } else {
+      btn.textContent = 'Fail';
+      btn.style.color = 'var(--danger)';
+      // A partial failure still reports per-device detail; surface the first.
+      var detail = data.error || '';
+      if (!detail && data.devices) {
+        for (var i = 0; i < data.devices.length; i++) {
+          if (!data.devices[i].success) {
+            detail = data.devices[i].device_name + ': ' +
+                     (data.devices[i].error || 'failed');
+            break;
+          }
+        }
+      }
+      showMsg('Group fire failed: ' + (detail || 'Unknown error'), true);
     }
   } catch (e) {
     btn.textContent = 'Err';

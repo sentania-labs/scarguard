@@ -391,6 +391,36 @@ Firing is gated by two cooldown layers:
 
 Override per-device with `dp_code` if your device uses a different DP.
 
+
+
+### Randomization range limits (v1.17)
+
+Every `*_range` below is `[low, high]`, both values inclusive, with
+`low <= high`. Equal values are legal and mean a fixed, non-random value.
+
+These drive physical hardware, so since v1.17 they are enforced rather than
+merely suggested by the form:
+
+| Range | Allowed interval |
+|---|---|
+| `device_count_range` | 1 to 20 |
+| `spray_duration_range` | 0.5 to 60 seconds (`MAX_ACTUATION_SEC`) |
+| `inter_device_delay_range` | 0 to 30 seconds |
+| `pre_delay_range` | 0 to 30 seconds |
+
+**Saving a value outside these is refused** with a 400 naming every field that
+is wrong, rather than being silently accepted and truncated later. Before
+v1.17 the only limits were `max` attributes on the form, so a hand-edited
+`scarguard.yml` could set `pre_delay_range: [300, 300]` and produce several
+minutes of hardware activity from one trigger.
+
+**Loading an out-of-range value does not fail.** The deterrent service clamps
+it at fire time and logs a warning. That asymmetry is deliberate: refusing a
+bad write is right, but refusing to load an existing configuration would take
+the deterrent out of service entirely over a value that can simply be bounded.
+Fix the value at your leisure; the pond stays defended in the meantime.
+
+
 ## Service Communication
 
 - **Between services:** Redis pub/sub. Detector publishes detection events; notifier, deterrent, and web UI subscribe.
