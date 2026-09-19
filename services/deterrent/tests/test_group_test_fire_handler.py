@@ -90,14 +90,30 @@ def _cfg(**kw: Any) -> ActuationConfig:
 
 
 @pytest.fixture(autouse=True)
-def _no_db(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Persistence is covered by the hash-chain tests."""
-    import sys
-    import types
+def _no_external_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cut every path out of the deterrent worker to Redis or the DB.
 
-    stub = types.ModuleType("actuation_db")
-    stub.insert_event = lambda event: None  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "actuation_db", stub)
+    Patching sys.modules is not enough: main.py binds ``actuation_db`` at
+    import time, and _publish_actuation lazily connects to the configured
+    Redis host. Both are wrapped in try/except so nothing crashes, but the
+    connect attempt is slow enough on a CI runner to blow a 10s thread join,
+    which is how this surfaced: a test that passed locally and failed in CI
+    with "worker did not finish".
+
+    Persistence itself is covered by the hash-chain tests.
+    """
+    import main as deterrent_main
+
+    monkeypatch.setattr(
+        deterrent_main.actuation_db, "insert_event", lambda event: None,
+    )
+    monkeypatch.setattr(
+        deterrent_main, "_publish_actuation", lambda holder, cfg, event: None,
+    )
+    monkeypatch.setattr(
+        deterrent_main, "_publish_stuck",
+        lambda holder, cfg, device, rid, err: None,
+    )
 
 
 # ── Handler half: enqueue only, never fire ───────────────────────────────────
@@ -591,3 +607,92 @@ class TestShutdown:
         assert reply["ok"] is False
         assert "shutting down" in reply["error"]
         assert guard.claimed is False
+
+
+class TestQueuedJobExpiry:
+    """A job that outlives the caller's wait must not fire.
+
+    The worker is FIFO and a detection sequence can hold it for minutes, so a
+    queued test-fire can be dequeued long after the web route gave up and told
+    the operator it failed. Firing then is worse than not firing: nobody is
+    watching the pond when it happens.
+    """
+
+    def test_expired_job_fires_nothing(self) -> None:
+        import time as _time
+
+        controller = FakeController()
+        redis = FakeRedis()
+        holder: list[Any] = [redis]
+        from main import _run_group_test_fire
+
+        _run_group_test_fire(
+            {
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+                "expires_at": _time.monotonic() - 1.0,
+            },
+            AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), holder, {},
+        )
+
+        assert controller.calls == [], "fired after the caller gave up"
+        reply = redis.reply_for("r1")
+        assert reply["ok"] is False
+        assert "expired" in reply["error"].lower()
+
+    def test_unexpired_job_still_fires(self) -> None:
+        import time as _time
+
+        controller = FakeController()
+        redis = FakeRedis()
+        holder: list[Any] = [redis]
+        from main import _run_group_test_fire
+
+        _run_group_test_fire(
+            {
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+                "expires_at": _time.monotonic() + 300.0,
+            },
+            AtomicRef(_group_cfg(device_count_range=[2, 2])),
+            AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), holder, {},
+        )
+
+        assert sorted(controller.calls) == ["v1", "v2"]
+
+    def test_job_without_expiry_still_fires(self) -> None:
+        """Absent expiry must not be read as expired."""
+        controller = FakeController()
+        redis = FakeRedis()
+        holder: list[Any] = [redis]
+        from main import _run_group_test_fire
+
+        _run_group_test_fire(
+            {
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+            },
+            AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), holder, {},
+        )
+
+        assert controller.calls, "a job with no expiry was treated as expired"
+
+    def test_handler_stamps_an_expiry(self) -> None:
+        import queue as _queue
+        import time as _time
+
+        q: _queue.Queue[Any] = _queue.Queue()
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()), job_queue=q,
+        )
+        handler._handle_test_fire_group(
+            FakeRedis(), {"request_id": "r1", "group_name": "g"},
+        )
+        job = q.get_nowait()
+        assert job["expires_at"] > _time.monotonic()

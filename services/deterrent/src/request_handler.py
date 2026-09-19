@@ -29,6 +29,7 @@ from deterrent_safety import (
     DEFAULT_TEST_FIRE_SEC,
     MAX_TEST_FIRE_SEC,
     clamp_duration,
+    group_test_fire_timeout_sec,
 )
 
 logger = logging.getLogger(__name__)
@@ -329,6 +330,12 @@ class RequestHandler:
                 "group_name": group_name,
                 "request_id": request_id,
                 "result_channel": result_channel,
+                # The worker is FIFO and a detection sequence can hold it for
+                # minutes, so this job can outlive the caller's wait. Without
+                # an expiry the worker would dequeue it afterwards and fire
+                # real hardware with nobody watching, after the operator had
+                # already been told the request failed.
+                "expires_at": time.monotonic() + group_test_fire_timeout_sec(),
             })
         except queue.Full:
             self._in_flight.release()

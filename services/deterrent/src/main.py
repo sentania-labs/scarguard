@@ -267,6 +267,22 @@ def _run_group_test_fire(
     def reply(body: dict[str, Any]) -> None:
         _publish_raw(pub_holder, redis_cfg, result_channel, body)
 
+    # Refuse a job that outlived the caller's wait. The worker is FIFO and a
+    # detection sequence can hold it for minutes; firing after the operator was
+    # told the request failed is worse than not firing at all, because nobody
+    # is watching the pond when it happens.
+    expires_at = job.get("expires_at")
+    if isinstance(expires_at, (int, float)) and time.monotonic() > expires_at:
+        logger.warning(
+            "Group test-fire for [%s] expired in the queue, not firing [rid=%s]",
+            group_name, request_id,
+        )
+        reply({
+            "ok": False,
+            "error": "Request expired while queued behind another sequence",
+        })
+        return
+
     act_cfg = act_cfg_ref.get()
     controller = controller_ref.get()
 
