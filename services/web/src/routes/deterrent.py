@@ -232,6 +232,7 @@ async def save_deterrent(request: Request) -> Response:
                 "spray_duration_range",
                 "inter_device_delay_range",
                 "pre_delay_range",
+                "group_duration_range",
             ):
                 if opt_key in g and g[opt_key]:
                     entry[opt_key] = g[opt_key]
@@ -264,7 +265,8 @@ async def save_deterrent(request: Request) -> Response:
             existing_defaults = {}
         # Merge individual fields so partial updates work
         for key in ("cooldown_seconds", "device_count_range", "spray_duration_range",
-                     "inter_device_delay_range", "pre_delay_range"):
+                     "inter_device_delay_range", "pre_delay_range",
+                     "group_duration_range"):
             if key in defaults_input:
                 existing_defaults[key] = defaults_input[key]
         existing_act["defaults"] = existing_defaults

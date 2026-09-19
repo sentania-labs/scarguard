@@ -4,7 +4,7 @@ import math
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from deterrent_safety import MAX_ACTUATION_SEC
+from deterrent_safety import MAX_ACTUATION_SEC, MAX_GROUP_ACTUATION_SEC
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -440,6 +440,9 @@ _RANGE_BOUNDS: dict[str, tuple[float, float]] = {
     "spray_duration_range": (0.5, MAX_ACTUATION_SEC),
     "inter_device_delay_range": (0.0, 30.0),
     "pre_delay_range": (0.0, 30.0),
+    # How long the group keeps cycling devices. Bounded because one detection
+    # should not be able to run the sprinklers indefinitely.
+    "group_duration_range": (0.0, MAX_GROUP_ACTUATION_SEC),
 }
 
 
@@ -485,6 +488,8 @@ class ActuationDefaultsConfig(BaseModel):
     spray_duration_range: list[float] = [3.0, 8.0]
     inter_device_delay_range: list[float] = [1.0, 5.0]
     pre_delay_range: list[float] = [0.0, 3.0]
+    # None means one pass, the pre-v1.17 behaviour.
+    group_duration_range: list[float] | None = None
 
     @field_validator("cooldown_seconds")
     @classmethod
@@ -512,6 +517,7 @@ class DeterrentGroupConfig(BaseModel):
     spray_duration_range: list[float] | None = None
     inter_device_delay_range: list[float] | None = None
     pre_delay_range: list[float] | None = None
+    group_duration_range: list[float] | None = None
 
     @field_validator("name")
     @classmethod

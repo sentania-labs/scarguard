@@ -29,6 +29,8 @@ class ActuationDefaults(BaseModel):
     spray_duration_range: list[float] = [3.0, 8.0]
     inter_device_delay_range: list[float] = [1.0, 5.0]
     pre_delay_range: list[float] = [0.0, 3.0]
+    # v1.17: None means one pass, the pre-v1.17 behaviour.
+    group_duration_range: list[float] | None = None
     cooldown_seconds: int = 60
 
 
@@ -49,6 +51,9 @@ class DeterrentGroup(BaseModel):
     spray_duration_range: list[float] | None = None
     inter_device_delay_range: list[float] | None = None
     pre_delay_range: list[float] | None = None
+    # v1.17: how long the group keeps working the position. None or absent
+    # means one pass, which is the pre-v1.17 behaviour.
+    group_duration_range: list[float] | None = None
 
     def effective_defaults(self, fallback: ActuationDefaults) -> ActuationDefaults:
         """Return an ActuationDefaults where any group-level None inherits *fallback*."""
@@ -57,6 +62,9 @@ class DeterrentGroup(BaseModel):
             spray_duration_range=self.spray_duration_range or fallback.spray_duration_range,
             inter_device_delay_range=self.inter_device_delay_range or fallback.inter_device_delay_range,
             pre_delay_range=self.pre_delay_range or fallback.pre_delay_range,
+            group_duration_range=(
+                self.group_duration_range or fallback.group_duration_range
+            ),
             cooldown_seconds=self.cooldown_seconds,
         )
 

@@ -94,6 +94,18 @@ function esc(s) {
                         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function _readOptionalRange(minId, maxId) {
+  var lo = document.getElementById(minId).value.trim();
+  var hi = document.getElementById(maxId).value.trim();
+  if (lo === '' && hi === '') return null;
+  // One side filled is almost certainly a half-finished edit. Treat the blank
+  // side as equal to the filled one rather than silently substituting zero,
+  // which would mean "start immediately and stop immediately".
+  if (lo === '') lo = hi;
+  if (hi === '') hi = lo;
+  return [parseFloat(lo), parseFloat(hi)];
+}
+
 async function saveDeterrent() {
   var btn = document.getElementById('save-deterrent-btn');
   var msg = document.getElementById('deterrent-msg');
@@ -143,6 +155,10 @@ async function saveDeterrent() {
         parseFloat(document.getElementById('def-pre-min').value) || 0.0,
         parseFloat(document.getElementById('def-pre-max').value) || 3.0,
       ],
+      // Blank means one pass, so send null rather than coercing to 0: an
+      // explicit [0, 0] and "not configured" mean the same thing downstream,
+      // but null is what the schema documents and what groups inherit.
+      group_duration_range: _readOptionalRange('def-window-min', 'def-window-max'),
     },
     battery_monitor: {
       enabled: document.getElementById('batt-enabled').checked,
@@ -339,6 +355,10 @@ function renderGroups() {
           '<div class="field-group"><label>Pre-delay (s)</label>' +
             '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-pre_delay_range"></div>' +
           '</div>' +
+          '<div class="field-group">' +
+            '<label title="Blank means one pass. Set a window and the group keeps cycling its devices for that long, re-picking each time.">Group window (s)</label>' +
+            '<div style="display:flex;gap:0.5rem;align-items:center;" class="range-group_duration_range"></div>' +
+          '</div>' +
         '</div>' +
       '</details>' +
       '<div style="margin-top:0.5rem;font-size:0.85rem;"><span class="muted">Used by:</span> <span class="usage-chips"></span></div>';
@@ -413,6 +433,7 @@ function renderGroups() {
       ['spray_duration_range',       g.spray_duration_range,       {min:'0.5', max:'60', step:'0.5'}],
       ['inter_device_delay_range',   g.inter_device_delay_range,   {min:'0',   max:'30', step:'0.5'}],
       ['pre_delay_range',            g.pre_delay_range,            {min:'0',   max:'30', step:'0.5'}],
+      ['group_duration_range',       g.group_duration_range,       {min:'0',   max:'300', step:'5'}],
     ];
     ranges.forEach(function(r) {
       var attrs = Object.assign({}, r[2]);
@@ -461,7 +482,8 @@ function readGroupsFromForm() {
     });
     var entry = {name: name, devices: devices, cooldown_seconds: cooldown};
     ['device_count_range', 'spray_duration_range',
-     'inter_device_delay_range', 'pre_delay_range'].forEach(function(f) {
+     'inter_device_delay_range', 'pre_delay_range',
+     'group_duration_range'].forEach(function(f) {
       var r = _readGroupRange(card, f);
       if (r) entry[f] = r;
     });

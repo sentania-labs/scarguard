@@ -187,6 +187,23 @@
       </div>
     </div>
   </div>
+  <div class="field-row" style="margin-top:0.75rem;">
+    <div class="field-group">
+      <label title="Blank means one pass. Set a window and a group keeps cycling its devices for that long. Groups can override this.">Group window range (sec)</label>
+      <div style="display:flex;gap:0.5rem;align-items:center;">
+        <input type="number" id="def-window-min" min="0" max="300" step="5" style="width:5rem;"
+               placeholder="off"
+               value="{{ (defaults.get('group_duration_range') or ['',''])[0] }}"
+               {% if read_only %}disabled{% endif %}>
+        <span>to</span>
+        <input type="number" id="def-window-max" min="0" max="300" step="5" style="width:5rem;"
+               placeholder="off"
+               value="{{ (defaults.get('group_duration_range') or ['',''])[1] }}"
+               {% if read_only %}disabled{% endif %}>
+        <span class="muted" style="font-size:0.85rem;">leave blank for a single pass</span>
+      </div>
+    </div>
+  </div>
 </div>
 </div>{# /defaults tab #}
 

@@ -10,12 +10,16 @@ from __future__ import annotations
 
 from typing import Any
 
+import group_fire as group_fire_module
+import pytest
 from actuation_models import ActuationDefaults, DeterrentGroup, DeviceConfig
+from atomic_ref import AtomicRef
 from cloud_controller import ActivationResult
 from deterrent_safety import (
     MAX_ACTUATION_SEC,
     MAX_INTER_DELAY_SEC,
     MAX_PRE_DELAY_SEC,
+    MIN_INTER_CYCLE_GAP_SEC,
 )
 from group_fire import execute_plan, resolve_group_devices
 
@@ -449,3 +453,453 @@ class TestEveryWaitIsBounded:
         )
         execution = _run(FakeController(), [_device("v1")], defaults)
         assert execution.pre_delay_sec == MAX_PRE_DELAY_SEC
+
+
+class TestRotation:
+    """A group with a window keeps working the position until it closes.
+
+    The point of #189: a heron that waits out a three-second burst has not
+    been deterred. Without rotation the group fires one pass and goes quiet
+    for the whole cooldown.
+    """
+
+    @staticmethod
+    def _clock(monkeypatch: Any) -> dict[str, float]:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        return clock
+
+    @staticmethod
+    def _timed(controller: FakeController, clock: dict[str, float]) -> FakeController:
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        return controller
+
+    @staticmethod
+    def _defaults() -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+
+    def _fire(self, monkeypatch: Any, *, window: float | None, rotate: bool) -> Any:
+        clock = self._clock(monkeypatch)
+        controller = self._timed(FakeController(), clock)
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=window, rotate=rotate,
+        )
+        return controller, execution
+
+    def test_without_a_window_it_is_one_pass(self, monkeypatch: Any) -> None:
+        """The pre-v1.17 behaviour must be exactly preserved."""
+        controller, execution = self._fire(monkeypatch, window=None, rotate=False)
+        assert len(execution.actions) == 2
+
+    def test_with_a_window_it_keeps_cycling(self, monkeypatch: Any) -> None:
+        # 2 devices x 5s = 10s per cycle; a 30s window fits three cycles.
+        controller, execution = self._fire(monkeypatch, window=30.0, rotate=True)
+        assert len(execution.actions) == 6, "group stopped after one pass"
+
+    def test_rotation_stops_at_the_window(self, monkeypatch: Any) -> None:
+        controller, execution = self._fire(monkeypatch, window=12.0, rotate=True)
+        # Cycle 1 fires both devices, ending at t=10 (under 12, so cycle 2
+        # starts). Cycle 2 waits the mandatory inter-cycle gap to t=12, by
+        # which point the window has closed, so nothing more fires.
+        assert len(execution.actions) == 2
+        assert execution.total_duration_sec == 12.0
+
+    def test_cycles_are_separated_by_a_real_gap(self, monkeypatch: Any) -> None:
+        """A small group must not drive one device with no off-time.
+
+        build_random_plan always gives the first device of a pass a zero delay,
+        which is right within a pass and wrong at a cycle boundary: a
+        one-device group would otherwise be held on continuously for the whole
+        window, defeating the duty cycle MAX_ACTUATION_SEC exists to bound.
+        """
+        clock = self._clock(monkeypatch)
+        controller = self._timed(FakeController(), clock)
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = execute_plan(
+            controller, [_device("solo")], defaults,
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=30.0, rotate=True,
+        )
+        gaps = [a.delay_before_sec for a in execution.actions[1:]]
+        assert gaps, "did not rotate"
+        assert all(g >= MIN_INTER_CYCLE_GAP_SEC for g in gaps), (
+            f"device driven with no off-time between cycles: {gaps}"
+        )
+
+    def test_an_in_flight_spray_still_finishes(self, monkeypatch: Any) -> None:
+        """Overshoot stays bounded by one spray; no out-of-band OFF is sent."""
+        controller, execution = self._fire(monkeypatch, window=1.0, rotate=True)
+        assert len(execution.actions) == 1
+        assert execution.actions[0].duration_sec == 5.0
+
+    def test_rotate_without_a_window_is_still_one_pass(self, monkeypatch: Any) -> None:
+        """rotate is meaningless without a deadline and must not loop forever."""
+        controller, execution = self._fire(monkeypatch, window=None, rotate=True)
+        assert len(execution.actions) == 2
+
+
+class TestPickGroupWindow:
+    def test_none_when_unset(self) -> None:
+        from randomizer import pick_group_window
+        assert pick_group_window(ActuationDefaults()) is None
+
+    def test_none_when_zero(self) -> None:
+        from randomizer import pick_group_window
+        d = ActuationDefaults(group_duration_range=[0.0, 0.0])
+        assert pick_group_window(d) is None
+
+    def test_within_the_configured_range(self) -> None:
+        from randomizer import pick_group_window
+        d = ActuationDefaults(group_duration_range=[10.0, 20.0])
+        for _ in range(50):
+            w = pick_group_window(d)
+            assert w is not None and 10.0 <= w <= 20.0
+
+    def test_clamped_to_the_ceiling(self) -> None:
+        """One detection must not be able to run the devices indefinitely."""
+        from deterrent_safety import MAX_GROUP_ACTUATION_SEC
+        from randomizer import pick_group_window
+        d = ActuationDefaults(group_duration_range=[99999.0, 99999.0])
+        assert pick_group_window(d) == MAX_GROUP_ACTUATION_SEC
+
+
+class TestRotationCanBeStopped:
+    """The gates that authorise firing are checked once, before the sequence.
+
+    A window can now run for minutes, so an operator who disarms, disables the
+    deterrent, or hits emergency off during one must actually stop it. Without
+    the abort hook the force-off switches every device off and the next cycle
+    switches them straight back on.
+    """
+
+    @staticmethod
+    def _defaults() -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+
+    def _fire(self, monkeypatch: Any, should_continue: Any) -> Any:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        return execute_plan(
+            controller, [_device("v1"), _device("v2")], self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0, rotate=True, should_continue=should_continue,
+        )
+
+    def test_revoked_authorisation_stops_the_rotation(self, monkeypatch: Any) -> None:
+        execution = self._fire(monkeypatch, lambda: False)
+        # The first cycle already started under the gates checked before the
+        # sequence; the abort applies from cycle two onward.
+        assert len(execution.actions) == 2
+
+    def test_still_authorised_keeps_going(self, monkeypatch: Any) -> None:
+        execution = self._fire(monkeypatch, lambda: True)
+        assert len(execution.actions) > 2
+
+    def test_no_hook_means_no_abort(self, monkeypatch: Any) -> None:
+        """The detection path passes one; anything else must not change."""
+        execution = self._fire(monkeypatch, None)
+        assert len(execution.actions) > 2
+
+    def test_abort_is_checked_between_cycles_not_mid_spray(self, monkeypatch: Any) -> None:
+        """An in-flight activation must always run to its natural end."""
+        calls = {"n": 0}
+
+        def revoke_after_first_check() -> bool:
+            calls["n"] += 1
+            return False
+
+        execution = self._fire(monkeypatch, revoke_after_first_check)
+        assert calls["n"] == 1, "checked more than once per cycle boundary"
+        # Both devices of cycle one completed their full duration.
+        assert [a.duration_sec for a in execution.actions] == [5.0, 5.0]
+
+
+class TestCycleCeiling:
+    def test_ceiling_bounds_a_pathological_window(self, monkeypatch: Any) -> None:
+        """The backstop when the window bound itself fails.
+
+        Without it a non-finite window made every comparison False and the
+        sequence ran for roughly two hours.
+
+        Run on a thread with a join timeout rather than called directly: if
+        the ceiling is removed this loops forever, and a hanging test burns
+        the whole CI job instead of reporting a failure.
+        """
+        import threading
+
+        from group_fire import MAX_ROTATION_CYCLES
+
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: None)
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: 0.0)  # frozen
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[0.5, 0.5],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        result: dict[str, Any] = {}
+
+        def run() -> None:
+            result["execution"] = execute_plan(
+                FakeController(), [_device("v1")], defaults,
+                request_id="rid", event_type="detection", label="T",
+                on_stuck=lambda d, e: None, deadline_sec=999999.0, rotate=True,
+            )
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=20.0)
+        assert not t.is_alive(), (
+            "rotation did not terminate: the cycle ceiling is the only thing "
+            "bounding a window that never closes"
+        )
+        assert len(result["execution"].actions) == MAX_ROTATION_CYCLES
+
+    def test_ceiling_is_a_sane_value(self) -> None:
+        from group_fire import MAX_ROTATION_CYCLES
+        assert 100 <= MAX_ROTATION_CYCLES <= 2000, (
+            "too low truncates real windows, too high stops bounding anything"
+        )
+
+
+class TestPreDelayAppliesOnce:
+    def test_pre_delay_is_not_repeated_per_cycle(self, monkeypatch: Any) -> None:
+        """Repeating it would insert dead air before every cycle."""
+        slept: list[float] = []
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: slept.append(s))
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[7.0, 7.0],
+        )
+        execute_plan(
+            controller, [_device("v1")], defaults,
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=30.0, rotate=True,
+        )
+        assert slept.count(7.0) == 1, f"pre-delay applied per cycle: {slept}"
+
+
+class TestNonFiniteWindowIsRejected:
+    """NaN and inf must be refused, not clamped.
+
+    Every comparison against NaN is False, so a NaN window makes "has the
+    window closed" permanently False and the sequence runs until the cycle
+    ceiling. Measured at roughly two hours of continuous firing on the shipped
+    defaults before this was fixed. inf produces NaN here too, via
+    inf + (inf - inf) * r.
+    """
+
+    @pytest.mark.parametrize("rng", [
+        [float("nan"), float("nan")],
+        [float("inf"), float("inf")],
+        [float("nan"), 50.0],
+        [50.0, float("inf")],
+        [float("-inf"), float("inf")],
+    ])
+    def test_returns_none(self, rng: list[float]) -> None:
+        from randomizer import pick_group_window
+        assert pick_group_window(ActuationDefaults(group_duration_range=rng)) is None
+
+    def test_a_non_finite_window_does_not_rotate(self, monkeypatch: Any) -> None:
+        """End to end: a NaN range must produce one pass, not a marathon."""
+        import threading
+
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: None)
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: 0.0)
+        from randomizer import pick_group_window
+
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[0.5, 0.5],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+            group_duration_range=[float("nan"), float("nan")],
+        )
+        window = pick_group_window(defaults)
+        result: dict[str, Any] = {}
+
+        def run() -> None:
+            result["execution"] = execute_plan(
+                FakeController(), [_device("v1")], defaults,
+                request_id="rid", event_type="detection", label="T",
+                on_stuck=lambda d, e: None,
+                deadline_sec=window, rotate=window is not None,
+            )
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=20.0)
+        assert not t.is_alive(), "a non-finite window ran away"
+        assert len(result["execution"].actions) == 1, "should be a single pass"
+
+
+class TestEmptyPlanMidRotation:
+    def test_an_empty_re_roll_ends_the_rotation(self, monkeypatch: Any) -> None:
+        """Defensive: a plan with no devices must stop, not spin.
+
+        build_random_plan cannot return empty for a non-empty device list
+        today, so this pins the guard rather than a reachable path. Without it
+        the loop would keep re-rolling until the cycle ceiling.
+        """
+        import threading
+
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: None)
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: 0.0)
+
+        calls = {"n": 0}
+        real = group_fire_module.build_random_plan
+
+        def sometimes_empty(devices: Any, defaults: Any) -> Any:
+            calls["n"] += 1
+            if calls["n"] > 1:
+                return [], [], [], 0.0
+            return real(devices, defaults)
+
+        monkeypatch.setattr(group_fire_module, "build_random_plan", sometimes_empty)
+        defaults = ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[0.5, 0.5],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        result: dict[str, Any] = {}
+
+        def run() -> None:
+            result["execution"] = execute_plan(
+                FakeController(), [_device("v1")], defaults,
+                request_id="rid", event_type="detection", label="T",
+                on_stuck=lambda d, e: None, deadline_sec=999999.0, rotate=True,
+            )
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout=20.0)
+        assert not t.is_alive(), "an empty re-roll spun instead of stopping"
+        assert len(result["execution"].actions) == 1
+
+
+class TestForceOffStopsRotation:
+    """Emergency off must survive the next cycle.
+
+    It sends OFF to every device but changes none of the gates the rotation
+    checks: not enabled, not armed, not the shutdown event. Before the latch,
+    the next cycle turned the devices it had just switched off straight back
+    on, so the panic button worked for a moment and then undid itself.
+    """
+
+    def test_bumping_the_latch_stops_the_rotation(self, monkeypatch: Any) -> None:
+        from request_handler import ForceOffLatch
+
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+        latch = ForceOffLatch()
+        started = latch.generation
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            if len(controller.calls) == 1:
+                latch.bump()  # operator hits emergency off mid-sequence
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        defaults = ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], defaults,
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            should_continue=lambda: latch.generation == started,
+        )
+        # The cycle in flight finishes; nothing new starts.
+        assert len(execution.actions) == 2
+
+    def test_latch_generation_only_moves_on_bump(self) -> None:
+        from request_handler import ForceOffLatch
+
+        latch = ForceOffLatch()
+        g = latch.generation
+        assert latch.generation == g
+        latch.bump()
+        assert latch.generation != g
+
+    def test_force_off_handler_latches_before_sending_off(self) -> None:
+        """Latching after the OFFs would leave a gap for the next cycle."""
+        import queue as _queue
+
+        from request_handler import ForceOffLatch, RequestHandler
+
+        latch = ForceOffLatch()
+        started = latch.generation
+        handler = RequestHandler(
+            {}, AtomicRef(None), AtomicRef(None),
+            job_queue=_queue.Queue(), force_off_latch=latch,
+        )
+        # No controller, so the handler bails early; the latch must already
+        # have moved by then.
+        handler._handle_force_off(FakeRedisPub(), {"request_id": "r1"})
+        assert latch.generation != started
+
+
+class FakeRedisPub:
+    def publish(self, channel: str, payload: str) -> None:
+        pass

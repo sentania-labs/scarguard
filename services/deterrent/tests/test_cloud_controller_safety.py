@@ -4,7 +4,6 @@ state machine around it, not the network."""
 
 from __future__ import annotations
 
-import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 

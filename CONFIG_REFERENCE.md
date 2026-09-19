@@ -370,10 +370,12 @@ Firing is gated by two cooldown layers:
 | `deterrent.groups[].spray_duration_range` | list[float] \| null | inherit | **v0.13.3**: Override spray duration. |
 | `deterrent.groups[].inter_device_delay_range` | list[float] \| null | inherit | **v0.13.3**: Override inter-device delay. |
 | `deterrent.groups[].pre_delay_range` | list[float] \| null | inherit | **v0.13.3**: Override pre-delay. |
+| `deterrent.groups[].group_duration_range` | list[float] \| null | inherit | **v1.17**: Override the group window. |
 | `deterrent.defaults.device_count_range` | list[int] | `[1, 4]` | Min/max devices to fire per event (group override available) |
 | `deterrent.defaults.spray_duration_range` | list[float] | `[3.0, 8.0]` | Min/max seconds each device stays on |
 | `deterrent.defaults.inter_device_delay_range` | list[float] | `[1.0, 5.0]` | Min/max seconds between device activations |
 | `deterrent.defaults.pre_delay_range` | list[float] | `[0.0, 3.0]` | Min/max seconds before sequence starts |
+| `deterrent.defaults.group_duration_range` | list[float] \| null | `null` | **v1.17**: Min/max seconds the group keeps cycling. `null` = one pass. |
 | `deterrent.defaults.cooldown_seconds` | int | `60` | **Global** cooldown, minimum gap between *any* two actuations across all groups. Group cooldowns stack on top. |
 | `deterrent.reconcile_interval_sec` | int | `30` | Seconds between reconciliation polls. Detects stuck devices and force-OFFs any that report ON while not actively driven. 0 = disabled. |
 | `deterrent.battery_monitor.enabled` | bool | `true` | Poll battery levels periodically |
@@ -419,6 +421,48 @@ it at fire time and logs a warning. That asymmetry is deliberate: refusing a
 bad write is right, but refusing to load an existing configuration would take
 the deterrent out of service entirely over a value that can simply be bounded.
 Fix the value at your leisure; the pond stays defended in the meantime.
+
+### Group window (`group_duration_range`, v1.17)
+
+By default a group fires one pass and stops: it picks a random subset of its
+devices, sprays each once, and goes quiet for the cooldown. A heron that waits
+out a three-second burst has not been deterred.
+
+Set `group_duration_range` and the group keeps working the position for a
+randomly chosen window instead. Each cycle re-picks the device subset and the
+durations, so the pattern stays unpredictable, which is the same reason a
+single pass is randomised at all.
+
+```yaml
+deterrent:
+  groups:
+    - name: thermonuclear
+      devices: [Waterfall, Pump, Bridge]
+      spray_duration_range: [3, 8]     # each device sprays 3-8s
+      group_duration_range: [45, 90]   # group works the position 45-90s
+```
+
+With that config a detection sprays a rotating subset of the three devices for
+somewhere between 45 and 90 seconds, rather than one 3-8 second burst.
+
+**Bounds and behaviour**
+
+- Omitted, `null` or `[0, 0]` means one pass, which is the pre-v1.17 behaviour.
+  Existing configs are unaffected.
+- The window is capped at `MAX_GROUP_ACTUATION_SEC` (300s). A larger value is
+  rejected on save, and clamped with a warning if it reaches the deterrent
+  service another way.
+- The window is checked immediately **before** each activation, never during
+  one. An in-flight spray always runs to its natural end, so the group can
+  overshoot its window by up to one spray duration. No out-of-band OFF is ever
+  sent, which is what keeps the per-activation watchdog authoritative.
+- `cooldown_seconds` anchors to the **end** of the window, not the start. A
+  60s window with a 60s cooldown gives 60s of quiet after the spraying stops.
+  Anchoring at the start would make any cooldown shorter than the window
+  silently meaningless.
+- Each device activation is still individually capped at `MAX_ACTUATION_SEC`
+  (60s). The window governs how many activations happen, never how long one
+  lasts.
 
 
 ## Service Communication

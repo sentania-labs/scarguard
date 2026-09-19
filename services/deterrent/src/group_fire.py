@@ -33,7 +33,7 @@ from deterrent_safety import (
     clamp_duration,
 )
 from pydantic import BaseModel
-from randomizer import build_random_plan
+from randomizer import build_random_plan, pick_inter_cycle_gap
 
 if TYPE_CHECKING:
     from cloud_controller import TuyaCloudController
@@ -46,6 +46,18 @@ DEFAULT_SPRAY_SEC = 3.0
 
 # Reported when a stuck device carries no more specific error.
 STUCK_FALLBACK_ERROR = "OFF failed"
+
+# Hard ceiling on rotation cycles, independent of the window. The window is the
+# real bound; this exists so a logic error in the exit condition fails loudly
+# and finitely instead of spinning forever driving physical hardware.
+#
+# It IS reachable with a valid configuration: the smallest validated spray is
+# 0.5s, so a one-device group with no delays can complete 500 cycles in 250s
+# and end a 300s window early. That is an odd thing to configure (a group that
+# does nothing but stutter), and stopping early is the safe direction, so the
+# ceiling stays and the log says what actually happened rather than blaming a
+# bug.
+MAX_ROTATION_CYCLES = 500
 
 
 class PlanExecution(BaseModel):
@@ -79,6 +91,8 @@ def execute_plan(
     label: str,
     on_stuck: Callable[[DeviceConfig, str], None],
     deadline_sec: float | None = None,
+    rotate: bool = False,
+    should_continue: Callable[[], bool] | None = None,
 ) -> PlanExecution:
     """Build a randomised plan over *devices* and fire it, device by device.
 
@@ -103,8 +117,31 @@ def execute_plan(
       so overshoot past the window is bounded by one spray duration rather
       than by a delay plus a spray.
 
-    ``None`` means no bound, which is what the detection path uses.
+    ``deadline_sec=None`` means no bound, and *rotate* is meaningless without
+    one.
+
+    With *rotate*, a plan that finishes before the window closes is re-rolled
+    and fired again, so the group keeps working the position for the whole
+    window instead of firing one pass and going quiet. Each cycle re-rolls the
+    device selection and the durations, so a heron watching cannot learn the
+    pattern, which is the same reason the single pass is randomised at all.
+
+    *should_continue* is consulted between cycles and returning False stops the
+    rotation. It exists because the gates that authorise firing (armed,
+    deterrent.enabled) are evaluated once before the sequence starts, and a
+    window can now run for minutes. Without it, disarming or pressing emergency
+    off would send OFF to every device and the next cycle would simply turn
+    them back on. It is checked BETWEEN cycles, never mid-activation, so an
+    in-flight spray still runs to its natural end and nothing races the
+    watchdog.
     """
+    # Rotation without a window would never terminate: the loop's only exit
+    # test is "window closed", and with no deadline that is never true. Caught
+    # by its own test hanging rather than failing, which is why the rotation
+    # tests assert on a fake clock instead of wall time.
+    if deadline_sec is None:
+        rotate = False
+
     selected, durations, inter_delays, pre_delay = build_random_plan(devices, defaults)
 
     # Clamped for the same reason durations are: the web layer validates the
@@ -129,58 +166,99 @@ def execute_plan(
     # The firing window starts once waiting is done (see docstring).
     fire_start = time.monotonic()
 
-    for i, device in enumerate(selected):
-        # Clamped for the same reason the pre-delay and the spray are. This
-        # one is also a term in group_test_fire_timeout_sec(), so leaving it
-        # unbounded would make that derivation fiction.
-        inter_delay = min(inter_delays[i], MAX_INTER_DELAY_SEC)
-        if inter_delay < inter_delays[i]:
-            logger.warning(
-                "Inter-device delay %.1fs exceeds the %.0fs cap, clamping [rid=%s]",
-                inter_delays[i], MAX_INTER_DELAY_SEC, request_id,
-            )
-        if inter_delay > 0:
-            logger.debug("Inter-device delay: %.1fs", inter_delay)
-            time.sleep(inter_delay)
+    def window_closed() -> bool:
+        return (
+            deadline_sec is not None
+            and (time.monotonic() - fire_start) >= deadline_sec
+        )
 
-        if deadline_sec is not None and (time.monotonic() - fire_start) >= deadline_sec:
+    cycle = 0
+    while cycle < MAX_ROTATION_CYCLES:
+        cycle += 1
+        if cycle > 1:
+            if should_continue is not None and not should_continue():
+                logger.info(
+                    "%s: aborted before cycle %d after %d device(s) [rid=%s]",
+                    label, cycle, len(actions), request_id,
+                )
+                break
+            # Re-roll: new subset, new durations, new delays.
+            selected, durations, inter_delays, _ = build_random_plan(devices, defaults)
+            if not selected:
+                break
+            # build_random_plan always sets inter_delays[0] to 0, which is right
+            # within a pass but wrong at a cycle boundary: a small group
+            # re-selects the same device and would drive it with no off-time at
+            # all, which is what MAX_ACTUATION_SEC exists to prevent. Give the
+            # first device of a new cycle a real gap.
+            inter_delays = list(inter_delays)
+            inter_delays[0] = pick_inter_cycle_gap(defaults)
+            logger.debug("%s: rotating, cycle %d [rid=%s]", label, cycle, request_id)
+
+        for i, device in enumerate(selected):
+            # Clamped for the same reason the pre-delay and the spray are. This
+            # one is also a term in group_test_fire_timeout_sec(), so leaving it
+            # unbounded would make that derivation fiction.
+            inter_delay = min(inter_delays[i], MAX_INTER_DELAY_SEC)
+            if inter_delay < inter_delays[i]:
+                logger.warning(
+                    "Inter-device delay %.1fs exceeds the %.0fs cap, clamping [rid=%s]",
+                    inter_delays[i], MAX_INTER_DELAY_SEC, request_id,
+                )
+            if inter_delay > 0:
+                logger.debug("Inter-device delay: %.1fs", inter_delay)
+                time.sleep(inter_delay)
+
+            if window_closed():
+                logger.info(
+                    "%s: window of %.0fs elapsed, stopping after %d device(s) "
+                    "across %d cycle(s) [rid=%s]",
+                    label, deadline_sec, len(actions), cycle, request_id,
+                )
+                break
+
+            # Defence-in-depth clamp - the randomizer reads spray_duration_range
+            # from config; a misconfigured or tampered config can't drive the
+            # physical hold beyond MAX_ACTUATION_SEC. The controller clamps too.
+            duration = clamp_duration(
+                durations[i],
+                max_sec=MAX_ACTUATION_SEC,
+                default=DEFAULT_SPRAY_SEC,
+            )
             logger.info(
-                "%s: window of %.0fs elapsed, stopping after %d of %d device(s) [rid=%s]",
-                label, deadline_sec, len(actions), len(selected), request_id,
+                "%s: firing device %s (%s) for %.1fs [rid=%s]",
+                label, device.name, device.type, duration, request_id,
             )
-            break
+            result = controller.activate_device(
+                device, duration,
+                request_id=request_id,
+                event_type=event_type,
+            )
+            actions.append(DeviceAction(
+                device_name=device.name,
+                device_id=device.device_id,
+                device_type=device.type,
+                duration_sec=duration,
+                delay_before_sec=inter_delay,
+                success=result.success,
+                error=result.error,
+                cloud_ack_ms=result.on_ack_ms,
+                off_attempts=result.off_attempts,
+                stuck=result.stuck,
+            ))
+            if result.stuck:
+                on_stuck(device, result.error or STUCK_FALLBACK_ERROR)
 
-        # Defence-in-depth clamp - the randomizer reads spray_duration_range
-        # from config; a misconfigured or tampered config can't drive the
-        # physical hold beyond MAX_ACTUATION_SEC. The controller clamps too.
-        duration = clamp_duration(
-            durations[i],
-            max_sec=MAX_ACTUATION_SEC,
-            default=DEFAULT_SPRAY_SEC,
+        # One pass only unless rotating, and never rotate past the window.
+        if not rotate or window_closed():
+            break
+    else:
+        logger.warning(
+            "%s: hit the %d-cycle ceiling with the window still open, stopping "
+            "after %d device(s). Either the sprays are configured far shorter "
+            "than the window, or the exit condition is wrong [rid=%s]",
+            label, MAX_ROTATION_CYCLES, len(actions), request_id,
         )
-        logger.info(
-            "%s: firing device %s (%s) for %.1fs [rid=%s]",
-            label, device.name, device.type, duration, request_id,
-        )
-        result = controller.activate_device(
-            device, duration,
-            request_id=request_id,
-            event_type=event_type,
-        )
-        actions.append(DeviceAction(
-            device_name=device.name,
-            device_id=device.device_id,
-            device_type=device.type,
-            duration_sec=duration,
-            delay_before_sec=inter_delay,
-            success=result.success,
-            error=result.error,
-            cloud_ack_ms=result.on_ack_ms,
-            off_attempts=result.off_attempts,
-            stuck=result.stuck,
-        ))
-        if result.stuck:
-            on_stuck(device, result.error or STUCK_FALLBACK_ERROR)
 
     return PlanExecution(
         actions=actions,
