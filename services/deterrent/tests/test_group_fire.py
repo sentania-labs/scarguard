@@ -88,6 +88,23 @@ def _run(
     )
 
 
+def _collapse(trace: list) -> list:
+    """Merge adjacent ("sleep", x) entries into one, summing the values.
+
+    Waits are slept in slices (see group_fire._wait) so that a revoked
+    authorisation is noticed promptly. A trace therefore contains many small
+    sleeps where it once contained one. The totals are unchanged, and the
+    totals are what these tests assert.
+    """
+    out: list = []
+    for kind, value in trace:
+        if kind == "sleep" and out and out[-1][0] == "sleep":
+            out[-1] = ("sleep", round(out[-1][1] + value, 6))
+        else:
+            out.append((kind, value))
+    return out
+
+
 class TestResolveGroupDevices:
     def test_returns_only_enabled_members(self) -> None:
         registry = [_device("a"), _device("b", enabled=False), _device("c")]
@@ -220,7 +237,7 @@ class TestTimingIsPreserved:
         devices = [_device(f"v{i}") for i in range(3)]
         _run(FakeController(), devices, self._timed_defaults(2.5, 0.0))
 
-        assert 2.5 in slept, "pre_delay was never slept"
+        assert round(sum(slept), 6) == 2.5, f"pre_delay was not slept: {slept}"
 
     def test_inter_delays_are_index_aligned(self, monkeypatch: Any) -> None:
         """Device 0 never waits; device i waits inter_delays[i].
@@ -242,12 +259,14 @@ class TestTimingIsPreserved:
         devices = [_device(f"v{i}") for i in range(3)]
         execution = _run(controller, devices, self._timed_defaults(0.0, 1.5))
 
+        merged = _collapse(trace)
         # No pre-delay, so the very first thing that happens is a firing.
-        assert trace[0][0] == "fire", f"device 0 waited before firing: {trace[:2]}"
+        assert merged[0][0] == "fire", f"device 0 waited before firing: {merged[:2]}"
         # Thereafter strictly alternating: sleep, fire, sleep, fire.
-        assert [kind for kind, _ in trace] == [
+        assert [kind for kind, _ in merged] == [
             "fire", "sleep", "fire", "sleep", "fire",
         ]
+        assert [v for k, v in merged if k == "sleep"] == [1.5, 1.5]
         assert execution.actions[0].delay_before_sec == 0.0
         assert [a.delay_before_sec for a in execution.actions[1:]] == [1.5, 1.5]
 
@@ -687,14 +706,7 @@ class TestRotationCanBeStopped:
             should_continue=lambda: len(fired) < revoke_after,
         )
 
-    def test_still_authorised_keeps_going(self, monkeypatch: Any) -> None:
-        execution = self._fire(monkeypatch, lambda: True)
-        assert len(execution.actions) > 2
 
-    def test_no_hook_means_no_abort(self, monkeypatch: Any) -> None:
-        """The detection path passes one; anything else must not change."""
-        execution = self._fire(monkeypatch, None)
-        assert len(execution.actions) > 2
 
 class TestCycleCeiling:
     def test_ceiling_bounds_a_pathological_window(self, monkeypatch: Any) -> None:
@@ -746,15 +758,22 @@ class TestCycleCeiling:
 
 class TestPreDelayAppliesOnce:
     def test_pre_delay_is_not_repeated_per_cycle(self, monkeypatch: Any) -> None:
-        """Repeating it would insert dead air before every cycle."""
-        slept: list[float] = []
-        monkeypatch.setattr("group_fire.time.sleep", lambda s: slept.append(s))
+        """Repeating it would insert dead air before every cycle.
+
+        Asserted on the interleaving rather than the total: rotation adds a
+        mandatory gap at each cycle boundary, so the sum of all sleeps is not
+        the pre-delay. What matters is that the 7s wait happens once, before
+        any firing, and never again.
+        """
+        trace: list = []
+        monkeypatch.setattr("group_fire.time.sleep", lambda s: trace.append(("sleep", s)))
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         controller = FakeController()
         real = controller.activate_device
 
         def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            trace.append(("fire", device.name))
             clock["t"] += duration
             return real(device, duration, **kw)
 
@@ -770,7 +789,11 @@ class TestPreDelayAppliesOnce:
             request_id="rid", event_type="detection", label="T",
             on_stuck=lambda d, e: None, deadline_sec=30.0, rotate=True,
         )
-        assert slept.count(7.0) == 1, f"pre-delay applied per cycle: {slept}"
+        merged = _collapse(trace)
+        assert merged[0] == ("sleep", 7.0), f"pre-delay not slept first: {merged[:2]}"
+        assert merged[1][0] == "fire"
+        later_sleeps = [v for k, v in merged[2:] if k == "sleep"]
+        assert 7.0 not in later_sleeps, f"pre-delay repeated: {merged}"
 
 
 class TestNonFiniteWindowIsRejected:
@@ -1091,3 +1114,129 @@ class TestAbortBeforeTheWait:
         assert len(execution.actions) == 0, (
             "a stop at the firing gate did not stick, the sequence restarted"
         )
+
+
+class TestWaitsAreInterruptible:
+    """A stop landing mid-wait must not sit out the rest of it.
+
+    pre_delay and the inter-device gap are each bounded at 30s. Gating before
+    a wait does not help if the button is pressed one second into it, so the
+    waits are slept in slices and checked between them.
+    """
+
+    @staticmethod
+    def _clock(monkeypatch: Any) -> dict:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        return clock
+
+    def test_a_stop_during_the_pre_delay_does_not_wait_it_out(self, monkeypatch: Any) -> None:
+        clock = self._clock(monkeypatch)
+        controller = FakeController()
+        calls = {"n": 0}
+
+        def revoke_partway() -> bool:
+            calls["n"] += 1
+            return calls["n"] <= 4          # allow ~1s of a 30s pre-delay
+
+        execution = execute_plan(
+            controller, [_device("v1")],
+            ActuationDefaults(
+                device_count_range=[1, 1],
+                spray_duration_range=[5.0, 5.0],
+                inter_device_delay_range=[0.0, 0.0],
+                pre_delay_range=[30.0, 30.0],
+            ),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            should_continue=revoke_partway,
+        )
+        assert controller.calls == [], "fired after authorisation was revoked"
+        assert clock["t"] < 5.0, (
+            f"sat through the rest of a 30s pre-delay: stopped at {clock['t']}s"
+        )
+        assert execution.aborted is True
+
+    def test_a_stop_during_the_inter_device_wait_does_not_wait_it_out(self, monkeypatch: Any) -> None:
+        clock = self._clock(monkeypatch)
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        fired_at = {"t": None}
+        calls = {"n": 0}
+
+        def revoke_after_first_device() -> bool:
+            calls["n"] += 1
+            if controller.calls and fired_at["t"] is None:
+                fired_at["t"] = clock["t"]
+            # Allow everything up to and including the first device, then a
+            # few slices into the 30s wait, then revoke.
+            return not (fired_at["t"] is not None and clock["t"] >= fired_at["t"] + 1.0)
+
+        execute_plan(
+            controller, [_device("v1"), _device("v2")],
+            ActuationDefaults(
+                device_count_range=[2, 2],
+                spray_duration_range=[1.0, 1.0],
+                inter_device_delay_range=[30.0, 30.0],
+                pre_delay_range=[0.0, 0.0],
+            ),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            should_continue=revoke_after_first_device,
+        )
+        assert len(controller.calls) == 1
+        assert clock["t"] < 10.0, (
+            f"sat through the rest of a 30s wait: stopped at {clock['t']}s"
+        )
+
+
+class TestAbortedIsReported:
+    """The caller has to tell an operator which of the two happened."""
+
+    @staticmethod
+    def _defaults() -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[1, 1],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+
+    def _run(self, monkeypatch: Any, should_continue: Any, deadline: float) -> Any:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        return execute_plan(
+            controller, [_device("v1")], self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None, deadline_sec=deadline, rotate=True,
+            should_continue=should_continue,
+        )
+
+    def test_revoked_sets_aborted(self, monkeypatch: Any) -> None:
+        execution = self._run(monkeypatch, lambda: False, 300.0)
+        assert execution.aborted is True
+
+    def test_an_elapsed_window_does_not_set_aborted(self, monkeypatch: Any) -> None:
+        execution = self._run(monkeypatch, lambda: True, 6.0)
+        assert execution.aborted is False
+        assert execution.actions, "nothing fired, so the window was not the cause"

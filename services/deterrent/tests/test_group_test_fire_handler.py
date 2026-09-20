@@ -934,3 +934,37 @@ class TestSingleDeviceTestFireOnTheWorker:
             AtomicRef(cfg), AtomicRef(controller), [redis], {},
         )
         assert controller.calls == ["v1"]
+
+
+class TestZeroDeviceReasonIsAccurate:
+    """Which of the two happened matters to whoever reads it.
+
+    Reporting "the window elapsed" to an operator who just pressed emergency
+    off sends them looking at group_duration_range instead of at the button
+    they pressed.
+    """
+
+    def _run_with(self, monkeypatch: Any, *, aborted: bool) -> dict[str, Any]:
+        import main as deterrent_main
+        from group_fire import PlanExecution
+
+        monkeypatch.setattr(
+            deterrent_main, "execute_plan",
+            lambda *a, **kw: PlanExecution(
+                actions=[], pre_delay_sec=0.0, total_duration_sec=0.0,
+                aborted=aborted,
+            ),
+        )
+        redis, _ = _run_job(_group_cfg(), FakeController())
+        return redis.reply_for("r1")
+
+    def test_an_abort_says_so(self, monkeypatch: Any) -> None:
+        reply = self._run_with(monkeypatch, aborted=True)
+        assert reply["aborted"] is True
+        assert "emergency off" in reply["error"]
+        assert "window" not in reply["error"]
+
+    def test_an_elapsed_window_says_so(self, monkeypatch: Any) -> None:
+        reply = self._run_with(monkeypatch, aborted=False)
+        assert reply["aborted"] is False
+        assert "window" in reply["error"]

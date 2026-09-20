@@ -499,9 +499,19 @@ def _run_group_test_fire(
         # Nothing physical happened, so do not burn a cooldown the operator
         # would then be locked out by, and say why rather than returning a
         # bare failure the web route turns into an unexplained 502.
+        # Say which of the two it was. Reporting "the window elapsed" to
+        # someone who has just pressed emergency off sends them looking at
+        # their group_duration_range instead of at the button they pressed.
+        reason = (
+            "stopped before any device fired: emergency off, disarm, or the "
+            "deterrent being disabled"
+            if execution.aborted
+            else "the firing window elapsed before any device could start"
+        )
         reply({
             "ok": False,
-            "error": "No device fired: the firing window elapsed before any could start",
+            "error": f"No device fired: {reason}",
+            "aborted": execution.aborted,
             "group_name": group.name,
             "devices_fired": 0,
             "devices_succeeded": 0,
