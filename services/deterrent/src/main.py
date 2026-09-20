@@ -21,6 +21,7 @@ from actuation_models import (
     ActuationConfig,
     ActuationEvent,
     DeterrentGroup,
+    DeviceAction,
     DeviceConfig,
 )
 from atomic_ref import AtomicRef
@@ -28,12 +29,13 @@ from battery_monitor import BatteryMonitor
 from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
 from cooldown import CooldownTracker, GroupCooldownTracker
-from deterrent_safety import MAX_GROUP_TEST_FIRE_SEC
+from deterrent_safety import DEFAULT_TEST_FIRE_SEC, MAX_GROUP_TEST_FIRE_SEC
 from event_signing import load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
 from randomizer import pick_group_window
 from request_handler import (
+    JOB_TEST_FIRE,
     JOB_TEST_FIRE_GROUP,
     ForceOffLatch,
     InFlightGuard,
@@ -257,6 +259,106 @@ def _drain_pending_jobs(
     in_flight.release()
     if drained:
         logger.info("Refused %d queued test-fire job(s) on shutdown", drained)
+
+
+def _run_test_fire(
+    job: dict[str, Any],
+    act_cfg_ref: AtomicRef[ActuationConfig],
+    controller_ref: AtomicRef[TuyaCloudController | None],
+    pub_holder: list[redis_lib.Redis | None],
+    redis_cfg: dict[str, Any],
+) -> None:
+    """Fire one device for an operator, on the worker thread.
+
+    Deliberately does NOT gate on enabled or armed. This is the diagnostic an
+    operator uses to check a valve works, often precisely because the system
+    is disarmed while they are standing at the pond. The group test-fire does
+    gate, because it drives the whole group the way a detection would.
+    """
+    request_id = job.get("request_id", "")
+    device_id = job.get("device_id", "")
+    result_channel = job.get("result_channel", "")
+    duration = float(job.get("duration_sec", DEFAULT_TEST_FIRE_SEC))
+
+    def reply(body: dict[str, Any]) -> None:
+        _publish_raw(pub_holder, redis_cfg, result_channel, body)
+
+    expires_at = job.get("expires_at")
+    if isinstance(expires_at, (int, float)) and time.monotonic() > expires_at:
+        logger.warning(
+            "Test-fire for %s expired in the queue, not firing [rid=%s]",
+            device_id, request_id,
+        )
+        reply({"ok": False, "error": "Request expired while queued"})
+        return
+
+    controller = controller_ref.get()
+    if controller is None:
+        reply({"ok": False, "error": "No Tuya credentials configured"})
+        return
+
+    act_cfg = act_cfg_ref.get()
+    device = next((d for d in act_cfg.devices if d.device_id == device_id), None)
+    if device is None:
+        reply({"ok": False, "error": f"Device {device_id} not found in config"})
+        return
+
+    logger.info(
+        "Test-fire: %s (%s) for %.1fs [rid=%s]",
+        device.name, device_id, duration, request_id,
+    )
+    t0 = time.monotonic()
+    result = controller.activate_device(
+        device, duration, request_id=request_id, event_type="test_fire",
+    )
+    wall_sec = time.monotonic() - t0
+
+    if result.stuck:
+        _publish_stuck(
+            pub_holder, redis_cfg, device, request_id,
+            result.error or "OFF failed",
+        )
+
+    action = DeviceAction(
+        device_name=device.name,
+        device_id=device.device_id,
+        device_type=device.type,
+        duration_sec=duration,
+        delay_before_sec=0.0,
+        success=result.success,
+        error=result.error,
+        cloud_ack_ms=result.on_ack_ms,
+        off_attempts=result.off_attempts,
+        stuck=result.stuck,
+    )
+    event = ActuationEvent(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        trigger_class="admin",
+        trigger_camera="test-fire",
+        trigger_confidence=0.0,
+        pre_delay_sec=0.0,
+        actions=[action],
+        total_duration_sec=round(wall_sec, 2),
+        request_id=request_id,
+        event_type="test_fire",
+    )
+    try:
+        actuation_db.insert_event(event)
+    except Exception:
+        logger.exception("Failed to persist test-fire [rid=%s]", request_id)
+
+    reply({
+        "ok": result.success,
+        "error": result.error,
+        "device_name": device.name,
+        "cloud_ack_ms": result.on_ack_ms,
+        "stuck": result.stuck,
+    })
+    logger.info(
+        "Test-fire result: %s - %s [rid=%s]",
+        device.name, "success" if result.success else (result.error or "failed"),
+        request_id,
+    )
 
 
 def _run_group_test_fire(
@@ -545,6 +647,23 @@ def _worker(
         # Control jobs ride the same queue so they serialise with detection
         # firing: two sequences can never overlap on one device, which is what
         # keeps the reconcile loop's busy check meaningful.
+        if event.get("__job") == JOB_TEST_FIRE:
+            try:
+                _run_test_fire(
+                    event, act_cfg_ref, controller_ref, pub_holder, redis_cfg,
+                )
+            except Exception:
+                logger.exception(
+                    "Test-fire raised [rid=%s]", event.get("request_id", ""),
+                )
+                _publish_raw(
+                    pub_holder, redis_cfg, event.get("result_channel", ""),
+                    {"ok": False, "error": "Test-fire failed, see deterrent logs"},
+                )
+            finally:
+                in_flight.release()
+            continue
+
         if event.get("__job") == JOB_TEST_FIRE_GROUP:
             # A raise here would kill this thread and with it every
             # detection-driven actuation, while the healthcheck kept reporting

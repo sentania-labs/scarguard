@@ -817,3 +817,120 @@ class TestTestFireIsInterruptible:
             "the admin test-fire cannot be stopped by emergency off"
         )
         assert callable(seen["should_continue"])
+
+
+class TestSingleDeviceTestFireOnTheWorker:
+    """Closes #206 item 1.
+
+    _handle_test_fire used to call activate_device on the request-handler
+    thread, which is the sole consumer of FORCE_OFF_CHANNEL. For up to
+    MAX_TEST_FIRE_SEC the emergency stop was unanswerable. Shorter than a
+    group sequence, but still the panic button not working.
+
+    Running on the worker also means it can no longer overlap a detection or
+    a group sequence on the same device, which was the last path by which two
+    activations could collide and clear the controller's busy flag while a
+    device was still energised.
+    """
+
+    def _handler(self, q: Any, controller: Any) -> tuple[RequestHandler, FakeRedis]:
+        return (
+            RequestHandler({}, AtomicRef(_group_cfg()), AtomicRef(controller), job_queue=q),
+            FakeRedis(),
+        )
+
+    @staticmethod
+    def _reply(redis: FakeRedis, rid: str) -> dict[str, Any]:
+        from request_handler import TEST_FIRE_RESULT_PREFIX
+        for ch, body in redis.published:
+            if ch == f"{TEST_FIRE_RESULT_PREFIX}{rid}":
+                return body
+        raise AssertionError("no reply")
+
+    def test_handler_does_not_fire(self) -> None:
+        import queue as _queue
+
+        from request_handler import JOB_TEST_FIRE
+
+        controller = FakeController()
+        q: _queue.Queue[Any] = _queue.Queue()
+        handler, redis = self._handler(q, controller)
+        handler._handle_test_fire(redis, {"request_id": "r1", "device_id": "id-v1"})
+
+        assert controller.calls == [], "fired on the thread that answers force-off"
+        job = q.get_nowait()
+        assert job["__job"] == JOB_TEST_FIRE
+        assert job["device_id"] == "id-v1"
+
+    def test_unknown_device_is_refused_without_queueing(self) -> None:
+        """No hardware involved, so answer immediately rather than queueing."""
+        import queue as _queue
+
+        controller = FakeController()
+        q: _queue.Queue[Any] = _queue.Queue()
+        handler, redis = self._handler(q, controller)
+        handler._handle_test_fire(redis, {"request_id": "r1", "device_id": "nope"})
+
+        assert q.qsize() == 0
+        assert "not found" in self._reply(redis, "r1")["error"]
+
+    def test_worker_fires_the_requested_device(self) -> None:
+        from main import _run_test_fire
+        from request_handler import JOB_TEST_FIRE, TEST_FIRE_RESULT_PREFIX
+
+        controller = FakeController()
+        redis = FakeRedis()
+        _run_test_fire(
+            {
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+            },
+            AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {},
+        )
+        assert controller.calls == ["v1"]
+        assert self._reply(redis, "r1")["ok"] is True
+
+    def test_worker_refuses_an_expired_job(self) -> None:
+        import time as _time
+
+        from main import _run_test_fire
+        from request_handler import JOB_TEST_FIRE, TEST_FIRE_RESULT_PREFIX
+
+        controller = FakeController()
+        redis = FakeRedis()
+        _run_test_fire(
+            {
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+                "expires_at": _time.monotonic() - 1.0,
+            },
+            AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {},
+        )
+        assert controller.calls == []
+        assert "expired" in self._reply(redis, "r1")["error"].lower()
+
+    def test_disarmed_does_not_block_a_single_device_test(self) -> None:
+        """Deliberate: this is the check-the-valve diagnostic.
+
+        An operator standing at the pond with the system disarmed must still
+        be able to test a valve. The group test-fire does gate on armed,
+        because it drives the whole group the way a detection would.
+        """
+        from main import _run_test_fire
+        from request_handler import JOB_TEST_FIRE, TEST_FIRE_RESULT_PREFIX
+
+        cfg = _group_cfg()
+        cfg.enabled = False
+        controller = FakeController()
+        redis = FakeRedis()
+        _run_test_fire(
+            {
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+            },
+            AtomicRef(cfg), AtomicRef(controller), [redis], {},
+        )
+        assert controller.calls == ["v1"]
