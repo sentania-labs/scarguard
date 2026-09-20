@@ -60,16 +60,44 @@ STUCK_FALLBACK_ERROR = "OFF failed"
 MAX_ROTATION_CYCLES = 500
 
 
+# Granularity of an interruptible wait. Small enough that a revoked
+# authorisation is noticed promptly, large enough not to spin.
+SLEEP_SLICE_SEC = 0.25
+
+
 class PlanExecution(BaseModel):
     """Outcome of driving one randomised plan to completion."""
 
     actions: list[DeviceAction]
     pre_delay_sec: float
     total_duration_sec: float
+    # True when the sequence stopped because authorisation was revoked rather
+    # than because its window closed. The caller needs to tell an operator
+    # which happened: "the window elapsed" is the wrong thing to report after
+    # someone has just pressed emergency off.
+    aborted: bool = False
 
     @property
     def successes(self) -> int:
         return sum(1 for a in self.actions if a.success)
+
+
+def _wait(seconds: float, should_continue: Callable[[], bool] | None) -> bool:
+    """Sleep in slices, returning False if authorisation is revoked during it.
+
+    A plain sleep here would block the worker for the whole wait. The waits
+    are not incidental: pre_delay and the inter-device gap are each bounded at
+    30s, so a stop landing one second into one of them would otherwise take
+    29 more seconds to be noticed, long after the operator expected it.
+    """
+    remaining = seconds
+    while remaining > 0:
+        if should_continue is not None and not should_continue():
+            return False
+        slice_sec = min(remaining, SLEEP_SLICE_SEC)
+        time.sleep(slice_sec)
+        remaining -= slice_sec
+    return True
 
 
 def resolve_group_devices(
@@ -163,7 +191,14 @@ def execute_plan(
 
     if pre_delay > 0:
         logger.debug("Pre-delay: %.1fs", pre_delay)
-        time.sleep(pre_delay)
+        if not _wait(pre_delay, should_continue):
+            logger.warning(
+                "%s: aborted during the pre-delay [rid=%s]", label, request_id,
+            )
+            return PlanExecution(
+                actions=[], pre_delay_sec=pre_delay,
+                total_duration_sec=time.monotonic() - t_start, aborted=True,
+            )
 
     # The firing window starts once waiting is done (see docstring).
     fire_start = time.monotonic()
@@ -223,7 +258,14 @@ def execute_plan(
                 )
             if inter_delay > 0:
                 logger.debug("Inter-device delay: %.1fs", inter_delay)
-                time.sleep(inter_delay)
+                if not _wait(inter_delay, should_continue):
+                    logger.warning(
+                        "%s: aborted during the inter-device wait, after %d "
+                        "device(s) [rid=%s]",
+                        label, len(actions), request_id,
+                    )
+                    aborted = True
+                    break
 
             # Checked before EVERY activation, not only at cycle boundaries.
             # One cycle is several devices and tens of seconds: with the
@@ -298,4 +340,5 @@ def execute_plan(
         actions=actions,
         pre_delay_sec=pre_delay,
         total_duration_sec=time.monotonic() - t_start,
+        aborted=aborted,
     )

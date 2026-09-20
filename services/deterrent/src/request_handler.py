@@ -30,6 +30,7 @@ from deterrent_safety import (
     MAX_TEST_FIRE_SEC,
     clamp_duration,
     group_test_fire_timeout_sec,
+    test_fire_timeout_sec,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 # Discriminator for control jobs placed on the deterrent worker's queue, so a
 # job is never mistaken for a detection event.
 JOB_TEST_FIRE_GROUP = "test_fire_group"
+JOB_TEST_FIRE = "test_fire"
 
 # How long a blocking read waits before the loop re-checks the shutdown flag.
 # Bounds how long stop() takes on an idle channel.
@@ -241,6 +243,23 @@ class RequestHandler:
         client: redis_lib.Redis,
         payload: dict[str, Any],
     ) -> None:
+        """Hand a single-device test-fire to the worker; do not fire here.
+
+        Same reason the group test-fire moved: this thread is the sole
+        consumer of FORCE_OFF_CHANNEL, and firing inline made the emergency
+        stop unanswerable for the length of the spray (up to
+        MAX_TEST_FIRE_SEC). Fifteen seconds is shorter than a group sequence
+        but it is still the panic button not working.
+
+        Running on the worker also means this can no longer overlap a
+        detection or a group sequence on the same device, which was the last
+        path by which two activations could collide and leave the controller's
+        busy set cleared while a device was still energised.
+
+        Validation stays here: it touches no hardware, and an operator who
+        typed a bad device id should hear about it immediately rather than
+        after waiting behind a queue.
+        """
         request_id = payload.get("request_id", "")
         device_id = payload.get("device_id", "")
         # Second-line clamp - the web route is the authoritative validator
@@ -256,54 +275,61 @@ class RequestHandler:
         if not request_id or not device_id:
             return
 
-        controller = self._controller_ref.get()
-        if controller is None:
+        if self._controller_ref.get() is None:
             client.publish(result_channel, json.dumps({
                 "ok": False, "error": "No Tuya credentials configured",
             }))
             return
 
         act_cfg = self._act_cfg_ref.get()
-        device: DeviceConfig | None = None
-        for d in act_cfg.devices:
-            if d.device_id == device_id:
-                device = d
-                break
-
-        if device is None:
+        if not any(d.device_id == device_id for d in act_cfg.devices):
             client.publish(result_channel, json.dumps({
                 "ok": False, "error": f"Device {device_id} not found in config",
             }))
             return
 
+        if self._job_queue is None:
+            client.publish(result_channel, json.dumps({
+                "ok": False, "error": "Deterrent worker unavailable",
+            }))
+            return
+
+        # Shares the group test-fire's slot: both drive hardware through the
+        # same worker, and refusing the second is better than queueing it
+        # behind something the operator has stopped watching.
+        if not self._in_flight.claim():
+            client.publish(result_channel, json.dumps({
+                "ok": False, "error": "A test-fire is already in progress",
+            }))
+            return
+
+        try:
+            # Never a blocking put: see _handle_test_fire_group.
+            self._job_queue.put_nowait({
+                "__job": JOB_TEST_FIRE,
+                "device_id": device_id,
+                "duration_sec": duration,
+                "request_id": request_id,
+                "result_channel": result_channel,
+                # Must not outlive the caller's wait: see test_fire_timeout_sec.
+                "expires_at": time.monotonic() + test_fire_timeout_sec(),
+                # Stamped at enqueue, not read at execution. A force-off can
+                # land while this job is still queued behind a detection
+                # sequence; the worker compares against this and refuses,
+                # rather than turning the device back on after the panic
+                # button reported success.
+                "force_off_gen": self._force_off_latch.generation,
+            })
+        except queue.Full:
+            self._in_flight.release()
+            client.publish(result_channel, json.dumps({
+                "ok": False,
+                "error": "Deterrent worker is saturated, try again shortly",
+            }))
+            return
+
         logger.info(
-            "Test-fire: %s (%s) for %.1fs [request_id=%s]",
-            device.name, device_id, duration, request_id,
-        )
-        t0 = time.monotonic()
-        result = controller.activate_device(
-            device, duration, request_id=request_id, event_type="test_fire",
-        )
-        wall_sec = time.monotonic() - t0
-
-        if result.stuck:
-            self._publish_stuck(
-                client, device, request_id=request_id,
-                error=result.error or "OFF failed",
-            )
-
-        self._persist_test_fire(device, duration, result, wall_sec, request_id)
-
-        client.publish(result_channel, json.dumps({
-            "ok": result.success,
-            "error": result.error,
-            "device_name": device.name,
-            "cloud_ack_ms": result.on_ack_ms,
-            "stuck": result.stuck,
-        }))
-        logger.info(
-            "Test-fire result: %s - %s",
-            device.name, "success" if result.success else (result.error or "failed"),
+            "Queued test-fire for device %s [rid=%s]", device_id, request_id,
         )
 
     def _handle_test_fire_group(
@@ -347,7 +373,7 @@ class RequestHandler:
         if not self._in_flight.claim():
             client.publish(result_channel, json.dumps({
                 "ok": False,
-                "error": "A group test-fire is already in progress",
+                "error": "A test-fire is already in progress",
             }))
             return
 
@@ -367,6 +393,10 @@ class RequestHandler:
                 # real hardware with nobody watching, after the operator had
                 # already been told the request failed.
                 "expires_at": time.monotonic() + group_test_fire_timeout_sec(),
+                # See the single-device path: the generation belongs to the
+                # moment the operator pressed the button, not the moment the
+                # worker got around to it.
+                "force_off_gen": self._force_off_latch.generation,
             })
         except queue.Full:
             self._in_flight.release()

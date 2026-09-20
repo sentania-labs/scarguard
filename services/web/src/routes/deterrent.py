@@ -21,6 +21,7 @@ from deterrent_safety import (
     MAX_TEST_FIRE_SEC,
     MIN_ACTUATION_SEC,
     group_test_fire_timeout_sec,
+    test_fire_timeout_sec,
 )
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -398,6 +399,7 @@ async def test_fire(request: Request) -> Response:
     result = await _redis_request(
         TEST_FIRE_CHANNEL, TEST_FIRE_RESULT_PREFIX,
         {"device_id": device_id, "duration_sec": duration},
+        timeout_sec=test_fire_timeout_sec(),
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
