@@ -16,6 +16,26 @@ The endpoint (`/admin/deterrent/force-off`) sends an OFF command to
 enabled flag. Retried up to 4× per device via the cloud API (1s, 2s,
 4s backoff).
 
+**As of v1.17 it also stops the sequence that was firing.** Before
+v1.17 it sent OFF and nothing else: a group working a position read
+no change and switched the devices it had just been told to stop
+straight back on, so the button appeared to work for a moment and
+then undid itself. It now also:
+
+- stops a running group sequence from picking up its next device,
+- cancels a test-fire that is still queued behind a detection.
+
+One thing deliberately does not stop: **a spray already in progress
+runs to its natural end**, bounded by `MAX_ACTUATION_SEC` at 60s and
+its own watchdog. Nothing sends an out-of-band OFF mid-activation,
+because that would race the watchdog and leave the controller's busy
+flag wrong. So expect up to one more spray duration of water after
+you click, and no further devices after that.
+
+If you are on v1.16.12 or earlier and water is hitting fish, **go
+straight to Option B**. On those versions the web button will not
+stop a group sequence.
+
 **Option B, host shell (if web UI is unreachable):**
 
 ```bash
