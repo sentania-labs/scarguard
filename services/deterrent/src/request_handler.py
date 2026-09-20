@@ -30,6 +30,7 @@ from deterrent_safety import (
     MAX_TEST_FIRE_SEC,
     clamp_duration,
     group_test_fire_timeout_sec,
+    test_fire_timeout_sec,
 )
 
 logger = logging.getLogger(__name__)
@@ -310,7 +311,14 @@ class RequestHandler:
                 "duration_sec": duration,
                 "request_id": request_id,
                 "result_channel": result_channel,
-                "expires_at": time.monotonic() + MAX_TEST_FIRE_SEC * 4,
+                # Must not outlive the caller's wait: see test_fire_timeout_sec.
+                "expires_at": time.monotonic() + test_fire_timeout_sec(),
+                # Stamped at enqueue, not read at execution. A force-off can
+                # land while this job is still queued behind a detection
+                # sequence; the worker compares against this and refuses,
+                # rather than turning the device back on after the panic
+                # button reported success.
+                "force_off_gen": self._force_off_latch.generation,
             })
         except queue.Full:
             self._in_flight.release()
@@ -385,6 +393,10 @@ class RequestHandler:
                 # real hardware with nobody watching, after the operator had
                 # already been told the request failed.
                 "expires_at": time.monotonic() + group_test_fire_timeout_sec(),
+                # See the single-device path: the generation belongs to the
+                # moment the operator pressed the button, not the moment the
+                # worker got around to it.
+                "force_off_gen": self._force_off_latch.generation,
             })
         except queue.Full:
             self._in_flight.release()

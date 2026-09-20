@@ -968,3 +968,206 @@ class TestZeroDeviceReasonIsAccurate:
         reply = self._run_with(monkeypatch, aborted=False)
         assert reply["aborted"] is False
         assert "window" in reply["error"]
+
+
+class TestForceOffDuringTheQueuedWindow:
+    """The panic button has to cover the time a job spends waiting its turn.
+
+    #211 made a running sequence stop. That left a narrower hole: the worker
+    is FIFO, so a control job can sit behind a detection sequence for a long
+    time. If the generation is read when the worker finally gets to the job
+    rather than when the operator pressed the button, a force-off that landed
+    in between is invisible, and the device turns back on after the operator
+    was told everything had stopped.
+    """
+
+    @staticmethod
+    def _reply(redis: FakeRedis, rid: str, prefix: str) -> dict[str, Any]:
+        for ch, body in redis.published:
+            if ch == f"{prefix}{rid}":
+                return body
+        raise AssertionError("no reply")
+
+    def test_handler_stamps_the_generation_on_a_single_device_job(self) -> None:
+        from request_handler import ForceOffLatch
+
+        latch = ForceOffLatch()
+        latch.bump()
+        latch.bump()
+        q: queue.Queue[Any] = queue.Queue()
+        redis = FakeRedis()
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=q,
+            in_flight=InFlightGuard(),
+            force_off_latch=latch,
+        )
+        handler._handle_test_fire(redis, {"request_id": "r1", "device_id": "id-v1"})
+        assert q.get_nowait()["force_off_gen"] == 2
+
+    def test_handler_stamps_the_generation_on_a_group_job(self) -> None:
+        from request_handler import ForceOffLatch
+
+        latch = ForceOffLatch()
+        latch.bump()
+        q: queue.Queue[Any] = queue.Queue()
+        redis = FakeRedis()
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=q,
+            in_flight=InFlightGuard(),
+            force_off_latch=latch,
+        )
+        handler._handle_test_fire_group(
+            redis, {"request_id": "r1", "group_name": "g1"},
+        )
+        assert q.get_nowait()["force_off_gen"] == 1
+
+    def test_single_device_job_refuses_after_a_queued_force_off(self) -> None:
+        from main import _run_test_fire
+        from request_handler import (
+            JOB_TEST_FIRE,
+            TEST_FIRE_RESULT_PREFIX,
+            ForceOffLatch,
+        )
+
+        latch = ForceOffLatch()
+        controller = FakeController()
+        redis = FakeRedis()
+        job = {
+            "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
+            "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+            "force_off_gen": latch.generation,
+        }
+        latch.bump()  # emergency off, while the job waits behind a detection
+
+        _run_test_fire(
+            job, AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {},
+            latch,
+        )
+        assert controller.calls == [], "turned a device back on after force-off"
+        assert "emergency off" in self._reply(
+            redis, "r1", TEST_FIRE_RESULT_PREFIX,
+        )["error"].lower()
+
+    def test_group_job_refuses_after_a_queued_force_off(self) -> None:
+        """The group path had the same hole, one level down.
+
+        It received the latch, but captured the generation when the worker
+        dequeued the job rather than when the operator pressed the button, so
+        a force-off during the queued window read as no change at all.
+        """
+        from main import _run_group_test_fire
+        from request_handler import ForceOffLatch
+
+        latch = ForceOffLatch()
+        controller = FakeController()
+        redis = FakeRedis()
+        job = {
+            "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
+            "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+            "force_off_gen": latch.generation,
+        }
+        latch.bump()  # emergency off, while the job waits behind a detection
+
+        _run_group_test_fire(
+            job, AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), [redis], {}, latch,
+        )
+        assert controller.calls == [], "fired a group after force-off"
+
+    def test_group_job_still_fires_when_no_force_off_happened(self) -> None:
+        from main import _run_group_test_fire
+        from request_handler import ForceOffLatch
+
+        latch = ForceOffLatch()
+        latch.bump()  # an older force-off, before this job was ever queued
+        controller = FakeController()
+        redis = FakeRedis()
+        _run_group_test_fire(
+            {
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+                "force_off_gen": latch.generation,
+            },
+            AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), [redis], {}, latch,
+        )
+        assert controller.calls, "an old force-off blocked an unrelated job"
+
+    def test_single_device_job_still_fires_when_no_force_off_happened(self) -> None:
+        from main import _run_test_fire
+        from request_handler import (
+            JOB_TEST_FIRE,
+            TEST_FIRE_RESULT_PREFIX,
+            ForceOffLatch,
+        )
+
+        latch = ForceOffLatch()
+        latch.bump()  # an older force-off, before this job was ever queued
+        controller = FakeController()
+        redis = FakeRedis()
+        _run_test_fire(
+            {
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
+                "request_id": "r1",
+                "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+                "force_off_gen": latch.generation,
+            },
+            AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {}, latch,
+        )
+        assert controller.calls == ["v1"]
+
+
+class TestQueueExpiryMatchesTheCallerWait:
+    """A queued job must not outlive the wait the web route gives it.
+
+    Otherwise the route reports a timeout, the operator walks away, and the
+    worker fires real hardware afterwards with nobody watching the pond.
+    """
+
+    def test_single_device_expiry_does_not_outlive_the_route_timeout(self) -> None:
+        import time as _time
+
+        from deterrent_safety import test_fire_timeout_sec
+
+        latch_q: queue.Queue[Any] = queue.Queue()
+        redis = FakeRedis()
+        handler = RequestHandler(
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=latch_q,
+            in_flight=InFlightGuard(),
+        )
+        before = _time.monotonic()
+        handler._handle_test_fire(redis, {"request_id": "r1", "device_id": "id-v1"})
+        budget = latch_q.get_nowait()["expires_at"] - before
+        assert budget <= test_fire_timeout_sec() + 0.5
+
+
+class TestShutdownDrainsBothControlJobs:
+    """A shutdown pill can be queued ahead of a control job.
+
+    Draining only the group discriminator left a single-device job silently
+    dropped, so the admin request ended in a generic timeout instead of being
+    told the service was going down.
+    """
+
+    def test_a_queued_single_device_job_is_refused_on_shutdown(self) -> None:
+        from main import _drain_pending_jobs
+        from request_handler import JOB_TEST_FIRE, TEST_FIRE_RESULT_PREFIX
+
+        redis = FakeRedis()
+        q: queue.Queue[Any] = queue.Queue()
+        q.put({
+            "__job": JOB_TEST_FIRE, "device_id": "id-v1",
+            "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+        })
+        _drain_pending_jobs(q, InFlightGuard(), [redis], {})
+
+        bodies = [b for ch, b in redis.published if ch.endswith("r1")]
+        assert bodies, "queued single-device job was dropped without a reply"
+        assert "shutting down" in bodies[0]["error"].lower()

@@ -249,7 +249,7 @@ def _drain_pending_jobs(
             break
         if item is None:
             continue  # another pill; keep draining
-        if item.get("__job") != JOB_TEST_FIRE_GROUP:
+        if item.get("__job") not in (JOB_TEST_FIRE, JOB_TEST_FIRE_GROUP):
             continue  # detection events are simply dropped on shutdown
         drained += 1
         _publish_raw(
@@ -267,6 +267,7 @@ def _run_test_fire(
     controller_ref: AtomicRef[TuyaCloudController | None],
     pub_holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
+    force_off_latch: ForceOffLatch | None = None,
 ) -> None:
     """Fire one device for an operator, on the worker thread.
 
@@ -290,6 +291,23 @@ def _run_test_fire(
             device_id, request_id,
         )
         reply({"ok": False, "error": "Request expired while queued"})
+        return
+
+    # An emergency off between enqueue and here means the operator has already
+    # stopped everything. Turning this device on now would undo the panic
+    # button after it reported success, which is the failure mode #211 exists
+    # to prevent; it just has to cover the queued window too.
+    stamped_gen = job.get("force_off_gen")
+    if (
+        force_off_latch is not None
+        and isinstance(stamped_gen, int)
+        and force_off_latch.generation != stamped_gen
+    ):
+        logger.warning(
+            "Emergency off landed while test-fire for %s was queued, not "
+            "firing [rid=%s]", device_id, request_id,
+        )
+        reply({"ok": False, "error": "Cancelled by emergency off"})
         return
 
     controller = controller_ref.get()
@@ -463,7 +481,14 @@ def _run_group_test_fire(
             return False
         return bool(armed_ref.get())
 
-    started_gen = force_off_latch.generation if force_off_latch is not None else 0
+    # Stamped by the request handler when the operator pressed the button. A
+    # force-off during the queued window has to count, so this is deliberately
+    # not force_off_latch.generation read here.
+    stamped_gen = job.get("force_off_gen")
+    started_gen = (
+        stamped_gen if isinstance(stamped_gen, int)
+        else (force_off_latch.generation if force_off_latch is not None else 0)
+    )
     group_defaults = group.effective_defaults(act_cfg.defaults)
     configured_window = pick_group_window(group_defaults)
     test_window = min(
@@ -661,6 +686,7 @@ def _worker(
             try:
                 _run_test_fire(
                     event, act_cfg_ref, controller_ref, pub_holder, redis_cfg,
+                    force_off_latch,
                 )
             except Exception:
                 logger.exception(

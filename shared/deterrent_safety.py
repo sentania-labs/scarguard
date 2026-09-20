@@ -75,6 +75,18 @@ def group_test_fire_timeout_sec() -> float:
     return worst * 1.2
 
 
+def test_fire_timeout_sec() -> float:
+    """Worst-case wall time of a single-device test-fire, plus a margin.
+
+    Same reason as group_test_fire_timeout_sec: the web route's wait and the
+    deterrent side's queue expiry have to be the same number. When the expiry
+    outlived the wait, a job could sit behind a long detection sequence, the
+    route could report a timeout, and the worker could then fire real hardware
+    after the operator had been told it failed and walked away.
+    """
+    return MAX_TEST_FIRE_SEC * 1.2
+
+
 DEFAULT_TEST_FIRE_SEC: float = 3.0
 
 OFF_RETRY_BACKOFF_SEC: tuple[float, ...] = (1.0, 2.0, 4.0)
