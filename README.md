@@ -741,4 +741,4 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 
 ## Project status
 
-The current release is v1.16.12. See [STATUS.md](STATUS.md) for operational status, [ROADMAP.md](ROADMAP.md) for planned work, and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed-feature history.
+The current release is v1.17.0. See [STATUS.md](STATUS.md) for operational status, [ROADMAP.md](ROADMAP.md) for planned work, and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed-feature history.

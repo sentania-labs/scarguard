@@ -207,7 +207,7 @@ Bundled post-v0.13.1 patch:
 
 ---
 
-## v1.14.0: GA / beta-3 hardening (in progress)
+## v1.14.0: GA / beta-3 hardening (shipped 2026-04-22)
 
 The GA cut. ScarGuard's detect → notify → *deter* loop has been running
 against real herons since v0.13.0 and hardened across v0.13.1–v0.13.5, so
@@ -352,7 +352,7 @@ original context and review provenance.
 
 ---
 
-## v1.14.4: training-data export tuning (planned)
+## v1.14.4: training-data export tuning (shipped 2026-04-29)
 
 Organic items surfaced while preparing the first heron-tuned model
 training run (2026-04-29). All three are tweaks to the existing
@@ -392,7 +392,7 @@ the same patch, see GitHub.
 
 ---
 
-## v1.15: exclusion zones, label tooling, deferred v1.14 hardening (in progress)
+## v1.15: exclusion zones, label tooling, deferred v1.14 hardening (shipped as v1.15.1)
 
 Feature minor: new canvas-based UI tooling plus all items deferred from
 v1.14.0 (see that section for original context). Cleanup items 3–4 close
@@ -483,7 +483,7 @@ the v1.14 migration window.
 
 ---
 
-## v1.16.6: distractor training classes (in progress)
+## v1.16.6: distractor training classes (shipped 2026-06-12)
 
 Fixes the "humans look like herons" failure mode of pond_v1: a model
 trained on only 3 classes loses the pretrained features that
@@ -514,154 +514,185 @@ for them while runtime behavior stays config-driven via
 
 ---
 
-## v1.17: deterrent group control (planned)
+## v1.16.7 through v1.16.12 (shipped, previously unrecorded)
 
-Feature minor driven by #189. The deterrent rule engine has grown
+Six patch releases went out between 2026-07-10 and 2026-08-26 without
+reaching this file. Recorded here against the tags rather than
+reconstructed from memory.
+
+| Tag | Date | What went out |
+|---|---|---|
+| v1.16.7 | 2026-07-10 | First-run fixes for the containerized training pipeline (#164). Four defects found the first time `prepare_and_train` ran end to end: silent Roboflow skip with no API key, bare base-model names triggering a GitHub download instead of using a staged checkpoint, ultralytics writing to the read-only `/app`, and a relative `path:` in `data.yaml`. |
+| v1.16.8 | 2026-07-11 | Detector auto-resume no longer OOM-kills long training runs (#167). Node 24 forced for JS actions on the Orin runner (#163). |
+| v1.16.9 | 2026-07-14 | Orin GPU lease plus path gating so CI never contends with production GPU work (#171). Notification channel renames now cascade into rules and the summary report (#170). |
+| v1.16.10 | 2026-08-02 | Jetson training lifecycle hardened with a lease controller and evidence-based diagnostics (#173). `pip check` scoped to ignore known base-image defects (#174). |
+| v1.16.11 | 2026-08-03 | Trainer limits moved to `deploy.resources` so the GPU overlay stacks cleanly (#176). |
+| v1.16.12 | 2026-08-26 | Fixable HIGH CVEs cleared for the Trivy gate (#181). `pillow-heif` pinned to 0.22.0 to stop a Roboflow import crash (#179). Everything except the two GPU jobs moved to GitHub-hosted runners (#180). Orin runner base image and runner version refreshed (#182). |
+
+---
+
+## v1.17: deterrent group control (shipped)
+
+Feature minor driven by #189. The deterrent rule engine had grown
 groups, per-group randomization, and per-group cooldown since v0.13.3,
-but two things never followed: you cannot exercise a group without
-waiting for a real heron, and a group fires exactly one pass rather
-than holding a position for a window. Both are gaps in the
+but two things never followed: you could not exercise a group without
+waiting for a real heron, and a group fired exactly one pass rather
+than holding a position for a window. Both were gaps in the
 operator-facing half of a subsystem whose detection-facing half is
 well covered.
 
-Also closes the last live line of the v1.15 security workstream and
-reconciles this roadmap with six untracked patch releases.
+Closing those gaps surfaced three defects in the existing deterrent
+control path that had to ship alongside the features, because a
+release cannot add a stop button that does not stop anything.
 
 **Feature work:**
 
-1. **Group test-fire.** New `/test-fire-group` endpoint taking a group
-   name, dispatched over Redis to the deterrent service the same way
-   `/test-fire` and `/force-off` already are
-   (`services/web/src/routes/deterrent.py:326`). Runs the real
-   `build_random_plan` path so what you see is the actual randomization
-   the group would produce, not a simulation. Admin-gated,
-   rate-limited alongside the existing physical-control routes, and
-   persisted to `actuation_events` with `event_type="test_fire_group"`
-   so it joins the hash chain added in v1.15. Button on the deterrent
-   admin page next to the existing per-device test-fire.
+1. **Group test-fire** (#207). `/test-fire-group` takes a group name
+   and dispatches over Redis to the deterrent service the same way
+   `/test-fire` and `/force-off` already do. It runs the real
+   `build_random_plan` path, so what you see is the actual
+   randomization the group would produce, not a simulation.
+   Admin-gated, rate-limited alongside the other physical-control
+   routes, and persisted to `actuation_events` with
+   `event_type="test_fire_group"` so it joins the v1.15 hash chain.
+   Button sits on the deterrent admin page next to the per-device
+   test-fire.
 
-2. **Group duration with device rotation.** New `group_duration_range`
-   on `DeterrentGroupConfig` (`services/web/src/config_model.py:431`),
-   inheriting from `deterrent.defaults` when omitted like the other
-   ranges. `_fire_group` (`services/deterrent/src/main.py:131`) loops
-   its plan until the group window expires instead of falling out after
-   one pass, re-rolling the plan each cycle so device selection stays
-   unpredictable across the window.
+2. **Group duration with device rotation** (#208).
+   `group_duration_range` on `DeterrentGroupConfig`, inheriting from
+   `deterrent.defaults` when omitted like the other ranges.
+   `_fire_group` loops its plan until the group window expires instead
+   of falling out after one pass, re-rolling the plan each cycle so
+   device selection stays unpredictable across the window.
 
-   The window is checked **before starting each device**, not per
-   cycle: once the window has elapsed, the in-flight activation runs to
-   its natural end and no further device is picked up, mid-plan or
-   otherwise. Overshoot is therefore bounded by a single spray duration
-   (typically 3 to 8s, hard-capped at 60s by `MAX_ACTUATION_SEC`), and
-   no out-of-band OFF is ever sent, so nothing races the watchdog.
+   The window is checked before starting each device, not per cycle:
+   once elapsed, the in-flight activation runs to its natural end and
+   no further device is picked up. Overshoot is bounded by a single
+   spray duration, and no out-of-band OFF is ever sent, so nothing
+   races the watchdog.
 
-   The safety model survives this unchanged, and that is the point
-   worth protecting in review: rotation must be implemented as
-   **repeated normal activations**, never as one long hold. Each
-   individual spray stays bounded by `clamp_duration(...,
-   max_sec=MAX_ACTUATION_SEC)` at 60s
-   (`shared/deterrent_safety.py:23`), keeps its own watchdog OFF, and
-   keeps setting the controller busy flag that `_reconcile_loop`
-   checks via `is_device_busy` before force-OFF
-   (`services/deterrent/src/main.py:432`). A long hold would break all
-   three.
+   Rotation is implemented as repeated normal activations, never as
+   one long hold. Each spray stays bounded by `clamp_duration(...,
+   max_sec=MAX_ACTUATION_SEC)`, keeps its own watchdog OFF, and keeps
+   setting the controller busy flag that `_reconcile_loop` checks via
+   `is_device_busy`. A long hold would break all three.
 
-   Adds `MAX_GROUP_ACTUATION_SEC` to `shared/deterrent_safety.py` as a
-   hard ceiling on the window, validated at config load rather than
-   only clamped at fire time.
+   `MAX_GROUP_ACTUATION_SEC` (300s) caps the window in
+   `shared/deterrent_safety.py`, validated at config load rather than
+   only clamped at fire time. A non-finite range is rejected outright:
+   a NaN here would otherwise have run hardware for roughly 115
+   minutes.
 
-3. **Cooldown anchors to window end.** `cooldown_seconds` gates repeat
-   firings of a group; with a window it starts counting when the
-   spraying stops. A 60s window with a 60s cooldown yields 60s of
-   quiet after the last device goes off. Documented explicitly in
-   CONFIG_REFERENCE, since the alternative reading (anchor at window
-   start) would make short cooldowns silently meaningless for long
+3. **Cooldown anchors to window end.** `cooldown_seconds` starts
+   counting when the spraying stops, so a 60s window with a 60s
+   cooldown yields 60s of quiet after the last device goes off.
+   Documented explicitly in CONFIG_REFERENCE, since the alternative
+   reading would make short cooldowns silently meaningless for long
    windows.
+
+**Defects found while building the above, fixed in the same release:**
+
+4. **Destructive buttons never actually confirmed** (#210). Four
+   destructive UI controls had `onclick="return confirm(...)"`
+   attributes. CSP drops inline handlers entirely, so those buttons
+   had been firing without a prompt in production for months, and the
+   page looked correct the whole time. Replaced with a delegated
+   `data-confirm` handler in `static/confirm-submit.js`.
+
+5. **Emergency off did not stop a firing sequence** (#211). The abort
+   gate existed but was only consulted between cycles, so force-off
+   during a group window did nothing until the window ended.
+   `ForceOffLatch` now carries a generation counter bumped before any
+   OFF, and the sequence checks it before each activation.
+
+6. **Single-device test-fire blocked emergency off** (#213, closes
+   #206). Test-fire ran inline on the request-handler thread, which is
+   the only consumer of `FORCE_OFF_CHANNEL`. A 15-second test-fire was
+   15 seconds with nobody listening for stop. Moved onto the deterrent
+   worker, where group test-fire already ran. The `_busy` bool became
+   `InFlightGuard`, a claim/release pair safe across threads, and the
+   sliced waits in `group_fire._wait()` became interruptible so an
+   abort lands inside a pre-delay rather than after it.
+
+   Review of that change found the abort gate only ever covered jobs
+   already running. The worker is FIFO, so a control job can wait a
+   long time behind a detection sequence, and a force-off landing in
+   that window was invisible: the device turned back on after the
+   panic button had reported success. The force-off generation is now
+   stamped into the job when the operator presses the button rather
+   than read when the worker dequeues it. Both paths had this. The
+   group path received the latch but captured the generation too late,
+   so it was the same fix on both sides.
+
+   Two smaller ones alongside it. The single-device queue expiry was
+   60s against a 15s route timeout, so a job delayed 16 to 59 seconds
+   would report a timeout in the UI and then fire hardware afterwards;
+   both sides now derive from `test_fire_timeout_sec()` so they cannot
+   drift apart again. And `_drain_pending_jobs` recognised only the
+   group discriminator, so a single-device job queued behind a
+   shutdown pill was dropped with no reply.
 
 **Security:**
 
-4. **Tighten the Caddy CSP.** `config/Caddyfile.template:21` still
-   sends `script-src 'self' 'unsafe-inline' https://unpkg.com`.
+7. **Tightened the Caddy CSP.** `script-src` is now `'self'` alone:
+   the dead `unpkg.com` grant is gone (v1.15 vendored htmx and
+   Chart.js into `static/vendor/`), and `'unsafe-inline'` went with it
+   once the last four inline handlers were converted to
+   `addEventListener`. This closes the final live line of the v1.15
+   security workstream.
 
-   The `unpkg.com` grant is dead and can go immediately: v1.15 vendored
-   htmx and Chart.js into `static/vendor/` and nothing loads from the
-   CDN any more.
-
-   The `'unsafe-inline'` grant is **not** dead. There are no `<script>`
-   blocks left in the templates, but four inline event handlers remain,
-   and those need `'unsafe-inline'` in `script-src` just as much:
-
-   - `templates/training_label.html` (2x `onclick=`)
-   - `templates/partials/training_upload_rows.html` (1x `onclick=`)
-   - `templates/partials/training_job_rows.html` (1x `onclick=`)
-
-   Dropping the grant before converting these breaks those buttons
-   silently in the browser with only a CSP console error to show for it.
-
-   Most of this conversion is already done but unmerged: branch
-   `fix/csp-inline-handlers` (999f585, in a locked worktree under
-   `/home/scott/vault/workspaces/scarguard/`) moves inline handlers to
-   `addEventListener` across 19 files. v1.17 should land that branch
-   first, convert whatever remains, verify in a browser that the
-   affected pages still work, and only then tighten the header.
-   Tracked here rather than as a separate issue.
-
-**Documentation and reconciliation:**
-
-5. **ROADMAP.md rewrite.** Mark v1.14.4, v1.15, and v1.16.6 shipped
-   against the evidence (all three are tagged). Record v1.16.7 through
-   v1.16.12, which are absent entirely. Move the three genuinely open
-   verification items to their issues (#190, #191, #192) rather than
-   carrying prose copies here.
-
-6. **STATUS.md reconciliation.** "Not Yet Built" still lists deterrent
-   response profiles, which shipped in v0.13.3. "Recently Fixed
-   (unreleased)" describes work tagged months ago. Custom heron model
-   status needs a decision: pond_v3 finished at mAP50 0.687 but was
-   never activated in config.
-
-7. **CONFIG_REFERENCE.md.** Document `group_duration_range`, the
-   cooldown anchor, and the group test-fire endpoint.
+   Note for future work: the active header is generated in
+   `config/caddy-entrypoint.sh`, not read from
+   `config/Caddyfile.template`. The template is reference only. A
+   change to the template alone does not reach a running system.
 
 **CI and test coverage:**
 
-8. **Fix the two detector test failures (#197).** Both fail on `main`
-   today. `test_persist_recovers_after_write_exception` is stale
-   scaffolding: the local `flaky_insert` stub takes 5 to 6 args while
-   the real signature now passes 7, so the stub never runs.
-   `test_process_non_matching_rule_suppresses_event` is the one to look
-   at properly: a detection that a non-matching rule should have
-   suppressed is persisted anyway. That is either a stale test or a
-   real gap in rule matching, and the deterrent fires physical devices
-   off that path, so decide which rather than assuming.
+8. **Repaired two stale detector tests** (#203, closes #197). Both
+   failed on `main`. One was stale scaffolding whose stub signature
+   had drifted from the real one, so it never ran. The other was a
+   genuine assertion about rule matching that needed the test
+   corrected, not the code.
 
-9. **Put log-streamer's tests in CI (#198).** #187 shipped 18 tests for
-   the self-heal logic that no pipeline runs. There is no
-   `tests/conftest.py` (every other service has one), so
-   `pytest tests` errors at collection, and `ci.yml` mentions
-   log-streamer only in the ruff path list. A regression in the
-   generation-counter or quick-EOF logic would reach `main` with CI
-   green.
+9. **Put log-streamer's tests in CI** (#202, closes #198). #187
+   shipped 18 tests for the self-heal logic that no pipeline ran,
+   because there was no `tests/conftest.py` and `ci.yml` mentioned
+   log-streamer only in the ruff path list.
 
-10. **Gate expensive CI on what actually changed (#199).** Promoted
-    from Future Ideas. The em-dash sweep ran the entire matrix,
-    including every per-service pytest job and both multi-arch image
-    builds, for a 188-file change with zero logic in it.
+10. **Em-dash sweep** (#196). 188 files, fence-aware so quoted program
+    output in fenced blocks does not drift from what the program
+    actually prints.
 
-    Use job-level conditionals, not `paths-ignore` on the trigger. A
-    workflow suppressed at the trigger never reports a conclusion, so
-    the day anyone configures a required status check it blocks every
-    docs PR forever waiting on a check that will not arrive. `main` has
-    no branch protection today, which is exactly why this is cheap to
-    get right now and expensive to get wrong later. Lint should
-    probably stay unconditional even for docs-only changes, since a
-    broken fenced command is a docs bug CI can catch.
+**Descoped during the release:**
 
-**Explicitly out of scope:** #190 (setup.sh starter-model
-verification), #191 (TensorRT export re-verify), and #192 (non-Jetson
-platform verification). The first two need Orin bench time and would
-block the release on hardware; the third is evidence gathering whose
-outcome may open a feature minor of its own.
+- Conditional CI on docs-only changes (#199) was closed rather than
+  built. It was filed twice on premises that did not survive checking.
+- #190 (setup.sh starter-model verification) and #191 (TensorRT export
+  re-verify) need Orin bench time and would block the release on
+  hardware. #192 (non-Jetson platform verification) is evidence
+  gathering whose outcome may open a feature minor of its own.
+
+**Known open items carried forward:**
+
+- #205: production model provenance, now recorded (see below) but the
+  broader "every deployed model traces to a job" work is not built.
+- #209: `config-readonly.js` selectors match nothing, so read-only
+  mode may leave write controls visible.
+- #212: force-off can land between the abort gate and the ON command.
+  A narrow race, not the months-long gap #211 closed.
+- #214: CI lints `src` but no test directory, which is how duplicate
+  test definitions reached review twice during this sprint.
+
+### Model provenance (#205)
+
+The model running in production is `/models/trained.pt`. It is
+neither `pond_v2` nor `pond_v3`; md5 comparison rules both out. It
+traces to training job `3b49277fa1ec448bb49137b792697a82`, the most
+recent successful job, completed 2026-08-28 at 3:35 AM.
+
+`pond_v3` finished at mAP50 0.687 (heron 0.967, person and plant
+weak) and was never activated in config. Activating it remains a
+decision, not a pending task.
 
 ---
 
