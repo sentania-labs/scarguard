@@ -755,3 +755,65 @@ class TestTestFireRotatesLikeADetection:
         _run_job(cfg, FakeController())
 
         assert seen["deadline_sec"] == MAX_GROUP_TEST_FIRE_SEC
+
+
+class TestZeroDeviceSequenceDoesNotBurnCooldown:
+    """A detection that fires nothing must not suppress the next one.
+
+    _fire_group used to return True unconditionally, so a sequence stopped
+    before its first activation (emergency off latched between the detection
+    arriving and the first gate) still recorded both cooldowns and wrote an
+    empty audit row. The operator would clear the latch and the next heron
+    would get nothing.
+    """
+
+    def test_fire_group_reports_not_fired_when_nothing_ran(self, monkeypatch: Any) -> None:
+        import group_fire
+        import main as deterrent_main
+        from group_fire import PlanExecution
+
+        monkeypatch.setattr(
+            deterrent_main, "execute_plan",
+            lambda *a, **kw: PlanExecution(
+                actions=[], pre_delay_sec=0.0, total_duration_sec=0.0,
+            ),
+        )
+        cfg = _group_cfg()
+        group = cfg.groups[0]
+        fired = deterrent_main._fire_group(
+            group, cfg, FakeController(), {"camera_name": "c", "class_name": "heron"},
+            None, 0, [FakeRedis()], {},
+        )
+        assert fired is False, "a zero-device sequence reported as fired"
+        assert group_fire is not None
+
+    def test_a_real_sequence_still_reports_fired(self, monkeypatch: Any) -> None:
+        import main as deterrent_main
+
+        cfg = _group_cfg(device_count_range=[1, 1])
+        group = cfg.groups[0]
+        fired = deterrent_main._fire_group(
+            group, cfg, FakeController(), {"camera_name": "c", "class_name": "heron"},
+            None, 0, [FakeRedis()], {},
+        )
+        assert fired is True
+
+
+class TestTestFireIsInterruptible:
+    """The admin button drives the same hardware as a detection.
+
+    Emergency off must reach it too, or the panic button works for a heron and
+    not for the button sitting next to it.
+    """
+
+    def test_test_fire_passes_an_abort_hook(self, monkeypatch: Any) -> None:
+        import main as deterrent_main
+
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(deterrent_main, "execute_plan", _capture(seen))
+        _run_job(_group_cfg(device_count_range=[1, 1]), FakeController())
+
+        assert seen.get("should_continue") is not None, (
+            "the admin test-fire cannot be stopped by emergency off"
+        )
+        assert callable(seen["should_continue"])

@@ -126,14 +126,16 @@ def execute_plan(
     device selection and the durations, so a heron watching cannot learn the
     pattern, which is the same reason the single pass is randomised at all.
 
-    *should_continue* is consulted between cycles and returning False stops the
-    rotation. It exists because the gates that authorise firing (armed,
-    deterrent.enabled) are evaluated once before the sequence starts, and a
-    window can now run for minutes. Without it, disarming or pressing emergency
-    off would send OFF to every device and the next cycle would simply turn
-    them back on. It is checked BETWEEN cycles, never mid-activation, so an
-    in-flight spray still runs to its natural end and nothing races the
-    watchdog.
+    *should_continue* is consulted before every activation, and returning False
+    stops the sequence. It exists because the gates that authorise firing
+    (armed, deterrent.enabled, emergency off) are evaluated once before the
+    sequence starts, and a sequence can run for minutes. Without it, pressing
+    emergency off would send OFF to every device and the sequence would simply
+    turn them back on.
+
+    It is never checked mid-activation: an in-flight spray always runs to its
+    natural end, so the stop is bounded by one spray and no out-of-band OFF
+    races the per-activation watchdog.
     """
     # Rotation without a window would never terminate: the loop's only exit
     # test is "window closed", and with no deadline that is never true. Caught
@@ -172,6 +174,7 @@ def execute_plan(
             and (time.monotonic() - fire_start) >= deadline_sec
         )
 
+    aborted = False
     cycle = 0
     while cycle < MAX_ROTATION_CYCLES:
         cycle += 1
@@ -199,6 +202,19 @@ def execute_plan(
             # Clamped for the same reason the pre-delay and the spray are. This
             # one is also a term in group_test_fire_timeout_sec(), so leaving it
             # unbounded would make that derivation fiction.
+            # Gate before the wait as well as after it. The wait can be up to
+            # MAX_INTER_DELAY_SEC, so checking only afterwards left the worker
+            # parked for that long after the button was pressed, delaying the
+            # actuation record and the cooldown even though nothing was firing.
+            if should_continue is not None and not should_continue():
+                logger.warning(
+                    "%s: aborted before the inter-device wait, after %d "
+                    "device(s) [rid=%s]",
+                    label, len(actions), request_id,
+                )
+                aborted = True
+                break
+
             inter_delay = min(inter_delays[i], MAX_INTER_DELAY_SEC)
             if inter_delay < inter_delays[i]:
                 logger.warning(
@@ -208,6 +224,24 @@ def execute_plan(
             if inter_delay > 0:
                 logger.debug("Inter-device delay: %.1fs", inter_delay)
                 time.sleep(inter_delay)
+
+            # Checked before EVERY activation, not only at cycle boundaries.
+            # One cycle is several devices and tens of seconds: with the
+            # shipped ranges, four devices at up to 8s plus three 5s gaps is
+            # about 47s. Checking only between cycles meant emergency off
+            # switched every device off and then the rest of the current cycle
+            # switched them straight back on.
+            #
+            # Same rule as the window: an activation already in flight runs to
+            # its natural end, so the stop is bounded by one spray and no
+            # out-of-band OFF races the per-activation watchdog.
+            if should_continue is not None and not should_continue():
+                logger.warning(
+                    "%s: aborted after %d device(s), %d cycle(s) in [rid=%s]",
+                    label, len(actions), cycle, request_id,
+                )
+                aborted = True
+                break
 
             if window_closed():
                 logger.info(
@@ -250,7 +284,7 @@ def execute_plan(
                 on_stuck(device, result.error or STUCK_FALLBACK_ERROR)
 
         # One pass only unless rotating, and never rotate past the window.
-        if not rotate or window_closed():
+        if aborted or not rotate or window_closed():
             break
     else:
         logger.warning(

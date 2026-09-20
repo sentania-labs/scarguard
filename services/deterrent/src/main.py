@@ -211,6 +211,18 @@ def _fire_group(
         request_id,
     )
 
+    if not execution.actions:
+        # Nothing physical happened. Returning True here would burn the group
+        # and global cooldowns and write an empty audit row, so the operator
+        # who just hit emergency off would clear it and find the next heron
+        # got nothing. The test-fire path already treats this case separately.
+        logger.info(
+            "Group [%s] fired no devices (stopped before the first activation) "
+            "[rid=%s]",
+            group.name, request_id,
+        )
+        return False
+
     _publish_actuation(pub_holder, redis_cfg, actuation_event)
     try:
         actuation_db.insert_event(actuation_event)
@@ -256,6 +268,7 @@ def _run_group_test_fire(
     group_cooldown: GroupCooldownTracker,
     pub_holder: list[redis_lib.Redis | None],
     redis_cfg: dict[str, Any],
+    force_off_latch: ForceOffLatch | None = None,
 ) -> None:
     """Run an admin group test-fire on the worker thread.
 
@@ -340,6 +353,15 @@ def _run_group_test_fire(
     # Bounded by the test-fire limit rather than the configured window: an
     # admin pressing a button should not start a 300s sequence, and the web
     # route's wait is derived from the shorter number.
+    def _job_still_authorised() -> bool:
+        if force_off_latch is not None and force_off_latch.generation != started_gen:
+            logger.warning("Emergency off pressed during test-fire, stopping")
+            return False
+        if not act_cfg_ref.get().enabled:
+            return False
+        return bool(armed_ref.get())
+
+    started_gen = force_off_latch.generation if force_off_latch is not None else 0
     group_defaults = group.effective_defaults(act_cfg.defaults)
     configured_window = pick_group_window(group_defaults)
     test_window = min(
@@ -362,6 +384,10 @@ def _run_group_test_fire(
         label=f"Test-fire group [{group.name}]",
         deadline_sec=test_window,
         rotate=configured_window is not None,
+        # The other rotating caller. Same sprinklers, same panic button: an
+        # admin test-fire must be interruptible too, or emergency off works
+        # for a detection and not for the button next to it.
+        should_continue=_job_still_authorised,
         on_stuck=lambda device, error: _publish_stuck(
             pub_holder, redis_cfg, device, request_id, error,
         ),
@@ -528,6 +554,7 @@ def _worker(
                 _run_group_test_fire(
                     event, act_cfg_ref, controller_ref, armed_ref,
                     cooldown, group_cooldown, pub_holder, redis_cfg,
+                    force_off_latch,
                 )
             except Exception:
                 logger.exception(

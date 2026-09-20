@@ -624,11 +624,10 @@ class TestRotationCanBeStopped:
             deadline_sec=300.0, rotate=True, should_continue=should_continue,
         )
 
-    def test_revoked_authorisation_stops_the_rotation(self, monkeypatch: Any) -> None:
+    def test_revoked_authorisation_stops_immediately(self, monkeypatch: Any) -> None:
+        """Before the next activation, not at the next cycle boundary."""
         execution = self._fire(monkeypatch, lambda: False)
-        # The first cycle already started under the gates checked before the
-        # sequence; the abort applies from cycle two onward.
-        assert len(execution.actions) == 2
+        assert len(execution.actions) == 0
 
     def test_still_authorised_keeps_going(self, monkeypatch: Any) -> None:
         execution = self._fire(monkeypatch, lambda: True)
@@ -639,19 +638,63 @@ class TestRotationCanBeStopped:
         execution = self._fire(monkeypatch, None)
         assert len(execution.actions) > 2
 
-    def test_abort_is_checked_between_cycles_not_mid_spray(self, monkeypatch: Any) -> None:
-        """An in-flight activation must always run to its natural end."""
-        calls = {"n": 0}
+    def test_abort_stops_mid_cycle_not_just_between_cycles(self, monkeypatch: Any) -> None:
+        """The case that made this worth fixing.
 
-        def revoke_after_first_check() -> bool:
-            calls["n"] += 1
-            return False
+        One cycle is several devices and tens of seconds. Checking only at
+        cycle boundaries meant emergency off switched every device off and the
+        rest of the current cycle switched them straight back on.
 
-        execution = self._fire(monkeypatch, revoke_after_first_check)
-        assert calls["n"] == 1, "checked more than once per cycle boundary"
-        # Both devices of cycle one completed their full duration.
-        assert [a.duration_sec for a in execution.actions] == [5.0, 5.0]
+        Keyed on activations rather than callback invocations, because the
+        gate is consulted more than once per device (before the inter-device
+        wait and again before firing).
+        """
+        fired: list[str] = []
+        execution = self._fire_counting(monkeypatch, fired, revoke_after=1)
+        # Cycle one has two devices; the second must not fire.
+        assert len(execution.actions) == 1
+        assert len(fired) == 1
 
+    def test_an_activation_in_flight_still_finishes(self, monkeypatch: Any) -> None:
+        """Bounded by one spray, so no out-of-band OFF races the watchdog."""
+        fired: list[str] = []
+        execution = self._fire_counting(monkeypatch, fired, revoke_after=1)
+        assert [a.duration_sec for a in execution.actions] == [5.0], (
+            "the activation in flight was cut short"
+        )
+
+    def _fire_counting(self, monkeypatch: Any, fired: list, revoke_after: int) -> Any:
+        """Fire with authorisation revoked once *revoke_after* devices have run."""
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            fired.append(device.name)
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        return execute_plan(
+            controller, [_device("v1"), _device("v2")], self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0, rotate=True,
+            should_continue=lambda: len(fired) < revoke_after,
+        )
+
+    def test_still_authorised_keeps_going(self, monkeypatch: Any) -> None:
+        execution = self._fire(monkeypatch, lambda: True)
+        assert len(execution.actions) > 2
+
+    def test_no_hook_means_no_abort(self, monkeypatch: Any) -> None:
+        """The detection path passes one; anything else must not change."""
+        execution = self._fire(monkeypatch, None)
+        assert len(execution.actions) > 2
 
 class TestCycleCeiling:
     def test_ceiling_bounds_a_pathological_window(self, monkeypatch: Any) -> None:
@@ -903,3 +946,148 @@ class TestForceOffStopsRotation:
 class FakeRedisPub:
     def publish(self, channel: str, payload: str) -> None:
         pass
+
+
+class TestAbortIsSticky:
+    """Once revoked, a sequence stays stopped.
+
+    should_continue can legitimately flip back to True: armed and
+    deterrent.enabled are both re-settable while a sequence runs. The
+    `aborted` flag makes the stop stick, so a re-arm landing in that gap
+    cannot resume a sequence the operator just stopped.
+    """
+
+    @staticmethod
+    def _defaults() -> ActuationDefaults:
+        return ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+
+    def test_a_re_arm_does_not_resume_a_stopped_sequence(self, monkeypatch: Any) -> None:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+
+        # False exactly once, then True forever: a disarm immediately undone.
+        state = {"refused": False}
+
+        def flapping() -> bool:
+            if not state["refused"]:
+                state["refused"] = True
+                return False
+            return True
+
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], self._defaults(),
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0, rotate=True, should_continue=flapping,
+        )
+        assert len(execution.actions) == 0, (
+            "a re-arm resumed a sequence that had already been stopped"
+        )
+
+
+class TestAbortBeforeTheWait:
+    """The gate runs before the inter-device wait, not only after it.
+
+    The wait can be up to MAX_INTER_DELAY_SEC. Checking only afterwards left
+    the worker parked for that long after the button was pressed, delaying the
+    actuation record and the cooldown even though nothing was firing.
+    """
+
+    def test_stop_does_not_sit_through_the_wait(self, monkeypatch: Any) -> None:
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+        fired: list[str] = []
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            fired.append(device.name)
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+        defaults = ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[1.0, 1.0],
+            inter_device_delay_range=[30.0, 30.0],   # the maximum wait
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], defaults,
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0, rotate=True,
+            should_continue=lambda: len(fired) < 1,
+        )
+        # Device 1 fires (1s). Device 2's gate is consulted BEFORE its 30s
+        # wait, so the sequence ends at t=1, not t=31.
+        assert len(execution.actions) == 1
+        assert execution.total_duration_sec == 1.0, (
+            f"sat through the inter-device wait after the stop: "
+            f"{execution.total_duration_sec}s"
+        )
+
+    def test_a_stop_at_the_firing_gate_is_also_sticky(self, monkeypatch: Any) -> None:
+        """Both gates must set the flag, not just the first one.
+
+        There are two gates per device: one before the inter-device wait and
+        one immediately before firing. If only the first marks the sequence
+        aborted, a stop landing on the second breaks the current cycle and the
+        outer loop starts another one.
+        """
+        clock = {"t": 0.0}
+        monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
+        monkeypatch.setattr(
+            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+        )
+        controller = FakeController()
+        real = controller.activate_device
+
+        def timed(device: DeviceConfig, duration: float, **kw: Any) -> Any:
+            clock["t"] += duration
+            return real(device, duration, **kw)
+
+        controller.activate_device = timed  # type: ignore[method-assign]
+
+        # Refuse on the SECOND call only: gate one (pre-wait) passes, gate two
+        # (pre-fire) refuses, everything after would allow it again.
+        calls = {"n": 0}
+
+        def refuse_second() -> bool:
+            calls["n"] += 1
+            return calls["n"] != 2
+
+        defaults = ActuationDefaults(
+            device_count_range=[2, 2],
+            spray_duration_range=[5.0, 5.0],
+            inter_device_delay_range=[0.0, 0.0],
+            pre_delay_range=[0.0, 0.0],
+        )
+        execution = execute_plan(
+            controller, [_device("v1"), _device("v2")], defaults,
+            request_id="rid", event_type="detection", label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0, rotate=True, should_continue=refuse_second,
+        )
+        assert len(execution.actions) == 0, (
+            "a stop at the firing gate did not stick, the sequence restarted"
+        )
