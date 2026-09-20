@@ -129,7 +129,43 @@
   remediation supersedes in-process pause for GPU jobs with an ownership-aware
   container stop and a controller heartbeat/recovery deadline.
 
-## Recently Fixed (v1.16.7)
+## Recently Fixed (v1.17)
+
+- **Destructive buttons never actually confirmed.** Four destructive
+  UI controls carried `onclick="return confirm(...)"`. The CSP drops
+  inline handlers, so those buttons had been firing with no prompt in
+  production for months and the page looked correct throughout.
+  Replaced with a delegated `data-confirm` handler in
+  `static/confirm-submit.js`. If you relied on the prompt as a
+  safety net before v1.17, you did not have one.
+
+- **Emergency off did not stop a firing sequence.** The abort gate was
+  only consulted between cycles, so force-off during a group window
+  had no effect until the window ended on its own.
+  `ForceOffLatch` now carries a generation counter bumped before any
+  OFF, checked before each activation.
+
+- **Single-device test-fire blocked emergency off.** Test-fire ran
+  inline on the request-handler thread, the only consumer of
+  `FORCE_OFF_CHANNEL`. A 15-second test-fire meant 15 seconds with
+  nobody listening for stop. Now runs on the deterrent worker.
+
+- **Emergency off did not cover a job still waiting its turn.** The
+  worker is FIFO, so a test-fire can sit behind a detection sequence.
+  A force-off arriving in that window was not seen, and the device
+  turned on afterwards. The force-off generation is now recorded when
+  the button is pressed rather than when the job starts.
+
+- **A NaN group window would have run hardware for ~115 minutes.**
+  `group_duration_range` now rejects non-finite values at config load,
+  and `MAX_GROUP_ACTUATION_SEC` caps the window at 300s.
+
+- **Two detector tests were failing on `main`** (#197), and
+  log-streamer's 18 tests were never run by any pipeline (#198). Both
+  fixed.
+
+### Earlier (v1.16.7)
+
 
 - **Containerized training first-run bugs.** The trainer service's
   `prepare_and_train` path had never run end-to-end (pond_v1/v2 were
@@ -145,8 +181,18 @@
 
 ## Not Yet Built
 
-- Custom-trained heron model (have the tooling now, need labeled data)
-- Deterrent response profiles: species-based device routing (e.g. heron = all deterrents, raccoon at night = lights + sound)
+- Time-of-day conditions on deterrent rules (e.g. "raccoon at night only")
+- Per-rule and per-class cooldown overrides
+
+Deterrent response profiles (species-based device routing) shipped in
+v0.13.3 and were listed here in error until v1.17.
+
+**Custom model status.** The deployed model is `/models/trained.pt`,
+from training job `3b49277fa1ec448bb49137b792697a82`, completed
+2026-08-28 at 3:35 AM. It is neither `pond_v2` nor `pond_v3`; md5
+comparison rules both out. `pond_v3` trained to mAP50 0.687 (heron
+0.967, person and plant weak) and was never activated in config.
+Whether to activate it is an open decision, not a pending task.
 
 See [ROADMAP.md](ROADMAP.md) for upcoming work and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed feature history (1–27).
 
