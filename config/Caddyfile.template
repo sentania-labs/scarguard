@@ -18,7 +18,22 @@
 		X-Frame-Options DENY
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
-		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://unpkg.com"
+		# script-src is 'self' only: no 'unsafe-inline', no CDN host.
+		#
+		# unpkg.com went when v1.15 vendored htmx and Chart.js into
+		# static/vendor/. 'unsafe-inline' went in v1.17, once the last four
+		# inline onclick handlers became data-confirm attributes handled by
+		# static/confirm-submit.js. Both grants existed only because something
+		# needed them; neither does now.
+		#
+		# style-src keeps 'unsafe-inline' because the templates still carry
+		# style="..." attributes throughout. Dropping that is a separate and
+		# much larger change, and inline style is a far weaker vector than
+		# inline script.
+		#
+		# If a page stops working after this, the browser console will say so
+		# with a CSP violation and nothing will appear in the server logs.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
 		-Server
 	}
 	# Drop common bot-probe paths at the edge so they never reach FastAPI.
