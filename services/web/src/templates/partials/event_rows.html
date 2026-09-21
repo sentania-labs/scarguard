@@ -46,6 +46,7 @@
       <button type="button" class="btn-edit-feedback" data-action="show-feedback-form">edit</button>
     {% endif %}
     <div class="feedback-form" {% if e.feedback %}style="display:none"{% endif %}>
+      <button type="button" class="inline-feedback-cancel" data-action="cancel-inline-feedback" hidden>Cancel edit</button>
       <div class="feedback-btns">
         <form method="post" style="display:inline"
               hx-post="/events/{{ e.id }}/feedback"

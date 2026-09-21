@@ -35,18 +35,18 @@
         button.setAttribute('aria-pressed', String(action === button.dataset.bulkFeedback));
         button.disabled = saving;
       });
-      $('apply-feedback').disabled = saving || !count || !action ||
+      $('apply-feedback').disabled = saving || editingRows.size > 0 || !count || !action ||
         (action === 'wrong_class' && !$('bulk-corrected-class').value.trim());
       $('apply-feedback').textContent = saving ? 'Saving…' : 'Apply to ' + count + ' events';
       const reviewed = rows().filter(row => selected.has(Number(row.dataset.eventId)) && row.dataset.feedback).length;
-      $('selection-summary').textContent = count ?
+      $('selection-summary').textContent = editingRows.size ? 'Finish or cancel row edits before applying bulk feedback.' : count ?
         (names[action] || 'Choose feedback') + (action === 'wrong_class' ? ': ' + ($('bulk-corrected-class').value.trim() || 'choose class') : '') +
         ' · ' + count + ' selected · ' + reviewed + ' previously reviewed will change.' : 'Select events, then choose feedback.';
     }
     $('event-live-status').textContent = held() ? 'Live updates paused while reviewing.' :
       pending ? 'New events available.' : 'Live updates active.';
     $('refresh-events').hidden = !pending;
-    $('refresh-events').disabled = saving || !!editor || selected.size > 0;
+    $('refresh-events').disabled = saving || !!editor || selected.size > 0 || editingRows.size > 0;
   }
   async function checkedResponse(response) {
     if (!response.ok || response.redirected) {
@@ -143,15 +143,29 @@
   document.addEventListener('click', event => {
     const button = event.target.closest('button[data-action]');
     if (button && !saving) {
-      if (button.dataset.action === 'show-feedback-form') {
+      if (button.dataset.action === 'cancel-inline-feedback') {
+        const row = button.closest('tr');
+        const td = button.closest('td');
+        td.querySelector('.feedback-form').style.display = row.dataset.feedback ? 'none' : 'block';
+        td.querySelector('.wrong-class-picker').style.display = 'none';
+        td.querySelector('input[name="corrected_class"]').value = '';
+        const badge = td.querySelector('.badge');
+        const edit = td.querySelector('.btn-edit-feedback');
+        if (badge) badge.style.display = '';
+        if (edit) edit.style.display = '';
+        button.hidden = true;
+        editingRows.delete(row.dataset.eventId);
+      } else if (button.dataset.action === 'show-feedback-form') {
         const td = button.closest('td');
         td.querySelector('.feedback-form').style.display = 'block';
         button.style.display = 'none';
         if (button.previousElementSibling) button.previousElementSibling.style.display = 'none';
         editingRows.add(button.closest('tr').dataset.eventId);
+        button.closest('td').querySelector('.inline-feedback-cancel').hidden = false;
       } else if (button.dataset.action === 'show-wrong-class-picker') {
         button.closest('.feedback-form').querySelector('.wrong-class-picker').style.display = 'block';
         editingRows.add(button.closest('tr').dataset.eventId);
+        button.closest('td').querySelector('.inline-feedback-cancel').hidden = false;
       }
       updateSelection();
     }

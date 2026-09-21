@@ -190,3 +190,18 @@ def test_batch_refresh_waits_for_an_older_read(browser_app: tuple[Any, str, dict
     intercepted[1].continue_()
     page.locator('#event-row-56 .badge-correct').wait_for()
     assert page.locator('#event-row-56 .badge-correct').inner_text() == 'Correct'
+
+
+def test_cancel_inline_edit_resumes_refresh(browser_app: tuple[Any, str, dict[str, str], Path]) -> None:
+    page, base, _, _ = browser_app
+    page.goto(base + '/events')
+    page.locator('#event-row-56 button[title="Wrong class"]').click()
+    page.locator('#event-row-56 input[name="corrected_class"]').fill('unsaved')
+    page.evaluate("window.eventFeed.listeners.detection({data:'{}'})")
+    assert page.locator('#refresh-events').is_disabled()
+    page.locator('#event-row-56 .inline-feedback-cancel').click()
+    assert not page.locator('#event-row-56 .wrong-class-picker').is_visible()
+    assert page.locator('#refresh-events').is_enabled()
+    page.locator('#refresh-events').click()
+    page.get_by_text('Live updates active.', exact=True).wait_for()
+    assert not page.locator('#event-row-56 .inline-feedback-cancel').is_visible()
