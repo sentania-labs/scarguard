@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 from actuation_models import (
@@ -59,6 +59,7 @@ class FakeController:
 
     def activate_device(
         self, device: DeviceConfig, duration: float, *, request_id: str, event_type: str,
+        should_continue: Callable[[], bool] | None = None,
     ) -> ActivationResult:
         self.calls.append(device.name)
         if device.name in self._fail_on:

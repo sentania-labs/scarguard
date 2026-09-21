@@ -8,7 +8,7 @@ reported) cover both callers at once.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import group_fire as group_fire_module
 import pytest
@@ -43,6 +43,7 @@ class FakeController:
         *,
         request_id: str,
         event_type: str,
+        should_continue: Callable[[], bool] | None = None,
     ) -> ActivationResult:
         self.calls.append({
             "device": device.name,

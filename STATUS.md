@@ -80,7 +80,13 @@
   battery devices, the Tuya LAN fallback listed in ROADMAP Future Ideas is
   explicitly not viable for sleeping devices.
 
-## Recently Fixed (unreleased)
+## v1.17.1
+
+- **Emergency-off race (#212):** The final cancellation check and ON send
+  share the cloud-command lock with OFF. Old group and single-device test-fire
+  jobs cannot send ON after emergency OFF has completed. Deterministic tests
+  exercise both orderings and both worker call paths with a fake cloud client.
+  Physical Tuya hardware was not exercised locally.
 
 - **v1.17.1 event review (#218):** Bulk correct/false-positive/wrong-class
   feedback for up to 50 selected events. Snapshot drawing stays open; class
@@ -92,6 +98,7 @@
   while exercising the real limiter. Local and CI use `scripts/lint.sh`, which
   includes every service's tests. The full web suite passed twice consecutively.
 
+## Recently Fixed (unreleased)
 
 - **Log-streamer quick EOF loop (issue #169):** The sidecar now self-heals stale
   Docker SDK sessions and backfills reconnect gaps without making quiet services

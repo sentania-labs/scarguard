@@ -3,7 +3,7 @@
 Active and planned features. Each item includes acceptance criteria. Completed features (1–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 ---
 
-## v1.17.1: event review and focused fixes (in progress)
+## v1.17.1: event review and focused fixes
 
 Approved scope: page-scoped bulk feedback and persistent snapshot class/box
 correction (#218), read-only config controls (#209), isolated web rate-limit
@@ -13,8 +13,9 @@ command-ordering fix (#212). No schema migration or detector/model change.
 Event review is implemented with atomic batches capped at 50 IDs, preserved
 per-image boxes on bulk relabeling, explicit save/error states, and live refresh
 that protects active selections and edits. Local browser checks cover saving,
-reopening, failed writes, permissions, and overlapping live updates. Release
-remains pending PR validation and the separate safety fix.
+reopening, failed writes, permissions, cancelling inline edits, and overlapping
+live updates. Delivery is tracked in PRs #221 (web/test fixes) and #220
+(emergency-off ordering, including controller replacement during credential reload).
 
 Deferred: #201, #200, #205, #190, #191 and #192. The hardware and model work do
 not block this focused release.
@@ -696,8 +697,8 @@ release cannot add a stop button that does not stop anything.
   broader "every deployed model traces to a job" work is not built.
 - #209: `config-readonly.js` selectors match nothing, so read-only
   mode may leave write controls visible.
-- #212: force-off can land between the abort gate and the ON command.
-  A narrow race, not the months-long gap #211 closed.
+- #212: final command-ordering fix implemented for v1.17.1, pending release.
+  Cancellation is rechecked under the cloud-command lock before ON.
 - #214: CI lints `src` but no test directory, which is how duplicate
   test definitions reached review twice during this sprint.
 

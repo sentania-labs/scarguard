@@ -471,6 +471,13 @@ somewhere between 45 and 90 seconds, rather than one 3-8 second burst.
 - **Config:** All services read from mounted `config/scarguard.yml` in external data directory. Web UI can write to it. Detector, notifier, and deterrent auto-reload on config file changes.
 - **Database:** SQLite at `data/scarguard.db`, shared volume between web, detector, and deterrent.
 
+### Emergency OFF command ordering (v1.17.1)
+
+No configuration change is needed. Emergency OFF invalidates pending activations
+before issuing OFF. An admitted ON finishes before OFF; a cancelled activation
+sends no ON. This does not disarm future detections or eliminate cloud/device
+latency. See `docs/EMERGENCY_OFF.md`.
+
 ## Event review controls (v1.17.1)
 
 Bulk review and snapshot box correction use existing event feedback fields;

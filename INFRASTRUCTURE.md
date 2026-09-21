@@ -486,6 +486,13 @@ certificate for the Sentania Lab internal PKI. It's used by the
 Orin-runner container to validate TLS to internal services. This
 is the certificate *only*, not a private key. Intentional ship.
 
+### v1.17.1 deterrent safety patch
+
+The emergency-off ordering fix changes only the deterrent application. It adds
+no infrastructure or configuration requirements. Local checks use the actual
+controller and worker paths with a fake Tuya client and deterministic thread
+barriers; they do not actuate the pond or measure physical device latency.
+
 ## v1.17.1 validation changes
 
 `scripts/lint.sh` is the shared local/CI Ruff entry point, covering every
