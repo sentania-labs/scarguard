@@ -3,6 +3,25 @@
 Active and planned features. Each item includes acceptance criteria. Completed features (1–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 ---
 
+## v1.17.1: event review and focused fixes
+
+Approved scope: page-scoped bulk feedback and persistent snapshot class/box
+correction (#218), read-only config controls (#209), isolated web rate-limit
+tests (#204), service-test lint coverage (#214), and a separate emergency-off
+command-ordering fix (#212). No schema migration or detector/model change.
+
+Event review is implemented with atomic batches capped at 50 IDs, preserved
+per-image boxes on bulk relabeling, explicit save/error states, and live refresh
+that protects active selections and edits. Local browser checks cover saving,
+reopening, failed writes, permissions, cancelling inline edits, and overlapping
+live updates. Delivery is tracked in PRs #221 (web/test fixes) and #220
+(emergency-off ordering, including controller replacement during credential reload).
+
+Deferred: #201, #200, #205, #190, #191 and #192. The hardware and model work do
+not block this focused release.
+
+---
+
 ## Deterrence: Physical Deterrence (Scar's Revenge)
 
 New `deterrent` Docker Compose service for automated physical deterrence. Subscribes to `scarguard:detections` on Redis and triggers Tuya smart devices via the **Tuya Cloud API** (`tinytuya.Cloud`). Supports sprinklers, lights, sirens, and smart plugs, any device in the Tuya/Smart Life ecosystem. Randomized activation patterns (device selection, duration, delays) to prevent wildlife habituation.

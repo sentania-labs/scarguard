@@ -5,9 +5,8 @@ so these must be set before the first import of those modules.
 """
 
 import os
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 # ── Point app at temp paths so tests never touch /data or /config ──────────
 os.environ["CONFIG_PATH"] = "/tmp/sg-test.yml"
@@ -65,3 +64,35 @@ def client(monkeypatch):
     csrf_token = c.cookies.get("csrf_token", "")
     c.headers["X-CSRF-Token"] = csrf_token
     return c
+
+
+@pytest.fixture(autouse=True)
+def isolated_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Exercise the real limiter without consuming any external Redis counters."""
+    from rate_limit import RateLimiter
+
+    counts: dict[str, int] = {}
+    expiries: dict[str, int] = {}
+    redis = MagicMock()
+
+    def incr(key: str) -> int:
+        counts[key] = counts.get(key, 0) + 1
+        return counts[key]
+
+    redis.incr.side_effect = incr
+    redis.expire.side_effect = lambda key, seconds: expiries.setdefault(key, seconds)
+    redis.ttl.side_effect = lambda key: expiries.get(key, -1)
+    monkeypatch.setattr("rate_limit_dep._limiter", RateLimiter(redis))
+    return redis
+
+
+@pytest.fixture(autouse=True)
+def isolated_dashboard_redis(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """CSRF priming/dashboard routes must not read or modify an external Redis."""
+    values: dict[str, str] = {}
+    redis = AsyncMock()
+    redis.get.side_effect = lambda key: values.get(key)
+    redis.set.side_effect = lambda key, value: values.update({key: value})
+    redis.delete.side_effect = lambda key: values.pop(key, None)
+    monkeypatch.setattr("routes.dashboard._redis_client", lambda _cfg: redis)
+    return redis

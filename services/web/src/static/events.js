@@ -1,324 +1,313 @@
-var SCARGUARD_TARGET_CLASSES = JSON.parse(
-  document.getElementById('events-page-data').textContent
-);
-
-// Delegated handlers for in-row feedback controls (event_rows.html partial,
-// which is swapped in by HTMX so per-element listeners would be lost).
-document.addEventListener('click', function(e) {
-  var btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  if (btn.dataset.action === 'show-feedback-form') {
-    var td = btn.closest('td');
-    if (!td) return;
-    var form = td.querySelector('.feedback-form');
-    if (form) form.style.display = 'block';
-    btn.style.display = 'none';
-    if (btn.previousElementSibling) btn.previousElementSibling.style.display = 'none';
-  } else if (btn.dataset.action === 'show-wrong-class-picker') {
-    var fb = btn.closest('.feedback-form');
-    if (!fb) return;
-    var picker = fb.querySelector('.wrong-class-picker');
-    if (picker) picker.style.display = 'block';
+/* Event selection is a set of persisted IDs, never a moving live-feed range. */
+(() => {
+  'use strict';
+  const classes = JSON.parse(document.getElementById('events-page-data').textContent);
+  const $ = id => document.getElementById(id);
+  const selected = new Set();
+  let action = '', saving = false, editor = null, pending = false, refreshing = null;
+  let refreshTimer = null;
+  const editingRows = new Set();
+  const names = {correct: 'Positive / correct', false_positive: 'Negative / false positive', wrong_class: 'Wrong class'};
+  const rows = () => [...document.querySelectorAll('#event-table-body tr[data-event-id]')];
+  const status = message => { $('event-review-status').textContent = message; };
+  function held() {
+    return selected.size > 0 || saving || !!editor || editingRows.size > 0 ||
+      !!document.activeElement.closest('input, select, textarea');
   }
-});
-
-document.addEventListener('click', function(e) {
-  var link = e.target.closest('.snapshot-link');
-  if (!link) return;
-  e.preventDefault();
-
-  var bbox = link.dataset.bbox ? JSON.parse(link.dataset.bbox) : null;
-  var frameSize = link.dataset.frameSize ? JSON.parse(link.dataset.frameSize) : null;
-  var eventId = link.dataset.eventId ? parseInt(link.dataset.eventId) : null;
-  var initFeedback = link.dataset.feedback || '';
-  var initCorrected = link.dataset.correctedClass || '';
-  var className = link.dataset.className || '';
-  var confidence = link.dataset.confidence ? parseFloat(link.dataset.confidence) : null;
-  var cameraName = link.dataset.cameraName || '';
-  var src = link.querySelector('img').src;
-
-  var overlay = document.createElement('div');
-  overlay.className = 'snapshot-overlay';
-
-  var inner = document.createElement('div');
-  inner.className = 'snapshot-overlay__inner';
-
-  var header = document.createElement('div');
-  header.className = 'snapshot-overlay__header';
-  header.addEventListener('click', function(ev) { ev.stopPropagation(); });
-  var headerHTML = '';
-  if (className) {
-    headerHTML += '<span class="snapshot-overlay__class">' +
-                  _escHtml(className.replace(/_/g, ' ')) + '</span>';
-  }
-  if (confidence !== null && !isNaN(confidence)) {
-    headerHTML += '<span class="snapshot-overlay__conf">' +
-                  Math.round(confidence * 100) + '%</span>';
-  }
-  if (cameraName) {
-    headerHTML += '<span class="snapshot-overlay__cam">' +
-                  _escHtml(cameraName) + '</span>';
-  }
-  if (headerHTML) {
-    header.innerHTML = headerHTML;
-    inner.appendChild(header);
-  }
-
-  var imgWrap = document.createElement('div');
-  imgWrap.className = 'snapshot-overlay__img-wrap';
-  var img = document.createElement('img');
-  img.src = src;
-  imgWrap.appendChild(img);
-  inner.appendChild(imgWrap);
-
-  img.onload = function() {
-    if (bbox && frameSize && frameSize[0] > 0 && frameSize[1] > 0) {
-      var scaleX = img.naturalWidth / frameSize[0];
-      var scaleY = img.naturalHeight / frameSize[1];
-      var x1 = bbox[0] * scaleX, y1 = bbox[1] * scaleY;
-      var x2 = bbox[2] * scaleX, y2 = bbox[3] * scaleY;
-      var pctL = (x1 / img.naturalWidth) * 100;
-      var pctT = (y1 / img.naturalHeight) * 100;
-      var pctW = ((x2 - x1) / img.naturalWidth) * 100;
-      var pctH = ((y2 - y1) / img.naturalHeight) * 100;
-      var box = document.createElement('div');
-      box.className = 'snapshot-overlay__bbox';
-      box.style.left = pctL + '%';
-      box.style.top = pctT + '%';
-      box.style.width = pctW + '%';
-      box.style.height = pctH + '%';
-      imgWrap.appendChild(box);
+  function updateSelection() {
+    const count = selected.size;
+    const boxes = [...document.querySelectorAll('.event-select')];
+    boxes.forEach(box => {
+      box.checked = selected.has(Number(box.value));
+      box.disabled = saving;
+      box.closest('tr').classList.toggle('event-selected', box.checked);
+    });
+    if ($('selection-count')) {
+      $('selection-count').textContent = count + ' selected';
+      $('select-page-events').checked = count > 0 && count === boxes.length;
+      $('select-page-events').indeterminate = count > 0 && count < boxes.length;
+      $('select-page-events').disabled = saving;
+      $('select-all-events').disabled = saving;
+      $('select-no-events').disabled = saving;
+      $('bulk-class-wrap').hidden = action !== 'wrong_class';
+      $('bulk-corrected-class').disabled = saving;
+      document.querySelectorAll('[data-bulk-feedback]').forEach(button => {
+        button.setAttribute('aria-pressed', String(action === button.dataset.bulkFeedback));
+        button.disabled = saving;
+      });
+      $('apply-feedback').disabled = saving || editingRows.size > 0 || !count || !action ||
+        (action === 'wrong_class' && !$('bulk-corrected-class').value.trim());
+      $('apply-feedback').textContent = saving ? 'Saving…' : 'Apply to ' + count + ' events';
+      const reviewed = rows().filter(row => selected.has(Number(row.dataset.eventId)) && row.dataset.feedback).length;
+      $('selection-summary').textContent = editingRows.size ? 'Finish or cancel row edits before applying bulk feedback.' : count ?
+        (names[action] || 'Choose feedback') + (action === 'wrong_class' ? ': ' + ($('bulk-corrected-class').value.trim() || 'choose class') : '') +
+        ' · ' + count + ' selected · ' + reviewed + ' previously reviewed will change.' : 'Select events, then choose feedback.';
     }
-  };
-
-  if (eventId) {
-    var fbPanel = document.createElement('div');
-    fbPanel.className = 'overlay-feedback';
-    fbPanel.innerHTML = buildOverlayFeedbackHTML(initFeedback, initCorrected);
-    fbPanel.addEventListener('click', function(ev) { ev.stopPropagation(); });
-    wireOverlayFeedback(fbPanel, eventId, link);
-    inner.appendChild(fbPanel);
+    $('event-live-status').textContent = held() ? 'Live updates paused while reviewing.' :
+      pending ? 'New events available.' : 'Live updates active.';
+    $('refresh-events').hidden = !pending;
+    $('refresh-events').disabled = saving || !!editor || selected.size > 0 || editingRows.size > 0;
   }
-
-  overlay.appendChild(inner);
-  overlay.addEventListener('click', function() { overlay.remove(); });
-  document.body.appendChild(overlay);
-});
-
-function _escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function buildOverlayFeedbackHTML(feedback, correctedClass) {
-  var html = '<div class="overlay-feedback-label">Feedback</div>';
-  if (feedback) {
-    var bCls = feedback === 'correct' ? 'badge-correct' :
-               feedback === 'false_positive' ? 'badge-fp' : 'badge-wrong';
-    var bTxt = feedback === 'correct' ? 'Correct' :
-               feedback === 'false_positive' ? 'False Positive' :
-               'Wrong: ' + _escHtml((correctedClass || '?').replace(/_/g, ' '));
-    html += '<span class="badge ' + bCls + '">' + bTxt + '</span>';
-    html += '<button class="btn-edit-feedback js-overlay-edit">edit</button>';
-  }
-  html += '<div class="overlay-fb-btns"' + (feedback ? ' style="display:none"' : '') + '>';
-  html += '<button class="btn-fb btn-fb-correct js-fb" data-fb="correct" title="Correct detection">&#10003;</button>';
-  html += '<button class="btn-fb btn-fb-fp js-fb" data-fb="false_positive" title="False positive">&#10007;</button>';
-  html += '<button class="btn-fb btn-fb-wrong js-fb-wrong" title="Wrong class">?</button>';
-  html += '</div>';
-  html += '<div class="wrong-class-picker" style="display:none">';
-  var dlId = 'overlay-class-options-' + Math.random().toString(36).slice(2, 8);
-  html += '<input type="text" class="js-wrong-cls" list="' + dlId + '" placeholder="Select or type class…">';
-  html += '<datalist id="' + dlId + '">';
-  (SCARGUARD_TARGET_CLASSES || []).forEach(function(cls) {
-    var escaped = _escHtml(cls);
-    html += '<option value="' + escaped + '">' + escaped.replace(/_/g, ' ') + '</option>';
-  });
-  html += '</datalist>';
-  html += '<button class="btn-fb btn-fb-wrong js-wrong-set">Set</button>';
-  html += '<button class="btn-fb js-redraw-bbox" title="Redraw bounding box" style="margin-left:4px">Redraw bbox</button>';
-  html += '</div>';
-  return html;
-}
-
-function wireOverlayFeedback(panel, eventId, sourceLink) {
-  var editBtn = panel.querySelector('.js-overlay-edit');
-  if (editBtn) {
-    editBtn.addEventListener('click', function() {
-      panel.querySelector('.overlay-fb-btns').style.display = 'flex';
-      this.style.display = 'none';
-      var badge = panel.querySelector('.badge');
-      if (badge) badge.style.display = 'none';
-    });
-  }
-
-  panel.querySelectorAll('.js-fb').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      doOverlayFeedback(panel, eventId, btn.dataset.fb, '', sourceLink);
-    });
-  });
-
-  var wrongBtn = panel.querySelector('.js-fb-wrong');
-  if (wrongBtn) {
-    wrongBtn.addEventListener('click', function() {
-      panel.querySelector('.wrong-class-picker').style.display = 'flex';
-    });
-  }
-
-  // State for corrected bbox drawn by user
-  panel._correctedBbox = null;
-
-  var redrawBtn = panel.querySelector('.js-redraw-bbox');
-  if (redrawBtn) {
-    redrawBtn.addEventListener('click', function() {
-      var overlay = panel.closest('.snapshot-overlay');
-      if (!overlay) return;
-      var imgWrap = overlay.querySelector('.snapshot-overlay__img-wrap');
-      var img = imgWrap ? imgWrap.querySelector('img') : null;
-      if (!img) return;
-      _initBboxDraw(imgWrap, img, sourceLink, panel, redrawBtn);
-    });
-  }
-
-  var setBtn = panel.querySelector('.js-wrong-set');
-  if (setBtn) {
-    setBtn.addEventListener('click', function() {
-      var cls = panel.querySelector('.js-wrong-cls').value.trim();
-      if (cls) doOverlayFeedback(panel, eventId, 'wrong_class', cls, sourceLink);
-    });
-  }
-}
-
-/**
- * Enable drag-to-draw on the image wrap.  The user drags a green
- * rectangle; on mouseup the corrected bbox is stored on panel._correctedBbox
- * as [x1, y1, x2, y2] in original frame-pixel coordinates.
- */
-function _initBboxDraw(imgWrap, img, sourceLink, panel, redrawBtn) {
-  // Parse frame_size from the source link to map back to frame coords
-  var frameSize = sourceLink.dataset.frameSize ? JSON.parse(sourceLink.dataset.frameSize) : null;
-  if (!frameSize || frameSize[0] <= 0 || frameSize[1] <= 0) return;
-
-  redrawBtn.textContent = 'Draw on image…';
-  redrawBtn.disabled = true;
-
-  // Remove any prior corrected-bbox overlay
-  var prev = imgWrap.querySelector('.snapshot-overlay__corrected-bbox');
-  if (prev) prev.remove();
-
-  var drawing = false;
-  var startX = 0, startY = 0;
-  var drawBox = document.createElement('div');
-  drawBox.className = 'snapshot-overlay__corrected-bbox';
-  drawBox.style.cssText = 'position:absolute;border:2px solid #3ecf8e;pointer-events:none;display:none;';
-  imgWrap.appendChild(drawBox);
-
-  imgWrap.style.cursor = 'crosshair';
-
-  function getPos(e) {
-    var rect = img.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(e.clientX - rect.left, rect.width)),
-      y: Math.max(0, Math.min(e.clientY - rect.top, rect.height))
-    };
-  }
-
-  function onDown(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    drawing = true;
-    var pos = getPos(e);
-    startX = pos.x;
-    startY = pos.y;
-    drawBox.style.left = (startX / img.clientWidth * 100) + '%';
-    drawBox.style.top = (startY / img.clientHeight * 100) + '%';
-    drawBox.style.width = '0';
-    drawBox.style.height = '0';
-    drawBox.style.display = 'block';
-  }
-
-  function onMove(e) {
-    if (!drawing) return;
-    e.preventDefault();
-    e.stopPropagation();
-    var pos = getPos(e);
-    var x = Math.min(startX, pos.x);
-    var y = Math.min(startY, pos.y);
-    var w = Math.abs(pos.x - startX);
-    var h = Math.abs(pos.y - startY);
-    drawBox.style.left = (x / img.clientWidth * 100) + '%';
-    drawBox.style.top = (y / img.clientHeight * 100) + '%';
-    drawBox.style.width = (w / img.clientWidth * 100) + '%';
-    drawBox.style.height = (h / img.clientHeight * 100) + '%';
-  }
-
-  function onUp(e) {
-    if (!drawing) return;
-    drawing = false;
-    e.preventDefault();
-    e.stopPropagation();
-    var pos = getPos(e);
-    // Convert pixel coords on the displayed image back to frame coordinates
-    var scaleX = frameSize[0] / img.naturalWidth;
-    var scaleY = frameSize[1] / img.naturalHeight;
-    var dispToNatX = img.naturalWidth / img.clientWidth;
-    var dispToNatY = img.naturalHeight / img.clientHeight;
-    var x1 = Math.min(startX, pos.x) * dispToNatX * scaleX;
-    var y1 = Math.min(startY, pos.y) * dispToNatY * scaleY;
-    var x2 = Math.max(startX, pos.x) * dispToNatX * scaleX;
-    var y2 = Math.max(startY, pos.y) * dispToNatY * scaleY;
-    // Require a minimum size to avoid accidental clicks
-    if (Math.abs(x2 - x1) > 5 && Math.abs(y2 - y1) > 5) {
-      panel._correctedBbox = [
-        Math.round(x1), Math.round(y1),
-        Math.round(x2), Math.round(y2)
-      ];
-      redrawBtn.textContent = 'Redraw bbox ✓';
-      // Remove the original red bbox if present
-      var origBox = imgWrap.querySelector('.snapshot-overlay__bbox');
-      if (origBox) origBox.style.display = 'none';
-    } else {
-      drawBox.style.display = 'none';
-      redrawBtn.textContent = 'Redraw bbox';
-      panel._correctedBbox = null;
-    }
-    // Clean up listeners
-    imgWrap.style.cursor = '';
-    redrawBtn.disabled = false;
-    imgWrap.removeEventListener('mousedown', onDown);
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  }
-
-  imgWrap.addEventListener('mousedown', onDown);
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
-}
-
-function doOverlayFeedback(panel, eventId, feedback, correctedClass, sourceLink) {
-  var fd = new FormData();
-  fd.append('feedback', feedback);
-  if (correctedClass) fd.append('corrected_class', correctedClass);
-  if (feedback === 'wrong_class' && panel._correctedBbox) {
-    fd.append('corrected_bbox', JSON.stringify(panel._correctedBbox));
-  }
-  fetch('/events/' + eventId + '/feedback', { method: 'POST', body: fd, headers: {'X-CSRF-Token': getCsrfToken()} })
-    .then(function(r) { return r.text(); })
-    .then(function(html) {
-      var row = document.getElementById('event-row-' + eventId);
-      if (row) {
-        var tmp = document.createElement('tbody');
-        tmp.innerHTML = html;
-        var newRow = tmp.firstElementChild;
-        if (newRow) {
-          row.replaceWith(newRow);
-          htmx.process(newRow);
-        }
+  async function checkedResponse(response) {
+    if (!response.ok || response.redirected) {
+      let message = 'Unable to save. Your changes are still here. Please retry.';
+      if (response.status === 401 || response.redirected) message = 'Your session has expired. Sign in again before saving.';
+      else {
+        try {
+          const body = await response.json();
+          if (typeof body.detail === 'string') message = body.detail;
+        } catch (_) { /* Non-JSON errors keep the readable fallback. */ }
       }
-      sourceLink.dataset.feedback = feedback;
-      sourceLink.dataset.correctedClass = correctedClass;
-      var overlay = panel.closest('.snapshot-overlay');
-      if (overlay) overlay.remove();
-    })
-    .catch(function(err) { console.error('Feedback submit failed:', err); });
-}
+      throw new Error(message);
+    }
+    return response;
+  }
+  async function refreshRows(force = false) {
+    if (refreshing) {
+      if (force) { await refreshing; return refreshRows(true); }
+      return;
+    }
+    if (held() && !force) return;
+    refreshing = (async () => {
+    try {
+      const response = await checkedResponse(await fetch(location.href, {headers: {Accept: 'text/html'}}));
+      const html = new DOMParser().parseFromString(await response.text(), 'text/html');
+      if (!html.getElementById('event-table-body')) throw new Error('Unable to refresh events.');
+      // A user may have started selecting or editing while the read was in flight.
+      if (held() && !force) return;
+      ['event-table-body', 'events-heading', 'event-pagination'].forEach(id => {
+        $(id).innerHTML = html.getElementById(id).innerHTML;
+      });
+      htmx.process($('event-table-body'));
+      pending = false;
+    } catch (error) { status(error.message); }
+    finally { refreshing = null; updateSelection(); }
+    })();
+    return refreshing;
+  }
+  $('select-all-events')?.addEventListener('click', () => {
+    rows().forEach(row => selected.add(Number(row.dataset.eventId))); updateSelection();
+  });
+  $('select-no-events')?.addEventListener('click', () => { selected.clear(); updateSelection(); });
+  $('select-page-events')?.addEventListener('change', event => {
+    if (event.target.checked) $('select-all-events').click(); else $('select-no-events').click();
+  });
+  document.addEventListener('change', event => {
+    if (!event.target.matches('.event-select')) return;
+    const id = Number(event.target.value);
+    if (event.target.checked) selected.add(id); else selected.delete(id);
+    updateSelection();
+  });
+  document.querySelectorAll('[data-bulk-feedback]').forEach(button => button.addEventListener('click', () => {
+    action = button.dataset.bulkFeedback; updateSelection();
+  }));
+  $('bulk-corrected-class')?.addEventListener('input', updateSelection);
+  $('apply-feedback')?.addEventListener('click', async () => {
+    if (saving || $('apply-feedback').disabled) return;
+    const payload = {event_ids: [...selected], feedback: action, corrected_class: $('bulk-corrected-class').value.trim()};
+    saving = true; updateSelection(); status('Saving feedback…');
+    try {
+      const response = await checkedResponse(await fetch('/events/feedback/batch', {
+        method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrfToken()}, body: JSON.stringify(payload)
+      }));
+      const result = await response.json();
+      selected.clear(); editingRows.clear();
+      status(result.updated + ' events updated.');
+      await refreshRows(true);
+    } catch (error) { status(error.message); }
+    finally { saving = false; updateSelection(); }
+  });
+  $('refresh-events').addEventListener('click', () => refreshRows());
+  // Fetch persisted rows with the current filters; pub/sub fragments lack DB IDs.
+  const stream = new EventSource('/events/stream');
+  stream.addEventListener('detection', () => {
+    pending = true; updateSelection();
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => refreshRows(), 600);
+  });
+  window.addEventListener('pagehide', () => { stream.close(); clearTimeout(refreshTimer); });
+  document.addEventListener('htmx:beforeRequest', event => {
+    if (event.target.closest('#event-table-body')) {
+      if (saving) { event.preventDefault(); return; }
+      saving = true; updateSelection();
+    }
+  });
+  document.addEventListener('htmx:afterRequest', event => {
+    if (!event.detail.requestConfig?.path?.match(/^\/events\/\d+\/feedback$/)) return;
+    saving = false;
+    if (event.detail.successful) { editingRows.delete(event.detail.requestConfig.path.split('/')[2]); status('Feedback saved.'); }
+    else status('Feedback was not saved. Check your class and session, then retry.');
+    updateSelection();
+  });
+  document.addEventListener('htmx:afterSwap', () => updateSelection());
+  document.addEventListener('click', event => {
+    const button = event.target.closest('button[data-action]');
+    if (button && !saving) {
+      if (button.dataset.action === 'cancel-inline-feedback') {
+        const row = button.closest('tr');
+        const td = button.closest('td');
+        td.querySelector('.feedback-form').style.display = row.dataset.feedback ? 'none' : 'block';
+        td.querySelector('.wrong-class-picker').style.display = 'none';
+        td.querySelector('input[name="corrected_class"]').value = '';
+        const badge = td.querySelector('.badge');
+        const edit = td.querySelector('.btn-edit-feedback');
+        if (badge) badge.style.display = '';
+        if (edit) edit.style.display = '';
+        button.hidden = true;
+        editingRows.delete(row.dataset.eventId);
+      } else if (button.dataset.action === 'show-feedback-form') {
+        const td = button.closest('td');
+        td.querySelector('.feedback-form').style.display = 'block';
+        button.style.display = 'none';
+        if (button.previousElementSibling) button.previousElementSibling.style.display = 'none';
+        editingRows.add(button.closest('tr').dataset.eventId);
+        button.closest('td').querySelector('.inline-feedback-cancel').hidden = false;
+      } else if (button.dataset.action === 'show-wrong-class-picker') {
+        button.closest('.feedback-form').querySelector('.wrong-class-picker').style.display = 'block';
+        editingRows.add(button.closest('tr').dataset.eventId);
+        button.closest('td').querySelector('.inline-feedback-cancel').hidden = false;
+      }
+      updateSelection();
+    }
+    const link = event.target.closest('.snapshot-link');
+    if (!link) return;
+    event.preventDefault();
+    if (!saving) openSnapshot(link);
+  });
+  function element(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text) el.textContent = text;
+    return el;
+  }
+  function openSnapshot(link) {
+    if (editor) return;
+    const dialog = element('dialog', 'event-snapshot-dialog');
+    const head = element('div', 'snapshot-overlay__header');
+    const title = element('h2', 'snapshot-overlay__class', link.dataset.className.replace(/_/g, ' ') + ' · ' + link.dataset.cameraName);
+    title.id = 'snapshot-title'; dialog.setAttribute('aria-labelledby', title.id);
+    const close = element('button', '', 'Close'); close.type = 'button';
+    head.append(title, close);
+    const wrap = element('div', 'snapshot-overlay__img-wrap');
+    const img = element('img'); img.src = link.querySelector('img').src; img.draggable = false;
+    img.alt = 'Event snapshot, ' + link.dataset.className + ', ' + link.dataset.cameraName;
+    const originalBox = element('div', 'snapshot-overlay__bbox');
+    const correctedBox = element('div', 'snapshot-overlay__corrected-bbox');
+    wrap.append(img, originalBox, correctedBox);
+    const panel = element('div', 'overlay-feedback event-correction-panel');
+    const message = element('p', 'event-correction-status'); message.setAttribute('role', 'status');
+    let bbox = JSON.parse(link.dataset.correctedBbox || 'null');
+    let dirty = false, drawing = false, start = null, dragPointer = null, previousBbox = bbox, inFlight = false;
+    const frame = JSON.parse(link.dataset.frameSize || 'null');
+    const original = JSON.parse(link.dataset.bbox || 'null');
+    function paint(box, coords) {
+      box.hidden = !coords || !frame;
+      if (box.hidden) return;
+      box.style.left = (coords[0] / frame[0] * 100) + '%';
+      box.style.top = (coords[1] / frame[1] * 100) + '%';
+      box.style.width = ((coords[2] - coords[0]) / frame[0] * 100) + '%';
+      box.style.height = ((coords[3] - coords[1]) / frame[1] * 100) + '%';
+    }
+    function paintAll() { paint(originalBox, original); paint(correctedBox, bbox); originalBox.style.opacity = bbox ? '.25' : '1'; }
+    paintAll();
+    const controls = element('div', 'event-review-controls');
+    const correct = element('button', 'btn-fb-correct', '✓ Positive / correct');
+    const negative = element('button', 'btn-fb-fp', '✕ Negative / false positive');
+    const wrong = element('button', 'btn-fb-wrong', '? Wrong class');
+    controls.append(correct, negative, wrong);
+    const correction = element('div', 'event-review-controls'); correction.hidden = link.dataset.feedback !== 'wrong_class';
+    const label = element('label', '', 'Correct class');
+    const cls = element('input'); cls.type = 'text'; cls.maxLength = 100;
+    cls.value = link.dataset.correctedClass || ''; cls.placeholder = 'Select or type class';
+    const options = element('datalist'); options.id = 'snapshot-classes'; cls.setAttribute('list', options.id);
+    classes.forEach(value => { const option = element('option'); option.value = value; options.append(option); });
+    label.append(cls);
+    const redraw = element('button', '', 'Redraw box');
+    redraw.disabled = !frame || frame[0] <= 0 || frame[1] <= 0;
+    const save = element('button', '', 'Save correction');
+    correction.append(redraw, label, options, save);
+    panel.append(controls, correction, message);
+    if (link.dataset.canReview === 'false') { controls.hidden = true; correction.hidden = true; }
+    message.textContent = bbox ? 'Saved corrected box.' :
+      link.dataset.feedback ? (names[link.dataset.feedback] || '') + (cls.value ? ': ' + cls.value : '') : '';
+    dialog.append(head, wrap, panel); document.body.append(dialog); editor = dialog; dialog.showModal(); updateSelection();
+    function dismiss() {
+      if (inFlight) return;
+      if (dirty && !confirm('Discard the unsaved class and box correction?')) return;
+      dialog.close(); dialog.remove(); editor = null; link.focus(); updateSelection();
+    }
+    close.addEventListener('click', dismiss);
+    dialog.addEventListener('cancel', event => { event.preventDefault(); dismiss(); });
+    // Only explicit Close/Escape dismiss. Image clicks and drag release never do.
+    cls.addEventListener('input', () => { dirty = true; });
+    wrong.addEventListener('click', () => { correction.hidden = false; cls.focus(); });
+    redraw.addEventListener('click', () => {
+      drawing = true; redraw.disabled = true; wrap.classList.add('event-drawing');
+      message.textContent = 'Draw around the desired subject, then choose its class and save.';
+    });
+    function pos(event) {
+      const rect = img.getBoundingClientRect();
+      return [Math.round(Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * frame[0]),
+        Math.round(Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)) * frame[1])];
+    }
+    wrap.addEventListener('pointerdown', event => {
+      if (!drawing || event.button !== 0 || start) return;
+      event.preventDefault(); previousBbox = bbox; start = pos(event); dragPointer = event.pointerId;
+      wrap.setPointerCapture(event.pointerId);
+    });
+    function move(event) {
+      if (!start || event.pointerId !== dragPointer) return;
+      const end = pos(event);
+      bbox = [Math.min(start[0], end[0]), Math.min(start[1], end[1]), Math.max(start[0], end[0]), Math.max(start[1], end[1])];
+      paintAll();
+    }
+    wrap.addEventListener('pointermove', move);
+    function endDraw(event) {
+      if (!start || event.pointerId !== dragPointer) return;
+      if (event.type !== 'pointercancel') move(event);
+      if (event.type === 'pointercancel' || !bbox || bbox[2] - bbox[0] <= 5 || bbox[3] - bbox[1] <= 5) {
+        bbox = previousBbox; message.textContent = 'No valid replacement drawn. Previous box retained; try again.';
+      } else { dirty = true; message.textContent = 'Box drawn, not saved. Choose a class, then Save correction.'; }
+      start = null; dragPointer = null; drawing = false; redraw.disabled = false;
+      wrap.classList.remove('event-drawing'); paintAll();
+    }
+    wrap.addEventListener('pointerup', endDraw); wrap.addEventListener('pointercancel', endDraw);
+    async function submit(feedback) {
+      if (inFlight) return;
+      if (feedback === 'wrong_class' && !cls.value.trim()) { message.textContent = 'Choose a correct class before saving.'; cls.focus(); return; }
+      if (start) return;
+      drawing = false; wrap.classList.remove('event-drawing');
+      const fd = new FormData(); fd.append('feedback', feedback);
+      if (feedback === 'wrong_class') {
+        fd.append('corrected_class', cls.value.trim());
+        if (bbox) fd.append('corrected_bbox', JSON.stringify(bbox));
+      }
+      inFlight = true;
+      dialog.querySelectorAll('button, input').forEach(el => { el.disabled = true; });
+      message.textContent = 'Saving…';
+      try {
+        const response = await checkedResponse(await fetch('/events/' + link.dataset.eventId + '/feedback', {
+          method: 'POST', body: fd, headers: {'X-CSRF-Token': getCsrfToken()}
+        }));
+        const table = document.createElement('tbody'); table.innerHTML = await response.text();
+        const newRow = table.querySelector('tr[data-event-id="' + link.dataset.eventId + '"]');
+        if (!newRow) throw new Error('Unexpected response. Check your session before retrying.');
+        const oldRow = $('event-row-' + link.dataset.eventId);
+        if (oldRow) { oldRow.replaceWith(newRow); htmx.process(newRow); }
+        link = newRow.querySelector('.snapshot-link'); dirty = false;
+        if (feedback !== 'wrong_class') { bbox = null; cls.value = ''; correction.hidden = true; }
+        paintAll(); message.textContent = 'Saved. You can close this image or continue reviewing.';
+        status('Event feedback saved.'); updateSelection();
+      } catch (error) { message.textContent = error.message; }
+      finally {
+        inFlight = false;
+        dialog.querySelectorAll('button, input').forEach(el => { el.disabled = false; });
+        redraw.disabled = !frame || frame[0] <= 0 || frame[1] <= 0;
+      }
+    }
+    correct.addEventListener('click', () => submit('correct'));
+    negative.addEventListener('click', () => submit('false_positive'));
+    save.addEventListener('click', () => submit('wrong_class'));
+  }
+  updateSelection();
+})();

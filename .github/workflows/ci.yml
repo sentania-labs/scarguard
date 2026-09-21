@@ -28,20 +28,10 @@ jobs:
           cache: pip
 
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.15.7
 
       - name: Ruff check
-        run: |
-          ruff check \
-            services/detector/src \
-            services/web/src \
-            services/notifier/src \
-            services/deterrent/src \
-            services/log-streamer/src \
-            services/trainer/src \
-            services/training-controller/src \
-            shared \
-            training
+        run: scripts/lint.sh
 
   # ── Type check ──────────────────────────────────────────────────────────────
   # Detector is excluded - it requires torch/opencv/ultralytics which are
@@ -109,6 +99,18 @@ jobs:
         env:
           PYTHONPATH: services/web/src:shared
         run: pytest services/web/tests/ -v
+
+      - name: Install browser test tools
+        run: |
+          pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+
+      - name: Event review and read-only browser regressions
+        env:
+          PYTHONPATH: services/web/src:shared
+          SCARGUARD_BROWSER_TESTS: "1"
+        run: pytest services/web/tests/test_events_browser.py -v
+
 
   # ── Tests - notifier ────────────────────────────────────────────────────────
   test-notifier:

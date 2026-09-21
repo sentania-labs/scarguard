@@ -9,7 +9,6 @@ renders the gap as a break (Chart.js defaults spanGaps to false).
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 

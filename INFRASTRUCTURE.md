@@ -492,3 +492,17 @@ The emergency-off ordering fix changes only the deterrent application. It adds
 no infrastructure or configuration requirements. Local checks use the actual
 controller and worker paths with a fake Tuya client and deterministic thread
 barriers; they do not actuate the pond or measure physical device latency.
+
+## v1.17.1 validation changes
+
+`scripts/lint.sh` is the shared local/CI Ruff entry point, covering every
+service's source and tests, plus shared/training code (Ruff 0.15.7). The web CI
+job also installs Playwright 1.63.0 and Chromium and runs
+`SCARGUARD_BROWSER_TESTS=1 pytest services/web/tests/test_events_browser.py`.
+These tests start an isolated local web process with temporary SQLite/config
+files and fixture sessions, without contacting cameras or Tuya. Locally,
+`SCARGUARD_CHROME=/path/to/chrome` can select an installed browser.
+
+Event review requires no migration, new service, environment variable or
+volume. The existing Redis event stream signals filtered database refreshes;
+refresh pauses during active review.

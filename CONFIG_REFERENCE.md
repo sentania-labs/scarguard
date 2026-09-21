@@ -477,3 +477,11 @@ No configuration change is needed. Emergency OFF invalidates pending activations
 before issuing OFF. An admitted ON finishes before OFF; a cancelled activation
 sends no ON. This does not disarm future detections or eliminate cloud/device
 latency. See `docs/EMERGENCY_OFF.md`.
+
+## Event review controls (v1.17.1)
+
+Bulk review and snapshot box correction use existing event feedback fields;
+there are no new configuration keys. Corrected-class suggestions come from
+`detection.target_classes`; operators may also type a class. Bulk wrong-class
+feedback preserves each event's own corrected box. Correct/false-positive
+feedback clears previous corrections. Viewer accounts have read-only access.

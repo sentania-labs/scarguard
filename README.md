@@ -48,7 +48,7 @@ ScarGuard watches the pond around the clock, identifies threats with a YOLO visi
 
 ### Web UI
 - **Dashboard**: arm/disarm toggle, latest detection, today's count, schedule status
-- **Events**: paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, real-time inserts via SSE, per-event feedback
+- **Events**: paginated detection log with filters (camera, class, date range), snapshot overlays with bounding box rendering, live updates via SSE, individual and page-scoped bulk feedback
 - **Live Feed**: SSE-driven annotated detection snapshots with offline indicator and auto-reconnect
 - **Settings**: sub-tabbed config editor (System / Detection / Cameras / Notifications / Advanced), plus raw YAML view. Per-camera model, confidence, classes, exclusion zones, notification rules, and deterrent rules.
 - **System Stats**: real-time CPU, RAM, GPU usage and temperature, per-camera inference FPS, rolling charts
@@ -535,6 +535,22 @@ On the **Events** page, each detection has feedback buttons:
 
 Unreviewed events have a distinct visual treatment in the table. Feedback can be changed after initial submission.
 
+Use the row checkboxes, **Select all on page**, or **Select none** to review up to
+50 events together. Choose **Positive / correct**, **Negative / false positive**,
+or **Wrong class** with the corrected class, then **Apply**. The toolbar shows
+how many previously reviewed events will change. Selection is limited to the
+current filtered page and clears when navigating or filtering. Live arrivals
+wait while you select or edit; use **Refresh events** after finishing review.
+
+To identify a different subject in a snapshot, open it, choose **Wrong class**,
+then **Redraw box**. Draw around the subject, select or type its class, and click
+**Save correction**. Drawing alone does not save or close the editor. Failed
+saves retain your work; reopening a saved event shows its corrected box. Bulk
+wrong-class feedback keeps each image's existing corrected box. Positive or
+false-positive feedback clears obsolete corrections. Viewer accounts cannot
+change feedback.
+
+
 **Step 2, Check dataset quality**
 
 Open **Admin → Training Data** to see:
@@ -552,7 +568,7 @@ Click **Export Dataset** in the Training Data dashboard. This downloads a `.zip`
 - `dataset/labels/train/`: YOLO-format annotation files (class index, normalized bounding box)
 - `data.yaml`: class names and dataset structure for Ultralytics training
 
-Only `feedback = correct` events are exported as positive training samples. `wrong_class` events are included with the corrected label as ground truth. False positives are excluded.
+Only `feedback = correct` events are exported as positive training samples. `wrong_class` events are included with the corrected label as ground truth. False positives accompany positive samples as background images with empty labels. Saved corrected boxes are used in exported labels.
 
 **Step 4, Train a new model**
 

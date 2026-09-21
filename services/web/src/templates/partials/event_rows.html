@@ -1,5 +1,7 @@
+{% set can_review = not (request.state.user and request.state.user.role == "viewer") %}
 {% for e in events %}
-<tr id="event-row-{{ e.id }}" class="{{ '' if e.feedback else 'event-unreviewed' }}">
+<tr data-event-id="{{ e.id }}" data-feedback="{{ e.feedback or '' }}" id="event-row-{{ e.id }}" class="{{ '' if e.feedback else 'event-unreviewed' }}">
+  <td>{% if can_review %}<input class="event-select" type="checkbox" value="{{ e.id }}" aria-label="Select event {{ e.id }}">{% endif %}</td>
   <td>{{ e.display_timestamp }}</td>
   <td>{{ e.class_name.replace("_", " ").title() }}</td>
   <td>{{ "%.0f%%"|format(e.confidence * 100) }}</td>
@@ -7,13 +9,15 @@
   <td class="actions-cell">
     {% if e.actions_triggered %}
     {% for ch in e.actions_triggered %}<span class="tag">{{ ch }}</span>{% endfor %}
-    {% else %}&mdash;{% endif %}
+    {% else %}&#8211;{% endif %}
   </td>
   <td>
     {% if e.snapshot_path %}
     {% set fname = e.snapshot_path.split("/")[-1] %}
     <a href="/snapshots/{{ fname }}" target="_blank" class="snapshot-link"
        data-event-id="{{ e.id }}"
+       data-can-review="{{ 'true' if can_review else 'false' }}"
+       data-corrected-bbox="{{ e.corrected_bbox | tojson }}"
        data-class-name="{{ e.class_name }}"
        data-confidence="{{ e.confidence }}"
        data-camera-name="{{ e.camera_name }}"
@@ -25,9 +29,12 @@
        {% endif %}>
       <img src="/snapshots/{{ fname }}" width="80" loading="lazy">
     </a>
-    {% else %}&mdash;{% endif %}
+    {% else %}&#8211;{% endif %}
   </td>
   <td class="feedback-cell">
+    {% if not can_review %}
+      <span class="muted">{{ (e.feedback or "Unreviewed").replace("_", " ") }}{% if e.corrected_class %}: {{ e.corrected_class }}{% endif %}</span>
+    {% else %}
     {% if e.feedback == 'correct' %}
       <span class="badge badge-correct">Correct</span>
       <button type="button" class="btn-edit-feedback" data-action="show-feedback-form">edit</button>
@@ -39,6 +46,7 @@
       <button type="button" class="btn-edit-feedback" data-action="show-feedback-form">edit</button>
     {% endif %}
     <div class="feedback-form" {% if e.feedback %}style="display:none"{% endif %}>
+      <button type="button" class="inline-feedback-cancel" data-action="cancel-inline-feedback" hidden>Cancel edit</button>
       <div class="feedback-btns">
         <form method="post" style="display:inline"
               hx-post="/events/{{ e.id }}/feedback"
@@ -76,8 +84,9 @@
         </form>
       </div>
     </div>
+    {% endif %}
   </td>
 </tr>
 {% else %}
-<tr><td colspan="7" class="muted">No events yet.</td></tr>
+<tr><td colspan="8" class="muted">No events yet.</td></tr>
 {% endfor %}
