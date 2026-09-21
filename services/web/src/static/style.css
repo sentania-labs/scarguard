@@ -1187,3 +1187,27 @@ kbd {
   background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
   padding: 0.1em 0.4em; font-family: inherit; font-size: 0.85em;
 }
+
+/* Mark write controls explicitly, including dynamically rendered controls. */
+[data-read-only="true"] [data-requires-admin] { display: none !important; }
+
+/* Event review: bounded page selection and persistent image correction. */
+.event-bulk-toolbar { border: 1px solid var(--border); background: var(--surface); padding: 1rem; border-radius: 6px; margin: 1rem 0; }
+.event-review-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: .5rem 0; }
+.event-review-controls label { display: flex; flex-direction: column; gap: .25rem; }
+.event-review-controls [aria-pressed="true"] { outline: 2px solid var(--accent); }
+.event-review-controls [hidden], .event-snapshot-dialog [hidden] { display: none !important; }
+.event-selected { background: rgba(78,159,255,.12); }
+.event-table-scroll { overflow-x: auto; }
+#event-review-status { min-height: 1.5rem; }
+.event-snapshot-dialog { margin: auto; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; background: var(--surface); color: var(--text); max-width: 94vw; max-height: 94vh; overflow: auto; }
+.event-snapshot-dialog::backdrop { background: rgba(0,0,0,.85); }
+.event-snapshot-dialog .snapshot-overlay__header { justify-content: space-between; }
+.event-snapshot-dialog .snapshot-overlay__img-wrap { width: fit-content; max-width: 100%; margin: auto; }
+.event-snapshot-dialog img { display: block; max-width: 88vw; max-height: 62vh; object-fit: contain; }
+.event-correction-panel { display: block; }
+.event-correction-status { min-height: 1.5rem; margin-top: .5rem; }
+.event-drawing { cursor: crosshair; touch-action: none; user-select: none; }
+.event-review-controls .btn-fb-correct { background: transparent; color: var(--ok); border: 1px solid var(--ok); }
+.event-review-controls .btn-fb-fp { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.event-review-controls .btn-fb-wrong { background: transparent; color: var(--warn); border: 1px solid var(--warn); }

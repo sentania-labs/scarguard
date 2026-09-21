@@ -20,7 +20,7 @@
 </div>
 
 {# ── Settings tab ─────────────────────────────────────────────────────────── #}
-<div id="tab-settings" class="tab-panel active">
+<div data-read-only="{{ read_only|default(false)|tojson }}" id="tab-settings" class="tab-panel active">
 
   <div id="form-banner"></div>
 
@@ -31,7 +31,7 @@
       Expert mode
     </label>
     {% if not read_only %}
-    <button type="button" id="reveal-secrets-btn" class="btn-secondary" style="font-size:0.85rem;">Reveal secrets</button>
+    <button type="button" id="reveal-secrets-btn" data-requires-admin class="btn-secondary" style="font-size:0.85rem;">Reveal secrets</button>
     {% endif %}
   </div>
 
@@ -195,7 +195,7 @@
         <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}}</script>
         <div id="cameras-list"></div>
         {% if not read_only %}
-        <button type="button" class="btn-add" id="add-camera-btn">+ Add Camera</button>
+        <button type="button" class="btn-add" data-requires-admin id="add-camera-btn">+ Add Camera</button>
         {% endif %}
       </div>
     </div>
@@ -378,10 +378,10 @@
         <script id="channels-data" type="application/json">{{ channels_json | safe }}</script>
         <div id="channels-list"></div>
         <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <button type="button" class="btn-add" data-add-channel="discord">+ Discord</button>
-          <button type="button" class="btn-add" data-add-channel="email">+ Email</button>
-          <button type="button" class="btn-add" data-add-channel="webhook">+ Webhook</button>
-          <button type="button" class="btn-add" data-add-channel="ntfy">+ Ntfy</button>
+          <button type="button" class="btn-add" data-requires-admin data-add-channel="discord">+ Discord</button>
+          <button type="button" class="btn-add" data-requires-admin data-add-channel="email">+ Email</button>
+          <button type="button" class="btn-add" data-requires-admin data-add-channel="webhook">+ Webhook</button>
+          <button type="button" class="btn-add" data-requires-admin data-add-channel="ntfy">+ Ntfy</button>
         </div>
       </div>
     </div>
@@ -596,7 +596,7 @@
               <textarea id="tls-key-pem" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" style="font-family:var(--mono);font-size:0.8rem;"></textarea>
             </div>
           </div>
-          <button type="button" class="btn-secondary" style="margin-top:0.5rem;" id="cert-upload-btn">Upload certificates</button>
+          <button type="button" class="btn-secondary" style="margin-top:0.5rem;" id="cert-upload-btn" data-requires-admin>Upload certificates</button>
           <span id="cert-upload-status" class="hint" style="margin-left:0.5rem;"></span>
         </div>
       </div>
@@ -605,7 +605,7 @@
   <script src="/static/config-tls.js"></script>
 
   {% if not read_only %}
-  <button id="save-btn" type="button">Save</button>
+  <button id="save-btn" data-requires-admin type="button">Save</button>
   {% endif %}
 
 </div>{# /tab-settings #}

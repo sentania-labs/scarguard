@@ -1,4 +1,3 @@
-import pytest
 
 SAMPLE_EVENT = {
     "timestamp": "2026-03-20T06:00:00+00:00",

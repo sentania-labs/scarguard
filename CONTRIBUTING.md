@@ -36,7 +36,7 @@ ScarGuard runs as a Docker Compose stack. For local development:
 ```bash
 git clone https://github.com/sentania-labs/scarguard.git
 cd scarguard
-pip install ruff mypy types-PyYAML types-requests types-redis
+pip install ruff==0.15.7 mypy types-PyYAML types-requests types-redis
 ```
 
 You don't need a Jetson or GPU to work on the web service or notifier, only the detector requires GPU access.
@@ -55,7 +55,7 @@ These must pass before submitting a PR (mirrors CI):
 
 ```bash
 # Ruff - all services and shared training code
-ruff check services/detector/src services/web/src services/notifier/src services/deterrent/src services/log-streamer/src services/trainer/src services/training-controller/src shared training
+scripts/lint.sh
 
 # mypy - web
 MYPYPATH=services/web/src:shared \

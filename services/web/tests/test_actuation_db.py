@@ -5,9 +5,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 import actuation_db
+import pytest
 
 
 @pytest.fixture

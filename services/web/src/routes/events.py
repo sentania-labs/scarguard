@@ -1,16 +1,20 @@
 import html as _html
 import json
+import math
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import config_store
 import db
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field, StrictInt, field_validator
+from route_auth import current_role
 from sse_limiter import SSETooManyStreams, sse_connection
 
 router = APIRouter(prefix="/events")
@@ -42,7 +46,7 @@ def _apply_display_timestamp(events: list[dict]) -> list[dict]:
     for e in events:
         e["display_timestamp"] = _to_local(e.get("timestamp", ""), tz)
         # Deserialize JSON strings stored in SQLite.
-        for key in ("actions_triggered", "bbox", "frame_size"):
+        for key in ("actions_triggered", "bbox", "frame_size", "corrected_bbox"):
             raw = e.get(key)
             if isinstance(raw, str):
                 try:
@@ -132,6 +136,38 @@ def _get_target_classes() -> list[str]:
     return config_store.load_cached().get("detection", {}).get("target_classes", [])
 
 
+class BatchFeedback(BaseModel):
+    event_ids: list[Annotated[StrictInt, Field(gt=0)]] = Field(min_length=1, max_length=PAGE_SIZE)
+    feedback: Literal["correct", "false_positive", "wrong_class"]
+    corrected_class: str = Field(default="", max_length=100)
+
+    @field_validator("event_ids")
+    @classmethod
+    def unique_ids(cls, value: list[int]) -> list[int]:
+        if len(value) != len(set(value)):
+            raise ValueError("Event IDs must be unique")
+        return value
+
+
+def _validate_feedback(request: Request, feedback: str, corrected_class: str) -> str | None:
+    if current_role(request) == "viewer":
+        raise HTTPException(403, "Read-only viewers cannot change event feedback")
+    if feedback not in ("correct", "false_positive", "wrong_class"):
+        raise HTTPException(422, "Choose correct, false positive, or wrong class")
+    corr = corrected_class.strip()
+    if feedback == "wrong_class" and (not corr or len(corr) > 100):
+        raise HTTPException(422, "Choose a correct class (up to 100 characters)")
+    return corr if feedback == "wrong_class" else None
+
+
+@router.post("/feedback/batch")
+async def submit_batch_feedback(request: Request, payload: BatchFeedback) -> dict[str, int]:
+    corr = _validate_feedback(request, payload.feedback, payload.corrected_class)
+    if not db.update_feedback_batch(payload.event_ids, payload.feedback, corr):
+        raise HTTPException(409, "An event is no longer available. Refresh and select again; nothing was changed.")
+    return {"updated": len(payload.event_ids)}
+
+
 @router.post("/{event_id}/feedback", response_class=HTMLResponse)
 async def submit_feedback(
     request: Request,
@@ -139,47 +175,37 @@ async def submit_feedback(
     feedback: str = Form(...),
     corrected_class: str = Form(""),
     corrected_bbox: str = Form(""),
-):
-    """Set or update feedback on a detection event.  Returns the updated row."""
-    if feedback not in ("correct", "false_positive", "wrong_class"):
-        feedback = "correct"
-    corr = corrected_class.strip() or None
-    if feedback != "wrong_class":
-        corr = None
-    if feedback == "wrong_class" and corr is None:
-        # Refuse to store wrong_class without an actual corrected class
-        row = db.get_event(event_id)
-        if row is None:
-            return HTMLResponse("<tr><td colspan='7'>Event not found</td></tr>")
-        events = _apply_display_timestamp([dict(row)])
-        return templates.TemplateResponse(
-            request,
-            "partials/event_rows.html",
-            {"events": events, "target_classes": _get_target_classes()},
-        )
-    # Validate corrected_bbox as JSON [x1, y1, x2, y2] if provided
-    bbox_str: str | None = None
-    if feedback == "wrong_class" and corrected_bbox.strip():
-        try:
-            parsed = json.loads(corrected_bbox.strip())
-            if (
-                isinstance(parsed, list)
-                and len(parsed) == 4
-                and all(isinstance(c, (int, float)) for c in parsed)
-            ):
-                bbox_str = json.dumps(parsed)
-        except (json.JSONDecodeError, TypeError):
-            pass  # ignore malformed bbox - keep original
-    db.update_feedback(event_id, feedback, corr, corrected_bbox=bbox_str)
+) -> HTMLResponse:
+    """Save a label and its optional replacement box together."""
+    corr = _validate_feedback(request, feedback, corrected_class)
     row = db.get_event(event_id)
     if row is None:
-        return HTMLResponse("<tr><td colspan='7'>Event not found</td></tr>")
-    event = dict(row)
-    events = _apply_display_timestamp([event])
+        raise HTTPException(404, "Event not found")
+    # A label-only edit preserves the box already associated with this image.
+    bbox_str = row["corrected_bbox"] if feedback == "wrong_class" else None
+    if feedback == "wrong_class" and corrected_bbox.strip():
+        try:
+            parsed = json.loads(corrected_bbox)
+            frame = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
+            if (
+                not isinstance(parsed, list) or len(parsed) != 4
+                or any(type(c) not in (int, float) or not math.isfinite(c) for c in parsed)
+                or not frame or len(frame) != 2
+                or not (0 <= parsed[0] < parsed[2] <= frame[0])
+                or not (0 <= parsed[1] < parsed[3] <= frame[1])
+            ):
+                raise ValueError("Invalid box")
+            bbox_str = json.dumps(parsed)
+        except (ValueError, TypeError, IndexError):
+            raise HTTPException(422, "Draw a valid box inside the image") from None
+    if not db.update_feedback(event_id, feedback, corr, corrected_bbox=bbox_str):
+        raise HTTPException(404, "Event not found")
+    row = db.get_event(event_id)
+    if row is None:
+        raise HTTPException(404, "Event not found")
     return templates.TemplateResponse(
-        request,
-        "partials/event_rows.html",
-        {"events": events, "target_classes": _get_target_classes()},
+        request, "partials/event_rows.html",
+        {"events": _apply_display_timestamp([dict(row)]), "target_classes": _get_target_classes()},
     )
 
 

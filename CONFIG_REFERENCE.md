@@ -470,3 +470,11 @@ somewhere between 45 and 90 seconds, rather than one 3-8 second burst.
 - **Between services:** Redis pub/sub. Detector publishes detection events; notifier, deterrent, and web UI subscribe.
 - **Config:** All services read from mounted `config/scarguard.yml` in external data directory. Web UI can write to it. Detector, notifier, and deterrent auto-reload on config file changes.
 - **Database:** SQLite at `data/scarguard.db`, shared volume between web, detector, and deterrent.
+
+## Event review controls (v1.17.1)
+
+Bulk review and snapshot box correction use existing event feedback fields;
+there are no new configuration keys. Corrected-class suggestions come from
+`detection.target_classes`; operators may also type a class. Bulk wrong-class
+feedback preserves each event's own corrected box. Correct/false-positive
+feedback clears previous corrections. Viewer accounts have read-only access.

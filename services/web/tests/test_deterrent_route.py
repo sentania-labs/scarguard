@@ -144,18 +144,6 @@ class TestTestFireGroupValidation:
     malformed input without bothering the deterrent service.
     """
 
-    @pytest.fixture(autouse=True)
-    def _no_rate_limit(self, monkeypatch):
-        """Disable the limiter for this class only.
-
-        It is a fixed-window counter keyed on the principal, which every test
-        here shares. /test-fire-group deliberately allows only 5 per minute
-        (one call can drive a whole group), so the sixth test would get a 429
-        instead of the behaviour it asserts. The limit itself is not under
-        test here.
-        """
-        monkeypatch.setattr("rate_limit_dep._get_limiter", lambda: None)
-
     def test_rejects_missing_group_name(self, client, fake_redis) -> None:
         resp = client.post("/admin/deterrent/test-fire-group", json={})
         assert resp.status_code == 400

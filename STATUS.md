@@ -82,6 +82,17 @@
 
 ## Recently Fixed (unreleased)
 
+- **v1.17.1 event review (#218):** Bulk correct/false-positive/wrong-class
+  feedback for up to 50 selected events. Snapshot drawing stays open; class
+  and box save together and remain visible on reopen. SQLite/export tests and
+  browser checks cover persistence, failures, permissions and live-update races.
+- **Read-only config (#209):** Explicit write-control markers cover dynamic
+  controls and certificate upload; viewers retain navigation and expert mode.
+- **Test reliability (#204, #214):** Each web test owns its rate-limit state
+  while exercising the real limiter. Local and CI use `scripts/lint.sh`, which
+  includes every service's tests. The full web suite passed twice consecutively.
+
+
 - **Log-streamer quick EOF loop (issue #169):** The sidecar now self-heals stale
   Docker SDK sessions and backfills reconnect gaps without making quiet services
   unhealthy. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the recovery and

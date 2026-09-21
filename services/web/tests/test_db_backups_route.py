@@ -99,6 +99,7 @@ class TestAuthReauthGate:
         (tmp_path / "auth" / "test.db.gz").write_bytes(b"x")
 
         from unittest.mock import MagicMock
+
         from fastapi import HTTPException
 
         request = MagicMock()
@@ -145,7 +146,8 @@ class TestAuthReauthGate:
         (tmp_path / "auth").mkdir()
         (tmp_path / "auth" / "test.db.gz").write_bytes(b"x")
 
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
+
         from fastapi import HTTPException
 
         request = MagicMock()
@@ -170,8 +172,9 @@ class TestAuthReauthGate:
         (tmp_path / "auth").mkdir()
         (tmp_path / "auth" / "test.db.gz").write_bytes(b"x")
 
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         import auth as auth_module
-        from unittest.mock import MagicMock, AsyncMock, patch
         from fastapi import HTTPException
 
         request = MagicMock()
@@ -209,8 +212,9 @@ class TestAuthReauthGate:
         (tmp_path / "auth").mkdir()
         (tmp_path / "auth" / "test.db.gz").write_bytes(b"\x1f\x8b\x08")
 
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         import auth as auth_module
-        from unittest.mock import MagicMock, AsyncMock, patch
         from fastapi.responses import FileResponse
 
         request = MagicMock()
@@ -246,7 +250,8 @@ class TestAuthReauthGate:
         (tmp_path / "deterrent").mkdir()
         (tmp_path / "deterrent" / "test.db").write_bytes(b"data")
 
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import AsyncMock, MagicMock
+
         from fastapi.responses import FileResponse
 
         request = MagicMock()
