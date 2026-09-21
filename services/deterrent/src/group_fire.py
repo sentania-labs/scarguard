@@ -132,8 +132,8 @@ def execute_plan(
     *deadline_sec* bounds the firing window. It is checked immediately before
     each activation starts, never during one, so an activation already in
     flight always runs to its natural end and no further device is picked up.
-    No out-of-band OFF is ever sent, so nothing races the per-activation
-    watchdog.
+    Normal deadline expiry sends no out-of-band OFF. Emergency OFF is
+    independent and uses the controller cloud-command lock.
 
     Two details the obvious implementation gets wrong:
 
@@ -161,9 +161,9 @@ def execute_plan(
     emergency off would send OFF to every device and the sequence would simply
     turn them back on.
 
-    It is never checked mid-activation: an in-flight spray always runs to its
-    natural end, so the stop is bounded by one spray and no out-of-band OFF
-    races the per-activation watchdog.
+    The controller rechecks this predicate under the cloud-command lock
+    immediately before ON. Normal cancellation does not interrupt the hold;
+    emergency OFF independently sends OFF through that same lock.
     """
     # Rotation without a window would never terminate: the loop's only exit
     # test is "window closed", and with no deadline that is never true. Caught
@@ -274,9 +274,8 @@ def execute_plan(
             # switched every device off and then the rest of the current cycle
             # switched them straight back on.
             #
-            # Same rule as the window: an activation already in flight runs to
-            # its natural end, so the stop is bounded by one spray and no
-            # out-of-band OFF races the per-activation watchdog.
+            # Normal gate closure lets an activation finish its local wait.
+            # Emergency OFF separately sends OFF under the cloud-command lock.
             if should_continue is not None and not should_continue():
                 logger.warning(
                     "%s: aborted after %d device(s), %d cycle(s) in [rid=%s]",
@@ -309,7 +308,11 @@ def execute_plan(
                 device, duration,
                 request_id=request_id,
                 event_type=event_type,
+                should_continue=should_continue,
             )
+            if result.cancelled:
+                aborted = True
+                break
             actions.append(DeviceAction(
                 device_name=device.name,
                 device_id=device.device_id,

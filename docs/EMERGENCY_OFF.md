@@ -25,12 +25,18 @@ then undid itself. It now also:
 - stops a running group sequence from picking up its next device,
 - cancels a test-fire that is still queued behind a detection.
 
-One thing deliberately does not stop: **a spray already in progress
-runs to its natural end**, bounded by `MAX_ACTUATION_SEC` at 60s and
-its own watchdog. Nothing sends an out-of-band OFF mid-activation,
-because that would race the watchdog and leave the controller's busy
-flag wrong. So expect up to one more spray duration of water after
-you click, and no further devices after that.
+**v1.17.1 closes the last gap between the abort check and ON.** Cancellation
+is checked while holding the same cloud-command lock used for OFF. If the
+emergency request wins, the old activation sends no ON. If ON was already
+admitted, its cloud call finishes before emergency OFF is sent. There is no
+stale ON after that emergency OFF completes.
+
+Emergency OFF does send OFF to an active device; the worker may still finish
+its local duration wait and issue its normal redundant OFF. The lock is not
+held during that wait or retry backoff. Cloud acknowledgement is not proof
+that a sleeping battery device has physically shut off, so observe the valve.
+A new detection after emergency-off starts under the new generation and can
+fire normally; disarm separately to prevent future detections from firing.
 
 If you are on v1.16.12 or earlier and water is hitting fish, **go
 straight to Option B**. On those versions the web button will not

@@ -298,6 +298,12 @@ def _run_test_fire(
     # button after it reported success, which is the failure mode #211 exists
     # to prevent; it just has to cover the queued window too.
     stamped_gen = job.get("force_off_gen")
+    if not isinstance(stamped_gen, int):
+        stamped_gen = force_off_latch.generation if force_off_latch is not None else 0
+
+    def still_authorised() -> bool:
+        return force_off_latch is None or force_off_latch.generation == stamped_gen
+
     if (
         force_off_latch is not None
         and isinstance(stamped_gen, int)
@@ -328,8 +334,12 @@ def _run_test_fire(
     t0 = time.monotonic()
     result = controller.activate_device(
         device, duration, request_id=request_id, event_type="test_fire",
+        should_continue=still_authorised,
     )
     wall_sec = time.monotonic() - t0
+    if result.cancelled:
+        reply({"ok": False, "error": "Cancelled by emergency off"})
+        return
 
     if result.stuck:
         _publish_stuck(

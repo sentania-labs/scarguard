@@ -742,3 +742,10 @@ Auto-scroll and pause/resume controls keep the stream readable during a high-vol
 ## Project status
 
 The current release is v1.17.0. See [STATUS.md](STATUS.md) for operational status, [ROADMAP.md](ROADMAP.md) for planned work, and [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md) for completed-feature history.
+
+### Emergency-off ordering (v1.17.1)
+
+Emergency OFF cancels old group activations and queued test fires at the final
+cloud-command gate, closing the gap where an ON could follow a completed OFF.
+An ON already admitted is followed by emergency OFF. New detections can still
+fire afterward unless the system is disarmed. See [the runbook](docs/EMERGENCY_OFF.md).

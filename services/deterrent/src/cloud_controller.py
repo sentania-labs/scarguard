@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import tinytuya
 from actuation_models import DeviceConfig
@@ -18,6 +18,10 @@ from deterrent_safety import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Credential hot reload replaces the controller while old work can still hold
+# the previous instance. ON/OFF ordering must span both instances.
+_CLOUD_COMMAND_LOCK = threading.Lock()
 
 # Default DP codes for on/off by device type.  Can be overridden per-device
 # via the ``dp_code`` config field.
@@ -58,6 +62,7 @@ class ActivationResult:
     error: str | None
     on_ack_ms: float | None
     off_attempts: int
+    cancelled: bool = False
 
     @property
     def success(self) -> bool:
@@ -83,7 +88,7 @@ class TuyaCloudController:
             apiKey=api_key,
             apiSecret=api_secret,
         )
-        self._lock = threading.Lock()
+        self._lock = _CLOUD_COMMAND_LOCK
         # Busy tracking - device_id → True while activate_device is running for
         # that device. Consulted by the reconciliation loop so it doesn't
         # race a legitimate in-flight actuation.
@@ -130,6 +135,7 @@ class TuyaCloudController:
         *,
         request_id: str | None = None,
         event_type: str = "detection",
+        should_continue: Callable[[], bool] | None = None,
     ) -> ActivationResult:
         """Turn *device* ON, wait *duration_sec*, then turn it OFF.
 
@@ -163,6 +169,7 @@ class TuyaCloudController:
             return self._activate_device_inner(
                 device, duration_sec, dp_code,
                 request_id=request_id, event_type=event_type,
+                should_continue=should_continue,
             )
         finally:
             with self._busy_lock:
@@ -176,12 +183,23 @@ class TuyaCloudController:
         *,
         request_id: str | None,
         event_type: str,
+        should_continue: Callable[[], bool] | None,
     ) -> ActivationResult:
         # --- ON ---
         t_on = time.monotonic()
         try:
             on_cmd: dict[str, Any] = {"commands": [{"code": dp_code, "value": True}]}
             with self._lock:
+                # Force-off bumps the latch before taking this same cloud lock
+                # for OFF. Either cancellation wins and no ON is sent, or ON
+                # completes first and the emergency OFF follows it. The lock
+                # is never held across the spray duration or retry backoff.
+                if should_continue is not None and not should_continue():
+                    return ActivationResult(
+                        on_success=False, off_success=None,
+                        error="Activation cancelled before ON",
+                        on_ack_ms=None, off_attempts=0, cancelled=True,
+                    )
                 result = self._cloud.sendcommand(device.device_id, on_cmd)
             on_ack_ms = (time.monotonic() - t_on) * 1000.0
             if not result.get("success"):

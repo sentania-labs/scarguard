@@ -678,8 +678,8 @@ release cannot add a stop button that does not stop anything.
   broader "every deployed model traces to a job" work is not built.
 - #209: `config-readonly.js` selectors match nothing, so read-only
   mode may leave write controls visible.
-- #212: force-off can land between the abort gate and the ON command.
-  A narrow race, not the months-long gap #211 closed.
+- #212: final command-ordering fix implemented for v1.17.1, pending release.
+  Cancellation is rechecked under the cloud-command lock before ON.
 - #214: CI lints `src` but no test directory, which is how duplicate
   test definitions reached review twice during this sprint.
 

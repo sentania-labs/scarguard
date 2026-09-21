@@ -82,6 +82,13 @@
 
 ## Recently Fixed (unreleased)
 
+- **Emergency-off race (#212):** The final cancellation check and ON send
+  share the cloud-command lock with OFF. Old group and single-device test-fire
+  jobs cannot send ON after emergency OFF has completed. Deterministic tests
+  exercise both orderings and both worker call paths with a fake cloud client.
+  Physical Tuya hardware was not exercised locally.
+
+
 - **Log-streamer quick EOF loop (issue #169):** The sidecar now self-heals stale
   Docker SDK sessions and backfills reconnect gaps without making quiet services
   unhealthy. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the recovery and
