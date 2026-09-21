@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Events - ScarGuard{% endblock %}
 {% block content %}
-<h1>Detection Events <span class="muted">({{ total }} total)</span></h1>
+<h1 id="events-heading">Detection Events <span class="muted">({{ total }} total)</span></h1>
 
 <form method="get" action="/events" class="filter-form">
   <div class="filter-row">
@@ -41,11 +41,36 @@
   </div>
 </form>
 
-<p class="hint">New events appear automatically at the top of the table.</p>
+{% if not _is_viewer %}
+<section class="event-bulk-toolbar" aria-label="Bulk event feedback">
+  <div class="event-review-controls">
+    <strong id="selection-count">0 selected</strong>
+    <button type="button" id="select-all-events">Select all on page</button>
+    <button type="button" id="select-no-events">Select none</button>
+    <span class="hint">Current page only, up to 50 events.</span>
+  </div>
+  <div class="event-review-controls">
+    <button type="button" class="btn-fb-correct" data-bulk-feedback="correct" aria-pressed="false">✓ Positive / correct</button>
+    <button type="button" class="btn-fb-fp" data-bulk-feedback="false_positive" aria-pressed="false">✕ Negative / false positive</button>
+    <button type="button" class="btn-fb-wrong" data-bulk-feedback="wrong_class" aria-pressed="false">? Wrong class</button>
+    <label id="bulk-class-wrap" hidden>Correct class
+      <input id="bulk-corrected-class" list="bulk-class-options" maxlength="100" placeholder="Select or type class">
+    </label>
+    <datalist id="bulk-class-options">{% for cls in target_classes %}<option value="{{ cls }}">{% endfor %}</datalist>
+    <button type="button" id="apply-feedback" disabled>Apply to 0 events</button>
+  </div>
+  <p id="selection-summary" class="hint">Select events, then choose feedback.</p>
+</section>
+{% endif %}
+<p id="event-review-status" role="status" aria-live="polite"></p>
+<p class="hint"><span id="event-live-status">New events appear automatically when you are not reviewing.</span>
+  <button type="button" id="refresh-events" hidden>Refresh events</button>
+</p>
 
-<table>
+<div class="event-table-scroll"><table>
   <thead>
     <tr>
+      <th>{% if not _is_viewer %}<input type="checkbox" id="select-page-events" aria-label="Select all events on this page">{% endif %}</th>
       <th>Time</th>
       <th>Class</th>
       <th>Conf</th>
@@ -55,15 +80,12 @@
       <th>Feedback</th>
     </tr>
   </thead>
-  <tbody id="event-table-body"
-         hx-ext="sse"
-         sse-connect="/events/stream"
-         sse-swap="detection"
-         hx-swap="afterbegin">
+  <tbody id="event-table-body">
     {% include "partials/event_rows.html" %}
   </tbody>
-</table>
+</table></div>
 
+<div id="event-pagination">
 {% if total_pages > 1 %}
 <nav class="pagination">
   {% if page > 1 %}
@@ -76,7 +98,7 @@
 </nav>
 {% endif %}
 
-<script src="/static/vendor/sse.js" defer></script>
+</div>
 <script type="application/json" id="events-page-data">{{ target_classes | tojson }}</script>
-<script src="/static/events.js"></script>
+<script src="/static/events.js" defer></script>
 {% endblock %}

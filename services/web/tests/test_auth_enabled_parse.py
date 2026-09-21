@@ -9,7 +9,6 @@ the operator intended to disable it.
 from __future__ import annotations
 
 import pytest
-
 from main import _parse_auth_enabled
 
 

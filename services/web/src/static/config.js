@@ -178,7 +178,7 @@ function _buildRuleRow(rule) {
         <label>Channels (comma-separated names)</label>
         <input type="text" class="rule-channels" value="${_esc((rule.channels || []).join(", "))}" placeholder="pond-alerts, email-digest">
       </div>
-      <button type="button" class="btn-remove" data-action="remove-rule-row">✕</button>
+      <button data-requires-admin type="button" class="btn-remove" data-action="remove-rule-row">✕</button>
     </div>
   `;
   return row;
@@ -246,7 +246,7 @@ function _buildDeterrentRuleRow(rule) {
         <label>Groups (comma-separated names from /admin/deterrent)</label>
         <input type="text" class="drule-groups" value="${_esc((rule.groups || []).join(", "))}" placeholder="minor, thermonuclear">
       </div>
-      <button type="button" class="btn-remove" data-action="remove-rule-row">✕</button>
+      <button data-requires-admin type="button" class="btn-remove" data-action="remove-rule-row">✕</button>
     </div>
   `;
   return row;
@@ -334,7 +334,7 @@ function buildCameraCard(cam) {
   div.innerHTML = `
     <div class="camera-card-header">
       <span class="camera-card-title">Camera</span>
-      <button type="button" class="btn-remove" data-action="remove-camera">Remove</button>
+      <button data-requires-admin type="button" class="btn-remove" data-action="remove-camera">Remove</button>
     </div>
     <label class="toggle-label">
       <input type="checkbox" class="cam-enabled" ${enabled ? "checked" : ""}>
@@ -407,7 +407,7 @@ function buildCameraCard(cam) {
           Use <code>*</code> as a wildcard class to match any detection. Leave empty to notify all channels.
         </p>
         <div class="notif-rules-list"></div>
-        <button type="button" class="btn-add" style="margin-top:0.4rem;" data-action="add-notification-rule">+ Add Rule</button>
+        <button data-requires-admin type="button" class="btn-add" style="margin-top:0.4rem;" data-action="add-notification-rule">+ Add Rule</button>
       </div>
     </details>
     <details class="expert-only" style="margin-top:0.75rem;">
@@ -421,7 +421,7 @@ function buildCameraCard(cam) {
           <a href="/admin/deterrent#groups">Deterrent page</a> first.
         </p>
         <div class="det-rules-list"></div>
-        <button type="button" class="btn-add" style="margin-top:0.4rem;" data-action="add-deterrent-rule">+ Add Rule</button>
+        <button data-requires-admin type="button" class="btn-add" style="margin-top:0.4rem;" data-action="add-deterrent-rule">+ Add Rule</button>
       </div>
     </details>
   `;
@@ -856,8 +856,8 @@ function buildChannelCard(ch) {
     <div class="camera-card-header">
       <span class="camera-card-title">${type.charAt(0).toUpperCase() + type.slice(1)} Channel</span>
       <span>
-        <button type="button" class="btn-add" data-action="send-test-notification" style="margin-right:0.5rem;">Send Test</button>
-        <button type="button" class="btn-remove" data-action="remove-channel">Remove</button>
+        <button data-requires-admin type="button" class="btn-add" data-action="send-test-notification" style="margin-right:0.5rem;">Send Test</button>
+        <button data-requires-admin type="button" class="btn-remove" data-action="remove-channel">Remove</button>
       </span>
     </div>
     <label class="toggle-label">
@@ -1123,6 +1123,12 @@ function initZoneEditor(card, initialZones) {
   }
 
   drawZones(card);
+
+  if (window.SCARGUARD_READ_ONLY) {
+    canvas.style.cursor = "default";
+    updateZoneList(card);
+    return;
+  }
 
   // ── Mouse interaction ──────────────────────────────────────────────────
   const HANDLE_R = 5;           // vertex handle radius in px
@@ -1409,7 +1415,7 @@ function updateZoneList(card) {
       <span style="flex:0 0 auto;color:var(--muted);">${z.points.length} pts</span>
       <input type="text" placeholder="Label (optional)" value="${_esc(z.label || "")}"
              style="flex:1;min-width:0;">
-      <button type="button" class="btn-remove" style="flex:0 0 auto;"
+      <button data-requires-admin type="button" class="btn-remove" style="flex:0 0 auto;"
               data-action="delete-zone" data-zone-idx="${i}">&#x2715;</button>
     `;
     const enableCb = row.querySelector("input[type=checkbox]");

@@ -1,6 +1,5 @@
-import pytest
-
 import config_store
+import pytest
 
 
 def test_load_rejects_non_mapping_yaml(tmp_path, monkeypatch):

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pytest
 import yaml
-
 from config_redact import REDACTED_PLACEHOLDER, redact_config, redact_yaml
 
 

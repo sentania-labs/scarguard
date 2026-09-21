@@ -330,3 +330,36 @@ class TestAdminRole:
         assert "VIEWER_SECRET_123" not in body
         assert "***REDACTED***" in body
         assert "Read-only view" not in body
+
+
+class TestEventFeedbackAccess:
+    def test_viewer_has_no_feedback_controls(self, auth_client: Any) -> None:
+        _as(auth_client, "viewer")
+        body = auth_client.get("/events").text
+        assert 'id="apply-feedback"' not in body
+
+    def test_viewer_cannot_batch_review(self, auth_client: Any) -> None:
+        _as(auth_client, "viewer")
+        result = auth_client.post('/events/feedback/batch', json={
+            'event_ids': [1], 'feedback': 'correct',
+        })
+        assert result.status_code == 403
+
+    def test_viewer_cannot_review_single_event(self, auth_client: Any) -> None:
+        _as(auth_client, "viewer")
+        assert auth_client.post('/events/1/feedback', data={'feedback': 'correct'}).status_code == 403
+
+    def test_anonymous_cannot_batch_review(self, auth_client: Any) -> None:
+        _as(auth_client, "")
+        result = auth_client.post('/events/feedback/batch', json={
+            'event_ids': [1], 'feedback': 'correct',
+        }, follow_redirects=False)
+        assert result.status_code == 302
+
+    def test_regular_user_can_batch_review(self, auth_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        _as(auth_client, "user")
+        monkeypatch.setattr('db.update_feedback_batch', lambda *args: True)
+        result = auth_client.post('/events/feedback/batch', json={
+            'event_ids': [1], 'feedback': 'correct',
+        })
+        assert result.status_code == 200

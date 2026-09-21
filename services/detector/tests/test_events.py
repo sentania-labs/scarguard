@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-
 from detector import Detection
 from events import EventProcessor
 

@@ -285,6 +285,29 @@ def update_feedback(
         return cur.rowcount > 0
 
 
+def update_feedback_batch(
+    event_ids: list[int], feedback: str, corrected_class: str | None = None,
+) -> bool:
+    """Validate the complete selection and update it in one write transaction."""
+    placeholders = ",".join("?" for _ in event_ids)
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        count = conn.execute(
+            f"SELECT COUNT(*) FROM detection_events WHERE id IN ({placeholders})", event_ids,
+        ).fetchone()[0]
+        if count != len(event_ids):
+            conn.rollback()
+            return False
+        conn.execute(
+            f"""UPDATE detection_events SET feedback = ?, corrected_class = ?,
+                corrected_bbox = CASE WHEN ? = 'wrong_class' THEN corrected_bbox ELSE NULL END
+                WHERE id IN ({placeholders})""",
+            [feedback, corrected_class, feedback, *event_ids],
+        )
+        conn.commit()
+    return True
+
+
 def get_feedback_stats(
     date_from: str | None = None,
     date_to: str | None = None,
