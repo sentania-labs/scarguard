@@ -79,7 +79,15 @@ class PauseHandler:
         action = payload.get("action")
         request_id = payload.get("request_id", "?")
         if action == "pause":
-            self._do_pause(request_id, payload.get("timeout", DEFAULT_PAUSE_TIMEOUT))
+            try:
+                timeout = float(payload.get("timeout", DEFAULT_PAUSE_TIMEOUT))
+                import math
+                if not math.isfinite(timeout) or timeout <= 0:
+                    raise ValueError("timeout must be a finite positive number")
+            except (TypeError, ValueError):
+                logger.warning("Invalid pause timeout in request %s", request_id)
+                return
+            self._do_pause(request_id, timeout)
         elif action == "resume":
             self._do_resume(request_id, reason="command")
         else:

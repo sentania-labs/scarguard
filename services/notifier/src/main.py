@@ -249,86 +249,92 @@ def subscribe_loop(
                 pathlib.Path("/tmp/healthy").touch(exist_ok=True)
                 try:
                     event = json.loads(message["data"])
+                    if not isinstance(event, dict):
+                        logger.warning("Received malformed message (not a dict): %s", message["data"])
+                        continue
                 except json.JSONDecodeError:
                     logger.warning("Received malformed message: %s", message["data"])
                     continue
 
-                # Signature verification (detection channel only - health alerts
-                # come from the detector's health publisher, not the detection
-                # publisher, and aren't signed today).
-                if message["channel"] == CHANNEL and hmac_key is not None:
-                    if not verify_event(event, hmac_key):
-                        if not invalid_warned:
-                            logger.error(
-                                "Rejecting detection event with invalid/missing "
-                                "HMAC signature - NOT notifying. Camera=%s class=%s. "
-                                "Further invalid events at DEBUG.",
+                try:
+                    # Signature verification (detection channel only - health alerts
+                    # come from the detector's health publisher, not the detection
+                    # publisher, and aren't signed today).
+                    if message["channel"] == CHANNEL and hmac_key is not None:
+                        if not verify_event(event, hmac_key):
+                            if not invalid_warned:
+                                logger.error(
+                                    "Rejecting detection event with invalid/missing "
+                                    "HMAC signature - NOT notifying. Camera=%s class=%s. "
+                                    "Further invalid events at DEBUG.",
+                                    event.get("camera_name"),
+                                    event.get("class_name"),
+                                )
+                                invalid_warned = True
+                            else:
+                                logger.debug("Invalid-signature event rejected")
+                            continue
+                    elif message["channel"] == CHANNEL and hmac_key is None and not unsigned_warned:
+                        unsigned_warned = True
+                        logger.warning(
+                            "Accepting unsigned detection event. Further unsigned events at DEBUG.",
+                        )
+
+                    # Health alerts get formatted as notification events
+                    if message["channel"] == HEALTH_CHANNEL:
+                        alert_type = event.get("type")
+                        if alert_type == "camera_offline":
+                            alert_event = {
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "class_name": "camera_offline",
+                                "confidence": 1.0,
+                                "camera_name": event.get("camera_name", "unknown"),
+                                "snapshot_path": None,
+                            }
+                            logger.warning(
+                                "Camera health alert: %s offline for %ss",
                                 event.get("camera_name"),
-                                event.get("class_name"),
+                                event.get("offline_seconds"),
                             )
-                            invalid_warned = True
+                            dispatch(alert_event, notifiers, notifiers_lock, queue)
+                        elif alert_type == "camera_recovered":
+                            alert_event = {
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "class_name": "camera_recovered",
+                                "confidence": 1.0,
+                                "camera_name": event.get("camera_name", "unknown"),
+                                "snapshot_path": None,
+                                "offline_seconds": event.get("offline_seconds"),
+                                "online_seconds": event.get("online_seconds"),
+                                "reconnect_count": event.get("reconnect_count"),
+                            }
+                            logger.info(
+                                "Camera health alert: %s recovered (was offline %ss)",
+                                event.get("camera_name"),
+                                event.get("offline_seconds"),
+                            )
+                            dispatch(alert_event, notifiers, notifiers_lock, queue)
                         else:
-                            logger.debug("Invalid-signature event rejected")
+                            logger.warning(
+                                "Unknown health alert type %r - dropping",
+                                alert_type,
+                            )
                         continue
-                elif message["channel"] == CHANNEL and hmac_key is None and not unsigned_warned:
-                    unsigned_warned = True
-                    logger.warning(
-                        "Accepting unsigned detection event. Further unsigned events at DEBUG.",
+
+                    # Inject base_url so notifiers can build feedback links
+                    base_url = _base_url_ref.get() if _base_url_ref else ""
+                    if base_url:
+                        event["_base_url"] = base_url
+
+                    logger.info(
+                        "Event received: %s from %s (conf=%.2f)",
+                        event.get("class_name"),
+                        event.get("camera_name"),
+                        event.get("confidence", 0.0),
                     )
-
-                # Health alerts get formatted as notification events
-                if message["channel"] == HEALTH_CHANNEL:
-                    alert_type = event.get("type")
-                    if alert_type == "camera_offline":
-                        alert_event = {
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "class_name": "camera_offline",
-                            "confidence": 1.0,
-                            "camera_name": event.get("camera_name", "unknown"),
-                            "snapshot_path": None,
-                        }
-                        logger.warning(
-                            "Camera health alert: %s offline for %ss",
-                            event.get("camera_name"),
-                            event.get("offline_seconds"),
-                        )
-                        dispatch(alert_event, notifiers, notifiers_lock, queue)
-                    elif alert_type == "camera_recovered":
-                        alert_event = {
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "class_name": "camera_recovered",
-                            "confidence": 1.0,
-                            "camera_name": event.get("camera_name", "unknown"),
-                            "snapshot_path": None,
-                            "offline_seconds": event.get("offline_seconds"),
-                            "online_seconds": event.get("online_seconds"),
-                            "reconnect_count": event.get("reconnect_count"),
-                        }
-                        logger.info(
-                            "Camera health alert: %s recovered (was offline %ss)",
-                            event.get("camera_name"),
-                            event.get("offline_seconds"),
-                        )
-                        dispatch(alert_event, notifiers, notifiers_lock, queue)
-                    else:
-                        logger.warning(
-                            "Unknown health alert type %r - dropping",
-                            alert_type,
-                        )
-                    continue
-
-                # Inject base_url so notifiers can build feedback links
-                base_url = _base_url_ref.get() if _base_url_ref else ""
-                if base_url:
-                    event["_base_url"] = base_url
-
-                logger.info(
-                    "Event received: %s from %s (conf=%.2f)",
-                    event.get("class_name"),
-                    event.get("camera_name"),
-                    event.get("confidence", 0.0),
-                )
-                dispatch(event, notifiers, notifiers_lock, queue)
+                    dispatch(event, notifiers, notifiers_lock, queue)
+                except Exception:
+                    logger.exception("Error processing message on %s", message["channel"])
 
         except redis_lib.RedisError:
             if shutdown_event.is_set():

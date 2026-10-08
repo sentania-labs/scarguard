@@ -1033,47 +1033,53 @@ def subscribe_loop(
 
                 try:
                     event = json.loads(message["data"])
+                    if not isinstance(event, dict):
+                        logger.warning("Received malformed message (not a dict): %s", message["data"])
+                        continue
                 except json.JSONDecodeError:
                     logger.warning("Malformed message: %s", message["data"])
                     continue
 
-                if hmac_key is not None:
-                    if not verify_event(event, hmac_key):
-                        if not invalid_warned:
-                            logger.error(
-                                "Rejecting detection event with invalid/missing "
-                                "HMAC signature - NOT firing. Camera=%s class=%s. "
-                                "Further invalid events will be logged at DEBUG.",
-                                event.get("camera_name"),
-                                event.get("class_name"),
-                            )
-                            invalid_warned = True
-                        else:
-                            logger.debug("Invalid-signature event rejected")
-                        continue
-                elif not unsigned_warned:
-                    unsigned_warned = True
-                    logger.warning(
-                        "Accepting unsigned detection event (key not set). "
-                        "Further unsigned events will be logged at DEBUG.",
-                    )
-
-                logger.debug(
-                    "Detection: %s from %s (conf=%.2f)",
-                    event.get("class_name"),
-                    event.get("camera_name"),
-                    event.get("confidence", 0.0),
-                )
                 try:
-                    event_queue.put_nowait(event)
-                except queue.Full:
-                    global _drop_counter
-                    with _drop_counter_lock:
-                        _drop_counter += 1
-                    logger.warning(
-                        "Event queue full - dropping event (total drops: %d)",
-                        _drop_counter,
+                    if hmac_key is not None:
+                        if not verify_event(event, hmac_key):
+                            if not invalid_warned:
+                                logger.error(
+                                    "Rejecting detection event with invalid/missing "
+                                    "HMAC signature - NOT firing. Camera=%s class=%s. "
+                                    "Further invalid events will be logged at DEBUG.",
+                                    event.get("camera_name"),
+                                    event.get("class_name"),
+                                )
+                                invalid_warned = True
+                            else:
+                                logger.debug("Invalid-signature event rejected")
+                            continue
+                    elif not unsigned_warned:
+                        unsigned_warned = True
+                        logger.warning(
+                            "Accepting unsigned detection event (key not set). "
+                            "Further unsigned events will be logged at DEBUG.",
+                        )
+
+                    logger.debug(
+                        "Detection: %s from %s (conf=%.2f)",
+                        event.get("class_name"),
+                        event.get("camera_name"),
+                        event.get("confidence", 0.0),
                     )
+                    try:
+                        event_queue.put_nowait(event)
+                    except queue.Full:
+                        global _drop_counter
+                        with _drop_counter_lock:
+                            _drop_counter += 1
+                        logger.warning(
+                            "Event queue full - dropping event (total drops: %d)",
+                            _drop_counter,
+                        )
+                except Exception:
+                    logger.exception("Error processing message on %s", message["channel"] if "channel" in message else "?")
 
         except redis_lib.RedisError:
             if shutdown_event.is_set():
