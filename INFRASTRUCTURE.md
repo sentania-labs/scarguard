@@ -161,7 +161,7 @@ scarguard/
         ├── ci.yml                   # Lint, type check, pytest (PR only)
         ├── build.yml                # Docker image builds (PR: full; main: cache only)
         ├── release.yml              # Build + push to GHCR on tag push
-        └── cleanup.yml              # Weekly runner cleanup (all docker runners)
+        └── cleanup.yml              # Retired; no triggers or jobs
 ```
 
 ## Container Base Images
@@ -252,15 +252,16 @@ unlimited. Placement follows one question: what does the job actually need?
 
 | Need | Destination | Jobs |
 |---|---|---|
-| The Orin's GPU | `[self-hosted, linux, arm64, jetson]` | `build-detector`, `release-detector` |
+| The Orin's GPU | `[self-hosted, linux, arm64, jetson]` | `release-detector` (version-tag push only) |
 | arm64, no GPU | `ubuntu-24.04-arm` | `build-trainer`, `release-trainer` |
 | A Docker daemon | `ubuntu-latest` | all 10 x86 image build/release jobs, `compose-smoke-test` |
-| Neither | `ubuntu-latest` | lint, typecheck, 5x pytest, `detector-paths`, `update-benchmarks`, `create-release` |
+| Neither | `ubuntu-latest` | lint, typecheck, 5x pytest, `update-benchmarks`, `create-release` |
 
-**Only two jobs genuinely need the Orin.** `build-detector` and
-`release-detector` run a real GPU smoke test (`torch.cuda.is_available()`)
-and the inference benchmark, both under the single-tenant GPU lease. There
-is no substitute for that hardware.
+**Only the release detector job uses the Orin.** `release-detector` runs a
+real GPU smoke test (`torch.cuda.is_available()`) and the inference benchmark
+under the single-tenant GPU lease. The workflow trigger and job guard limit it
+to a push of a `vMAJOR.MINOR.PATCH` tag. Pull requests, main pushes, schedules,
+and workflow dispatches cannot schedule the production runner.
 
 **The trainer does not.** It is an arm64 L4T image, but no step in either
 trainer job touches the GPU: the import checks run without
@@ -284,30 +285,39 @@ the full placement rule.
 
 The retired x86 self-hosted runners were deregistered on 2026-09-08 and are
 not selected by any ScarGuard workflow. `orin-nano` remains the sole
-self-hosted runner because detector validation requires its GPU. The weekly
-cleanup workflow prunes only that runner and deliberately leaves volumes
-intact so models and SQLite data survive.
+self-hosted runner because release validation requires its GPU. The standalone
+cleanup workflow is retired with no triggers or jobs; release-only cleanup is a
+separate future design.
+
+This repository boundary does not replace GitHub administration. Restrict the
+production runner to a dedicated runner group accessible only to the release
+workflow, and expose production-capable secrets only through a protected
+release environment. Those runner-group, environment, and secret restrictions
+remain pending operational settings work and are not changed by repository
+workflow edits.
 
 The Orin runner uses the `infra/orin-runner/` Dockerfile. GPU builds and
 benchmarks use the host Docker daemon.
 
 ### Orin GPU Lease (CI ↔ production coordination)
 
-The Orin's 8GB unified memory holds exactly one GPU workload: the live detector, a training run, or a CI inference benchmark, the `orin-nano` runner is the same box as production. CI GPU steps (build.yml and release.yml detector jobs) therefore take a lease via `.github/scripts/ci-gpu-lease.sh` before touching the GPU:
+The Orin's 8GB unified memory holds exactly one GPU workload: the live detector, a training run, or a CI inference benchmark, the `orin-nano` runner is the same box as production. The release workflow's detector job therefore takes a lease via `.github/scripts/ci-gpu-lease.sh` before touching the GPU:
 
 1. **Acquire:** atomically claim the trainer heartbeat key (`SET NX EX 600`): this waits out an active training run (up to 10 min, then fails with a re-run instruction) and blocks a new one from starting mid-benchmark; then pause the detector over the existing pause protocol (`shared/pause_protocol.py`) and wait for its ack.
 2. **Release** (`if: always()`): drop the claim, resume the detector. Never fails the job.
 
 Crash safety: the heartbeat key's TTL plus the detector's pause-timeout auto-resume guarantee a killed CI job cannot leave production paused. If the production stack (or detector) isn't running, acquire is a no-op. Redis access is via `docker exec` into the production redis container, so no Redis secret lives in CI.
 
-Additionally, PRs only run the Jetson detector job when they touch detector-relevant paths (`detector-paths` job in build.yml) **and** carry the `orin-maintenance-approved` label; the PR trainer-image job requires the same label. Pushes to main and releases always run them. The label gate exists because these jobs run on the controlled production Jetson, see `docs/training-remediation-validation.md` for when to apply it.
+There is no PR label override for this boundary. In particular,
+`orin-maintenance-approved` cannot make a PR, main push, or dispatch eligible
+for the production runner. Target validation outside a release is an explicit
+operator maintenance procedure, not a repository CI workflow.
 
 ### Build & Deploy Flow
 
 ```
 PR to main (ci.yml + build.yml - full validation)
   ├── GitHub-hosted ubuntu-latest (parallel):
-  │   ├── Detect detector changes (git diff path filter)
   │   ├── Lint (ruff - all services)
   │   ├── Type check (mypy - web, notifier, deterrent)
   │   ├── pytest - web
@@ -327,11 +337,6 @@ PR to main (ci.yml + build.yml - full validation)
   │
   ├── ubuntu-24.04-arm:
   │   └── Build trainer image (L4T arm64) + import smoke test
-  │
-  ├── Orin runner, GPU required (only when the PR touches detector-relevant
-  │   paths: services/detector/, shared/, tests/ci/, build.yml,
-  │   .github/scripts/ AND carries the orin-maintenance-approved label):
-  │   └── Build detector image + GPU smoke test + benchmark
   │
   └── Compose smoke test (after all builds pass)
 
@@ -361,8 +366,8 @@ Tag push (release.yml)
       ├── Append benchmarks to BENCHMARKS.md (auto-PR)
       └── Create GitHub Release with image table
 
-Weekly (cleanup.yml, Sunday 03:00 UTC; GitHub-hosted runners are ephemeral)
-  └── Orin runner: system prune (no volume prune, preserves models and data)
+cleanup.yml
+  └── Retired: no schedule, dispatch, jobs, or Orin cleanup
 ```
 
 ### Runner Image Updates

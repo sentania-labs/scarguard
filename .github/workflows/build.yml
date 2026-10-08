@@ -32,35 +32,6 @@ permissions:
 jobs:
 
   # ── Detect detector-relevant changes (PR only) ──────────────────────────────
-  # The Jetson detector job builds on the Orin and runs a GPU benchmark on the
-  # production box.  Most PRs don't touch the detector at all - skip the whole
-  # job for those so CI never contends with the live detector or a training
-  # run unnecessarily (GPU OOM incident, PR #170 first run, 2026-07-14).
-  detector-paths:
-    name: Detect detector changes
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.owner.login == 'sentania-labs'
-    outputs:
-      detector: ${{ steps.filter.outputs.detector }}
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-        with:
-          fetch-depth: 2
-
-      - id: filter
-        name: Diff PR against base
-        run: |
-          # PR checkout is the merge commit; parent 1 is the base branch head,
-          # so this diff lists exactly the files the PR changes.
-          changed=$(git diff --name-only HEAD^1 HEAD)
-          echo "Changed files:"
-          echo "$changed"
-          if echo "$changed" | grep -qE '^(services/detector/|shared/|tests/ci/|\.github/workflows/build\.yml|\.github/scripts/)'; then
-            echo "detector=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "detector=false" >> "$GITHUB_OUTPUT"
-          fi
-
   # ── Build web (x86 runner) ───────────────────────────────────────────────────
   build-web:
     name: Build web image
@@ -536,84 +507,6 @@ jobs:
         run: docker rmi scarguard-trainer:build-validate-${{ github.run_id }} || true
 
   # ── Build detector - Jetson/L4T (Orin runner, ARM64) ─────────────────────────
-  # PRs run this only when they touch detector-relevant paths AND a captain-
-  # approved maintenance window is recorded with the
-  # `orin-maintenance-approved` label. Pushes to main retain the release-line
-  # validation behavior after the reviewed PR is merged.
-  # A skipped run satisfies required-check branch protection.
-  build-detector:
-    name: Build detector image (Jetson)
-    # ORIN-ONLY: real GPU smoke test (`torch.cuda.is_available()`), the
-    # inference benchmark, and the single-tenant GPU lease. No substitute.
-    runs-on: [self-hosted, linux, arm64, jetson]
-    needs: detector-paths
-    if: >-
-      !cancelled() &&
-      (github.event_name != 'pull_request' ||
-       (github.event.pull_request.head.repo.owner.login == 'sentania-labs' &&
-        needs.detector-paths.outputs.detector == 'true' &&
-        contains(github.event.pull_request.labels.*.name, 'orin-maintenance-approved')))
-
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - name: Build detector image (validate only, no push)
-        run: |
-          docker build \
-            --file services/detector/Dockerfile \
-            --tag scarguard-detector:build-validate-${{ github.run_id }} \
-            .
-
-      # The Orin's GPU is single-tenant (production detector + trainer live
-      # on this box).  Take the pause-protocol lease before any GPU step so
-      # the benchmark never OOMs against the live detector or a training run.
-      - name: Acquire GPU lease (pause detector)
-        run: .github/scripts/ci-gpu-lease.sh acquire
-
-      - name: GPU smoke test
-        run: |
-          docker run --rm \
-            --runtime nvidia \
-            -e NVIDIA_VISIBLE_DEVICES=all \
-            scarguard-detector:build-validate-${{ github.run_id }} \
-            python3 -c "
-          import torch
-          assert torch.cuda.is_available(), 'CUDA not available - check NVIDIA runtime'
-          print(f'GPU:  {torch.cuda.get_device_name(0)}')
-          print(f'SM:   {torch.cuda.get_device_capability(0)}')
-          print(f'CUDA: {torch.version.cuda}')
-          print('GPU smoke test passed')
-          "
-
-      # Uses docker create + cp instead of bind mounts (-v).  Originally
-      # required by the self-hosted DinD runner, kept because it is
-      # daemon-topology independent.
-      - name: Inference benchmark (GPU)
-        run: |
-          # Retry with backoff - absorbs transient memory pressure right
-          # after a detector model unload (unified memory frees lazily).
-          rc=1
-          for attempt in 1 2 3; do
-            .github/scripts/ci-gpu-lease.sh refresh
-            cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
-              scarguard-detector:build-validate-${{ github.run_id }} python3 /ci/smoke_inference.py)
-            docker cp ${{ github.workspace }}/tests/ci/. "$cid:/ci/"
-            docker start -a "$cid" && rc=0 || rc=$?
-            docker rm "$cid" > /dev/null
-            [ $rc -eq 0 ] && break
-            echo "Benchmark attempt $attempt failed (rc=$rc)"
-            [ $attempt -lt 3 ] && sleep 60
-          done
-          exit $rc
-
-      - name: Release GPU lease (resume detector)
-        if: always()
-        run: .github/scripts/ci-gpu-lease.sh release
-
-      - name: Clean up build-validate image
-        if: always()
-        run: docker rmi scarguard-detector:build-validate-${{ github.run_id }} || true
-
   # ── Build detector - x86 CUDA+CPU (x86 runner) ─────────────────────────────
   build-detector-x86:
     name: Build detector image (x86)
@@ -631,7 +524,8 @@ jobs:
             --tag scarguard-detector-x86:build-validate-${{ github.run_id }} \
             .
 
-      # Uses docker create + cp instead of bind mounts - see comment on Jetson job.
+      # Uses docker create + cp instead of bind mounts so this remains
+      # independent of the hosted runner's Docker daemon topology.
       - name: Inference benchmark (CPU)
         if: github.event_name != 'push'
         run: |
