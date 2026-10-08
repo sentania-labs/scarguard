@@ -161,7 +161,7 @@ scarguard/
         ├── ci.yml                   # Lint, type check, pytest (PR only)
         ├── build.yml                # Docker image builds (PR: full; main: cache only)
         ├── release.yml              # Build + push to GHCR on tag push
-        └── cleanup.yml              # Retired; no triggers or jobs
+        └── cleanup.yml              # Retired; hosted-only skipped tombstone
 ```
 
 ## Container Base Images
@@ -286,8 +286,10 @@ the full placement rule.
 The retired x86 self-hosted runners were deregistered on 2026-09-08 and are
 not selected by any ScarGuard workflow. `orin-nano` remains the sole
 self-hosted runner because release validation requires its GPU. The standalone
-cleanup workflow is retired with no triggers or jobs; release-only cleanup is a
-separate future design.
+cleanup workflow is retired: its ordinary PR trigger reaches only an
+unconditionally skipped `ubuntu-latest` tombstone job. It has no schedule or
+manual dispatch, no Docker prune, and no self-hosted selector. Release-only
+cleanup is a separate future design.
 
 This repository boundary does not replace GitHub administration. Restrict the
 production runner to a dedicated runner group accessible only to the release
@@ -367,7 +369,8 @@ Tag push (release.yml)
       └── Create GitHub Release with image table
 
 cleanup.yml
-  └── Retired: no schedule, dispatch, jobs, or Orin cleanup
+  └── Retired: PR-visible hosted-only skipped job; no schedule,
+      dispatch, Docker prune, or Orin cleanup
 ```
 
 ### Runner Image Updates

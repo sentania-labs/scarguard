@@ -13,7 +13,6 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
-ORIN_LABELS = {"self-hosted", "linux", "arm64", "jetson"}
 
 
 class WorkflowLoader(yaml.SafeLoader):
@@ -106,6 +105,16 @@ def job_guard_allows(job: dict[str, Any], event: dict[str, str]) -> bool:
     return all(results)
 
 
+def runner_selector_can_match_orin(runner: Any) -> bool:
+    """Identify selectors broad enough to select the production Orin runner."""
+    labels = set(runner) if isinstance(runner, list) else {runner}
+    return bool(
+        "self-hosted" in labels
+        or "jetson" in labels
+        or {"linux", "arm64"}.issubset(labels)
+    )
+
+
 def orin_jobs_for_event(
     event_name: str, *, ref_type: str = "", ref_name: str = ""
 ) -> list[tuple[str, str]]:
@@ -124,8 +133,7 @@ def orin_jobs_for_event(
             continue
         for job_name, job in workflow.get("jobs", {}).items():
             runner = job.get("runs-on")
-            labels = set(runner) if isinstance(runner, list) else {runner}
-            if ORIN_LABELS.issubset(labels) and job_guard_allows(job, event):
+            if runner_selector_can_match_orin(runner) and job_guard_allows(job, event):
                 eligible.append((workflow_path.name, job_name))
     return eligible
 
@@ -157,6 +165,45 @@ def test_only_version_tag_push_can_schedule_release_orin() -> None:
     ) == []
 
 
+@pytest.mark.parametrize(
+    "selector",
+    [
+        ["self-hosted"],
+        ["jetson"],
+        ["linux", "arm64"],
+        ["self-hosted", "linux", "arm64", "jetson"],
+    ],
+)
+def test_orin_selector_detection_rejects_broad_subsets(selector: list[str]) -> None:
+    assert runner_selector_can_match_orin(selector)
+
+
+@pytest.mark.parametrize(
+    ("event_name", "ref_type", "ref_name"),
+    [
+        ("pull_request", "branch", "main"),
+        ("push", "branch", "main"),
+        ("workflow_dispatch", "branch", "main"),
+    ],
+)
+def test_release_orin_job_guard_independently_denies_non_release_events(
+    event_name: str, ref_type: str, ref_name: str
+) -> None:
+    release_job = load_workflow("release.yml")["jobs"]["release-detector"]
+    assert not job_guard_allows(
+        release_job,
+        {"event_name": event_name, "ref_type": ref_type, "ref_name": ref_name},
+    )
+
+
+def test_release_orin_job_guard_allows_version_tag_push() -> None:
+    release_job = load_workflow("release.yml")["jobs"]["release-detector"]
+    assert job_guard_allows(
+        release_job,
+        {"event_name": "push", "ref_type": "tag", "ref_name": "v1.2.3"},
+    )
+
+
 def test_build_keeps_hosted_validation_without_orin_dependency() -> None:
     build = load_workflow("build.yml")
     jobs = build["jobs"]
@@ -184,6 +231,17 @@ def test_build_keeps_hosted_validation_without_orin_dependency() -> None:
 
 def test_cleanup_workflow_is_inert_and_read_only() -> None:
     cleanup = load_workflow("cleanup.yml")
-    assert cleanup["on"] == {}
-    assert cleanup["jobs"] == {}
+    assert set(cleanup["on"]) == {"pull_request"}
+    assert not workflow_is_triggered(
+        cleanup, "schedule", ref_type="branch", ref_name="main"
+    )
+    assert not workflow_is_triggered(
+        cleanup, "workflow_dispatch", ref_type="branch", ref_name="main"
+    )
     assert cleanup["permissions"] == {"contents": "read"}
+    assert set(cleanup["jobs"]) == {"retired"}
+    retired = cleanup["jobs"]["retired"]
+    assert retired["if"] == "${{ false }}"
+    assert retired["runs-on"] == "ubuntu-latest"
+    assert not runner_selector_can_match_orin(retired["runs-on"])
+    assert all("docker" not in step.get("run", "") for step in retired["steps"])

@@ -39,6 +39,9 @@ The repository guard is only one layer. A dedicated GitHub runner group scoped
 to the release workflow and protected-environment restrictions for
 production-capable secrets remain pending operational settings work. Do not
 treat this runbook or a repository label as a substitute for those controls.
+The retired standalone cleanup workflow is only a PR-visible, hosted-runner
+tombstone: its job is always skipped, with no schedule, manual dispatch,
+Docker prune, or production-runner selector.
 
 ## Static deployment checks
 

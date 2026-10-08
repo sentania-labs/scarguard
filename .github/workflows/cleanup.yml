@@ -1,15 +1,23 @@
 name: Runner Cleanup (retired)
 
-# Intentionally has no triggers or jobs. Production Orin cleanup must not run
-# from a schedule or workflow_dispatch. A release-only cleanup design will be
-# introduced separately after review.
+# Kept as a valid, visible tombstone for the former production-runner cleanup.
+# It has no schedule or workflow_dispatch trigger, never selects a self-hosted
+# runner, and its sole job is unconditionally skipped. A release-only cleanup
+# design will be introduced separately after review.
 
-on: {}
+on:
+  pull_request:
+    branches: [main]
 
 # Preserve the retired workflow's read-only token default.
 permissions:
   contents: read
 
-jobs: {}
-
-  # ── Orin runner cleanup ────────────────────────────────────────────────────
+jobs:
+  retired:
+    name: Cleanup retired
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Standalone cleanup is retired
+        run: echo "Production runner cleanup is not available from this workflow."
