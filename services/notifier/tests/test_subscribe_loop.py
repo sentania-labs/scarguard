@@ -1,5 +1,7 @@
 import json
 import threading
+from collections.abc import Iterator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from main import subscribe_loop
@@ -9,7 +11,12 @@ def test_subscribe_loop_survives_malformed_messages() -> None:
     shutdown_event = threading.Event()
     received_events = []
 
-    def mock_dispatch(event, notifiers, notifiers_lock, queue):
+    def mock_dispatch(
+        event: dict[str, Any],
+        notifiers: Any,
+        notifiers_lock: Any,
+        queue: Any,
+    ) -> None:
         if event.get("crash"):
             raise ValueError("Intentional crash")
         received_events.append(event)
@@ -26,16 +33,25 @@ def test_subscribe_loop_survives_malformed_messages() -> None:
     ]
 
     class FakePubSub:
-        def subscribe(self, *args): pass
-        def listen(self):
+        def subscribe(self, *args: Any) -> None:
+            pass
+
+        def listen(self) -> Iterator[dict[str, Any]]:
             for m in malformed:
                 yield m
-        def unsubscribe(self): pass
-        def close(self): pass
+
+        def unsubscribe(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
 
     class FakeRedis:
-        def pubsub(self): return FakePubSub()
-        def close(self): pass
+        def pubsub(self) -> FakePubSub:
+            return FakePubSub()
+
+        def close(self) -> None:
+            pass
 
     with patch("main.redis_lib.Redis", return_value=FakeRedis()), \
          patch("main.dispatch", side_effect=mock_dispatch), \
