@@ -14,7 +14,9 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 # parser.
 COPY services/training-controller/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /tmp/requirements.txt
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && python -m pip uninstall -y pip setuptools wheel \
+    && rm -rf /root/.cache/pip /usr/local/lib/python3.11/site-packages/pip /usr/local/lib/python3.11/site-packages/setuptools /usr/local/lib/python3.11/site-packages/wheel
 
 COPY services/training-controller/src/ ./src/
 

@@ -14,7 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY services/trainer/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt && \
+    python -m pip uninstall -y pip setuptools wheel && \
+    rm -rf /root/.cache/pip /usr/local/lib/python3.11/site-packages/pip /usr/local/lib/python3.11/site-packages/setuptools /usr/local/lib/python3.11/site-packages/wheel
 # Note: dustynv/l4t-pytorch base image ships two pre-existing pip check warnings/errors:
 # pygobject requiring pycairo and ninja platform mismatch. Ignore these known base image defects.
 RUN pip check | grep -vE 'pygobject 3\.42\.1 requires pycairo, which is not installed\.|ninja 1\.11\.1\.1 is not supported on this platform|No broken requirements found\.' | { ! grep .; } && \

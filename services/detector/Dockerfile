@@ -25,7 +25,9 @@ WORKDIR /app
 COPY services/detector/requirements.txt ./requirements.txt
 # torch/torchvision/torchaudio are pre-installed in the base image;
 # pip will skip reinstalling them if versions are compatible.
-RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt && \
+    python -m pip uninstall -y pip setuptools wheel && \
+    rm -rf /root/.cache/pip /usr/local/lib/python3.11/site-packages/pip /usr/local/lib/python3.11/site-packages/setuptools /usr/local/lib/python3.11/site-packages/wheel
 
 # Copy application source
 COPY services/detector/src/ ./src/
