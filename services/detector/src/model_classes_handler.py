@@ -286,7 +286,7 @@ def _names_from_pt_cpu(abs_path: str) -> Any | None:
     full-ultralytics path.
     """
     try:
-        import torch  # type: ignore[import-not-found]
+        import torch
     except ImportError:
         return None
     try:
@@ -302,7 +302,7 @@ def _names_from_pt_cpu(abs_path: str) -> Any | None:
 
 def _load_yolo(abs_path: str) -> Any:
     """Indirection point so tests can monkeypatch without ultralytics installed."""
-    from ultralytics import YOLO  # type: ignore[import-not-found]
+    from ultralytics import YOLO
     return YOLO(abs_path)
 
 

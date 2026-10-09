@@ -44,7 +44,7 @@ class SnapshotGrabber(threading.Thread):
         logger.info("SnapshotGrabber started")
 
         while not self._stop.is_set():
-            client: redis_lib.Redis | None = None  # type: ignore[type-arg]
+            client: redis_lib.Redis | None = None
             pubsub = None
             try:
                 _pw = os.environ.get("REDIS_PASSWORD", "") or None
@@ -94,7 +94,7 @@ class SnapshotGrabber(threading.Thread):
         logger.info("SnapshotGrabber stopped")
 
     def _handle_request(
-        self, client: redis_lib.Redis, camera_name: str, request_id: str  # type: ignore[type-arg]
+        self, client: redis_lib.Redis, camera_name: str, request_id: str
     ) -> None:
         """Grab a single frame from the camera and publish the result."""
         result_channel = f"scarguard:snapshot:result:{request_id}"

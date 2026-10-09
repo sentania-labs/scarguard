@@ -2,6 +2,7 @@
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from fair_lock import FairLock
@@ -26,7 +27,7 @@ class YOLODetector:
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
         self.target_classes = set(target_classes)
-        self._model = None
+        self._model: Any = None
         self._lock = FairLock()
         self._load()
 

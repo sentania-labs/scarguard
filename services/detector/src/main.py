@@ -32,7 +32,6 @@ from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from evaluator import EvaluationRunner
 from events import EventProcessor
-from healthcheck import start_heartbeat
 from metrics_store import MetricsStore
 from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
@@ -335,7 +334,42 @@ def _publish_detections(
             )
 
 
-def run_camera(
+
+def run_camera(*args, **kwargs):
+    stop_event = args[12]
+    camera_cfg = args[0]
+    health_tracker = args[15]
+    name = camera_cfg["name"]
+
+    restart_count = 0
+    import time
+    while not stop_event.is_set():
+        start_t = time.monotonic()
+        try:
+            _camera_worker(*args, **kwargs)
+            break
+        except Exception as e:
+            if stop_event.is_set():
+                break
+
+            if time.monotonic() - start_t > 60:
+                restart_count = 0
+
+            restart_count += 1
+            import logging
+            log = logging.getLogger(__name__)
+            log.exception("[%s] Camera worker crashed: %s. Restarting (%d/5)", name, e, restart_count)
+
+            if health_tracker:
+                health_tracker.record_failure(name)
+
+            if restart_count > 5:
+                log.error("[%s] Camera worker failed 5 times, giving up.", name)
+                break
+
+            stop_event.wait(5.0)
+
+def _camera_worker(
     camera_cfg: dict,
     detector: YOLODetector,
     target_classes: set[str] | None,
@@ -386,7 +420,8 @@ def run_camera(
 
     while not stop_event.is_set():
         frame_count += 1
-        if frame_count % frame_skip_ref.get() != 0:
+        skip_val = max(1, frame_skip_ref.get())
+        if frame_count % skip_val != 0:
             # Advance stream without decoding - saves CPU/GPU on skipped frames
             if not stream.grab():
                 if health_tracker is not None:
@@ -405,7 +440,6 @@ def run_camera(
             continue
 
         # Touch health marker so Docker health check knows we're alive
-        Path("/tmp/healthy").touch(exist_ok=True)
 
         if health_tracker is not None:
             health_tracker.record_frame(name)
@@ -480,8 +514,6 @@ def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard detector starting")
-    start_heartbeat()
-    Path("/tmp/healthy").touch(exist_ok=True)
 
     # ---- Enabled cameras ------------------------------------------------------
     cameras: list[dict] = [c for c in cfg.get("cameras", []) if c.get("enabled", True)]
@@ -496,7 +528,7 @@ def main() -> None:
     # Mutable references so hot-reload can update these without restarting threads.
     armed_ref: AtomicRef[bool] = AtomicRef(sys_cfg.get("armed", True))
     paused_ref: AtomicRef[bool] = AtomicRef(False)
-    frame_skip_ref: AtomicRef[int] = AtomicRef(det_cfg.get("frame_skip", 2))
+    frame_skip_ref: AtomicRef[int] = AtomicRef(max(1, det_cfg.get("frame_skip", 2)))
 
     # ---- Model pool ------------------------------------------------------------
     model_pool = ModelPool(
@@ -564,7 +596,7 @@ def main() -> None:
         _write_armed_to_config(armed)
         event_processor.log_system_event("armed" if armed else "disarmed")
 
-    def _make_redis():  # type: ignore[return]
+    def _make_redis():
         import redis
 
         _pw = os.environ.get("REDIS_PASSWORD", "") or None
@@ -820,7 +852,7 @@ def main() -> None:
             event_processor.cooldown_seconds = new_cooldown
             changes.append(f"cooldown_seconds={new_cooldown}")
 
-        new_frame_skip = new_det.get("frame_skip", 2)
+        new_frame_skip = max(1, new_det.get("frame_skip", 2))
         if new_frame_skip != frame_skip_ref.get():
             frame_skip_ref.set(new_frame_skip)
             changes.append(f"frame_skip={new_frame_skip}")
@@ -900,7 +932,18 @@ def main() -> None:
     watcher.start()
 
     # ---- Wait for shutdown -----------------------------------------------------
-    global_stop.wait()
+
+    while not global_stop.wait(10.0):
+        status = health_tracker.get_all_status()
+        if not status:
+            Path("/tmp/healthy").touch(exist_ok=True)
+            continue
+
+        all_stuck = all(s["state"] == "degraded" for s in status.values())
+        if not all_stuck:
+            Path("/tmp/healthy").touch(exist_ok=True)
+        else:
+            logger.error("All cameras degraded. Failing healthcheck.")
 
     watcher.stop()
     scheduler.stop()

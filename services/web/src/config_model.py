@@ -291,6 +291,13 @@ class DetectionConfig(BaseModel):
     cooldown_seconds: int = 30
     frame_skip: int = 2
 
+    @field_validator("frame_skip")
+    @classmethod
+    def frame_skip_min(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("frame_skip must be at least 1")
+        return v
+
     @field_validator("confidence_threshold")
     @classmethod
     def conf_range(cls, v: float) -> float:
