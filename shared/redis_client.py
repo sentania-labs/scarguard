@@ -118,10 +118,17 @@ def reconnect_loop(
                     pathlib.Path(health_path).touch(exist_ok=True)
                 try:
                     payload = json.loads(message["data"])
+                    if not isinstance(payload, dict):
+                        _log.warning("Malformed message on %s (not a dict): %s", message["channel"], message["data"])
+                        continue
                 except json.JSONDecodeError:
                     _log.warning("Malformed message on %s: %s", message["channel"], message["data"])
                     continue
-                handler(message["channel"], payload)
+
+                try:
+                    handler(message["channel"], payload)
+                except Exception:
+                    _log.exception("Error processing message on %s", message["channel"])
 
         except redis_lib.RedisError:
             if shutdown.is_set():
