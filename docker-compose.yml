@@ -68,14 +68,14 @@ services:
     # v1.14: --maxmemory caps Redis at 200MB and evicts least-recently-used
     # keys when full. Pre-v1.14 Redis would grow unbounded; a misbehaving
     # publisher (or a bug in the rate-limit counters) could slowly OOM the
-    # host. The eviction policy is allkeys-lru since none of our keys are
-    # critical (pubsub is ephemeral, rate-limit is best-effort, sessions
-    # live in SQLite not Redis).
+    # host. volatile-lru protects the OFF watchdog's non-expiring lease records;
+    # their expiring deadline markers and cache/rate-limit keys remain evictable.
+    # An early deadline-marker eviction is fail-safe because it triggers OFF.
     command: >-
       sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
-        exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 200mb --maxmemory-policy allkeys-lru;
+        exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 200mb --maxmemory-policy volatile-lru;
       else
-        exec redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru;
+        exec redis-server --maxmemory 200mb --maxmemory-policy volatile-lru;
       fi'
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -310,6 +310,7 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+      OFF_WATCHDOG_HMAC_KEY: ${OFF_WATCHDOG_HMAC_KEY:-}
       DETERRENT_DB_PATH: /data/deterrent.db
     healthcheck:
       test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
@@ -345,6 +346,42 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m
+
+  # Independent fail-safe: consumes finite signed activation leases and has
+  # only OFF-capable Tuya code. It deliberately does not depend on deterrent.
+  off-watchdog:
+    build:
+      context: .
+      dockerfile: services/off-watchdog/Dockerfile
+    image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-off-watchdog:${IMAGE_TAG:-latest}
+    environment:
+      CONFIG_PATH: /config/scarguard.yml
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      OFF_WATCHDOG_HMAC_KEY: ${OFF_WATCHDOG_HMAC_KEY:-}
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    volumes:
+      - scarguard-config:/config:ro
+      # Read-only access is needed only for the config decryption key.
+      - scarguard-data:/data:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 50
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
 
   # ── Backup sidecar ────────────────────────────────────────────────────────
   # v1.14: SQLite online-backup sidecar.  Backs up scarguard.db, auth.db,

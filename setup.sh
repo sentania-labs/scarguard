@@ -189,6 +189,15 @@ if [[ -f ".env" ]]; then
         fi
         info "Backfilled DETECTION_HMAC_KEY (signs Redis detection events)"
     fi
+    if ! grep -q '^OFF_WATCHDOG_HMAC_KEY=.\+' .env; then
+        WATCHDOG_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+        if grep -q '^OFF_WATCHDOG_HMAC_KEY=' .env; then
+            sed -i "s|^OFF_WATCHDOG_HMAC_KEY=.*|OFF_WATCHDOG_HMAC_KEY=${WATCHDOG_KEY}|" .env
+        else
+            echo "OFF_WATCHDOG_HMAC_KEY=${WATCHDOG_KEY}" >> .env
+        fi
+        info "Backfilled OFF_WATCHDOG_HMAC_KEY (authenticates bounded activation leases)"
+    fi
     if ! grep -q '^TRAINING_CONTROLLER_TOKEN=.\\{32\\}' .env; then
         bash infra/backfill-training-controller-token.sh .env
         info "Backfilled TRAINING_CONTROLLER_TOKEN (protects detector lifecycle API)"
@@ -235,6 +244,9 @@ else
     # internal Redis bus is unauthenticated.
     HMAC_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
     sed -i "s|^DETECTION_HMAC_KEY=.*|DETECTION_HMAC_KEY=${HMAC_KEY}|" .env
+
+    WATCHDOG_KEY=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+    sed -i "s|^OFF_WATCHDOG_HMAC_KEY=.*|OFF_WATCHDOG_HMAC_KEY=${WATCHDOG_KEY}|" .env
 
     # Dedicated training controller API credential; intentionally not shared
     # with web, detector, notifier, deterrent, or other Compose peers.

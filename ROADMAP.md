@@ -1,6 +1,16 @@
 # ScarGuard: Roadmap
 
+FDY-0568 upload hardening is implemented for review: early authentication and
+CSRF, streamed size enforcement, proxy caps, and model/dataset settings.
+The existing 500 MiB dataset/video use case remains supported. Delivery is a
+reviewed code change only; no release or deployment is part of this task.
+
 Active and planned features. Each item includes acceptance criteria. Completed features (1–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
+
+FDY-0556 adds the approved independent OFF-only watchdog: authenticated finite
+activation leases, conservative startup OFF, and crash recovery in a separate
+resource-constrained container. Hardware firmware auto-off verification remains
+an operational follow-up, not a software capability.
 ---
 
 ## v1.17.1: event review and focused fixes

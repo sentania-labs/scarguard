@@ -138,7 +138,13 @@ class ConfigApiConfig(BaseModel):
     enabled: bool = False
 
 
+class UploadLimitsConfig(BaseModel):
+    model_mb: int = Field(default=500, ge=1, le=16384)
+    dataset_mb: int = Field(default=500, ge=1, le=16384)
+
+
 class SystemConfig(BaseModel):
+    uploads: UploadLimitsConfig = Field(default_factory=UploadLimitsConfig)
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"

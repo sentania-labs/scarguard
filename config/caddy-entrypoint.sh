@@ -22,11 +22,12 @@ CADDYFILE="/etc/caddy/Caddyfile"
 
 generate_caddyfile() {
     python3 - "$CONFIG_PATH" "$CADDYFILE" <<'PYEOF'
-import os, sys, yaml, pathlib
+import os, sys, yaml, pathlib, re
 
 config_path = sys.argv[1]
 caddyfile_path = sys.argv[2]
 
+cfg = {}
 tls_cfg = {}
 try:
     with open(config_path) as f:
@@ -91,6 +92,43 @@ if config_api_enabled:
 else:
     config_api_block = ""
 
+# Match the application defaults and its 1 MiB multipart envelope allowance.
+# Invalid values fall back conservatively; the UI validates 1..16384 MiB.
+uploads_cfg = sys_cfg.get("uploads") or {}
+if not isinstance(uploads_cfg, dict):
+    uploads_cfg = {}
+def upload_bytes(key):
+    value = uploads_cfg.get(key, 500)
+    # Raw YAML may quote integer settings; the application's Pydantic
+    # model accepts those strings too. Never truncate fractional limits.
+    if isinstance(value, str):
+        value = value.strip()
+        if re.fullmatch(r"[+-]?[0-9](?:_?[0-9])*(?:\.0+)?", value):
+            try:
+                value = int(value.split(".", 1)[0])
+            except ValueError:
+                value = 500
+        else:
+            value = 500
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 16384:
+        value = 500
+    return (value + 1) * 1024 * 1024
+
+request_limits = f"""
+\t@model_upload path /models /models/
+\trequest_body @model_upload {{
+\t\tmax_size {upload_bytes("model_mb")}
+\t}}
+\t@dataset_upload path /admin/training/uploads /admin/training/uploads/
+\trequest_body @dataset_upload {{
+\t\tmax_size {upload_bytes("dataset_mb")}
+\t}}
+\t@ordinary_request not path /models /models/ /admin/training/uploads /admin/training/uploads/
+\trequest_body @ordinary_request {{
+\t\tmax_size 1048576
+\t}}
+"""
+
 snippet = """(scarguard) {
 \theader {
 \t\tX-Frame-Options DENY
@@ -109,7 +147,7 @@ snippet = """(scarguard) {
 \t\tpath /.git/* /_ignition/* /aws*config.js /config.js
 \t}
 \trespond @probes 404
-""" + config_api_block + """\treverse_proxy web:8080
+""" + request_limits + config_api_block + """\treverse_proxy web:8080
 }
 """
 
