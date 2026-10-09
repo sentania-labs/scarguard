@@ -1,4 +1,4 @@
-FROM ubuntu:22.04@sha256:2edbbc5dc405e9612ba3584ce95480277e3eb374407b5505fe26f17df77c7dbc
+FROM ubuntu:22.04@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401
 # Note: Using 22.04 to match JetPack 6.x userspace (Ubuntu 22.04 Jammy)
 ENV DEBIAN_FRONTEND=noninteractive
 

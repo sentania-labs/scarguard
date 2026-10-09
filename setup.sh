@@ -374,11 +374,18 @@ else
         fi
 
         if [[ "$STARTER_DOWNLOADED" == "true" ]]; then
-            docker run --rm \
-                -v scarguard-models:/models \
-                -v "${_tmp_model}:/src/yolov8n.pt:ro" \
-                alpine:3.20 cp /src/yolov8n.pt /models/yolov8n.pt
-            info "Downloaded: yolov8n.pt (stored in models volume)"
+            EXPECTED_SHA256="f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36"
+            ACTUAL_SHA256=$(sha256sum "$_tmp_model" | awk '{print $1}')
+            if [ "$EXPECTED_SHA256" != "$ACTUAL_SHA256" ]; then
+                error "Starter model digest mismatch! Expected $EXPECTED_SHA256 but got $ACTUAL_SHA256"
+                error "Aborting download to prevent compromised model execution."
+            else
+                docker run --rm \
+                    -v scarguard-models:/models \
+                    -v "${_tmp_model}:/src/yolov8n.pt:ro" \
+                    alpine:3.20 cp /src/yolov8n.pt /models/yolov8n.pt
+                info "Downloaded: yolov8n.pt (stored in models volume)"
+            fi
             if [[ "$CONFIG_IS_NEW" == "true" ]]; then
                 info "config/scarguard.yml is pre-configured for the starter model."
             fi
