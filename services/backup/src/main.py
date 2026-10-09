@@ -104,6 +104,7 @@ def backup_database(
     db_path: Path,
     *,
     compress: bool,
+    triggered_by: str = "schedule",
 ) -> Path | None:
     """Run SQLite's online backup API against *db_path* and write to disk.
 
@@ -116,9 +117,14 @@ def backup_database(
     target_dir = BACKUP_ROOT / db_name
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    import uuid
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     suffix = ".db.gz" if compress else ".db"
-    final_path = target_dir / f"{timestamp}{suffix}"
+
+    name_base = f"{timestamp}-{triggered_by}" if triggered_by != "schedule" else timestamp
+    final_path = target_dir / f"{name_base}{suffix}"
+    if final_path.exists():
+        final_path = target_dir / f"{name_base}-{uuid.uuid4().hex[:6]}{suffix}"
 
     # Two-step: backup to a tmpfile in the same dir (atomic rename later),
     # optionally gzip. SQLite's .backup API holds shared locks but doesn't
@@ -137,12 +143,22 @@ def backup_database(
         finally:
             src.close()
 
+        # quick_check successful snapshots
+        dst_check = sqlite3.connect(tmp)
+        try:
+            cur = dst_check.execute("PRAGMA quick_check")
+            row = cur.fetchone()
+            if not row or row[0] != "ok":
+                raise ValueError("backup integrity check failed")
+        finally:
+            dst_check.close()
+
         if compress:
             # Gzip into a sibling .partial file, then atomically rename
             # to final_path. Writing gzip directly to final_path would
             # leave a truncated .db.gz in place on interrupt/failure,
             # which restore would happily pick up as a valid snapshot.
-            gz_tmp = final_path.with_suffix(final_path.suffix + ".partial")
+            gz_tmp = target_dir / f".tmp-{uuid.uuid4().hex}.partial"
             try:
                 with open(tmp, "rb") as f_in:
                     with gzip.open(gz_tmp, "wb", compresslevel=6) as f_out:
@@ -165,29 +181,30 @@ def backup_database(
 
 
 def prune_backups(db_name: str, daily: int, weekly: int) -> int:
-    """Apply retention. Keep the *daily* most recent files plus *weekly*
-    additional files spaced ~7 days apart. Returns count of files deleted.
-
-    Sorting by filename works because filenames embed an ISO 8601-ish
-    timestamp."""
     target_dir = BACKUP_ROOT / db_name
     if not target_dir.exists():
         return 0
 
-    files = sorted(target_dir.glob("*.db*"), reverse=True)  # newest first
+    all_files = sorted(target_dir.glob("*.db*"), reverse=True)
+    files = [f for f in all_files if not (f.name.endswith(".partial") or f.name.endswith(".tmp"))]
+
+    manual_files = [f for f in files if "-manual" in f.name]
+    schedule_files = [f for f in files if "-manual" not in f.name]
+
     keep: set[Path] = set()
 
-    # Keep the N most recent as dailies.
-    for f in files[:daily]:
+    # Bounded manual-backup retention
+    for f in manual_files[:10]:
         keep.add(f)
 
-    # From the rest, sample one per week-ish based on filename date.
-    if weekly > 0 and len(files) > daily:
+    for f in schedule_files[:daily]:
+        keep.add(f)
+
+    if weekly > 0 and len(schedule_files) > daily:
         seen_weeks: set[str] = set()
-        for f in files[daily:]:
+        for f in schedule_files[daily:]:
             try:
-                # Filename starts with YYYY-MM-DD; ISO week-ish bucket.
-                date_part = f.name[:10]  # "2026-04-22"
+                date_part = f.name[:10]
                 dt = datetime.strptime(date_part, "%Y-%m-%d")
                 week_key = dt.strftime("%G-W%V")
             except (ValueError, IndexError):
@@ -212,6 +229,8 @@ def prune_backups(db_name: str, daily: int, weekly: int) -> int:
     return deleted
 
 
+backup_lock = threading.Lock()
+
 def run_backup_cycle(
     cfg: dict[str, Any],
     publisher: redis_lib.Redis | None,
@@ -219,44 +238,49 @@ def run_backup_cycle(
     triggered_by: str = "schedule",
 ) -> dict[str, Any]:
     """Backup every database, apply retention, return a status summary."""
-    compress = _compress(cfg)
-    daily, weekly = _retention(cfg)
-    started = datetime.now(timezone.utc)
-    _publish_status(publisher, {
-        "phase": "started",
-        "triggered_by": triggered_by,
-        "timestamp": started.isoformat(),
-    })
+    if not backup_lock.acquire(blocking=False):
+        return {"phase": "skipped", "reason": "already running"}
+    try:
+        compress = _compress(cfg)
+        daily, weekly = _retention(cfg)
+        started = datetime.now(timezone.utc)
+        _publish_status(publisher, {
+            "phase": "started",
+            "triggered_by": triggered_by,
+            "timestamp": started.isoformat(),
+        })
 
-    results: list[dict[str, Any]] = []
-    success = True
-    for db_name, db_path in DATABASES:
-        try:
-            out = backup_database(db_name, db_path, compress=compress)
-            if out is not None:
-                results.append({
-                    "db": db_name,
-                    "file": out.name,
-                    "size_bytes": out.stat().st_size,
-                    "ok": True,
-                })
-                prune_backups(db_name, daily, weekly)
-        except Exception as exc:
-            logger.exception("Backup failed for %s", db_name)
-            results.append({"db": db_name, "ok": False, "error": str(exc)})
-            success = False
+        results: list[dict[str, Any]] = []
+        success = True
+        for db_name, db_path in DATABASES:
+            try:
+                out = backup_database(db_name, db_path, compress=compress, triggered_by=triggered_by)
+                if out is not None:
+                    results.append({
+                        "db": db_name,
+                        "file": out.name,
+                        "size_bytes": out.stat().st_size,
+                        "ok": True,
+                    })
+                    prune_backups(db_name, daily, weekly)
+            except Exception as exc:
+                logger.exception("Backup failed for %s", db_name)
+                results.append({"db": db_name, "ok": False, "error": str(exc)})
+                success = False
 
-    finished = datetime.now(timezone.utc)
-    summary = {
-        "phase": "completed",
-        "triggered_by": triggered_by,
-        "started_at": started.isoformat(),
-        "finished_at": finished.isoformat(),
-        "success": success,
-        "results": results,
-    }
-    _publish_status(publisher, summary)
-    return summary
+        finished = datetime.now(timezone.utc)
+        summary = {
+            "phase": "completed",
+            "triggered_by": triggered_by,
+            "started_at": started.isoformat(),
+            "finished_at": finished.isoformat(),
+            "success": success,
+            "results": results,
+        }
+        _publish_status(publisher, summary)
+        return summary
+    finally:
+        backup_lock.release()
 
 
 def _publish_status(client: redis_lib.Redis | None, payload: dict[str, Any]) -> None:
