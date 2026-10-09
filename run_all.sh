@@ -1,0 +1,7 @@
+set -e
+PYTHONPATH=services/web/src:shared uv run --no-project --with-requirements services/web/requirements.txt --with pytest --with httpx --with pillow python -m pytest -q services/web/tests
+MYPYPATH=services/web/src:shared uv run --no-project --with-requirements services/web/requirements.txt --with mypy --with types-PyYAML --with types-requests --with types-redis python -m mypy services/web/src shared --ignore-missing-imports --explicit-package-bases
+PYTHONPATH=services/notifier/src:shared uv run --no-project --with-requirements services/notifier/requirements.txt --with pytest --with httpx --with pillow python -m pytest -q services/notifier/tests
+MYPYPATH=services/notifier/src:shared uv run --no-project --with-requirements services/notifier/requirements.txt --with mypy --with types-PyYAML --with types-requests --with types-redis python -m mypy services/notifier/src shared --ignore-missing-imports --explicit-package-bases
+PYTHONPATH=services/deterrent/src:shared uv run --no-project --with-requirements services/deterrent/requirements.txt --with pytest --with httpx --with pillow python -m pytest -q services/deterrent/tests
+MYPYPATH=services/deterrent/src:shared uv run --no-project --with-requirements services/deterrent/requirements.txt --with mypy --with types-PyYAML --with types-requests --with types-redis python -m mypy services/deterrent/src shared --ignore-missing-imports --explicit-package-bases

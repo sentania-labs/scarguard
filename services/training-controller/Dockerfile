@@ -1,5 +1,5 @@
 # Narrow lifecycle boundary for hard detector GPU isolation.
-FROM docker.io/library/python:3.11-slim@sha256:f9fa7f851e38bfb19c9de3afbc4b86ae7176ea7aaf94535c31df5458d5849457
+FROM docker.io/library/python:3.11-slim@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
 WORKDIR /app
 
@@ -12,9 +12,10 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 # The base image's setuptools/wheel carry fixable HIGH CVEs (Trivy-gated),
 # so upgrade the build tooling before installing the controller's pinned YAML
 # parser.
-COPY services/training-controller/requirements.txt /tmp/requirements.txt
+COPY services/training-controller/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /tmp/requirements.txt
+    && pip install --no-cache-dir -r /tmp/requirements.lock \
+    && python3 -m pip uninstall -y pip setuptools wheel
 
 COPY services/training-controller/src/ ./src/
 

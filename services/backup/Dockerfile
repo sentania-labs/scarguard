@@ -6,15 +6,16 @@
 # /data/backups/{db_name}/{YYYY-MM-DD}.db.gz on a configurable schedule.
 # Subscribes to scarguard:backup:trigger for manual web-UI triggers and
 # publishes scarguard:backup:status so the UI can surface backup state.
-FROM docker.io/library/python:3.11-slim@sha256:f9fa7f851e38bfb19c9de3afbc4b86ae7176ea7aaf94535c31df5458d5849457
+FROM docker.io/library/python:3.11-slim@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
 WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
-COPY services/backup/requirements.txt ./requirements.txt
+COPY services/backup/requirements.lock ./requirements.lock
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.lock && \
+    pip uninstall -y pip setuptools wheel
 
 COPY services/backup/src/ ./src/
 COPY shared/ ./shared/
