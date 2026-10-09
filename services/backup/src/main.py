@@ -54,6 +54,7 @@ STATUS_CHANNEL = "scarguard:backup:status"
 _TRIGGER_KEY: bytes | None = None
 _VERIFY_TRIGGER = None
 _CHANNEL_TRIGGER = None
+_DERIVE_KEY = None
 
 try:
     from event_signing import (
@@ -61,12 +62,14 @@ try:
     )
     from event_signing import (
         _ReplayCache,
+        derive_channel_key as _EF_DK,
         load_key_from_env,
     )
     from event_signing import (
         verify_event as _EF_VE,
     )
     _TRIGGER_KEY = load_key_from_env()
+    _DERIVE_KEY = _EF_DK
     _VERIFY_TRIGGER = _EF_VE
     _CHANNEL_TRIGGER = _EF_CF
     _TRIGGER_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _TRIGGER_KEY else None
@@ -83,7 +86,8 @@ def _verify_trigger(payload: dict) -> bool:
     ch = payload.get(_CHANNEL_TRIGGER)
     if isinstance(ch, str) and ch != TRIGGER_CHANNEL:
         return False
-    return _VERIFY_TRIGGER(payload, _TRIGGER_KEY, TRIGGER_CHANNEL, _TRIGGER_CACHE)
+    channel_key = _DERIVE_KEY(_TRIGGER_KEY, TRIGGER_CHANNEL) if _DERIVE_KEY else _TRIGGER_KEY
+    return _VERIFY_TRIGGER(payload, channel_key, TRIGGER_CHANNEL, _TRIGGER_CACHE)  # type: ignore[arg-type]
 
 DEFAULT_INTERVAL_HOURS = 24
 DEFAULT_RETENTION_DAILY = 14

@@ -8,7 +8,7 @@ import uuid
 from collections import deque
 
 import redis as redis_lib
-from event_signing import load_key_from_env, sign_event
+from event_signing import derive_channel_key, load_key_from_env, sign_event
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,9 @@ class RedisPublisher:
 
     def publish(self, event: dict) -> None:
         if self._sign_key is not None:
+            channel_key = derive_channel_key(self._sign_key, CHANNEL)
             # Add a unique nonce so the replay cache can deduplicate.
-            event = sign_event(event, self._sign_key, CHANNEL)
+            event = sign_event(event, channel_key, CHANNEL)
             # Ensure the event has a unique nonce for the replay cache.
             from event_signing import NONCE_FIELD
 

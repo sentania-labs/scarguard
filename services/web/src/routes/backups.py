@@ -25,7 +25,7 @@ from typing import Any
 import audit
 import config_store
 import redis.asyncio as aioredis
-from event_signing import load_key_from_env, sign_event
+from event_signing import derive_channel_key, load_key_from_env, sign_event
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -168,7 +168,8 @@ async def trigger_backup(request: Request) -> Response:
     sign_key = load_key_from_env()
     trigger_payload = {"request_id": request_id}
     if sign_key is not None:
-        publish_data = json.dumps(sign_event(trigger_payload, sign_key, TRIGGER_CHANNEL))
+        channel_key = derive_channel_key(sign_key, TRIGGER_CHANNEL)
+        publish_data = json.dumps(sign_event(trigger_payload, channel_key, TRIGGER_CHANNEL))
     else:
         publish_data = json.dumps(trigger_payload)
 

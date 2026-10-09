@@ -34,6 +34,7 @@ from deterrent_safety import (
 )
 from event_signing import (
     _ReplayCache,
+    derive_channel_key,
     load_key_from_env,
     verify_event,
 )
@@ -245,7 +246,7 @@ class RequestHandler:
                     ):
                         if not verify_event(
                             payload,
-                            self._cmd_key,
+                            derive_channel_key(self._cmd_key, channel),
                             channel=channel,
                             cache=self._cmd_cache,
                         ):

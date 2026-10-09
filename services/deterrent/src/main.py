@@ -30,7 +30,7 @@ from cloud_controller import TuyaCloudController
 from config_watcher import ConfigWatcher
 from cooldown import CooldownTracker, GroupCooldownTracker
 from deterrent_safety import DEFAULT_TEST_FIRE_SEC, MAX_GROUP_TEST_FIRE_SEC
-from event_signing import load_key_from_env, verify_event
+from event_signing import _ReplayCache, load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
 from randomizer import pick_group_window
@@ -1093,8 +1093,10 @@ def subscribe_loop(
             "DETECTION_HMAC_KEY not set - accepting unsigned detection events. "
             "Run setup.sh to generate the key and restart all services.",
         )
+        replay_cache = None
     else:
         logger.info("Detection event signatures will be verified")
+        replay_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
     unsigned_warned = False
     invalid_warned = False
 
@@ -1135,7 +1137,12 @@ def subscribe_loop(
 
                 try:
                     if hmac_key is not None:
-                        if not verify_event(event, hmac_key):
+                        if not verify_event(
+                            event,
+                            hmac_key,
+                            channel=CHANNEL,
+                            cache=replay_cache,
+                        ):
                             if not invalid_warned:
                                 logger.error(
                                     "Rejecting detection event with invalid/missing "

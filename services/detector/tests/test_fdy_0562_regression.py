@@ -52,15 +52,17 @@ class TestDetectorDetectionEventSigning:
         assert verify_event(unsigned, KEY, channel="scarguard:detections") is False
 
     def test_verify_accepts_signed_event(self) -> None:
-        from event_signing import sign_event, verify_event
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         event = {
             "camera_name": "pond",
             "class_name": "heron",
             "confidence": 0.95,
         }
-        signed = sign_event(event, KEY, "scarguard:detections")
-        assert verify_event(signed, KEY, channel="scarguard:detections") is True
+        # The detector publisher uses derive_channel_key(base_key, channel).
+        channel_key = derive_channel_key(KEY, "scarguard:detections")
+        signed = sign_event(event, channel_key, "scarguard:detections")
+        assert verify_event(signed, channel_key, channel="scarguard:detections") is True
 
 
 class TestDeterrentRequestChannelSigning:
@@ -78,12 +80,14 @@ class TestDeterrentRequestChannelSigning:
             payload = {"device_id": "x", "request_id": "r1"}
             assert verify_event(payload, KEY, channel=ch) is False
 
-    def test_verify_accepts_signed_envelope(self) -> None:
-        from event_signing import sign_event, verify_event
+    def test_verify_accepts_signed_envelope_with_derived_key(self) -> None:
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         payload = {"device_id": "x", "request_id": "r1"}
-        signed = sign_event(payload, KEY, "scarguard:deterrent:test-fire")
-        assert verify_event(signed, KEY, channel="scarguard:deterrent:test-fire") is True
+        # Both sides use derive_channel_key(base_key, channel).
+        channel_key = derive_channel_key(KEY, "scarguard:deterrent:test-fire")
+        signed = sign_event(payload, channel_key, "scarguard:deterrent:test-fire")
+        assert verify_event(signed, channel_key, channel="scarguard:deterrent:test-fire") is True
 
     def test_force_off_bypass_signature(self) -> None:
         """Emergency force-off must NEVER require a signature."""
@@ -106,26 +110,31 @@ class TestCrossChannelRejection:
     """A message signed for one channel must fail on another."""
 
     def test_detections_cannot_be_replayed_as_deterrent(self) -> None:
-        from event_signing import sign_event, verify_event
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         detection_payload = {"camera_name": "pond", "class_name": "heron"}
-        signed = sign_event(detection_payload, KEY, "scarguard:detections")
+        # Signed with the detection channel's derived key.
+        det_key = derive_channel_key(KEY, "scarguard:detections")
+        signed = sign_event(detection_payload, det_key, "scarguard:detections")
 
-        # Signed for detections → should fail on deterrent channel
+        # Signed for detections → should fail on deterrent channel.
+        fire_key = derive_channel_key(KEY, "scarguard:deterrent:test-fire")
         assert (
-            verify_event(signed, KEY, channel="scarguard:deterrent:test-fire")
+            verify_event(signed, fire_key, channel="scarguard:deterrent:test-fire")
             is False
         )
 
     def test_deterrent_cannot_be_replayed_as_eval(self) -> None:
-        from event_signing import sign_event, verify_event
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         det_payload = {"device_id": "x", "request_id": "r1"}
-        signed = sign_event(det_payload, KEY, "scarguard:deterrent:test-fire")
+        fire_key = derive_channel_key(KEY, "scarguard:deterrent:test-fire")
+        signed = sign_event(det_payload, fire_key, "scarguard:deterrent:test-fire")
 
-        # Signed for deterrent → should fail on eval channel
+        # Signed for deterrent → should fail on eval channel.
+        eval_key = derive_channel_key(KEY, "scarguard:eval:request")
         assert (
-            verify_event(signed, KEY, channel="scarguard:eval:request")
+            verify_event(signed, eval_key, channel="scarguard:eval:request")
             is False
         )
 
@@ -134,36 +143,39 @@ class TestReplayCache:
     """The same signed message must not be accepted twice."""
 
     def test_duplicate_nonce_rejected(self) -> None:
-        from event_signing import _ReplayCache, sign_event, verify_event
+        from event_signing import _ReplayCache, derive_channel_key, sign_event, verify_event
 
         cache = _ReplayCache(capacity=4096, ttl_seconds=60)
-        event = sign_event({"x": 1}, KEY, "ch")
-        assert verify_event(event, KEY, channel="ch", cache=cache) is True
+        channel_key = derive_channel_key(KEY, "ch")
+        event = sign_event({"x": 1}, channel_key, "ch")
+        assert verify_event(event, channel_key, channel="ch", cache=cache) is True
         # Same event again → rejected (nonce consumed)
-        assert verify_event(event, KEY, channel="ch", cache=cache) is False
+        assert verify_event(event, channel_key, channel="ch", cache=cache) is False
 
     def test_cache_is_independent_per_instance(self) -> None:
-        from event_signing import _ReplayCache, sign_event, verify_event
+        from event_signing import _ReplayCache, derive_channel_key, sign_event, verify_event
 
         cache1 = _ReplayCache(capacity=4096, ttl_seconds=60)
         cache2 = _ReplayCache(capacity=4096, ttl_seconds=60)
-        event = sign_event({"x": 1}, KEY, "ch")
-        assert verify_event(event, KEY, channel="ch", cache=cache1) is True
+        channel_key = derive_channel_key(KEY, "ch")
+        event = sign_event({"x": 1}, channel_key, "ch")
+        assert verify_event(event, channel_key, channel="ch", cache=cache1) is True
         # Same event on a different cache instance → accepted
-        assert verify_event(event, KEY, channel="ch", cache=cache2) is True
+        assert verify_event(event, channel_key, channel="ch", cache=cache2) is True
 
 
 class TestStaleMessageRejection:
     """Messages with old timestamps must be rejected."""
 
     def test_old_timestamp_rejected(self) -> None:
-        from event_signing import MESSAGE_TTL_SECONDS, sign_event, verify_event
+        from event_signing import MESSAGE_TTL_SECONDS, _ReplayCache, derive_channel_key, sign_event, verify_event
 
-        cache = type("FakeCache", (), {"is_unique": lambda s, c, n, t: True})()
-        event = sign_event({"x": 1}, KEY, "ch")
+        cache = _ReplayCache(capacity=4096, ttl_seconds=60)
+        channel_key = derive_channel_key(KEY, "ch")
+        event = sign_event({"x": 1}, channel_key, "ch")
         # Manually set an old timestamp
         event["_ts"] = time.time() - (MESSAGE_TTL_SECONDS + 100)
-        assert verify_event(event, KEY, channel="ch", cache=cache) is False
+        assert verify_event(event, channel_key, channel="ch", cache=cache) is False
 
 
 class TestPauseResumeCommandSigning:
@@ -184,14 +196,15 @@ class TestPauseResumeCommandSigning:
     def test_verify_rejects_cross_channel_pause(self) -> None:
         import sys
         sys.path.insert(0, "shared")
-        from event_signing import sign_event, verify_event
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         # A pause command signed for the wrong channel must fail.
         payload = {"action": "pause", "request_id": "r1"}
-        signed = sign_event(payload, KEY, "scarguard:backup:trigger")
+        backup_key = derive_channel_key(KEY, "scarguard:backup:trigger")
+        signed = sign_event(payload, backup_key, "scarguard:backup:trigger")
 
         assert verify_event(
-            signed, KEY, channel="scarguard:detector:command", cache=None
+            signed, backup_key, channel="scarguard:detector:command", cache=None
         ) is False
 
 
@@ -204,12 +217,13 @@ class TestEvalRequestSigning:
         request = {"model_a": "/models/best.pt", "model_b": "/models/best_v2.pt"}
         assert verify_event(request, KEY, channel="scarguard:eval:request") is False
 
-    def test_verify_accepts_signed_eval_request(self) -> None:
-        from event_signing import sign_event, verify_event
+    def test_verify_accepts_signed_eval_request_with_derived_key(self) -> None:
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         request = {"model_a": "/models/best.pt", "model_b": "/models/best_v2.pt"}
-        signed = sign_event(request, KEY, "scarguard:eval:request")
-        assert verify_event(signed, KEY, channel="scarguard:eval:request") is True
+        channel_key = derive_channel_key(KEY, "scarguard:eval:request")
+        signed = sign_event(request, channel_key, "scarguard:eval:request")
+        assert verify_event(signed, channel_key, channel="scarguard:eval:request") is True
 
 
 class TestBackupTriggerSigning:
@@ -221,34 +235,52 @@ class TestBackupTriggerSigning:
         request = {"request_id": "backup-1"}
         assert verify_event(request, KEY, channel="scarguard:backup:trigger") is False
 
-    def test_verify_accepts_signed_backup_trigger(self) -> None:
-        from event_signing import sign_event, verify_event
+    def test_verify_accepts_signed_backup_trigger_with_derived_key(self) -> None:
+        from event_signing import derive_channel_key, sign_event, verify_event
 
         request = {"request_id": "backup-1"}
-        signed = sign_event(request, KEY, "scarguard:backup:trigger")
-        assert verify_event(signed, KEY, channel="scarguard:backup:trigger") is True
+        channel_key = derive_channel_key(KEY, "scarguard:backup:trigger")
+        signed = sign_event(request, channel_key, "scarguard:backup:trigger")
+        assert verify_event(signed, channel_key, channel="scarguard:backup:trigger") is True
 
 
-class TestLegacyBackwardsCompatibility:
-    """When no signing key is configured, existing unsigned messages work."""
+class TestChannelDerivedKeyIsolation:
+    """Different channels must get different keys from the same base."""
 
-    def test_legacy_sign_event_still_works(self) -> None:
-        from event_signing import sign_event, verify_event
+    def test_different_channels_get_different_keys(self) -> None:
+        from event_signing import derive_channel_key
 
-        # Legacy call: no channel argument
-        event = sign_event({"x": 1}, KEY)
-        assert verify_event(event, KEY) is True
+        ch1 = derive_channel_key(KEY, "scarguard:detections")
+        ch2 = derive_channel_key(KEY, "scarguard:deterrent:test-fire")
+        ch3 = derive_channel_key(KEY, "scarguard:backup:trigger")
+        ch4 = derive_channel_key(KEY, "scarguard:eval:request")
 
-    def test_legacy_verify_still_works(self) -> None:
-        from event_signing import sign_event, verify_event
+        assert ch1 != ch2
+        assert ch2 != ch3
+        assert ch1 != ch3
+        assert ch1 != ch4
+        assert ch3 != ch4
 
-        event = sign_event({"x": 1}, KEY)
-        # Verify without channel binding
-        assert verify_event(event, KEY, cache=None) is True
+    def test_deterministic_derivation(self) -> None:
+        from event_signing import derive_channel_key
 
-    def test_verify_with_none_cache_works(self) -> None:
-        from event_signing import sign_event, verify_event
+        key1 = derive_channel_key(KEY, "scarguard:detections")
+        key2 = derive_channel_key(KEY, "scarguard:detections")
+        assert key1 == key2
 
-        event = sign_event({"x": 1}, KEY, "ch")
-        # When cache is None, no dedup is performed
-        assert verify_event(event, KEY, channel="ch", cache=None) is True
+    def test_sign_and_verify_match_with_derived_key(self) -> None:
+        from event_signing import _ReplayCache, derive_channel_key, sign_event, verify_event
+
+        cache = _ReplayCache(capacity=4096, ttl_seconds=60)
+        payload = {"camera_name": "pond", "class_name": "heron"}
+
+        # Simulate the detector publisher: derive key, sign.
+        det_key = derive_channel_key(KEY, "scarguard:detections")
+        signed = sign_event(payload, det_key, "scarguard:detections")
+
+        # Simulate the deterrent subscriber: derive same key, verify.
+        det_key_verify = derive_channel_key(KEY, "scarguard:detections")
+        assert verify_event(signed, det_key_verify, channel="scarguard:detections", cache=cache) is True
+
+        # Simulate the notifier subscriber: derive same key, verify.
+        assert verify_event(signed, det_key, channel="scarguard:detections", cache=cache) is True

@@ -217,6 +217,7 @@ def subscribe_loop(
     """
     from event_signing import (
         _ReplayCache,
+        derive_channel_key,
         load_key_from_env,
         set_replay_cache,
         verify_event,
@@ -229,6 +230,9 @@ def subscribe_loop(
         logger.warning(
             "DETECTION_HMAC_KEY not set - dispatching unsigned events.",
         )
+        derived_key: bytes | None = None
+    else:
+        derived_key = derive_channel_key(hmac_key, CHANNEL)
     # Per-service replay cache for detection events.  4096 entries at
     # a 60 s TTL means ~68 events/s sustained before evictions start.
     replay_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
@@ -269,10 +273,10 @@ def subscribe_loop(
                     # Signature verification (detection channel only - health alerts
                     # come from the detector's health publisher, not the detection
                     # publisher, and aren't signed today).
-                    if message["channel"] == CHANNEL and hmac_key is not None:
+                    if message["channel"] == CHANNEL and derived_key is not None:
                         if not verify_event(
                             event,
-                            hmac_key,
+                            derived_key,
                             channel=CHANNEL,
                             cache=replay_cache,
                         ):

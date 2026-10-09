@@ -31,6 +31,7 @@ RESULT_TTL = 3600  # 1 hour
 _EVAL_KEY: bytes | None = None
 _VERIFY_EVAL = None
 _CHANNELS = None
+_DERIVE_EVAL_KEY = None
 
 try:
     from event_signing import (
@@ -38,12 +39,14 @@ try:
     )
     from event_signing import (
         _ReplayCache,
+        derive_channel_key as _EF_DK,
         load_key_from_env,
     )
     from event_signing import (
         verify_event as _EF_VE,
     )
     _EVAL_KEY = load_key_from_env()
+    _DERIVE_EVAL_KEY = _EF_DK
     _VERIFY_EVAL = _EF_VE
     _CHANNELS = _EF_CF
     _EVAL_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _EVAL_KEY else None
@@ -58,7 +61,8 @@ def _verify_eval_request(request: dict) -> bool:
     ch = request.get(_CHANNELS)
     if isinstance(ch, str) and ch != REQUEST_CHANNEL:
         return False
-    return _VERIFY_EVAL(request, _EVAL_KEY, REQUEST_CHANNEL, _EVAL_CACHE)
+    channel_key = _DERIVE_EVAL_KEY(_EVAL_KEY, REQUEST_CHANNEL) if _DERIVE_EVAL_KEY else _EVAL_KEY
+    return _VERIFY_EVAL(request, channel_key, REQUEST_CHANNEL, _EVAL_CACHE)
 
 
 class EvaluationRunner:

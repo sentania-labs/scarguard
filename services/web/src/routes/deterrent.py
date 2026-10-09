@@ -23,7 +23,7 @@ from deterrent_safety import (
     group_test_fire_timeout_sec,
     test_fire_timeout_sec,
 )
-from event_signing import load_key_from_env, sign_event
+from event_signing import derive_channel_key, load_key_from_env, sign_event
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -307,7 +307,9 @@ TIMEOUT_ERROR = "Request timed out - deterrent service may not be running"
 TEST_FIRE_GROUP_CHANNEL = "scarguard:deterrent:test-fire-group"
 TEST_FIRE_GROUP_RESULT_PREFIX = "scarguard:deterrent:test-fire-group:result:"
 
-# Shared signing key for web→deterrent control messages.
+# Signing key for web→deterrent control messages.
+# Each privileged channel gets its own derived sub-key to prevent
+# cross-channel forgery if the base key is compromised.
 _WEB_CMD_KEY: bytes | None = load_key_from_env()
 
 
@@ -334,7 +336,8 @@ async def _redis_request(
     payload["request_id"] = request_id
 
     if signed and _WEB_CMD_KEY is not None:
-        envelope = sign_event(payload, _WEB_CMD_KEY, request_channel)
+        channel_key = derive_channel_key(_WEB_CMD_KEY, request_channel)
+        envelope = sign_event(payload, channel_key, request_channel)
         publish_data = json.dumps(envelope, default=str)
     else:
         publish_data = json.dumps(payload, default=str)

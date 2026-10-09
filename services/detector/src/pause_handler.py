@@ -8,6 +8,8 @@ models and clear the flag.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import json
 import logging
 import math
@@ -36,6 +38,7 @@ _CMD_KEY: bytes | None = None
 _CMD_CACHE: object = None
 _CHANNEL_FIELD: str | None = None
 _VERIFY_EVENT = None
+_DERIVE_CMD_KEY: "Callable[[bytes, str], bytes] | None" = None
 
 try:
     from event_signing import (
@@ -43,6 +46,7 @@ try:
     )
     from event_signing import (
         _ReplayCache,
+        derive_channel_key as _EF_DK,
         load_key_from_env,
     )
     from event_signing import (
@@ -52,6 +56,7 @@ try:
     _CMD_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _CMD_KEY else None
     _CHANNEL_FIELD = _EF_CHANNEL_FIELD
     _VERIFY_EVENT = _EF_VERIFY_EVENT
+    _DERIVE_CMD_KEY = _EF_DK
 except ImportError:
     pass
 
@@ -65,11 +70,12 @@ def _verify_command(payload: dict[str, Any]) -> bool:
     """
     if _CMD_KEY is None or _CHANNEL_FIELD is None:
         return True
+    channel_key = _DERIVE_CMD_KEY(_CMD_KEY, COMMAND_CHANNEL) if _DERIVE_CMD_KEY else _CMD_KEY
     if not isinstance(payload.get(_CHANNEL_FIELD), str):
-        return _VERIFY_EVENT(payload, _CMD_KEY, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
+        return _VERIFY_EVENT(payload, channel_key, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
     if payload[_CHANNEL_FIELD] != COMMAND_CHANNEL:
         return False
-    return _VERIFY_EVENT(payload, _CMD_KEY, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
+    return _VERIFY_EVENT(payload, channel_key, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
 
 
 class PauseHandler:

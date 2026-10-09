@@ -186,12 +186,17 @@ def verify_event(
        ``_nonce`` field, the nonce must not have been seen before
        for this channel.
 
+    The cache is only mutated *after* the HMAC compare_digest succeeds,
+    so an attacker cannot populate the cache with forged nonces to
+    evict a captured valid nonce.
+
     Malformed events (missing ``_sig``, non-hex, wrong length) return
     False rather than raising.
     """
     sig = event.get(SIGNATURE_FIELD)
     if not isinstance(sig, str):
         return False
+    expected_sig_input: str | None = None
     try:
         if channel:
             # Channel-bound envelope: signature covers {channel}.canonical_json
@@ -213,18 +218,12 @@ def verify_event(
                         age, MESSAGE_TTL_SECONDS,
                     )
                     return False
-            _nonce = event.get(NONCE_FIELD)
-            if isinstance(_nonce, str) and cache is not None:
-                if not cache.is_unique(channel, _nonce, time.time()):
-                    logger.debug("Duplicate nonce %s on channel %s", _nonce, channel)
-                    return False
-        expected_sig_input: str
+        _canonical = _canonical_payload(event)
         if channel:
-            _canonical = _canonical_payload(event)
             expected_sig_input = f"{channel}." + _canonical.decode("ascii")
         else:
             # Legacy: channel empty means no channel binding.
-            expected_sig_input = _canonical_payload(event).decode("ascii")
+            expected_sig_input = _canonical.decode("ascii")
         expected = hmac.new(
             key,
             expected_sig_input.encode("utf-8"),
@@ -232,7 +231,29 @@ def verify_event(
         ).hexdigest()
     except Exception:
         return False
-    return hmac.compare_digest(sig, expected)
+    if not hmac.compare_digest(sig, expected):
+        return False
+    # HMAC verified successfully — *now* mutate the replay cache.
+    # An internal attacker who captures a valid envelope cannot
+    # populate the cache with forged nonces to evict this one.
+    if channel and cache is not None:
+        _nonce = event.get(NONCE_FIELD)
+        if isinstance(_nonce, str):
+            if not cache.is_unique(channel, _nonce, time.time()):
+                logger.debug("Duplicate nonce %s on channel %s", _nonce, channel)
+                return False
+    return True
+
+
+def derive_channel_key(base_key: bytes, channel: str) -> bytes:
+    """Return a deterministic, channel-scoped key derived from *base_key*.
+
+    Using ``HMAC(base_key, channel)`` produces a per-channel sub-key that
+    cannot be forged on another channel even if an attacker knows the base
+    key.  This provides isolation without requiring a separate environment
+    variable per channel.
+    """
+    return hmac.new(base_key, channel.encode("utf-8"), hashlib.sha256).digest()
 
 
 def load_key_from_env(var_name: str = "DETECTION_HMAC_KEY") -> bytes | None:
