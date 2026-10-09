@@ -385,6 +385,7 @@ else
                     -v "${_tmp_model}:/src/yolov8n.pt:ro" \
                     alpine:3.20 cp /src/yolov8n.pt /models/yolov8n.pt
                 info "Downloaded: yolov8n.pt (stored in models volume)"
+            fi
             if [[ "$CONFIG_IS_NEW" == "true" ]]; then
                 info "config/scarguard.yml is pre-configured for the starter model."
             fi
