@@ -100,6 +100,18 @@
 
 ## Recently Fixed (unreleased)
 
+- **Database restore and backup retention (FDY-0600).** `scripts/restore-from-backup.sh`
+  no longer depends on a `sqlite3` CLI the backup image never had; it runs
+  `services/backup/src/restore.py`, which validates the snapshot with Python's
+  `sqlite3` before touching live files, moves db/-wal/-shm aside together (no stale
+  WAL replay, coherent rollback copy), swaps the validated copy in atomically, rolls
+  back on every failure, and refuses to run while a service still holds the database.
+  The script stops only the services that are running (including the opt-in trainer)
+  and restarts them from an exit trap even when the restore fails. The sidecar keeps
+  one scheduled snapshot per calendar day instead of the N newest files, retains manual
+  backups separately, serializes overlapping cycles instead of dropping them, and
+  never lists `*.tmp`/`*.partial` staging files. See [BACKUP.md](BACKUP.md).
+
 - **Log-streamer quick EOF loop (issue #169):** The sidecar now self-heals stale
   Docker SDK sessions and backfills reconnect gaps without making quiet services
   unhealthy. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the recovery and

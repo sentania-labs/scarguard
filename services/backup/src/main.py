@@ -15,6 +15,13 @@ Operator-triggered manual backups arrive via the
 ``scarguard:backup:trigger`` Redis channel (admin UI action). Status
 updates are published to ``scarguard:backup:status`` so the UI can
 surface progress.
+
+Cycles are serialized by ``backup_lock``: a manual trigger that arrives
+while the scheduled cycle runs waits for it (publishing a ``queued``
+status) instead of being dropped. Retention keeps one scheduled
+snapshot per calendar day for ``retention_daily`` days plus weekly
+samples, and bounds manual snapshots separately (``MANUAL_RETENTION``),
+so neither kind can evict the other.
 """
 
 from __future__ import annotations
@@ -23,12 +30,14 @@ import gzip
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import sqlite3
 import sys
 import tempfile
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -49,6 +58,16 @@ DEFAULT_INTERVAL_HOURS = 24
 DEFAULT_RETENTION_DAILY = 14
 DEFAULT_RETENTION_WEEKLY = 8
 DEFAULT_COMPRESS = True
+# Manual (operator-triggered) snapshots kept per database, independent of
+# the daily/weekly schedule retention.
+MANUAL_RETENTION = 10
+# Suffixes of in-progress files; never listed or restored. Cycles are
+# serialized, so one found this old can only be an orphan of a cycle that
+# died mid-write; prune removes it.
+IN_PROGRESS_SUFFIXES = (".partial", ".tmp")
+IN_PROGRESS_MAX_AGE_SECONDS = 3600
+# Only files the sidecar itself named are subject to retention.
+SNAPSHOT_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}")
 
 DATABASES: tuple[tuple[str, Path], ...] = (
     ("scarguard", DATA_DIR / "scarguard.db"),
@@ -108,6 +127,13 @@ def backup_database(
 ) -> Path | None:
     """Run SQLite's online backup API against *db_path* and write to disk.
 
+    Scheduled snapshots are named ``<timestamp>.db[.gz]``; other triggers
+    get a ``-<triggered_by>`` tag (``...-manual.db.gz``) so retention can
+    tell them apart. The snapshot is ``quick_check``ed before it is
+    published under its final name; staging files carry unique
+    ``.tmp``/``.partial`` names so interrupted cycles never collide with
+    or masquerade as a finished backup.
+
     Returns the resulting file path, or None if the source DB doesn't
     exist (e.g. fresh install, no auth.db yet)."""
     if not db_path.exists():
@@ -117,19 +143,20 @@ def backup_database(
     target_dir = BACKUP_ROOT / db_name
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    import uuid
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
     suffix = ".db.gz" if compress else ".db"
 
     name_base = f"{timestamp}-{triggered_by}" if triggered_by != "schedule" else timestamp
     final_path = target_dir / f"{name_base}{suffix}"
     if final_path.exists():
+        # Two cycles within one second (e.g. manual trigger right after a
+        # restart): never overwrite the earlier snapshot.
         final_path = target_dir / f"{name_base}-{uuid.uuid4().hex[:6]}{suffix}"
 
-    # Two-step: backup to a tmpfile in the same dir (atomic rename later),
-    # optionally gzip. SQLite's .backup API holds shared locks but doesn't
-    # block writers thanks to WAL.
-    fd, tmp_path = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+    # Two-step: backup to a uniquely named tmpfile in the same dir (atomic
+    # rename later), optionally gzip. SQLite's .backup API holds shared
+    # locks but doesn't block writers thanks to WAL.
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, prefix=f"{name_base}.", suffix=".db.tmp")
     os.close(fd)
     tmp = Path(tmp_path)
     try:
@@ -143,22 +170,21 @@ def backup_database(
         finally:
             src.close()
 
-        # quick_check successful snapshots
+        # Only publish snapshots that pass quick_check.
         dst_check = sqlite3.connect(tmp)
         try:
-            cur = dst_check.execute("PRAGMA quick_check")
-            row = cur.fetchone()
-            if not row or row[0] != "ok":
-                raise ValueError("backup integrity check failed")
+            rows = dst_check.execute("PRAGMA quick_check").fetchall()
         finally:
             dst_check.close()
+        if rows != [("ok",)]:
+            raise ValueError(f"backup quick_check failed: {rows[:3]}")
 
         if compress:
             # Gzip into a sibling .partial file, then atomically rename
             # to final_path. Writing gzip directly to final_path would
             # leave a truncated .db.gz in place on interrupt/failure,
             # which restore would happily pick up as a valid snapshot.
-            gz_tmp = target_dir / f".tmp-{uuid.uuid4().hex}.partial"
+            gz_tmp = target_dir / f"{name_base}{suffix}.{uuid.uuid4().hex[:8]}.partial"
             try:
                 with open(tmp, "rb") as f_in:
                     with gzip.open(gz_tmp, "wb", compresslevel=6) as f_out:
@@ -181,43 +207,80 @@ def backup_database(
 
 
 def prune_backups(db_name: str, daily: int, weekly: int) -> int:
+    """Apply retention to one database's backup directory.
+
+    Scheduled snapshots are grouped by the ``YYYY-MM-DD`` prefix of their
+    filename and the *daily* most recent calendar days are kept. Every
+    snapshot of the newest day is kept (an ``interval_hours`` below 24
+    gives intra-day points); each older day collapses to its newest
+    snapshot, so several same-day cycles (the sidecar runs one on every
+    start) can never crowd out earlier days. Beyond those days one
+    snapshot per ISO week is kept for *weekly* weeks.
+
+    Manual snapshots (``-manual`` in the name) are retained separately:
+    the newest ``MANUAL_RETENTION`` are kept, so operator-triggered
+    backups neither consume nor evict the daily recovery points.
+
+    Files not named by this sidecar are left alone. In-progress
+    ``.partial``/``.tmp`` files older than ``IN_PROGRESS_MAX_AGE_SECONDS``
+    are orphans of a cycle that died and are removed. Returns the number
+    of files deleted."""
     target_dir = BACKUP_ROOT / db_name
     if not target_dir.exists():
         return 0
 
-    all_files = sorted(target_dir.glob("*.db*"), reverse=True)
-    files = [f for f in all_files if not (f.name.endswith(".partial") or f.name.endswith(".tmp"))]
-
-    manual_files = [f for f in files if "-manual" in f.name]
-    schedule_files = [f for f in files if "-manual" not in f.name]
+    deleted = 0
+    # Filenames embed the timestamp, so reverse sort is newest-first.
+    files: list[Path] = []
+    cutoff = datetime.now(timezone.utc).timestamp() - IN_PROGRESS_MAX_AGE_SECONDS
+    for f in sorted(target_dir.glob("*.db*"), reverse=True):
+        if not f.is_file():
+            continue
+        if f.name.endswith(IN_PROGRESS_SUFFIXES):
+            try:
+                if f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    deleted += 1
+                    logger.warning("Removed orphaned in-progress file %s", f.name)
+            except OSError:
+                logger.exception("Could not remove orphaned in-progress file %s", f)
+            continue
+        files.append(f)
 
     keep: set[Path] = set()
+    managed: list[Path] = []
+    manual: list[Path] = []
+    by_day: dict[str, list[Path]] = {}
+    for f in files:
+        if not SNAPSHOT_NAME.match(f.name):
+            continue
+        managed.append(f)
+        if "-manual" in f.name:
+            manual.append(f)
+        else:
+            by_day.setdefault(f.name[:10], []).append(f)
 
-    # Bounded manual-backup retention
-    for f in manual_files[:10]:
-        keep.add(f)
+    keep.update(manual[:MANUAL_RETENTION])
 
-    for f in schedule_files[:daily]:
-        keep.add(f)
+    # by_day preserves insertion order: newest day first, newest file first.
+    days = list(by_day.items())
+    if days:
+        keep.update(days[0][1])
+    for _day, day_files in days[1:daily]:
+        keep.add(day_files[0])
 
-    if weekly > 0 and len(schedule_files) > daily:
+    if weekly > 0:
         seen_weeks: set[str] = set()
-        for f in schedule_files[daily:]:
-            try:
-                date_part = f.name[:10]
-                dt = datetime.strptime(date_part, "%Y-%m-%d")
-                week_key = dt.strftime("%G-W%V")
-            except (ValueError, IndexError):
-                continue
+        for day, day_files in days[daily:]:
+            week_key = datetime.strptime(day, "%Y-%m-%d").strftime("%G-W%V")
             if week_key in seen_weeks:
                 continue
             seen_weeks.add(week_key)
-            keep.add(f)
+            keep.add(day_files[0])
             if len(seen_weeks) >= weekly:
                 break
 
-    deleted = 0
-    for f in files:
+    for f in managed:
         if f not in keep:
             try:
                 f.unlink()
@@ -229,7 +292,13 @@ def prune_backups(db_name: str, daily: int, weekly: int) -> int:
     return deleted
 
 
+# Serializes cycles across the scheduler thread and the Redis trigger
+# listener. Overlapping requests wait their turn; none is dropped, but a
+# second manual trigger while one is already waiting is redundant (the
+# waiting one will produce an equally fresh snapshot) and is coalesced.
 backup_lock = threading.Lock()
+_manual_waiting = threading.Lock()
+
 
 def run_backup_cycle(
     cfg: dict[str, Any],
@@ -237,9 +306,35 @@ def run_backup_cycle(
     *,
     triggered_by: str = "schedule",
 ) -> dict[str, Any]:
-    """Backup every database, apply retention, return a status summary."""
-    if not backup_lock.acquire(blocking=False):
-        return {"phase": "skipped", "reason": "already running"}
+    """Backup every database, apply retention, return a status summary.
+
+    If another cycle is running this one waits for it (publishing a
+    ``queued`` status so the UI keeps showing progress) and then runs.
+    A manual trigger that arrives while another manual cycle is already
+    waiting is coalesced into it (``skipped`` status)."""
+    coalesce_slot = False
+    if backup_lock.locked():
+        if triggered_by == "manual":
+            if not _manual_waiting.acquire(blocking=False):
+                logger.info("Manual backup already queued - coalescing this trigger into it")
+                summary: dict[str, Any] = {
+                    "phase": "skipped",
+                    "triggered_by": triggered_by,
+                    "reason": "a manual backup is already queued",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                _publish_status(publisher, summary)
+                return summary
+            coalesce_slot = True
+        logger.info("Backup cycle (%s) queued behind a running cycle", triggered_by)
+        _publish_status(publisher, {
+            "phase": "queued",
+            "triggered_by": triggered_by,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    backup_lock.acquire()
+    if coalesce_slot:
+        _manual_waiting.release()
     try:
         compress = _compress(cfg)
         daily, weekly = _retention(cfg)
