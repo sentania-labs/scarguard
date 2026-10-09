@@ -1,5 +1,11 @@
 # ScarGuard
 
+Upload sizes are configurable under Config → Authentication: model and
+training dataset/video limits default to 500 MiB each. Uploads authenticate
+before reading files and enforce streamed byte limits. See
+[upload limits and CSRF](CONFIG_REFERENCE.md#upload-limits-and-csrf-fdy-0568)
+for API headers, temporary disk capacity, and legacy environment migration.
+
 An AI-powered wildlife detection and notification system. ScarGuard watches RTSP camera feeds for target species, primarily great blue herons, and sends real-time notifications so you (or downstream automation) can respond to protect a backyard koi pond.
 
 The reference deployment runs on an NVIDIA Jetson Orin Nano with UniFi cameras, but ScarGuard works with any RTSP-capable camera and any system that can run Docker with an NVIDIA GPU.

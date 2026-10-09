@@ -67,3 +67,42 @@ document.addEventListener("htmx:configRequest",function(e){e.detail.headers["X-C
     } catch (_e) { /* ignore malformed */ }
   });
 })();
+
+// Native multipart forms cannot set headers. Submit via fetch so CSRF is
+// checked before the server reads any file bytes; keep redirects and errors.
+document.addEventListener("submit", async function(event) {
+  var form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.enctype !== "multipart/form-data") return;
+  event.preventDefault();
+  var button = form.querySelector('[type="submit"]');
+  if (button) button.disabled = true;
+  var error = form.querySelector('[data-upload-error]');
+  if (!error) {
+    error = document.createElement("p");
+    error.setAttribute("data-upload-error", "");
+    error.setAttribute("role", "alert");
+    form.appendChild(error);
+  }
+  error.textContent = "";
+  try {
+    var response = await fetch(form.action, {
+      method: "POST", body: new FormData(form), credentials: "same-origin",
+      headers: {"X-CSRF-Token": getCsrfToken()}
+    });
+    if (response.redirected) {
+      window.location.assign(response.url);
+    } else {
+      // Validation pages contain the original form and error. Extract only
+      // text, without executing returned scripts or replacing the document.
+      var text = await response.text();
+      var page = new DOMParser().parseFromString(text, "text/html");
+      var message = page.querySelector('.alert-err');
+      error.textContent = message ? message.textContent :
+        (response.status === 413 ? "Upload exceeds the configured size limit." : "Upload failed. Check the file and try again.");
+    }
+  } catch (_error) {
+    error.textContent = "Upload failed. Check your connection and try again.";
+  } finally {
+    if (button) button.disabled = false;
+  }
+});

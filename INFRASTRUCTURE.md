@@ -1,5 +1,18 @@
 # ScarGuard: Infrastructure
 
+The active `config/caddy-entrypoint.sh` generator now reads
+`system.uploads.model_mb` and `system.uploads.dataset_mb` and applies Caddy
+`request_body max_size` caps, including 1 MiB multipart envelope allowance.
+Other paths have a 1 MiB request cap. The reference template mirrors defaults;
+changing only the template has no runtime effect. Application counters enforce
+actual received bytes independently of Content-Length. Large uploads need
+disk-backed temporary storage plus destination capacity (roughly two file
+copies); `/tmp` on tmpfs uses RAM. Proxy config reload may briefly retain the
+previous cap. A local-only probe of the generated artifact using upstream
+SHA512-verified Caddy 2.10.2 returned 413 for oversized declared-length and
+chunked bodies and 200 for an allowed body. No deployment, Docker execution,
+or device operations were run.
+
 Doc last verified: 2026-09-09
 
 ## Repository Structure
