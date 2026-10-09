@@ -91,6 +91,25 @@ DEFAULT_TEST_FIRE_SEC: float = 3.0
 
 OFF_RETRY_BACKOFF_SEC: tuple[float, ...] = (1.0, 2.0, 4.0)
 
+# Every TinyTuya operation, including implicit token acquisition/refresh, runs
+# behind this wall-clock bound. Python cannot kill a stuck third-party call,
+# so the abandoned worker is daemonised; the OFF lane has its own lock and can
+# still make progress if a status/ON lane worker remains stuck.
+CLOUD_CALL_TIMEOUT_SEC: float = 2.0
+
+# One OFF attempt per cloud-call slot plus retry backoff and scheduling margin.
+# Emergency handlers and lifecycle sweeps parallelise devices, so this bound
+# does not grow with the configured device count.
+EMERGENCY_OFF_BOUND_SEC: float = (
+    CLOUD_CALL_TIMEOUT_SEC * (1 + len(OFF_RETRY_BACKOFF_SEC))
+    + sum(OFF_RETRY_BACKOFF_SEC)
+    + 1.0
+)
+
+# Compose must leave enough time for a complete bounded shutdown sweep and a
+# small amount of process cleanup after SIGTERM.
+SHUTDOWN_GRACE_SEC: int = math.ceil(EMERGENCY_OFF_BOUND_SEC + 5.0)
+
 RECONCILE_INTERVAL_SEC: int = 30
 
 
