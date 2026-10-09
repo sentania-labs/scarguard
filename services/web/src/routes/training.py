@@ -16,6 +16,7 @@ from pathlib import Path
 import config_store
 import db
 import redis.asyncio as aioredis
+from event_signing import load_key_from_env, sign_event
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -306,9 +307,16 @@ async def start_evaluation(
         "date_to": date_to or None,
     }
 
+    # Sign the eval request so the detector can verify it.
+    sign_key = load_key_from_env()
+    if sign_key is not None:
+        publish_data = json.dumps(sign_event(eval_request, sign_key, EVAL_REQUEST_CHANNEL))
+    else:
+        publish_data = json.dumps(eval_request)
+
     client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
     try:
-        await client.publish(EVAL_REQUEST_CHANNEL, json.dumps(eval_request))
+        await client.publish(EVAL_REQUEST_CHANNEL, publish_data)
     finally:
         await client.aclose()  # type: ignore[attr-defined,unused-ignore]
 

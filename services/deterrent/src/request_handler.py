@@ -32,6 +32,11 @@ from deterrent_safety import (
     group_test_fire_timeout_sec,
     test_fire_timeout_sec,
 )
+from event_signing import (
+    _ReplayCache,
+    load_key_from_env,
+    verify_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +139,17 @@ class RequestHandler:
         self._force_off_latch = force_off_latch or ForceOffLatch()
         self._shutdown = threading.Event()
         self._thread: threading.Thread | None = None
+        # Signing key for verifying incoming commands on privileged channels.
+        self._cmd_key: bytes | None = load_key_from_env()
+        if self._cmd_key is None:
+            logger.warning(
+                "DETECTION_HMAC_KEY not set - accepting unsigned "
+                "deterrent control commands. Run setup.sh to generate the key.",
+            )
+        else:
+            logger.info("Deterrent control commands will require HMAC signature")
+        # Per-service replay cache for deterrent commands.
+        self._cmd_cache: _ReplayCache = _ReplayCache(capacity=4096, ttl_seconds=60)
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -178,6 +194,16 @@ class RequestHandler:
         logger.info("Request handler started")
         delay = 5
 
+        # Emergency-off bypass: the force-off channel never requires a
+        # signature so an operator who can reach the Docker network can
+        # always kill hardware even if the HMAC key is missing or rotated.
+        # All other channels require a valid signed envelope.
+        AUTH_CHANNELS = {
+            TEST_FIRE_CHANNEL,
+            TEST_FIRE_GROUP_CHANNEL,
+            STATUS_REQUEST_CHANNEL,
+        }
+
         while not self._shutdown.is_set():
             client: redis_lib.Redis | None = None
             pubsub: redis_lib.client.PubSub | None = None
@@ -211,6 +237,23 @@ class RequestHandler:
                     except json.JSONDecodeError:
                         logger.warning("Malformed request: %s", message["data"])
                         continue
+
+                    # Verify signed envelopes on authenticated channels.
+                    if (
+                        self._cmd_key is not None
+                        and channel in AUTH_CHANNELS
+                    ):
+                        if not verify_event(
+                            payload,
+                            self._cmd_key,
+                            channel=channel,
+                            cache=self._cmd_cache,
+                        ):
+                            logger.warning(
+                                "Rejected unsigned/malformed/replayed command "
+                                "on %s", channel,
+                            )
+                            continue
 
                     if channel == TEST_FIRE_CHANNEL:
                         self._handle_test_fire(client, payload)

@@ -209,13 +209,18 @@ def subscribe_loop(
 ) -> None:
     """Connect to Redis and listen for events, reconnecting on failure.
 
-    v1.14 verifies the HMAC signature on detection events before
+    v1.15 verifies the HMAC signature on detection events before
     dispatching a notification. Unlike the deterrent, a missing or invalid
     signature here only suppresses the notification (no physical effect),
     but we still log loudly - spoofed events would otherwise leak camera
     snapshots to the attacker's own webhook destinations.
     """
-    from event_signing import load_key_from_env, verify_event
+    from event_signing import (
+        _ReplayCache,
+        load_key_from_env,
+        set_replay_cache,
+        verify_event,
+    )
 
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
@@ -224,6 +229,10 @@ def subscribe_loop(
         logger.warning(
             "DETECTION_HMAC_KEY not set - dispatching unsigned events.",
         )
+    # Per-service replay cache for detection events.  4096 entries at
+    # a 60 s TTL means ~68 events/s sustained before evictions start.
+    replay_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
+    set_replay_cache(capacity=4096, ttl_seconds=60)
     unsigned_warned = False
     invalid_warned = False
     delay = _REDIS_RECONNECT_DELAY
@@ -261,7 +270,12 @@ def subscribe_loop(
                     # come from the detector's health publisher, not the detection
                     # publisher, and aren't signed today).
                     if message["channel"] == CHANNEL and hmac_key is not None:
-                        if not verify_event(event, hmac_key):
+                        if not verify_event(
+                            event,
+                            hmac_key,
+                            channel=CHANNEL,
+                            cache=replay_cache,
+                        ):
                             if not invalid_warned:
                                 logger.error(
                                     "Rejecting detection event with invalid/missing "

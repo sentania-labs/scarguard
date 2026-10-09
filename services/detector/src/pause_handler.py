@@ -31,6 +31,46 @@ logger = logging.getLogger(__name__)
 
 _DRAIN_WAIT = 2.0  # seconds to wait for in-flight inference after setting paused
 
+# Signing key for pause/resume commands (trainer → detector).
+_CMD_KEY: bytes | None = None
+_CMD_CACHE: object = None
+_CHANNEL_FIELD: str | None = None
+_VERIFY_EVENT = None
+
+try:
+    from event_signing import (
+        CHANNEL_FIELD as _EF_CHANNEL_FIELD,
+    )
+    from event_signing import (
+        _ReplayCache,
+        load_key_from_env,
+    )
+    from event_signing import (
+        verify_event as _EF_VERIFY_EVENT,
+    )
+    _CMD_KEY = load_key_from_env()
+    _CMD_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _CMD_KEY else None
+    _CHANNEL_FIELD = _EF_CHANNEL_FIELD
+    _VERIFY_EVENT = _EF_VERIFY_EVENT
+except ImportError:
+    pass
+
+
+def _verify_command(payload: dict[str, Any]) -> bool:
+    """Return True if *payload* is a valid signed envelope.
+
+    When no signing key is configured the command is accepted (migration
+    window).  When the key is present the payload must carry a valid,
+    unique, timestamped signature for COMMAND_CHANNEL.
+    """
+    if _CMD_KEY is None or _CHANNEL_FIELD is None:
+        return True
+    if not isinstance(payload.get(_CHANNEL_FIELD), str):
+        return _VERIFY_EVENT(payload, _CMD_KEY, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
+    if payload[_CHANNEL_FIELD] != COMMAND_CHANNEL:
+        return False
+    return _VERIFY_EVENT(payload, _CMD_KEY, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
+
 
 class PauseHandler:
     """Listens for pause/resume commands and manages detector GPU state."""
@@ -78,6 +118,9 @@ class PauseHandler:
         )
 
     def _handle_command(self, _channel: str, payload: dict[str, Any]) -> None:
+        if not _verify_command(payload):
+            logger.warning("Rejected invalid pause/resume command from Redis")
+            return
         action = payload.get("action")
         request_id = payload.get("request_id", "?")
         if action == "pause":

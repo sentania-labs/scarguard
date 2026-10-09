@@ -4,6 +4,9 @@ Listens on Redis channel ``scarguard:eval:request`` for evaluation requests from
 the web service.  Runs inference with each model sequentially (to conserve GPU
 memory on the Jetson), computes per-class precision/recall/mAP@0.5, and publishes
 results back via Redis keys.
+
+v1.15 verifies HMAC signatures on evaluation requests so a compromised
+container cannot trigger expensive GPU inference.
 """
 
 from __future__ import annotations
@@ -23,6 +26,39 @@ REQUEST_CHANNEL = "scarguard:eval:request"
 PROGRESS_KEY = "scarguard:eval:progress"
 RESULT_KEY = "scarguard:eval:result"
 RESULT_TTL = 3600  # 1 hour
+
+# Signing key for eval requests (web → detector).
+_EVAL_KEY: bytes | None = None
+_VERIFY_EVAL = None
+_CHANNELS = None
+
+try:
+    from event_signing import (
+        CHANNEL_FIELD as _EF_CF,
+    )
+    from event_signing import (
+        _ReplayCache,
+        load_key_from_env,
+    )
+    from event_signing import (
+        verify_event as _EF_VE,
+    )
+    _EVAL_KEY = load_key_from_env()
+    _VERIFY_EVAL = _EF_VE
+    _CHANNELS = _EF_CF
+    _EVAL_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _EVAL_KEY else None
+except ImportError:
+    _EVAL_CACHE = None
+
+
+def _verify_eval_request(request: dict) -> bool:
+    """Return True if *request* is a valid signed eval envelope."""
+    if _EVAL_KEY is None or _EVAL_CACHE is None or _VERIFY_EVAL is None or _CHANNELS is None:
+        return True
+    ch = request.get(_CHANNELS)
+    if isinstance(ch, str) and ch != REQUEST_CHANNEL:
+        return False
+    return _VERIFY_EVAL(request, _EVAL_KEY, REQUEST_CHANNEL, _EVAL_CACHE)
 
 
 class EvaluationRunner:
@@ -98,6 +134,10 @@ class EvaluationRunner:
                 self._stop.wait(5)
 
     def _handle_request(self, client: redis.Redis, request: dict) -> None:
+        if not _verify_eval_request(request):
+            logger.warning("Rejected invalid eval request from Redis")
+            self._publish_error(client, "Invalid or unsigned eval request")
+            return
         if self._paused_ref is not None and self._paused_ref.get():
             self._publish_error(
                 client,

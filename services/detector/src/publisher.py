@@ -1,7 +1,10 @@
 """Redis pub/sub publisher for detection events."""
 
+from __future__ import annotations
+
 import json
 import logging
+import uuid
 from collections import deque
 
 import redis as redis_lib
@@ -18,7 +21,9 @@ _BUFFER_MAX = 256
 
 class RedisPublisher:
     def __init__(self, host: str, port: int, password: str | None = None) -> None:
-        self._client = redis_lib.Redis(host=host, port=port, password=password, decode_responses=True)
+        self._client = redis_lib.Redis(
+            host=host, port=port, password=password, decode_responses=True,
+        )
         self._buffer: deque[str] = deque(maxlen=_BUFFER_MAX)
         # v1.14: sign every published event so subscribers can authenticate.
         # Key absence is logged loudly at startup; events fall back to
@@ -34,7 +39,13 @@ class RedisPublisher:
 
     def publish(self, event: dict) -> None:
         if self._sign_key is not None:
-            event = sign_event(event, self._sign_key)
+            # Add a unique nonce so the replay cache can deduplicate.
+            event = sign_event(event, self._sign_key, CHANNEL)
+            # Ensure the event has a unique nonce for the replay cache.
+            from event_signing import NONCE_FIELD
+
+            if NONCE_FIELD not in event:
+                event[NONCE_FIELD] = uuid.uuid4().hex[:16]
         payload = json.dumps(event, default=str)
         try:
             self._flush_buffer()
