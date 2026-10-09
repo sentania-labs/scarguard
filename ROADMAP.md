@@ -1,5 +1,10 @@
 # ScarGuard: Roadmap
 
+FDY-0568 upload hardening is implemented for review: early authentication and
+CSRF, streamed size enforcement, proxy caps, and model/dataset settings.
+The existing 500 MiB dataset/video use case remains supported. Delivery is a
+reviewed code change only; no release or deployment is part of this task.
+
 Active and planned features. Each item includes acceptance criteria. Completed features (1–27) are in [ROADMAP_ARCHIVE.md](ROADMAP_ARCHIVE.md).
 ---
 

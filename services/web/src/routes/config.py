@@ -394,6 +394,7 @@ async def save_structured_config(request: Request) -> Response:
     system_dump = payload.system.model_dump(exclude_unset=True)
     for nested_key in (
         "schedule",
+        "uploads",
         "auth",
         "summary_report",
         "backup",

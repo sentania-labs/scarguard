@@ -1,0 +1,343 @@
+"""FDY-0568: exercise the live ASGI stack, handlers, and proxy generator."""
+
+import asyncio
+import secrets
+import subprocess
+import sys
+import tempfile
+import tracemalloc
+from pathlib import Path
+from typing import Any
+from unittest.mock import Mock
+
+import pytest
+
+MIB = 1024 * 1024
+ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture()
+def upload_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
+    import main
+    from routes import models, training_uploads
+
+    cfg: dict[str, Any] = {"system": {"auth": {"enabled": False}}, "cameras": []}
+    cfg["system"]["uploads"] = {"model_mb": 1, "dataset_mb": 1}
+    monkeypatch.setattr("config_store.load_cached", lambda **kwargs: cfg)
+    monkeypatch.setattr("config_store.load", lambda: cfg)
+    monkeypatch.setattr(models, "MODELS_DIR", tmp_path)
+    monkeypatch.setattr(training_uploads, "TRAINING_UPLOADS_DIR", tmp_path)
+    monkeypatch.setattr(training_uploads, "_probe_duration", lambda path: 1.0)
+    monkeypatch.setattr(training_uploads.db_module, "create_training_upload", Mock())
+    return {"cfg": cfg, "main": main, "directory": tmp_path}
+
+
+def request_stream(
+    env: dict[str, Any], *, path: str = "/models", size: int = 4 * MIB,
+    length: str | None = None, csrf: bool = True, content_type: str | None = None,
+    extra_file: bool = False, session: bool = False, huge_header: bool = False,
+    truncated: bool = False, disconnect: bool = False,
+    bearer: bool = False, bad_csrf: bool = False,
+) -> tuple[int, int]:
+    """Generate bytes lazily; count receive calls consumed by the real app."""
+    main = env["main"]
+    token = main._generate_csrf_token()
+    cookie = "csrf_token=" + token
+    if session:
+        cookie += "; session=" + secrets.token_urlsafe()
+    headers = [(b"cookie", cookie.encode())]
+    if csrf:
+        headers.append((b"x-csrf-token", (main._generate_csrf_token() if bad_csrf else token).encode()))
+    if bearer:
+        headers.append((b"authorization", ("Bearer " + secrets.token_urlsafe()).encode()))
+    if length is not None:
+        headers.append((b"content-length", length.encode()))
+    headers.append((b"content-type", (content_type or "multipart/form-data; boundary=pond").encode()))
+    suffix = "mp4" if "training" in path else "pt"
+    prefix = f'--pond\r\nContent-Disposition: form-data; name="file"; filename="pond.{suffix}"\r\n\r\n'.encode()
+    if huge_header:
+        prefix = b"--pond\r\nContent-Disposition: "
+    tail = b"\r\n--pond--\r\n"
+    if extra_file:
+        tail = b'\r\n--pond\r\nContent-Disposition: form-data; name="other"; filename="other.pt"\r\n\r\nx' + tail
+    if truncated:
+        tail = b""
+    received = 0
+    status = 0
+    offset = -1
+    done = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal received, offset, done
+        if done:
+            # Do not let response disconnect polling consume invented bytes.
+            await asyncio.Event().wait()
+        if offset == -1:
+            data = prefix
+            offset = 0
+        elif offset < size:
+            data = b"x" * min(64 * 1024, size - offset)
+            offset += len(data)
+        else:
+            if disconnect:
+                return {"type": "http.disconnect"}
+            data = tail
+            done = True
+        received += len(data)
+        return {"type": "http.request", "body": data, "more_body": not done}
+
+    async def send(message: dict[str, Any]) -> None:
+        nonlocal status
+        if message["type"] == "http.response.start":
+            status = message["status"]
+
+    scope = {
+        "type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1", "method": "POST", "scheme": "http",
+        "path": path, "raw_path": path.encode(), "query_string": b"",
+        "headers": headers, "client": ("127.0.0.1", 1234), "server": ("test", 80),
+    }
+    asyncio.run(main.app(scope, receive, send))
+    return status, received
+
+
+def test_unauthenticated_body_not_read(upload_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    upload_env["cfg"]["system"]["auth"]["enabled"] = True
+    monkeypatch.setattr(upload_env["main"].auth_module, "users_exist", lambda path: True)
+    monkeypatch.setattr(upload_env["main"].auth_module, "get_db", Mock())
+    # Valid signed CSRF cookie, no session, and no header formerly forced a body read.
+    status, consumed = request_stream(upload_env, csrf=False)
+    assert status == 401
+    assert consumed == 0
+
+
+def test_multipart_requires_header_before_read(upload_env: dict[str, Any]) -> None:
+    status, consumed = request_stream(upload_env, csrf=False)
+    assert status == 403
+    assert consumed == 0
+
+
+@pytest.mark.parametrize("length", [None, "1", str(8 * MIB)])
+@pytest.mark.parametrize("path", ["/models", "/admin/training/uploads"])
+def test_limit_counts_stream_and_cleans_files(
+    upload_env: dict[str, Any], length: str | None, path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import starlette.formparsers as parsers
+
+    created = []
+    original = parsers.SpooledTemporaryFile
+
+    def tracked(*args: Any, **kwargs: Any) -> Any:
+        file = original(*args, **kwargs)
+        created.append(file)
+        return file
+
+    monkeypatch.setattr(parsers, "SpooledTemporaryFile", tracked)
+    status, consumed = request_stream(upload_env, path=path, length=length)
+    assert status == 413
+    assert consumed <= 2 * MIB + 64 * 1024
+    if length == str(8 * MIB):
+        assert consumed == 0
+    assert all(file.closed for file in created)
+    assert not list(upload_env["directory"].iterdir())
+
+
+@pytest.mark.parametrize("path", ["/models", "/admin/training/uploads"])
+def test_allowed_upload_and_file_boundary(upload_env: dict[str, Any], path: str) -> None:
+    status, consumed = request_stream(upload_env, path=path, size=MIB)
+    assert status == 303
+    assert consumed > MIB
+    files = list(upload_env["directory"].rglob("*.mp4" if "training" in path else "*.pt"))
+    assert len(files) == 1
+    assert files[0].stat().st_size == MIB
+    assert files[0].read_bytes() == b"x" * MIB
+
+
+def test_500_mib_dataset_has_bounded_memory_and_writes(
+    upload_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from starlette.datastructures import UploadFile
+
+    upload_env["cfg"]["system"]["uploads"]["dataset_mb"] = 500
+    reads = []
+    original = UploadFile.read
+
+    async def tracked_read(self: UploadFile, size: int = -1) -> bytes:
+        reads.append(size)
+        return await original(self, size)
+
+    monkeypatch.setattr(UploadFile, "read", tracked_read)
+    # Workers may mount /tmp as a 512 MiB tmpfs. Use checkout-backed scratch
+    # for both real parser spools and real destination writes (about 1 GiB).
+    with tempfile.TemporaryDirectory(prefix=".upload-test-", dir=ROOT) as scratch:
+        directory = Path(scratch)
+        monkeypatch.setattr(tempfile, "tempdir", scratch)
+        monkeypatch.setattr("routes.training_uploads.TRAINING_UPLOADS_DIR", directory)
+        tracemalloc.start()
+        try:
+            status, consumed = request_stream(upload_env, path="/admin/training/uploads", size=500 * MIB)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert status == 303
+        assert consumed > 500 * MIB
+        assert peak < 32 * MIB
+        assert reads and all(0 < size <= 4 * MIB for size in reads)
+        assert next(directory.rglob("*.mp4")).stat().st_size == 500 * MIB
+
+
+def test_multiple_files_rejected(upload_env: dict[str, Any]) -> None:
+    status, _ = request_stream(upload_env, size=10, extra_file=True)
+    assert status == 400
+    assert not list(upload_env["directory"].iterdir())
+
+
+@pytest.mark.parametrize("length", ["-1", "bad"])
+def test_bad_length_rejected_without_read(upload_env: dict[str, Any], length: str) -> None:
+    assert request_stream(upload_env, length=length) == (400, 0)
+
+
+def test_small_form_csrf_still_works(client: Any) -> None:
+    token = client.cookies.get("csrf_token")
+    del client.headers["X-CSRF-Token"]
+    response = client.post("/models", data={"_csrf_token": token}, follow_redirects=False)
+    assert response.status_code == 422  # handler reached, missing file
+
+
+def test_config_ui_and_proxy_generator(tmp_path: Path) -> None:
+    from config_model import StructuredConfigPayload
+
+    # Generate the actual artifact from the entrypoint's production heredoc.
+    script = (ROOT / "config/caddy-entrypoint.sh").read_text()
+    source = script.split("<<'PYEOF'\n", 1)[1].split("\nPYEOF", 1)[0]
+    config = tmp_path / "config.yml"
+    config.write_text("system:\n  uploads:\n    model_mb: 700\n    dataset_mb: 900\n")
+    target = tmp_path / "Caddyfile"
+    subprocess.run([sys.executable, "-", str(config), str(target)], input=source, text=True, check=True)
+    result = target.read_text()
+    assert f"max_size {701 * MIB}" in result
+    assert f"max_size {901 * MIB}" in result
+    assert "max_size 1048576" in result
+    assert result.index("request_body") < result.index("reverse_proxy")
+    assert StructuredConfigPayload().system.uploads.dataset_mb == 500
+    template = (ROOT / "services/web/src/templates/config.html").read_text()
+    javascript = (ROOT / "services/web/src/static/config.js").read_text()
+    for field in ("upload-model-mb", "upload-dataset-mb"):
+        assert field in template and field in javascript
+    assert '"X-CSRF-Token": getCsrfToken()' in (ROOT / "services/web/src/static/base.js").read_text()
+
+
+@pytest.mark.parametrize("role", ["viewer", "user"])
+def test_nonadmin_rejected_before_read(
+    upload_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, role: str,
+) -> None:
+    main = upload_env["main"]
+    upload_env["cfg"]["system"]["auth"]["enabled"] = True
+    monkeypatch.setattr(main.auth_module, "users_exist", lambda path: True)
+    monkeypatch.setattr(main.auth_module, "get_db", Mock())
+    monkeypatch.setattr(main.auth_module, "validate_session", lambda db, value: {"role": role})
+    status, consumed = request_stream(upload_env, session=True)
+    assert status == 302
+    assert consumed == 0
+
+
+def test_file_limit_stops_before_envelope_limit(upload_env: dict[str, Any]) -> None:
+    status, consumed = request_stream(upload_env, size=MIB + 512 * 1024)
+    assert status == 413
+    assert consumed < MIB + 128 * 1024
+    assert not list(upload_env["directory"].iterdir())
+
+
+def test_streamed_multipart_header_is_bounded(upload_env: dict[str, Any]) -> None:
+    status, consumed = request_stream(upload_env, huge_header=True)
+    assert status == 400
+    assert consumed < 256 * 1024
+
+
+@pytest.mark.parametrize("path", ["/config", "/models", "/admin/training/uploads"])
+@pytest.mark.parametrize("length", [None, "1"])
+def test_urlencoded_csrf_fallback_is_bounded(
+    upload_env: dict[str, Any], path: str, length: str | None,
+) -> None:
+    status, consumed = request_stream(upload_env, path=path, csrf=False, length=length,
+                                      content_type="application/x-www-form-urlencoded")
+    assert status == 413
+    assert consumed < 2 * MIB
+
+
+@pytest.mark.parametrize("content_type", [
+    "multipart/form-data; application/x-www-form-urlencoded",
+    'multipart/form-data; boundary="application/x-www-form-urlencoded"',
+])
+def test_mixed_content_type_cannot_trigger_body_read(
+    upload_env: dict[str, Any], content_type: str,
+) -> None:
+    assert request_stream(upload_env, content_type=content_type, csrf=False) == (403, 0)
+
+
+@pytest.mark.parametrize("disconnect", [False, True])
+def test_incomplete_upload_closes_spools(
+    upload_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, disconnect: bool,
+) -> None:
+    import starlette.formparsers as parsers
+    from starlette.requests import ClientDisconnect
+
+    created = []
+    original = parsers.SpooledTemporaryFile
+
+    def tracked(*args: Any, **kwargs: Any) -> Any:
+        file = original(*args, **kwargs)
+        created.append(file)
+        return file
+
+    monkeypatch.setattr(parsers, "SpooledTemporaryFile", tracked)
+    if disconnect:
+        with pytest.raises(ClientDisconnect):
+            request_stream(upload_env, size=128 * 1024, disconnect=True)
+    else:
+        status, _ = request_stream(upload_env, size=128 * 1024, truncated=True)
+        assert status == 400
+    assert created and all(file.closed for file in created)
+    assert not list(upload_env["directory"].iterdir())
+
+
+def test_config_limits_save_render_and_preserve_sibling(
+    client: Any, upload_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = upload_env["cfg"]
+    saved = []
+    monkeypatch.setattr("config_store.save", lambda value: saved.append(value))
+    monkeypatch.setattr("routes.config.audit.record_request", lambda *args, **kwargs: None)
+    response = client.post("/config/structured", json={"system": {"uploads": {"model_mb": 700}}})
+    assert response.status_code == 200
+    assert saved[-1]["system"]["uploads"] == {"model_mb": 700, "dataset_mb": 1}
+    cfg.update(saved[-1])
+    page = client.get("/config")
+    assert page.status_code == 200
+    assert 'id="upload-model-mb" value="700"' in page.text
+    assert 'id="upload-dataset-mb" value="1"' in page.text
+    for value in (0, 16385):
+        response = client.post("/config/structured", json={"system": {"uploads": {"dataset_mb": value}}})
+        assert response.status_code == 422
+    assert len(saved) == 1
+
+
+@pytest.mark.parametrize("bearer", [False, True])
+def test_authenticated_allowed_upload(
+    upload_env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, bearer: bool,
+) -> None:
+    main = upload_env["main"]
+    upload_env["cfg"]["system"]["auth"]["enabled"] = True
+    monkeypatch.setattr(main.auth_module, "users_exist", lambda path: True)
+    monkeypatch.setattr(main.auth_module, "get_db", Mock())
+    monkeypatch.setattr(main.auth_module, "validate_session", lambda db, value: {"role": "admin"})
+    monkeypatch.setattr(main.auth_module, "validate_api_token", lambda db, value: {"role": "admin"})
+    status, consumed = request_stream(upload_env, size=MIB, session=not bearer, bearer=bearer, csrf=not bearer)
+    assert status == 303
+    assert consumed > MIB
+    assert (upload_env["directory"] / "pond.pt").stat().st_size == MIB
+
+
+def test_wrong_header_rejected_without_read(upload_env: dict[str, Any]) -> None:
+    assert request_stream(upload_env, bad_csrf=True) == (403, 0)
