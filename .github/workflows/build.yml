@@ -475,6 +475,54 @@ jobs:
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-training-controller:test-${{ github.run_id }} || true
 
+  # ── Build off-watchdog (x86 runner) ───────────────────────────────────────
+  build-off-watchdog:
+    name: Build off-watchdog image
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build off-watchdog (validate only)
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
+        with:
+          context: .
+          file: services/off-watchdog/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=off-watchdog
+          cache-to: type=gha,scope=off-watchdog,mode=max
+
+      - name: Build off-watchdog (amd64, load for scan)
+        if: github.event_name != 'push'
+        run: |
+          docker build \
+            --tag scarguard-off-watchdog:test-${{ github.run_id }} \
+            --file services/off-watchdog/Dockerfile \
+            .
+
+      - name: Trivy scan - off-watchdog
+        if: github.event_name != 'push'
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # FLOATING BRANCH - was: @master (resolved 2026-05-23); switch to a tagged release when ready
+        with:
+          image-ref: scarguard-off-watchdog:test-${{ github.run_id }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+
+      - name: Clean up
+        if: always() && github.event_name != 'push'
+        run: docker rmi scarguard-off-watchdog:test-${{ github.run_id }} || true
+
   # ── Build trainer - Jetson/L4T (hosted arm64 runner) ─────────────────────────
   # Same L4T base as detector - ARM64 only, no x86 variant.  The
   # orin-maintenance-approved gate was dropped with the move off the Jetson:
@@ -571,7 +619,7 @@ jobs:
       github.event_name != 'push' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.owner.login == 'sentania-labs')
-    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-backup, build-caddy, build-log-streamer, build-training-controller]
+    needs: [build-detector-x86, build-web, build-notifier, build-deterrent, build-backup, build-caddy, build-log-streamer, build-training-controller, build-off-watchdog]
     runs-on: ubuntu-latest
 
     steps:
@@ -618,6 +666,7 @@ jobs:
           docker build -f services/caddy/Dockerfile -t scarguard-caddy:smoke .
           docker build -f services/log-streamer/Dockerfile -t scarguard-log-streamer:smoke .
           docker build -f services/training-controller/Dockerfile -t scarguard-training-controller:smoke .
+          docker build -f services/off-watchdog/Dockerfile -t scarguard-off-watchdog:smoke .
 
       # Seed the named volume that docker-compose.yml actually mounts.
       - name: Seed config volume
@@ -703,4 +752,4 @@ jobs:
           docker rmi scarguard-detector-x86:smoke scarguard-web:smoke \
             scarguard-notifier:smoke scarguard-deterrent:smoke \
             scarguard-backup:smoke scarguard-caddy:smoke \
-            scarguard-log-streamer:smoke 2>/dev/null || true
+            scarguard-log-streamer:smoke scarguard-off-watchdog:smoke 2>/dev/null || true
