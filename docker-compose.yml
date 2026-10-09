@@ -27,7 +27,7 @@ services:
   # one-time manual chown instruction (see README "Upgrading from a
   # previous version"). Fresh v1.14.2+ installs never needed this.
   volume-init:
-    image: alpine:3.19
+    image: alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     # `set -e` + no error suppression: if chown actually fails (e.g., a
     # volume backend that rejects the op), the sidecar exits non-zero,
     # the `service_completed_successfully` gate on redis/caddy fails,
@@ -53,7 +53,7 @@ services:
 
   # ── Redis ─────────────────────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     # Run as the non-root `redis` user built into the alpine image (uid 999).
     # The image's entrypoint only drops privileges when arg[0] is
     # `redis-server`; our `sh -c` wrapper defeats that path, so we pin the
@@ -376,7 +376,7 @@ services:
   # exposes only containers/* (read) and events (read), which is what
   # log-streamer actually needs.
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    image: tecnativa/docker-socket-proxy:0.4.2
     restart: unless-stopped
     environment:
       CONTAINERS: 1

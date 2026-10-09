@@ -133,7 +133,9 @@ jobs:
       - name: Test web in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-web:test-${{ github.run_id }} sh -c "pip install --quiet pytest httpx && python3 -m pytest /app/tests/ -v --tb=short")
+          echo -e "FROM scarguard-web:test-${{ github.run_id }}\nRUN python3 -m ensurepip && pip install --quiet pytest httpx" > Dockerfile.test
+          docker build -t scarguard-web:test-${{ github.run_id }}-runner -f Dockerfile.test .
+          cid=$(docker create --user root --entrypoint "" scarguard-web:test-${{ github.run_id }}-runner python3 -m pytest /app/tests/ -v --tb=short)
           docker cp ${{ github.workspace }}/services/web/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -190,7 +192,9 @@ jobs:
       - name: Test notifier in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-notifier:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          echo -e "FROM scarguard-notifier:test-${{ github.run_id }}\nRUN python3 -m ensurepip && pip install --quiet pytest" > Dockerfile.test
+          docker build -t scarguard-notifier:test-${{ github.run_id }}-runner -f Dockerfile.test .
+          cid=$(docker create --user root --entrypoint "" scarguard-notifier:test-${{ github.run_id }}-runner python3 -m pytest /app/tests/ -v --tb=short)
           docker cp ${{ github.workspace }}/services/notifier/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -258,7 +262,9 @@ jobs:
       - name: Test deterrent in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-deterrent:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          echo -e "FROM scarguard-deterrent:test-${{ github.run_id }}\nRUN python3 -m ensurepip && pip install --quiet pytest" > Dockerfile.test
+          docker build -t scarguard-deterrent:test-${{ github.run_id }}-runner -f Dockerfile.test .
+          cid=$(docker create --user root --entrypoint "" scarguard-deterrent:test-${{ github.run_id }}-runner python3 -m pytest /app/tests/ -v --tb=short)
           docker cp ${{ github.workspace }}/services/deterrent/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -326,7 +332,9 @@ jobs:
       - name: Test backup in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-backup:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          echo -e "FROM scarguard-backup:test-${{ github.run_id }}\nRUN python3 -m ensurepip && pip install --quiet pytest" > Dockerfile.test
+          docker build -t scarguard-backup:test-${{ github.run_id }}-runner -f Dockerfile.test .
+          cid=$(docker create --user root --entrypoint "" scarguard-backup:test-${{ github.run_id }}-runner python3 -m pytest /app/tests/ -v --tb=short)
           docker cp ${{ github.workspace }}/services/backup/tests/. "$cid:/app/tests/"
           docker cp ${{ github.workspace }}/shared/. "$cid:/app/shared/"
           docker start -a "$cid"
@@ -434,7 +442,9 @@ jobs:
       - name: Test log-streamer in container
         if: github.event_name != 'push'
         run: |
-          cid=$(docker create --user root --entrypoint "" scarguard-log-streamer:test-${{ github.run_id }} sh -c "pip install --quiet pytest && python3 -m pytest /app/tests/ -v --tb=short")
+          echo -e "FROM scarguard-log-streamer:test-${{ github.run_id }}\nRUN python3 -m ensurepip && pip install --quiet pytest" > Dockerfile.test
+          docker build -t scarguard-log-streamer:test-${{ github.run_id }}-runner -f Dockerfile.test .
+          cid=$(docker create --user root --entrypoint "" scarguard-log-streamer:test-${{ github.run_id }}-runner python3 -m pytest /app/tests/ -v --tb=short)
           trap 'docker rm "$cid" > /dev/null 2>&1 || true' EXIT
           docker cp ${{ github.workspace }}/services/log-streamer/tests/. "$cid:/app/tests/"
           set +e
