@@ -9,7 +9,7 @@ opencv-python-headless==4.10.0.84
 # pillow-avif-plugin instead, so it imports cleanly against pillow-heif 1.x.
 # This supersedes the pillow-heif==0.22.0 pin from #179.
 roboflow==1.2.0
-pillow-heif==1.3.0
+pillow-heif==1.8.0
 redis==5.2.1
 pyyaml==6.0.2
 requests==2.33.0
