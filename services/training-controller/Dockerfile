@@ -22,4 +22,13 @@ COPY services/training-controller/src/ ./src/
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
+# v1.15 (FDY-0558): Add non-root user matching the docker-compose uid 999
+# so the container drops privileges before startup.  The /state volume mount
+# must be writable by uid 999 at runtime; compose passes that in.
+RUN addgroup --system --gid 999 scarguard \
+    && adduser --system --uid 999 --ingroup scarguard scarguard
+RUN mkdir -p /state && chown 999:999 /state
+
+USER scarguard
+
 CMD ["python3", "src/main.py"]

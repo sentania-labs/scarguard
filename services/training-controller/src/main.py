@@ -99,15 +99,30 @@ class _UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = sock
 
 
+# Finite bounds for Docker Engine communication and HTTP handling.
+DOCKER_MAX_RESPONSE_BYTES = 2 * 1024 * 1024  # 2 MB response cap
+DOCKER_SOCKET_TIMEOUT = 30  # seconds
+HTTP_BODY_MAX = 4096  # bytes
+HTTP_SERVER_THREADS = 8  # bounded worker threads
+
+
 class DockerBackend:
     """Minimal Docker Engine client exposing only operations needed here."""
 
     def _request(self, method: str, path: str) -> tuple[int, bytes]:
-        connection = _UnixHTTPConnection(SOCKET_PATH)
+        connection = _UnixHTTPConnection(SOCKET_PATH, timeout=DOCKER_SOCKET_TIMEOUT)
         try:
             connection.request(method, path, headers={"Content-Length": "0"})
             response = connection.getresponse()
-            return response.status, response.read()
+            body = response.read(DOCKER_MAX_RESPONSE_BYTES)
+            if len(body) >= DOCKER_MAX_RESPONSE_BYTES:
+                # Truncate and drain so the connection can be closed cleanly.
+                connection.close()
+                raise ControllerError(
+                    "Docker Engine response exceeds maximum size",
+                    HTTPStatus.BAD_GATEWAY,
+                )
+            return response.status, body
         except (OSError, http.client.HTTPException) as exc:
             raise ControllerError(
                 f"Docker Engine request failed: {type(exc).__name__}: {exc}",
@@ -390,7 +405,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _owner(self) -> str:
         try:
-            length = min(int(self.headers.get("Content-Length", "0")), 4096)
+            length = min(int(self.headers.get("Content-Length", "0")), HTTP_BODY_MAX)
             payload = json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, json.JSONDecodeError) as exc:
             raise ControllerError("Invalid JSON request", HTTPStatus.BAD_REQUEST) from exc
@@ -458,6 +473,7 @@ def main() -> None:
     recovery = threading.Thread(target=_recovery_loop, args=(stop,), daemon=True)
     recovery.start()
     server = ThreadingHTTPServer(("0.0.0.0", 8090), Handler)
+    server.request_queue_size = HTTP_SERVER_THREADS
     try:
         server.serve_forever()
     finally:

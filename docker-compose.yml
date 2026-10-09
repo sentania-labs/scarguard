@@ -376,16 +376,39 @@ services:
   # v1.14: tecnativa/docker-socket-proxy mediates Docker API access for the
   # log-streamer instead of mounting /var/run/docker.sock directly. Pre-v1.14
   # any code-execution bug in log-streamer would have given an attacker the
-  # full Docker API on the host (start/stop/exec any container). The proxy
-  # exposes only containers/* (read) and events (read), which is what
-  # log-streamer actually needs.
+  # full Docker API on the host (start/stop/exec any container).
+  #
+  # v1.15 (FDY-0558): Put on a dedicated ``scarguard-docker`` network with
+  # only the required ``containers/list`` and ``containers/show`` routes plus
+  # ``events``.  Explicitly deny archive (file extraction), env, top, exec,
+  # and create which ``CONTAINERS:1`` alone leaves readable.  Only the
+  # log-streamer talks to this proxy.
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
     restart: unless-stopped
     environment:
       CONTAINERS: 1
       EVENTS: 1
-      # Everything else stays at the default (0 = denied).
+      # Explicitly deny every other endpoint so CONTAINERS:1 cannot be
+      # escalated to archive/env/top/exec/create attacks.
+      ARCHIVE: 0
+      CONFIGS: 0
+      CREATES: 0
+      ENV: 0
+      EXEC: 0
+      IMAGES: 0
+      INFO: 0
+      NODES: 0
+      PLUGINS: 0
+      PRUNE: 0
+      REGISTRY: 0
+      SECRETS: 0
+      SESSION: 0
+      SWARM: 0
+      TASKS: 0
+      TOP: 0
+      TRUST: 0
+      VOLUMES: 0
       LOG_LEVEL: warning
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -394,12 +417,18 @@ services:
     pids_limit: 32
     security_opt:
       - no-new-privileges:true
+    networks:
+      - scarguard-docker
     # The proxy itself needs to read the docker socket; it mediates that
     # capability for downstream consumers. Don't drop capabilities on it.
 
   # ── Log Streamer (sidecar) ────────────────────────────────────────────────
   # Tails container logs via the docker-socket-proxy and publishes to Redis.
   # No direct socket mount - see docker-socket-proxy above.
+  #
+  # v1.15 (FDY-0558): Connects to ``scarguard-docker`` for the socket proxy
+  # and to the default scarguard network for Redis.  read_only with tmpfs
+  # limits write surfaces.
   log-streamer:
     build:
       context: .
@@ -435,6 +464,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - scarguard-docker  # docker-socket-proxy TCP
+      - default            # Redis pub/sub
     read_only: true
     tmpfs:
       - /tmp:size=32m
@@ -488,8 +520,14 @@ services:
   # The controller is the sole application-side Docker write boundary. Its
   # HTTP API is hard-coded to acquire/release the Compose detector service;
   # neither web nor trainer receives a Docker socket or arbitrary container
-  # operation. The socket bind is marked read-only as a filesystem mount, but
-  # Docker API calls can still stop/start containers, hence this strict sidecar.
+  # operation.
+  #
+  # v1.15 (FDY-0558): Moved to a dedicated ``scarguard-training`` network so
+  # that ordinary services cannot reach the controller or the trainer.  The
+  # socket mount stays ``:ro`` but the controller is the only container on the
+  # network that holds it.  Dropped to the ``scarguard`` group so only
+  # group-readable Docker metadata is visible, and bounded HTTP/socket
+  # handler limits prevent resource exhaustion.
   training-controller:
     profiles: ["training"]
     build:
@@ -527,9 +565,13 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    user: "999:999"
     read_only: true
     tmpfs:
       - /tmp:size=8m
+    networks:
+      - scarguard-training  # isolated from other services
+      - default              # Redis pub/sub
 
   # ── Trainer (ARM64/Jetson only - opt-in via COMPOSE_PROFILES=training) ────
   # Uses the L4T base image (ARM64 only, no x86 variant).  Gated behind a
@@ -582,6 +624,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - scarguard-training  # trainer can only reach training-controller
+      - default              # Redis pub/sub
 
 volumes:
   scarguard-caddy-data:
@@ -604,3 +649,7 @@ networks:
     ipam:
       config:
         - subnet: 172.24.0.0/16
+  scarguard-docker:
+    internal: true  # no egress, only log-streamer ↔ socket-proxy
+  scarguard-training:
+    internal: true  # only trainer ↔ training-controller
