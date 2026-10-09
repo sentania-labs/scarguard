@@ -60,6 +60,77 @@ _drop_counter_lock = threading.Lock()
 _drop_counter = 0
 
 
+def _force_off_sweep(
+    controller_ref: AtomicRef[TuyaCloudController | None],
+    act_cfg_ref: AtomicRef[ActuationConfig],
+    *,
+    reason: str,
+) -> dict[str, bool]:
+    """Bounded parallel OFF sweep of every known device, enabled or not."""
+    controller = controller_ref.get()
+    if controller is None:
+        logger.warning("%s OFF sweep skipped: Tuya credentials are unavailable", reason)
+        return {}
+    devices = list(act_cfg_ref.get().devices)
+    results: dict[str, bool] = {}
+    result_lock = threading.Lock()
+
+    def switch_off(device: DeviceConfig) -> None:
+        request_id = f"{reason}-{uuid.uuid4().hex[:12]}"
+        ok, error = controller.force_off(device, request_id=request_id)
+        with result_lock:
+            results[device.device_id] = ok
+        if not ok:
+            logger.critical(
+                "%s OFF sweep could not verify %s (%s) is safe: %s",
+                reason.upper(), device.name, device.device_id, error,
+            )
+
+    threads = [
+        threading.Thread(
+            target=switch_off, args=(device,),
+            name=f"{reason}-off-{device.device_id}", daemon=False,
+        )
+        for device in devices
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    logger.warning(
+        "%s OFF sweep finished: %d/%d cloud acknowledgements",
+        reason.capitalize(), sum(results.values()), len(devices),
+    )
+    return results
+
+
+def _make_shutdown_handler(
+    shutdown_event: threading.Event,
+    queue_put: Callable[[None], None],
+    controller_ref: AtomicRef[TuyaCloudController | None],
+    act_cfg_ref: AtomicRef[ActuationConfig],
+    sweep_completed: threading.Event | None = None,
+) -> Callable[[int, object], None]:
+    """Build the SIGTERM/SIGINT handler, including the safety OFF sweep."""
+    handled = threading.Event()
+    completed = sweep_completed or threading.Event()
+
+    def shutdown(sig: int, _frame: object) -> None:
+        if handled.is_set():
+            return
+        handled.set()
+        logger.info("Received signal %s - shutting down", sig)
+        shutdown_event.set()
+        try:
+            queue_put(None)
+        except queue.Full:
+            logger.warning("Worker queue full while adding shutdown marker")
+        _force_off_sweep(controller_ref, act_cfg_ref, reason="shutdown")
+        completed.set()
+
+    return shutdown
+
+
 def load_config() -> dict[str, Any]:
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f) or {}
@@ -101,11 +172,15 @@ def build_controller(act_cfg: ActuationConfig) -> TuyaCloudController | None:
     """Build a Cloud controller from config, or None if credentials are missing."""
     if act_cfg.tuya is None:
         return None
-    return TuyaCloudController(
-        api_key=act_cfg.tuya.api_key,
-        api_secret=act_cfg.tuya.api_secret,
-        api_region=act_cfg.tuya.api_region,
-    )
+    try:
+        return TuyaCloudController(
+            api_key=act_cfg.tuya.api_key,
+            api_secret=act_cfg.tuya.api_secret,
+            api_region=act_cfg.tuya.api_region,
+        )
+    except Exception:
+        logger.exception("Tuya Cloud initialisation failed within its safety bound")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -856,7 +931,7 @@ def _reconcile_loop(
     redis_cfg: dict[str, Any],
     pub_holder: list[redis_lib.Redis | None],
 ) -> None:
-    """Periodically poll every enabled device; force-OFF any that report ON
+    """Periodically poll every known device; force-OFF any that report ON
     while no activation is in flight.
 
     Catches two scenarios the per-activation watchdog can't:
@@ -876,7 +951,8 @@ def _reconcile_loop(
         act_cfg = act_cfg_ref.get()
         interval = act_cfg.reconcile_interval_sec
         if interval <= 0:
-            # Disabled - check config again in 60s in case it gets re-enabled.
+            # Preserve the explicit safety-control opt-out while still
+            # reconciling when only deterrent.enabled/device.enabled are off.
             shutdown_event.wait(60)
             continue
 
@@ -889,15 +965,16 @@ def _reconcile_loop(
             continue
 
         act_cfg = act_cfg_ref.get()
-        if not act_cfg.enabled:
-            continue
-
         for device in act_cfg.devices:
-            if not device.enabled:
-                continue
             if controller.is_device_busy(device.device_id):
                 continue
             switched_on = controller.is_switched_on(device)
+            if switched_on is None:
+                logger.warning(
+                    "DEVICE STATUS UNKNOWN for %s (%s); cannot verify it is OFF",
+                    device.name, device.device_id,
+                )
+                continue
             if switched_on is not True:
                 continue
 
@@ -1023,7 +1100,10 @@ def subscribe_loop(
 
             pathlib.Path("/tmp/healthy").touch(exist_ok=True)
 
-            for message in pubsub.listen():
+            while not shutdown_event.is_set():
+                message = pubsub.get_message(timeout=1.0)
+                if message is None:
+                    continue
                 if shutdown_event.is_set():
                     break
                 if message["type"] != "message":
@@ -1150,14 +1230,17 @@ def main() -> None:
 
     # Shutdown signal handling
     shutdown_event = threading.Event()
+    shutdown_sweep_completed = threading.Event()
+    shutdown_handler = _make_shutdown_handler(
+        shutdown_event, event_queue.put_nowait, controller_ref, act_cfg_ref,
+        shutdown_sweep_completed,
+    )
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
 
-    def _shutdown(sig: int, _frame: object) -> None:
-        logger.info("Received signal %s - shutting down", sig)
-        shutdown_event.set()
-        event_queue.put(None)  # poison pill for worker
-
-    signal.signal(signal.SIGTERM, _shutdown)
-    signal.signal(signal.SIGINT, _shutdown)
+    # A restart may have killed the old process after ON but before OFF. This
+    # safety pass is deliberately independent of deterrent.enabled.
+    _force_off_sweep(controller_ref, act_cfg_ref, reason="startup")
 
     # Config hot-reload
     def _on_config_change(new_cfg: dict[str, Any]) -> None:
@@ -1168,6 +1251,7 @@ def main() -> None:
 
         # Rebuild controller if credentials changed
         old_act = act_cfg_ref.get()
+        old_controller = controller_ref.get()
         if new_act.tuya != old_act.tuya:
             new_controller = build_controller(new_act)
             controller_ref.set(new_controller)
@@ -1187,6 +1271,32 @@ def main() -> None:
             elif new_controller is not None and battery_monitor is not None:
                 battery_monitor.update_controller(new_controller)
                 logger.info("Battery monitor controller updated (credentials changed)")
+
+        # Removed devices remain reachable by safety paths until an OFF is
+        # acknowledged. Failed removals are retained as disabled entries and
+        # retried by reconciliation and the shutdown sweep.
+        new_ids = {device.device_id for device in new_act.devices}
+        removed = [device for device in old_act.devices if device.device_id not in new_ids]
+        active_controller = old_controller or controller_ref.get()
+        for device in removed:
+            safe = False
+            if active_controller is not None:
+                safe, error = active_controller.force_off(
+                    device, request_id=f"config-remove-{uuid.uuid4().hex[:12]}",
+                )
+                if not safe:
+                    logger.critical(
+                        "Removed device %s (%s) remains safety-tracked: %s",
+                        device.name, device.device_id, error,
+                    )
+            if not safe:
+                new_act.devices.append(device.model_copy(update={"enabled": False}))
+                new_controller = controller_ref.get()
+                if new_controller is not None and old_controller is not None:
+                    new_controller.retain_off_route(device.device_id, old_controller)
+                elif old_controller is not None:
+                    old_controller.restrict_to_safety_operations()
+                    controller_ref.set(old_controller)
 
         act_cfg_ref.set(new_act)
         armed_ref.set(new_armed)
@@ -1254,6 +1364,35 @@ def main() -> None:
     )
     reconcile_thread.start()
 
+    def supervise_critical_threads() -> None:
+        while not shutdown_event.wait(1.0):
+            failed = []
+            if not worker_thread.is_alive():
+                failed.append(worker_thread.name)
+            if not reconcile_thread.is_alive():
+                failed.append(reconcile_thread.name)
+            if not req_handler.is_alive():
+                failed.append("request-handler")
+            if failed:
+                logger.critical(
+                    "Critical deterrent thread stopped unexpectedly: %s; "
+                    "stopping service for container restart",
+                    ", ".join(failed),
+                )
+                shutdown_event.set()
+                try:
+                    event_queue.put_nowait(None)
+                except queue.Full:
+                    pass
+                return
+
+    supervisor_thread = threading.Thread(
+        target=supervise_critical_threads,
+        name="deterrent-supervisor",
+        daemon=True,
+    )
+    supervisor_thread.start()
+
     # Start queue-drop metrics publisher
     metrics_thread = threading.Thread(
         target=_metrics_publisher,
@@ -1267,6 +1406,11 @@ def main() -> None:
     subscribe_loop(redis_cfg, event_queue, shutdown_event)
 
     # Cleanup
+    # Covers supervised thread failure and other internal exits as well as
+    # signals. A signal may already have swept; redundant OFF is intentional.
+    if not shutdown_sweep_completed.is_set():
+        _force_off_sweep(controller_ref, act_cfg_ref, reason="shutdown-final")
+        shutdown_sweep_completed.set()
     # Stop the request handler FIRST. Joining the worker first leaves a window
     # where a press is accepted, claims the guard and lands on a queue with no
     # consumer, so nothing is ever published and the caller hangs to timeout.
@@ -1274,6 +1418,7 @@ def main() -> None:
     event_queue.put(None)  # ensure worker exits
     worker_thread.join(timeout=10)
     reconcile_thread.join(timeout=10)
+    supervisor_thread.join(timeout=2)
     watcher.stop()
     if battery_monitor is not None:
         battery_monitor.stop()

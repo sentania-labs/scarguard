@@ -25,11 +25,19 @@ then undid itself. It now also:
 - stops a running group sequence from picking up its next device,
 - cancels a test-fire that is still queued behind a detection.
 
-**v1.17.1 closes the last gap between the abort check and ON.** Cancellation
-is checked while holding the same cloud-command lock used for OFF. If the
-emergency request wins, the old activation sends no ON. If ON was already
-admitted, its cloud call finishes before emergency OFF is sent. There is no
-stale ON after that emergency OFF completes.
+ScarGuard waits at most two seconds per cloud attempt, including token
+acquisition/refresh performed by TinyTuya. Python cannot terminate a stuck
+third-party call, so its daemon thread may remain inside TinyTuya; OFF has an independent lock,
+so a status query or ON request that stops returning cannot hold the emergency
+path. OFF retries still use 1s, 2s and 4s backoff; the defined worst-case bound
+for a parallel emergency sweep is 16 seconds. If ON times out or raises, its
+outcome is ambiguous and ScarGuard immediately attempts OFF.
+
+The maximum-duration OFF timer is armed before ON is attempted. If a timed-out
+ON call later completes, the still-armed deadline issues another OFF after the
+immediate compensating OFF. Cloud acknowledgement still is not proof of
+physical state, so an unknown status is logged and returned to the UI as a
+visible warning rather than being treated as OFF.
 
 Emergency OFF does send OFF to an active device; the worker may still finish
 its local duration wait and issue its normal redundant OFF. The lock is not
@@ -37,6 +45,12 @@ held during that wait or retry backoff. Cloud acknowledgement is not proof
 that a sleeping battery device has physically shut off, so observe the valve.
 A new detection after emergency-off starts under the new generation and can
 fire normally; disarm separately to prevent future detections from firing.
+
+The deterrent performs the same all-device sweep at startup and on SIGTERM,
+even when deterrence or an individual device is disabled. Reconciliation also
+continues while deterrence is disabled. A device removed during hot reload is
+kept as a disabled safety target until an OFF acknowledgement is received.
+Docker grants 25 seconds after SIGTERM for the bounded shutdown sweep.
 
 If you are on v1.16.12 or earlier and water is hitting fish, **go
 straight to Option B**. On those versions the web button will not
@@ -48,12 +62,11 @@ stop a group sequence.
 docker compose stop deterrent
 ```
 
-This kills the deterrent process outright. Any in-flight
-`activate_device` call that's currently in the HOLD phase won't run
-its OFF command, but **the per-activation watchdog timer fires
-unconditional OFF at 60 seconds from ON send**, so the device will
-be switched off within a minute of the ON command being issued, even
-with the deterrent container gone.
+This sends SIGTERM, which starts the bounded all-device OFF sweep before the
+container exits. If the process is killed without grace, in-process timers do
+not survive container termination; use the Tuya app or physical cutoff. The
+60-second watchdog is an in-process backstop and firmware-side timers remain
+unverified by ScarGuard.
 
 **Option C, Tuya app (total failure):**
 
@@ -65,9 +78,9 @@ power toggle. Or just yank the sprinkler's power plug from the wall.
 
 The web-UI emergency-off uses the same Tuya Cloud pipeline as the
 normal OFF path. If Redis, the deterrent container, or the Tuya Cloud
-API is degraded, the endpoint will fail. Knowing `docker compose stop`
-works even without Redis (because of the activation watchdog) means
-you always have a second-level stop.
+API is degraded, the endpoint will fail. `docker compose stop` works without
+Redis because SIGTERM directly runs the bounded shutdown sweep, providing a
+second-level stop while the process remains healthy enough to handle SIGTERM.
 
 The Tuya app is the third level, it bypasses ScarGuard entirely and
 talks to Tuya Cloud directly. If the app can't reach the device

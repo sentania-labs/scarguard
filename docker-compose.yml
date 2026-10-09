@@ -319,6 +319,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    # Allows the bounded SIGTERM OFF sweep to finish before SIGKILL.
+    stop_grace_period: 25s
     mem_limit: 256m
     cpus: 0.5
     pids_limit: 100

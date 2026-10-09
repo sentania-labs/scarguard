@@ -295,7 +295,7 @@ class TestEmergencyOffOrdering:
         assert [call.args[1]['commands'][0]['value'] for call in controller._cloud.sendcommand.call_args_list] == [False]
 
     @pytest.mark.parametrize('rebuilt', [False, True])
-    def test_off_waits_for_admitted_on_then_no_stale_on(self, controller: TuyaCloudController, device: DeviceConfig, rebuilt: bool) -> None:
+    def test_off_bypasses_stalled_on_and_final_off_follows_late_ack(self, controller: TuyaCloudController, device: DeviceConfig, rebuilt: bool) -> None:
         import threading
 
         from request_handler import ForceOffLatch
@@ -345,7 +345,7 @@ class TestEmergencyOffOrdering:
             assert on_entered.wait(3)
             emergency.start()
             assert off_requested.wait(3)
-            assert not off_done.is_set()
+            assert off_done.wait(1), "emergency OFF queued behind stalled ON"
         finally:
             release_on.set()
             worker.join(4)
@@ -354,8 +354,9 @@ class TestEmergencyOffOrdering:
         assert not worker.is_alive() and not emergency.is_alive()
         assert not failures
         assert off_done.is_set()
-        assert calls[0] is True
-        assert all(value is False for value in calls[1:])
+        # Emergency OFF completes while ON is stalled. If that fake ON later
+        # acknowledges, activate_device still sends its normal final OFF.
+        assert calls == [False, True, False]
         stale = controller.activate_device(device, .5, should_continue=lambda: latch.generation == generation)
         assert not stale.on_success
         assert calls.count(True) == 1
