@@ -100,6 +100,14 @@
 
 ## Recently Fixed (unreleased)
 
+- **Independent deterrent OFF watchdog (FDY-0556).** Every activation is
+  preceded by a signed, finite Redis lease. A separate OFF-only container
+  sweeps configured devices OFF at startup and after lease expiry, so a killed
+  deterrent process cannot leave an activation unbounded while the host and
+  Tuya Cloud remain reachable. It cannot send ON. Host, power, network, Redis,
+  or cloud failure still relies on device firmware auto-off, which Scott has
+  not verified.
+
 - **Database restore and backup retention (FDY-0600).** `scripts/restore-from-backup.sh`
   no longer depends on a `sqlite3` CLI the backup image never had; it runs
   `services/backup/src/restore.py`, which validates the snapshot with Python's

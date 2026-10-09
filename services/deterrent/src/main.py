@@ -17,6 +17,7 @@ from typing import Any
 import actuation_db
 import redis as redis_lib
 import yaml
+from activation_lease import LEASE_KEY_ENV, RedisActivationLeases
 from actuation_models import (
     ActuationConfig,
     ActuationEvent,
@@ -168,15 +169,21 @@ def parse_actuation_config(cfg: dict[str, Any]) -> ActuationConfig:
     return ActuationConfig(**raw)
 
 
-def build_controller(act_cfg: ActuationConfig) -> TuyaCloudController | None:
+def build_controller(
+    act_cfg: ActuationConfig,
+    leases: RedisActivationLeases | None = None,
+    *,
+    require_lease: bool = False,
+) -> TuyaCloudController | None:
     """Build a Cloud controller from config, or None if credentials are missing."""
-    if act_cfg.tuya is None:
+    if act_cfg.tuya is None or (require_lease and leases is None):
         return None
     try:
         return TuyaCloudController(
             api_key=act_cfg.tuya.api_key,
             api_secret=act_cfg.tuya.api_secret,
             api_region=act_cfg.tuya.api_region,
+            activation_leases=leases,
         )
     except Exception:
         logger.exception("Tuya Cloud initialisation failed within its safety bound")
@@ -1207,7 +1214,24 @@ def main() -> None:
     start_heartbeat()
 
     act_cfg = parse_actuation_config(cfg)
-    controller = build_controller(act_cfg)
+    redis_cfg = cfg.get("redis", {})
+    lease_key = load_key_from_env(LEASE_KEY_ENV)
+    leases: RedisActivationLeases | None = None
+    if lease_key is not None:
+        leases = RedisActivationLeases(
+            redis_lib.Redis(
+                host=redis_cfg.get("host", "redis"),
+                port=int(redis_cfg.get("port", 6379)),
+                password=os.environ.get("REDIS_PASSWORD", "") or None,
+                decode_responses=True,
+                socket_connect_timeout=2,
+                socket_timeout=2,
+            ),
+            lease_key,
+        )
+    else:
+        logger.error("OFF watchdog signing key unavailable; all ON commands are disabled")
+    controller = build_controller(act_cfg, leases, require_lease=True)
 
     act_cfg_ref: AtomicRef[ActuationConfig] = AtomicRef(act_cfg)
     controller_ref: AtomicRef[TuyaCloudController | None] = AtomicRef(controller)
@@ -1232,7 +1256,6 @@ def main() -> None:
         )
 
     # Battery monitor
-    redis_cfg = cfg.get("redis", {})
     battery_monitor: BatteryMonitor | None = None
     if controller is not None:
         redis_password = os.environ.get("REDIS_PASSWORD", "") or None
@@ -1274,7 +1297,7 @@ def main() -> None:
         old_act = act_cfg_ref.get()
         old_controller = controller_ref.get()
         if new_act.tuya != old_act.tuya or old_controller is None:
-            new_controller = build_controller(new_act)
+            new_controller = build_controller(new_act, leases, require_lease=True)
             if new_controller is not None and old_controller is None:
                 # Recover startup safety before accepting any new ON work.
                 _force_off_sweep(

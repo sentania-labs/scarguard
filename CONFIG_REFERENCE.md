@@ -391,6 +391,31 @@ Firing is gated by two cooldown layers:
 | `sound` | `switch` | Tuya sirens/alarms |
 | `plug` | `switch_1` | Tuya smart plugs |
 
+### Independent OFF watchdog
+
+Every ON attempt first writes an HMAC-authenticated activation lease to Redis.
+The lease deadline is derived from the requested, per-device activation (which
+is clamped to `MAX_ACTUATION_SEC`) plus the bounded cloud admission time; it can
+never be indefinite or exceed that envelope. If Redis or the dedicated signing
+key is unavailable, the production deterrent service refuses to send ON.
+
+The separate `off-watchdog` container reads the same configured device registry
+and Tuya credentials, performs a conservative OFF sweep for every configured
+device at startup, then sends OFF when a valid lease expires. It has no
+activation API or true-valued cloud command. Successful normal OFF clears only
+the matching lease, so it cannot erase a newer activation.
+
+Lease records are non-expiring Redis keys protected by the stack's
+`volatile-lru` policy; a separate expiring deadline marker makes eviction
+fail-safe (a missing marker means OFF). The watchdog also tracks each observed
+lease against a monotonic deadline, so a backward wall-clock correction cannot
+make an activation indefinite. Startup OFF covers watchdog restarts.
+
+This covers a deterrent process/container crash only while the host, Redis,
+network, and Tuya Cloud remain reachable. Host failure, loss of power, or cloud
+failure cannot be repaired by software on that host. Device firmware auto-off
+is still required for those cases and has not been verified by Scott.
+
 Override per-device with `dp_code` if your device uses a different DP.
 
 
