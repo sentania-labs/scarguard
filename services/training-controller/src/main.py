@@ -9,6 +9,7 @@ that this controller did not stop.
 
 from __future__ import annotations
 
+import concurrent.futures
 import hmac
 import http.client
 import json
@@ -16,10 +17,11 @@ import logging
 import os
 import re
 import socket
+import socket as socket_mod
 import threading
 import time
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlencode
@@ -307,12 +309,21 @@ class DetectorLeaseController:
             if not state or state.get("owner") != owner:
                 raise ControllerError("Detector lease is not owned by this job")
             if state.get("stopped_by_controller"):
-                owned = self.backend.inspect(str(state.get("container_id", "")))
-                if owned is not None and owned.get("State", {}).get("Running", False):
+                # FDY-0558: When the controller's stored container_id is
+                # gone (e.g. Compose recreated the detector during training),
+                # fall back to a label-based lookup to find the replacement.
+                old_id = str(state.get("container_id", ""))
+                try:
+                    inspected = self.backend.inspect(old_id) if old_id else None
+                    if inspected is None:
+                        inspected = self.backend.find_detector()
+                except ControllerError:
+                    inspected = None
+                if inspected is not None and inspected.get("State", {}).get("Running", False):
                     logger.warning(
                         "Owned detector restarted during active lease; stopping it again"
                     )
-                    self.backend.stop(str(state["container_id"]))
+                    self.backend.stop(str(inspected.get("Id", "")))
             state["heartbeat_at"] = time.time()
             self._write(state)
             return state
@@ -387,6 +398,47 @@ def _authorized(presented: str | None, expected: str | None = None) -> bool:
 
 
 controller = DetectorLeaseController(DockerBackend())
+
+
+class _BoundedHTTPServer(HTTPServer):
+    """HTTPServer that limits request handling to a fixed thread pool."""
+
+    request_queue_size = 8
+
+    def server_activate(self) -> None:  # noqa: D102
+        try:
+            self.socket.setsockopt(socket_mod.SOL_SOCKET, 5, self.request_queue_size)  # SO_BACKLOG=5
+        except OSError:
+            pass  # socket option not supported on this platform
+        super().server_activate()
+
+
+class _HandlerWithPool(BaseHTTPRequestHandler):
+    """Delegates HTTP handling to a real Handler inside a bounded thread pool."""
+
+    def __init__(
+        self,
+        real_cls: type[Handler],
+        pool: concurrent.futures.ThreadPoolExecutor,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        # Build the real handler instance.
+        instance = real_cls(*args, **kwargs)  # type: ignore[arg-type]
+        self._real: Handler = instance
+        self._pool: concurrent.futures.ThreadPoolExecutor = pool
+        # Expose the attributes the parent class expects.
+        self.request = instance.request
+        self.client_address = instance.client_address
+        self.server = instance.server
+        self.headers = instance.headers
+        self.rfile = instance.rfile
+        self.wfile = instance.wfile
+
+    def handle(self) -> None:  # noqa: D102
+        """Run the real handler in a bounded thread pool."""
+        future = self._pool.submit(self._real.handle)
+        future.result()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -472,13 +524,22 @@ def main() -> None:
     stop = threading.Event()
     recovery = threading.Thread(target=_recovery_loop, args=(stop,), daemon=True)
     recovery.start()
-    server = ThreadingHTTPServer(("0.0.0.0", 8090), Handler)
-    server.request_queue_size = HTTP_SERVER_THREADS
+    # FDY-0558: ThreadingHTTPServer.call_handler spawns a thread per request;
+    # setting request_queue_size only affects the listen backlog, not the
+    # worker count.  Use a bounded ThreadPoolExecutor so at most
+    # HTTP_SERVER_THREADS handlers run concurrently, preventing PID
+    # exhaustion from slow connections.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=HTTP_SERVER_THREADS)
+    server = _BoundedHTTPServer(
+        ("0.0.0.0", 8090),
+        lambda: _HandlerWithPool(Handler, pool),
+    )
     try:
         server.serve_forever()
     finally:
         stop.set()
         recovery.join(timeout=5)
+        pool.shutdown(wait=False)
 
 
 if __name__ == "__main__":

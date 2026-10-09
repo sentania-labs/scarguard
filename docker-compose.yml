@@ -99,6 +99,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    networks:
+      - default            # all regular services
+      - scarguard-training  # training controller + trainer need Redis
 
   # ── Caddy reverse proxy ───────────────────────────────────────────────────
   # Front door for all HTTP(S) traffic.  Reads tls config from scarguard.yml
@@ -384,32 +387,13 @@ services:
   # and create which ``CONTAINERS:1`` alone leaves readable.  Only the
   # log-streamer talks to this proxy.
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+    build:
+      context: ./services/log-streamer/etc
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       CONTAINERS: 1
       EVENTS: 1
-      # Explicitly deny every other endpoint so CONTAINERS:1 cannot be
-      # escalated to archive/env/top/exec/create attacks.
-      ARCHIVE: 0
-      CONFIGS: 0
-      CREATES: 0
-      ENV: 0
-      EXEC: 0
-      IMAGES: 0
-      INFO: 0
-      NODES: 0
-      PLUGINS: 0
-      PRUNE: 0
-      REGISTRY: 0
-      SECRETS: 0
-      SESSION: 0
-      SWARM: 0
-      TASKS: 0
-      TOP: 0
-      TRUST: 0
-      VOLUMES: 0
-      LOG_LEVEL: warning
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     mem_limit: 64m
@@ -565,13 +549,21 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # v1.15 (FDY-0558): Drop to non-root uid 999 and join the host Docker
+    # group so the controller can open the Docker socket regardless of which
+    # numeric GID the host assigns to that group.  The value is injected at
+    # run-time by setup.sh (DOCKER_GID) which reads the host docker GID with
+    # ``getent group docker | cut -d: -f3``.  Without this, the controller
+    # fails with "permission denied" on hosts where the docker GID differs
+    # from 999.
     user: "999:999"
+    group_add:
+      - "${DOCKER_GID:-999}"
     read_only: true
     tmpfs:
       - /tmp:size=8m
     networks:
-      - scarguard-training  # isolated from other services
-      - default              # Redis pub/sub
+      - scarguard-training  # isolated from other services; Redis is also on this network
 
   # ── Trainer (ARM64/Jetson only - opt-in via COMPOSE_PROFILES=training) ────
   # Uses the L4T base image (ARM64 only, no x86 variant).  Gated behind a
@@ -626,7 +618,7 @@ services:
       start_period: 10s
     networks:
       - scarguard-training  # trainer can only reach training-controller
-      - default              # Redis pub/sub
+      - default              # Redis pub/sub (trainer also needs Redis)
 
 volumes:
   scarguard-caddy-data:

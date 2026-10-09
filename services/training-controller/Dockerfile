@@ -7,7 +7,9 @@ WORKDIR /app
 # every other Python service Dockerfile here.  This file was the only one
 # missing the step, so the image shipped the base's unpatched OS packages and
 # the Trivy gate failed on them (util-linux CVE-2026-53612/53613/53614/53615).
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
 
 # The base image's setuptools/wheel carry fixable HIGH CVEs (Trivy-gated),
 # so upgrade the build tooling before installing the controller's pinned YAML
@@ -27,8 +29,15 @@ ENV PYTHONUNBUFFERED=1
 # must be writable by uid 999 at runtime; compose passes that in.
 RUN addgroup --system --gid 999 scarguard \
     && adduser --system --uid 999 --ingroup scarguard scarguard
-RUN mkdir -p /state && chown 999:999 /state
 
-USER scarguard
+# v1.15 (FDY-0558): Entrypoint that migrates legacy root-owned /state
+# directories from prior (pre-v1.15) controller installations.  On upgrade,
+# the named volume ``scarguard-training-controller-state`` hides the
+# image-layer ``/state`` directory and retains its original root ownership.
+# This wrapper runs as root, chowns the volume mount, then exec's the
+# non-root controller process.
+COPY services/training-controller/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /usr/local/bin/entrypoint.sh
 
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["python3", "src/main.py"]
