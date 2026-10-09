@@ -10,7 +10,7 @@
 # docker-compose.yml to keep the cap in the bounding set after
 # cap_drop: ALL). We don't add a named user - gid 999 is already taken
 # by Alpine's `ping` group. The process just runs as the numeric uid/gid.
-FROM docker.io/library/caddy:2-alpine@sha256:fce4f15aad23222c0ac78a1220adf63bae7b94355d5ea28eee53910624acedfa
+FROM docker.io/library/caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
 
 RUN apk add --no-cache python3 py3-yaml \
     && chown -R 999:999 /etc/caddy /data
