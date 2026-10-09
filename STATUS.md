@@ -100,6 +100,23 @@
 
 ## Recently Fixed (unreleased)
 
+- **Config restore, TLS values and the config-api switch (FDY-0569; SG-17, SG-24,
+  SG-30).** Config backup restore now parses the backup, validates it against the
+  full config schema, encrypts plaintext secrets with the existing key (refusing
+  when the key is missing or the backup was encrypted with another key), saves a
+  pre-restore backup and writes atomically; a refused or interrupted restore leaves
+  the live config unchanged. Backup names carry microseconds and are created
+  exclusively, so backups made in the same second no longer overwrite each other.
+  The raw-YAML editor validates the whole document before saving. `tls.domain` and
+  the certificate paths are allowlisted (`shared/tls_safety.py`) on every web write
+  path and again in the Caddy entrypoint, which now renders through
+  `config/caddy_config.py`, runs `caddy validate` and swaps the file atomically
+  before reloading, keeping the running config and a `Caddyfile.last-good` on any
+  failure. `system.config_api.enabled` no longer routes writes to the 501 config-api
+  scaffold: Caddy ignores it and web refuses to set it. Regression tests:
+  `services/web/tests/test_fdy_0569_regression.py`. Not yet exercised against a
+  real `caddy` binary or a running stack (tests use a stub `caddy`; CI builds the image).
+
 - **Database restore and backup retention (FDY-0600).** `scripts/restore-from-backup.sh`
   no longer depends on a `sqlite3` CLI the backup image never had; it runs
   `services/backup/src/restore.py`, which validates the snapshot with Python's

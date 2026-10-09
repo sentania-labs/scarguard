@@ -14,8 +14,9 @@ scarguard/
 ├── .env.example
 ├── config/
 │   ├── scarguard.example.yml
-│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy-entrypoint.sh
-│   └── caddy-entrypoint.sh          # Reads tls/* from scarguard.yml, generates Caddyfile at runtime
+│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy_config.py
+│   ├── caddy_config.py              # Validates tls/* (shared/tls_safety.py), renders the Caddyfile, `caddy validate` before atomic reload
+│   └── caddy-entrypoint.sh          # Generates the Caddyfile at start, polls scarguard.yml and calls caddy_config.py reload
 ├── services/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
 │   │   ├── Dockerfile               # Jetson/L4T (ARM64)
@@ -130,7 +131,7 @@ scarguard/
 │   │   │   └── actuation_models.py  # Pydantic actuation event schema
 │   │   └── tests/
 │   ├── caddy/                       # Reverse proxy (TLS termination)
-│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
+│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh, caddy_config.py and shared/tls_safety.py
 │   ├── log-streamer/                # Sidecar - tails Docker logs, publishes to Redis
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
