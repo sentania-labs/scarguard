@@ -22,10 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python deps before copying source (layer caching)
-COPY services/detector/requirements.txt ./requirements.txt
+COPY services/detector/requirements.lock ./requirements.lock
 # torch/torchvision/torchaudio are pre-installed in the base image;
 # pip will skip reinstalling them if versions are compatible.
-RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.txt
+RUN pip install --no-cache-dir --index-url https://pypi.org/simple/ -r requirements.lock && \
+    pip uninstall -y pip setuptools wheel
 
 # Copy application source
 COPY services/detector/src/ ./src/
@@ -35,6 +36,8 @@ COPY shared/ ./shared/
 ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 ENV YOLO_CONFIG_DIR=/tmp/ultralytics
+ENV YOLO_OFFLINE=1
+ENV ULTRALYTICS_OFFLINE=1
 
 # Create non-root user for defense in depth.
 # The video group provides GPU device access on most Linux hosts.

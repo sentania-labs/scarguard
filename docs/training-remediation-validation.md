@@ -27,12 +27,21 @@ must remain separate from any `diagnostic_masking` field.
 3. Prepare a tiny disposable YOLO dataset and a distinct output model name.
    Do not reuse or overwrite the production merged dataset or model.
 4. Record the deployed image digests and current detector running state.
-5. Confirm no training job or Orin CI GPU lease is active.
+5. Confirm no training job or release-tag Orin CI GPU lease is active.
 6. Confirm `TRAINING_CONTROLLER_TOKEN` is a dedicated value of at least 32
    characters and is present only in trainer and training-controller.
-7. Apply the `orin-maintenance-approved` PR label only after the window opens.
-   It enables the otherwise-skipped trainer image and detector target jobs;
-   remove it when the window closes.
+7. Confirm the maintenance work is being run directly under the approved
+   operator procedure. Repository CI permits the production Orin only for the
+   guarded detector job on a `vMAJOR.MINOR.PATCH` tag push. A PR label,
+   `workflow_dispatch`, main push, or schedule cannot authorize Orin work.
+
+The repository guard is only one layer. A dedicated GitHub runner group scoped
+to the release workflow and protected-environment restrictions for
+production-capable secrets remain pending operational settings work. Do not
+treat this runbook or a repository label as a substitute for those controls.
+The retired standalone cleanup workflow is only a PR-visible, hosted-runner
+tombstone: its job is always skipped, with no schedule, manual dispatch,
+Docker prune, or production-runner selector.
 
 ## Static deployment checks
 
