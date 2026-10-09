@@ -13,7 +13,17 @@ from unittest.mock import Mock
 import pytest
 
 MIB = 1024 * 1024
-ROOT = Path(__file__).resolve().parents[3]
+
+
+def find_repo_root() -> Path | None:
+    """Return the checkout root when repository-only artifacts are available."""
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "config/caddy-entrypoint.sh").is_file():
+            return candidate
+    return None
+
+
+REPO_ROOT = find_repo_root()
 
 
 @pytest.fixture()
@@ -170,7 +180,8 @@ def test_500_mib_dataset_has_bounded_memory_and_writes(
     monkeypatch.setattr(UploadFile, "read", tracked_read)
     # Workers may mount /tmp as a 512 MiB tmpfs. Use checkout-backed scratch
     # for both real parser spools and real destination writes (about 1 GiB).
-    with tempfile.TemporaryDirectory(prefix=".upload-test-", dir=ROOT) as scratch:
+    scratch_parent = REPO_ROOT or Path.cwd()
+    with tempfile.TemporaryDirectory(prefix=".upload-test-", dir=scratch_parent) as scratch:
         directory = Path(scratch)
         monkeypatch.setattr(tempfile, "tempdir", scratch)
         monkeypatch.setattr("routes.training_uploads.TRAINING_UPLOADS_DIR", directory)
@@ -213,8 +224,11 @@ def test_config_ui_and_proxy_generator(
     import yaml
     from config_model import StructuredConfigPayload, UploadLimitsConfig
 
+    if REPO_ROOT is None:
+        pytest.skip("repository proxy and UI artifacts are not included in the web service image")
+
     # Generate the actual artifact from the entrypoint's production heredoc.
-    script = (ROOT / "config/caddy-entrypoint.sh").read_text()
+    script = (REPO_ROOT / "config/caddy-entrypoint.sh").read_text()
     source = script.split("<<'PYEOF'\n", 1)[1].split("\nPYEOF", 1)[0]
     config = tmp_path / "config.yml"
     limits = {"model_mb": model_mb, "dataset_mb": dataset_mb}
@@ -237,11 +251,13 @@ def test_config_ui_and_proxy_generator(
     assert "max_size 1048576" in result
     assert result.index("request_body") < result.index("reverse_proxy")
     assert StructuredConfigPayload().system.uploads.dataset_mb == 500
-    template = (ROOT / "services/web/src/templates/config.html").read_text()
-    javascript = (ROOT / "services/web/src/static/config.js").read_text()
+    template = (REPO_ROOT / "services/web/src/templates/config.html").read_text()
+    javascript = (REPO_ROOT / "services/web/src/static/config.js").read_text()
     for field in ("upload-model-mb", "upload-dataset-mb"):
         assert field in template and field in javascript
-    assert '"X-CSRF-Token": getCsrfToken()' in (ROOT / "services/web/src/static/base.js").read_text()
+    assert '"X-CSRF-Token": getCsrfToken()' in (
+        REPO_ROOT / "services/web/src/static/base.js"
+    ).read_text()
 
 
 @pytest.mark.parametrize("role", ["viewer", "user"])
