@@ -1,32 +1,23 @@
-name: Runner Cleanup
+name: Runner Cleanup (retired)
 
-# Prunes stale Docker images, stopped containers, and unused build cache
-# on the Orin runner to prevent disk exhaustion over time. The Orin is the
-# only self-hosted runner this workflow prunes: the legacy x86 runners
-# (runner-docker, runner-terraform, runner-packer) were deregistered and
-# stopped on 2026-09-08 (see issue #184) and no longer exist to clean.
-#
-# Runs weekly automatically, or trigger manually via workflow_dispatch.
-# Note: does NOT prune volumes on the Orin to preserve model weights.
+# Kept as a valid, visible tombstone for the former production-runner cleanup.
+# It has no schedule or workflow_dispatch trigger, never selects a self-hosted
+# runner, and its sole job is unconditionally skipped. A release-only cleanup
+# design will be introduced separately after review.
 
 on:
-  schedule:
-    - cron: "0 3 * * 0"  # Sunday 03:00 UTC
-  workflow_dispatch:
+  pull_request:
+    branches: [main]
 
-# Default token scope: read-only. The cleanup job only runs local docker
-# prune commands on the runner - it does not touch GHCR or the repo.
+# Preserve the retired workflow's read-only token default.
 permissions:
   contents: read
 
 jobs:
-
-  # ── Orin runner cleanup ────────────────────────────────────────────────────
-  cleanup-orin:
-    name: Cleanup Orin runner
-    runs-on: [self-hosted, linux, arm64, jetson]
+  retired:
+    name: Cleanup retired
+    if: ${{ false }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Docker image and container prune
-        # Skip --volumes: model weights and SQLite DB live in named volumes
-        # and should survive cleanup runs.
-        run: docker system prune -f
+      - name: Standalone cleanup is retired
+        run: echo "Production runner cleanup is not available from this workflow."

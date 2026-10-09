@@ -288,7 +288,9 @@ jobs:
   release-detector:
     name: Release detector image (Jetson)
     # ORIN-ONLY: real GPU smoke test and inference benchmark under the
-    # single-tenant GPU lease. No substitute.
+    # single-tenant GPU lease. This job-level guard is defense in depth on top
+    # of the workflow's version-tag-only trigger.
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: [self-hosted, linux, arm64, jetson]
     permissions:
       contents: read
