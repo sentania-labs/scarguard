@@ -5,3 +5,4 @@ pyyaml==6.0.3
 redis==7.4.0
 cryptography==50.0.1
 python-multipart==0.0.31
+urllib3==2.8.0

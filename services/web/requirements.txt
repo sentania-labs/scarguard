@@ -10,3 +10,4 @@ tzdata==2025.3
 astral==3.2
 bcrypt==5.0.0
 cryptography==50.0.1
+urllib3==2.8.0
