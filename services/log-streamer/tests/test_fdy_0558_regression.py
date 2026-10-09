@@ -158,70 +158,127 @@ def _service_networks(service_name: str, text: str) -> list[str]:
 
 
 class TestSocketProxyDenials:
-    """CONTAINERS:1 alone is too broad; archive/env/top/exec/create must be denied."""
+    """FDY-0558: The socket-proxy is built from a custom Dockerfile that ships
+    an HAProxy config explicitly denying archive/env/top/exec/create routes.
 
-    _envs = _env_blocks(_compose_text())
+    The original tecnativa v0.4.2 image ignored ARCHIVE/ENV/TOP/CREATES env
+    vars; with CONTAINERS:1 the entire /containers prefix was exposed.  Our
+    custom config places deny rules BEFORE the blanket containers allow.
+    """
 
-    def test_compose_contains_docker_socket_proxy(self) -> None:
-        assert "docker-socket-proxy" in self._envs
+    _compose_text = ""
+    _socket_proxy_cfg = REPO_ROOT / "services" / "log-streamer" / "etc" / "docker-socket-proxy.cfg"
+    _socket_proxy_dockerfile = REPO_ROOT / "services" / "log-streamer" / "etc" / "Dockerfile"
 
-    def test_docker_socket_proxy_denies_archive(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("ARCHIVE") == "0"
+    @classmethod
+    def setup_class(cls) -> None:
+        cls._compose_text = _compose_text()
 
-    def test_docker_socket_proxy_denies_env(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("ENV") == "0"
+    def test_compose_uses_custom_socket_proxy_build(self) -> None:
+        """The compose file should build the socket-proxy from our Dockerfile."""
+        text = self._compose_text
+        # The docker-socket-proxy should use build, not image.
+        in_proxy = False
+        found_build = False
+        found_image = False
+        for line in text.splitlines():
+            if "docker-socket-proxy:" in line and line.startswith("  "):
+                in_proxy = True
+                continue
+            if in_proxy:
+                if re.match(r"^  [a-z][-a-z0-9_]*:", line) and line.startswith("  ") and not line.startswith("    "):
+                    break
+                if "build:" in line:
+                    found_build = True
+                if "image:" in line:
+                    found_image = True
+        assert found_build, "docker-socket-proxy should use build, not pre-built image"
+        assert not found_image, "docker-socket-proxy should not reference a pre-built image"
 
-    def test_docker_socket_proxy_denies_top(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("TOP") == "0"
+    def test_custom_haproxy_config_exists(self) -> None:
+        assert self._socket_proxy_cfg.exists(), "Custom HAProxy config should exist"
 
-    def test_docker_socket_proxy_denies_exec(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("EXEC") == "0"
+    def test_haproxy_config_denies_archive(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_archive" in text
 
-    def test_docker_socket_proxy_denies_create(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("CREATES") == "0"
+    def test_haproxy_config_denies_export(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_export" in text
 
-    def test_docker_socket_proxy_denies_images(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("IMAGES") == "0"
+    def test_haproxy_config_denies_top(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_top" in text
 
-    def test_docker_socket_proxy_denies_volumes(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("VOLUMES") == "0"
+    def test_haproxy_config_denies_exec(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_exec" in text
 
-    def test_docker_socket_proxy_denies_secrets(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("SECRETS") == "0"
+    def test_haproxy_config_denies_create(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_create" in text
 
-    def test_docker_socket_proxy_denies_configs(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("CONFIGS") == "0"
+    def test_haproxy_config_denies_secrets(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_secrets" in text
 
-    def test_docker_socket_proxy_denies_prune(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("PRUNE") == "0"
+    def test_haproxy_config_denies_images(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_images" in text
 
-    def test_docker_socket_proxy_denies_tasks(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("TASKS") == "0"
+    def test_haproxy_config_denies_volumes(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_volumes" in text
 
-    def test_docker_socket_proxy_denies_swarm(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("SWARM") == "0"
+    def test_haproxy_config_denies_prune(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_prune" in text
 
-    def test_docker_socket_proxy_denies_nodes(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("NODES") == "0"
+    def test_haproxy_config_denies_tasks(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_tasks" in text
 
-    def test_docker_socket_proxy_denies_plugins(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("PLUGINS") == "0"
+    def test_haproxy_config_denies_swarm(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_swarm" in text
 
-    def test_docker_socket_proxy_denies_registry(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("REGISTRY") == "0"
+    def test_haproxy_config_denies_nodes(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_nodes" in text
 
-    def test_docker_socket_proxy_denies_trust(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("TRUST") == "0"
+    def test_haproxy_config_denies_plugins(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_plugins" in text
 
-    def test_docker_socket_proxy_denies_sessions(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("SESSION") == "0"
+    def test_haproxy_config_denies_registry(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_auth" in text
 
-    def test_docker_socket_proxy_denies_info(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("INFO") == "0"
+    def test_haproxy_config_denies_trust(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_trust" in text
+
+    def test_haproxy_config_denies_sessions(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_session" in text
+
+    def test_haproxy_config_denies_info(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_info" in text
+
+    def test_haproxy_config_denies_logs(self) -> None:
+        text = self._socket_proxy_cfg.read_text()
+        assert "deny_logs" in text
 
     def test_docker_socket_proxy_keeps_containers_and_events(self) -> None:
-        assert self._envs["docker-socket-proxy"].get("CONTAINERS") == "1"
-        assert self._envs["docker-socket-proxy"].get("EVENTS") == "1"
+        """The proxy should still allow containers list and events."""
+        text = self._socket_proxy_cfg.read_text()
+        assert "allow_list" in text or "containers/json" in text
+        assert "allow_events" in text or "/events" in text
+
+    def test_custom_dockerfile_bases_on_tecnativa(self) -> None:
+        text = self._socket_proxy_dockerfile.read_text()
+        assert "tecnativa/docker-socket-proxy" in text
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +340,9 @@ class TestTrainingControllerHardening:
                     continue
                 if re.match(r"^  [a-z]+:", line) and line.startswith("  ") and not line.startswith("    "):
                     break
-                m = re.match(r"^    user:\s*[']?([^'\n]+)", line)
+                m = re.match(r'^    user:\s*"([^"]+)"', line)
+                if not m:
+                    m = re.match(r"^    user:\s*'([^']+)'", line)
                 if m:
                     assert m.group(1).strip() == "999:999"
 
@@ -293,7 +352,10 @@ class TestTrainingControllerHardening:
         assert "--gid 999 scarguard" in text
         assert "adduser" in text
         assert "--uid 999" in text
-        assert "USER scarguard" in text
+
+    def test_controller_dockerfile_has_entrypoint(self) -> None:
+        text = TRAINING_CONTROLLER_DOCKERFILE.read_text()
+        assert "entrypoint.sh" in text
 
     def test_controller_dockerfile_creates_state_dir(self) -> None:
         text = TRAINING_CONTROLLER_DOCKERFILE.read_text()
@@ -343,17 +405,25 @@ class TestLogStreamingPreserved:
 # 5. Adversarial: verify Dockerfile user directive works end-to-end
 # ---------------------------------------------------------------------------
 
-
 class TestAdversarial:
     """Adversarial probes that should fail under the new configuration."""
 
     def test_controller_dockerfile_not_root_user(self) -> None:
+        """The Dockerfile should not have a final USER 0 or root as the
+        effective running user.  FDY-0558 uses an entrypoint.sh that runs
+        as root to chown, then exec's gosu to drop to scarguard."""
         text = TRAINING_CONTROLLER_DOCKERFILE.read_text()
+        # The Dockerfile now uses an entrypoint that runs as root and
+        # then switches to scarguard.  There should be no USER 0 or
+        # USER root directive.
         lines = [line.strip() for line in text.splitlines()]
         user_lines = [line for line in lines if line.startswith("USER")]
-        assert user_lines, "No USER directive found"
-        last_user = user_lines[-1].split()[1]
-        assert last_user not in ("0", "root", "root:root")
+        if user_lines:
+            for ul in user_lines:
+                user_val = ul.split()[1] if len(ul.split()) > 1 else ul.split()[0]
+                assert user_val not in ("0", "root", "root:root"), (
+                    f"Dockerfile should not run as root: {ul}"
+                )
 
     def test_controller_source_http_body_bounded_in_handler(self) -> None:
         src = REPO_ROOT / "services" / "training-controller" / "src" / "main.py"

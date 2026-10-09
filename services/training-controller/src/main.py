@@ -313,17 +313,20 @@ class DetectorLeaseController:
                 # gone (e.g. Compose recreated the detector during training),
                 # fall back to a label-based lookup to find the replacement.
                 old_id = str(state.get("container_id", ""))
+                container_id = old_id  # default: use the known container ID
                 try:
                     inspected = self.backend.inspect(old_id) if old_id else None
                     if inspected is None:
+                        # Old container gone — find the recreated one by label.
                         inspected = self.backend.find_detector()
+                        container_id = str(inspected.get("Id", ""))
                 except ControllerError:
                     inspected = None
                 if inspected is not None and inspected.get("State", {}).get("Running", False):
                     logger.warning(
                         "Owned detector restarted during active lease; stopping it again"
                     )
-                    self.backend.stop(str(inspected.get("Id", "")))
+                    self.backend.stop(container_id)
             state["heartbeat_at"] = time.time()
             self._write(state)
             return state
