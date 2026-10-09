@@ -1,6 +1,5 @@
 import json
 import threading
-from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
@@ -29,12 +28,14 @@ def test_subscribe_loop_survives_malformed_messages() -> None:
     ]
 
     class FakePubSub:
+        def __init__(self) -> None:
+            self.messages = iter(malformed)
+
         def subscribe(self, *args: Any) -> None:
             pass
 
-        def listen(self) -> Iterator[dict[str, Any]]:
-            for m in malformed:
-                yield m
+        def get_message(self, timeout: float = 0.0) -> dict[str, Any] | None:
+            return next(self.messages, None)
 
         def unsubscribe(self) -> None:
             pass
