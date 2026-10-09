@@ -132,15 +132,16 @@ def test_stalled_on_starts_deadline_first_and_attempts_off() -> None:
     assert not timers[0].cancel.called, "ambiguous ON disarmed the OFF deadline"
 
     # A timed-out HTTP worker can return after the compensating OFF. The
-    # already-armed deadline must issue another OFF after that late ON.
+    # completion guard must issue OFF after that late ON, independently of
+    # the still-armed deadline.
     never_release.set()
     _wait_for_workers_to_exit("tuya-on")
     deadline = time.monotonic() + 1
     while len(call_times) < 2 and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert [value for value, _when in call_times] == [False, True]
-    timers[0].fire()
     assert [value for value, _when in call_times] == [False, True, False]
+    timers[0].fire()
+    assert [value for value, _when in call_times] == [False, True, False, False]
 
 
 def test_startup_and_sigterm_sweeps_run_even_when_disabled() -> None:
@@ -260,3 +261,215 @@ def test_ambiguous_on_and_failed_off_is_reported_stuck() -> None:
     assert result.stuck is True
     never_release.set()
     _wait_for_workers_to_exit("tuya-on")
+
+
+def test_cancellation_while_waiting_for_on_admission_prevents_on() -> None:
+    controller = _controller()
+    allowed = threading.Event()
+    allowed.set()
+    checked = threading.Event()
+    values: list[bool] = []
+
+    def authorised() -> bool:
+        checked.set()
+        return allowed.is_set()
+
+    def command(_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        values.append(_is_on(body))
+        return {"success": True}
+
+    controller._cloud.sendcommand.side_effect = command
+    controller._lock.acquire()
+    worker = threading.Thread(target=controller.activate_device,
+                              args=(_device(), 0.5),
+                              kwargs={"should_continue": authorised})
+    try:
+        worker.start()
+        assert checked.wait(1)
+        allowed.clear()
+        assert controller.force_off(_device())[0]
+    finally:
+        controller._lock.release()
+        worker.join(3)
+    assert not worker.is_alive()
+    assert True not in values, "cancelled ON was admitted after emergency OFF"
+
+
+def test_on_returning_after_watchdog_is_compensated_without_reconciliation() -> None:
+    controller = _controller()
+    release = threading.Event()
+    values: list[bool] = []
+
+    def command(_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        on = _is_on(body)
+        if on:
+            release.wait()
+        values.append(on)
+        return {"success": True}
+
+    controller._cloud.sendcommand.side_effect = command
+    try:
+        with patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03), \
+             patch("cloud_controller.MAX_ACTUATION_SEC", 0.1):
+            result = controller.activate_device(_device(), 0.5)
+            assert result.off_success
+            deadline = time.monotonic() + 1
+            while len(values) < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert values == [False, False], "watchdog must fire before late ON"
+            release.set()
+            _wait_for_workers_to_exit("tuya-on")
+            assert values == [False, False, True, False]
+    finally:
+        release.set()
+        _wait_for_workers_to_exit("tuya-on")
+
+
+def test_off_lock_admission_consumes_attempt_budget() -> None:
+    controller = _controller()
+    lock = controller._off_lock_for(_device().device_id)
+    lock.acquire()
+    worker = threading.Thread(target=controller.force_off, args=(_device(),))
+    try:
+        with patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03), \
+             patch("cloud_controller.OFF_RETRY_BACKOFF_SEC", ()):
+            worker.start()
+            worker.join(0.3)
+            assert not worker.is_alive(), "OFF waited indefinitely for admission"
+    finally:
+        lock.release()
+        worker.join(3)
+
+
+def test_transient_initialization_recovers_without_config_change() -> None:
+    from main import _controller_recovery_loop, build_controller
+
+    release = threading.Event()
+    config = ActuationConfig(tuya={"api_key": "test", "api_secret": "test"})
+    shutdown = threading.Event()
+    recovered = threading.Event()
+    calls = 0
+
+    def factory(**_kwargs: Any) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            release.wait()
+        return MagicMock()
+
+    ref: AtomicRef[TuyaCloudController | None] = AtomicRef(None)
+
+    def retry() -> None:
+        controller = build_controller(config)
+        ref.set(controller)
+        if controller is not None:
+            recovered.set()
+            shutdown.set()
+
+    with patch("cloud_controller.tinytuya.Cloud", side_effect=factory), \
+         patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03):
+        assert build_controller(config) is None
+        release.set()
+        _wait_for_workers_to_exit("tuya-init")
+        worker = threading.Thread(target=_controller_recovery_loop,
+                                  args=(ref, shutdown, retry),
+                                  kwargs={"retry_sec": 0.01})
+        worker.start()
+        try:
+            assert recovered.wait(1)
+            assert ref.get() is not None
+            assert calls == 2
+        finally:
+            shutdown.set()
+            worker.join(1)
+
+
+def test_cancellation_during_on_ack_skips_duration_wait() -> None:
+    controller = _controller()
+    allowed = threading.Event()
+    allowed.set()
+    values: list[bool] = []
+
+    def command(_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        values.append(_is_on(body))
+        if _is_on(body):
+            allowed.clear()
+        return {"success": True}
+
+    controller._cloud.sendcommand.side_effect = command
+    started = time.monotonic()
+    result = controller.activate_device(_device(), 10, should_continue=allowed.is_set)
+    assert time.monotonic() - started < 0.5
+    assert result.off_success
+    assert values == [True, False, False]
+
+
+def test_main_recovers_and_sweeps_with_reconciliation_disabled() -> None:
+    import main
+
+    device = _device()
+    cfg = {"deterrent": {"enabled": False, "reconcile_interval_sec": 0,
+                         "tuya": {"api_key": "test", "api_secret": "test"},
+                         "devices": [device.model_dump()]}}
+    cloud = MagicMock()
+    cloud.sendcommand.return_value = {"success": True}
+    release = threading.Event()
+    recovery_swept = threading.Event()
+    monitoring_ready = threading.Event()
+    calls = 0
+    real_sweep = main._force_off_sweep
+    real_recovery = main._controller_recovery_loop
+
+    def factory(**_kwargs: Any) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            release.wait()
+        return cloud
+
+    def sweep(*args: Any, **kwargs: Any) -> dict[str, bool]:
+        result = real_sweep(*args, **kwargs)
+        if kwargs["reason"] == "startup":
+            release.set()
+        if kwargs["reason"] == "recovery":
+            recovery_swept.set()
+        return result
+
+    def subscribe(_cfg: Any, _queue: Any, _shutdown: Any) -> None:
+        assert recovery_swept.wait(2), "main did not recover without a config edit"
+        assert monitoring_ready.wait(2), "recovery did not restore battery monitoring"
+        handler = signal.getsignal(signal.SIGTERM)
+        assert callable(handler)
+        handler(signal.SIGTERM, None)
+
+    old_term = signal.getsignal(signal.SIGTERM)
+    old_int = signal.getsignal(signal.SIGINT)
+    try:
+        with (
+            patch("cloud_controller.tinytuya.Cloud", side_effect=factory),
+            patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03),
+            patch.object(main, "load_config", return_value=cfg),
+            patch.object(main, "start_heartbeat"),
+            patch.object(main.actuation_db, "init_db"),
+            patch.object(main, "ConfigWatcher"),
+            patch.object(main, "BatteryMonitor") as battery,
+            patch.object(main, "RequestHandler"),
+            patch.object(main, "_metrics_publisher"),
+            patch.object(main, "_force_off_sweep", side_effect=sweep) as sweeps,
+            patch.object(main, "subscribe_loop", side_effect=subscribe),
+            patch.object(main, "_controller_recovery_loop",
+                         side_effect=lambda *args: real_recovery(*args, retry_sec=0.01)),
+        ):
+            battery.return_value.configure.side_effect = lambda _cfg: monitoring_ready.set()
+            main.main()
+            assert [call.kwargs["reason"] for call in sweeps.call_args_list] == [
+                "startup", "recovery", "shutdown",
+            ]
+            assert cloud.sendcommand.call_count == 2
+            assert all(not _is_on(call.args[1])
+                       for call in cloud.sendcommand.call_args_list)
+            battery.assert_called_once()
+    finally:
+        release.set()
+        signal.signal(signal.SIGTERM, old_term)
+        signal.signal(signal.SIGINT, old_int)

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Credential hot reload replaces the controller while old work can still hold
 # the previous instance. ON/OFF ordering must span both instances.
 _CLOUD_COMMAND_LOCK = threading.Lock()
+_CLOUD_INIT_LOCK = threading.Lock()
 _CLOUD_OFF_LOCKS_GUARD = threading.Lock()
 _CLOUD_OFF_LOCKS: dict[str, threading.Lock] = {}
 
@@ -111,6 +112,8 @@ class TuyaCloudController:
     @staticmethod
     def _bounded_factory(factory: Callable[[], Any]) -> Any:
         """Construct TinyTuya without allowing eager token work to hang startup."""
+        if not _CLOUD_INIT_LOCK.acquire(blocking=False):
+            raise TimeoutError("Previous Tuya initialisation is still pending")
         outcome: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
 
         def invoke() -> None:
@@ -118,8 +121,14 @@ class TuyaCloudController:
                 outcome.put((True, factory()))
             except BaseException as exc:
                 outcome.put((False, exc))
+            finally:
+                _CLOUD_INIT_LOCK.release()
 
-        threading.Thread(target=invoke, name="tuya-init", daemon=True).start()
+        try:
+            threading.Thread(target=invoke, name="tuya-init", daemon=True).start()
+        except BaseException:
+            _CLOUD_INIT_LOCK.release()
+            raise
         try:
             succeeded, value = outcome.get(timeout=CLOUD_CALL_TIMEOUT_SEC)
         except queue.Empty as exc:
@@ -263,10 +272,29 @@ class TuyaCloudController:
                     error="Activation cancelled before ON",
                     on_ack_ms=None, off_attempts=0, cancelled=True,
                 )
-            result = self._bounded_cloud_call(
-                "ON", self._lock,
-                lambda: self._cloud.sendcommand(device.device_id, on_cmd),
-            )
+            on_deadline = time.monotonic() + CLOUD_CALL_TIMEOUT_SEC
+
+            def cancelled() -> bool:
+                return self._safety_only or (
+                    should_continue is not None and not should_continue()
+                )
+
+            def send_on() -> dict[str, Any]:
+                # Admission may have waited behind status. Never send a
+                # generation that emergency OFF has already cancelled.
+                if cancelled() or time.monotonic() >= on_deadline:
+                    return {"success": False, "cancelled": True}
+                try:
+                    return self._cloud.sendcommand(device.device_id, on_cmd)
+                finally:
+                    # Runs in the actual cloud worker, even if the bounded
+                    # caller and its watchdog finished long ago.
+                    if cancelled() or time.monotonic() >= on_deadline:
+                        self._send_off_with_retry(
+                            device, dp_code, request_id=request_id,
+                        )
+
+            result = self._bounded_cloud_call("ON", self._lock, send_on)
             on_ack_ms = (time.monotonic() - t_on) * 1000.0
             if not result.get("success"):
                 watchdog.cancel()
@@ -278,6 +306,7 @@ class TuyaCloudController:
                 return ActivationResult(
                     on_success=False, off_success=None, error=msg,
                     on_ack_ms=on_ack_ms, off_attempts=0,
+                    cancelled=bool(result.get("cancelled")),
                 )
             logger.info(
                 "Device %s ON (dp=%s) cloud_ack=%.0fms [rid=%s type=%s]",
@@ -305,7 +334,8 @@ class TuyaCloudController:
 
         off_success = False
         try:
-            time.sleep(duration_sec)
+            if not cancelled():
+                time.sleep(duration_sec)
             off_success, off_error, off_attempts = self._send_off_with_retry(
                 device, dp_code, request_id=request_id,
             )
@@ -376,11 +406,18 @@ class TuyaCloudController:
                 # The caller owns OFF admission only for the bounded wait; the
                 # abandoned cloud worker does not own it. Thus a timed-out
                 # attempt cannot poison every retry and future safety sweep.
-                with self._off_lock_for(device.device_id):
+                deadline = time.monotonic() + CLOUD_CALL_TIMEOUT_SEC
+                off_lock = self._off_lock_for(device.device_id)
+                if not off_lock.acquire(timeout=CLOUD_CALL_TIMEOUT_SEC):
+                    raise TimeoutError("OFF admission exceeded cloud-call budget")
+                try:
                     result = self._bounded_cloud_call(
                         "OFF", None,
                         lambda: self._cloud.sendcommand(device.device_id, off_cmd),
+                        timeout_sec=max(0.0, deadline - time.monotonic()),
                     )
+                finally:
+                    off_lock.release()
                 if result.get("success"):
                     if attempt_idx == 0:
                         logger.info(
@@ -453,6 +490,8 @@ class TuyaCloudController:
         operation: str,
         lock: threading.Lock | None,
         call: Callable[[], dict[str, Any]],
+        *,
+        timeout_sec: float | None = None,
     ) -> dict[str, Any]:
         """Run one TinyTuya operation with a strict wall-clock bound.
 
@@ -462,12 +501,13 @@ class TuyaCloudController:
         it cannot retain the caller or the independent OFF lane.
         """
         outcome: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
-        deadline = time.monotonic() + CLOUD_CALL_TIMEOUT_SEC
+        budget = CLOUD_CALL_TIMEOUT_SEC if timeout_sec is None else timeout_sec
+        deadline = time.monotonic() + budget
 
         # Acquire general-lane admission before creating a worker. If an old
         # status/ON worker is permanently stuck, later callers time out here
         # without accumulating one blocked daemon per poll until pids_limit.
-        if lock is not None and not lock.acquire(timeout=CLOUD_CALL_TIMEOUT_SEC):
+        if lock is not None and not lock.acquire(timeout=budget):
             raise TimeoutError(
                 f"{operation} cloud lane remained busy for "
                 f"{CLOUD_CALL_TIMEOUT_SEC:.1f}s",

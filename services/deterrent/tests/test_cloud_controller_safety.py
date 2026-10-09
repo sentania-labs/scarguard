@@ -355,8 +355,8 @@ class TestEmergencyOffOrdering:
         assert not failures
         assert off_done.is_set()
         # Emergency OFF completes while ON is stalled. If that fake ON later
-        # acknowledges, activate_device still sends its normal final OFF.
-        assert calls == [False, True, False]
+        # acknowledges, its completion guard and normal final OFF both run.
+        assert calls == [False, True, False, False]
         stale = controller.activate_device(device, .5, should_continue=lambda: latch.generation == generation)
         assert not stale.on_success
         assert calls.count(True) == 1

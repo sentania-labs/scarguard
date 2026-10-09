@@ -183,6 +183,19 @@ def build_controller(act_cfg: ActuationConfig) -> TuyaCloudController | None:
         return None
 
 
+def _controller_recovery_loop(
+    controller_ref: AtomicRef[TuyaCloudController | None],
+    shutdown_event: threading.Event,
+    retry: Callable[[], None],
+    *,
+    retry_sec: float = 5.0,
+) -> None:
+    """Retry missing controllers independently of reconciliation settings."""
+    while not shutdown_event.wait(retry_sec):
+        if controller_ref.get() is None:
+            retry()
+
+
 # ---------------------------------------------------------------------------
 # Worker thread - processes events sequentially (tinytuya.Cloud isn't
 # documented as thread-safe, and actuation sequences are inherently serial).
@@ -1242,8 +1255,10 @@ def main() -> None:
     # safety pass is deliberately independent of deterrent.enabled.
     _force_off_sweep(controller_ref, act_cfg_ref, reason="startup")
 
-    # Config hot-reload
-    def _on_config_change(new_cfg: dict[str, Any]) -> None:
+    # Serialize recovery and hot reload so stale credentials cannot win.
+    config_change_lock = threading.Lock()
+
+    def _apply_config_change(new_cfg: dict[str, Any]) -> None:
         nonlocal battery_monitor
         _decrypt_secrets(new_cfg)
         new_act = parse_actuation_config(new_cfg)
@@ -1252,10 +1267,15 @@ def main() -> None:
         # Rebuild controller if credentials changed
         old_act = act_cfg_ref.get()
         old_controller = controller_ref.get()
-        if new_act.tuya != old_act.tuya:
+        if new_act.tuya != old_act.tuya or old_controller is None:
             new_controller = build_controller(new_act)
+            if new_controller is not None and old_controller is None:
+                # Recover startup safety before accepting any new ON work.
+                _force_off_sweep(
+                    AtomicRef(new_controller), AtomicRef(new_act), reason="recovery",
+                )
             controller_ref.set(new_controller)
-            logger.info("Tuya Cloud controller rebuilt (credentials changed)")
+            logger.info("Tuya Cloud controller rebuild attempted")
 
             # Create or update battery monitor with new controller
             if new_controller is not None and battery_monitor is None:
@@ -1317,6 +1337,28 @@ def main() -> None:
             new_armed,
         )
 
+    def _on_config_change(new_cfg: dict[str, Any]) -> None:
+        with config_change_lock:
+            _apply_config_change(new_cfg)
+
+    def retry_controller() -> None:
+        with config_change_lock:
+            if shutdown_event.is_set() or controller_ref.get() is not None:
+                return
+            if act_cfg_ref.get().tuya is None:
+                return
+            try:
+                _apply_config_change(load_config())
+            except Exception:
+                logger.exception("Controller recovery failed; will retry")
+
+    recovery_thread = threading.Thread(
+        target=_controller_recovery_loop,
+        args=(controller_ref, shutdown_event, retry_controller),
+        name="deterrent-controller-recovery", daemon=True,
+    )
+    recovery_thread.start()
+
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
@@ -1369,6 +1411,8 @@ def main() -> None:
             failed = []
             if not worker_thread.is_alive():
                 failed.append(worker_thread.name)
+            if not recovery_thread.is_alive():
+                failed.append(recovery_thread.name)
             if not reconcile_thread.is_alive():
                 failed.append(reconcile_thread.name)
             if not req_handler.is_alive():

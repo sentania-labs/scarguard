@@ -30,13 +30,17 @@ acquisition/refresh performed by TinyTuya. Python cannot terminate a stuck
 third-party call, so its daemon thread may remain inside TinyTuya; OFF has an independent lock,
 so a status query or ON request that stops returning cannot hold the emergency
 path. OFF retries still use 1s, 2s and 4s backoff; the defined worst-case bound
-for a parallel emergency sweep is 16 seconds. If ON times out or raises, its
-outcome is ambiguous and ScarGuard immediately attempts OFF.
+for a parallel emergency sweep is 16 seconds, including admission to each
+per-device OFF lock. Each attempt shares its 2-second budget between lock
+admission and the cloud response; contention cannot add an unbounded wait.
+If ON times out or raises, its outcome is ambiguous and ScarGuard immediately attempts OFF.
 
 The maximum-duration OFF timer is armed before ON is attempted. If a timed-out
-ON call later completes, the still-armed deadline issues another OFF after the
-immediate compensating OFF. Cloud acknowledgement still is not proof of
-physical state, so an unknown status is logged and returned to the UI as a
+ON call later completes, its worker issues another OFF on completion, even
+if the maximum-duration watchdog has already fired and reconciliation is
+disabled. Cancellation is checked again after ON lane admission and after
+acknowledgement, so an emergency-cancelled activation skips its duration wait.
+Cloud acknowledgement still is not proof of physical state, so an unknown status is logged and returned to the UI as a
 visible warning rather than being treated as OFF.
 
 Emergency OFF does send OFF to an active device; the worker may still finish
@@ -51,6 +55,19 @@ even when deterrence or an individual device is disabled. Reconciliation also
 continues while deterrence is disabled. A device removed during hot reload is
 kept as a disabled safety target until an OFF acknowledgement is received.
 Docker grants 25 seconds after SIGTERM for the bounded shutdown sweep.
+
+A failed controller initialization is retried every 5 seconds, independently
+of whether deterrence or reconciliation is enabled. Recovery sweeps devices
+OFF before publishing the replacement controller and restores battery
+monitoring. Recovery and configuration reload are serialized. Only one
+TinyTuya initialization worker may be pending; a permanently stuck initializer
+requires a process restart, while a transient stall recovers automatically.
+
+These are software response bounds, not guarantees of physical shutoff. A
+cloud worker can remain blocked indefinitely, and completion compensation
+requires the process to remain alive. A cloud-side ON applied after the process
+exits cannot be compensated by that process. Repeated failed OFF requests
+can leave daemon workers pending; firmware timers remain unverified.
 
 If you are on v1.16.12 or earlier and water is hitting fish, **go
 straight to Option B**. On those versions the web button will not
