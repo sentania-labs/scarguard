@@ -7,3 +7,4 @@ redis==7.4.0
 pyyaml==6.0.3
 pydantic==2.12.5
 astral==3.2
+urllib3==2.8.0
