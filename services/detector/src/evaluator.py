@@ -39,8 +39,10 @@ try:
     )
     from event_signing import (
         _ReplayCache,
-        derive_channel_key as _EF_DK,
         load_key_from_env,
+    )
+    from event_signing import (
+        derive_channel_key as _EF_DK,
     )
     from event_signing import (
         verify_event as _EF_VE,

@@ -8,13 +8,12 @@ models and clear the flag.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import json
 import logging
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from atomic_ref import AtomicRef
@@ -46,8 +45,10 @@ try:
     )
     from event_signing import (
         _ReplayCache,
-        derive_channel_key as _EF_DK,
         load_key_from_env,
+    )
+    from event_signing import (
+        derive_channel_key as _EF_DK,
     )
     from event_signing import (
         verify_event as _EF_VERIFY_EVENT,

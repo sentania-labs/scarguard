@@ -168,7 +168,13 @@ class TestStaleMessageRejection:
     """Messages with old timestamps must be rejected."""
 
     def test_old_timestamp_rejected(self) -> None:
-        from event_signing import MESSAGE_TTL_SECONDS, _ReplayCache, derive_channel_key, sign_event, verify_event
+        from event_signing import (
+            MESSAGE_TTL_SECONDS,
+            _ReplayCache,
+            derive_channel_key,
+            sign_event,
+            verify_event,
+        )
 
         cache = _ReplayCache(capacity=4096, ttl_seconds=60)
         channel_key = derive_channel_key(KEY, "ch")
@@ -271,16 +277,18 @@ class TestChannelDerivedKeyIsolation:
     def test_sign_and_verify_match_with_derived_key(self) -> None:
         from event_signing import _ReplayCache, derive_channel_key, sign_event, verify_event
 
-        cache = _ReplayCache(capacity=4096, ttl_seconds=60)
         payload = {"camera_name": "pond", "class_name": "heron"}
 
         # Simulate the detector publisher: derive key, sign.
         det_key = derive_channel_key(KEY, "scarguard:detections")
         signed = sign_event(payload, det_key, "scarguard:detections")
 
-        # Simulate the deterrent subscriber: derive same key, verify.
-        det_key_verify = derive_channel_key(KEY, "scarguard:detections")
-        assert verify_event(signed, det_key_verify, channel="scarguard:detections", cache=cache) is True
+        # Each service has its own replay cache instance, so they all accept.
+        det_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
+        assert verify_event(signed, det_key, channel="scarguard:detections", cache=det_cache) is True
 
-        # Simulate the notifier subscriber: derive same key, verify.
-        assert verify_event(signed, det_key, channel="scarguard:detections", cache=cache) is True
+        notifier_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
+        assert verify_event(signed, det_key, channel="scarguard:detections", cache=notifier_cache) is True
+
+        # But the same cache rejects the replay.
+        assert verify_event(signed, det_key, channel="scarguard:detections", cache=det_cache) is False
