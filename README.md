@@ -94,6 +94,7 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 | `web` | FastAPI + Jinja UI, REST API, SQLite access | `python:3.11-slim` |
 | `notifier` | Redis subscriber, Discord + email + webhook + ntfy dispatch | `python:3.11-slim` |
 | `deterrent` | Tuya Cloud device control (sprinklers, lights, sirens) | `python:3.11-slim` |
+| `off-watchdog` | Independent expiry-driven OFF recovery if deterrent crashes | `python:3.11-slim` |
 | `log-streamer` | Tails container logs, backfills reconnect gaps, and publishes a rolling health signal to Redis | `python:3.11-slim` |
 | `training-controller` | Allowlisted detector stop/restore boundary for training (opt-in profile) | `python:3.11-slim` |
 | `trainer` | Video processing, dataset prep, YOLO training (ARM64/Jetson only, opt-in profile) | `dustynv/l4t-pytorch:r36.4.0` |
@@ -746,7 +747,8 @@ system:
 
 **Logs page**, **Admin → Logs**
 
-Live tail of container logs from all services (detector, notifier, deterrent, web, caddy, trainer, backup). Filter by:
+Live tail of container logs from all services (detector, notifier, deterrent,
+off-watchdog, web, caddy, trainer, backup). Filter by:
 - Service
 - Log level (All / Debug+ / Info+ / Warning+ / Error only)
 - Tail depth (200–2000 lines)

@@ -168,7 +168,7 @@ scarguard/
 
 - **detector (Jetson):** `dustynv/l4t-pytorch:r36.4.0` (CUDA, cuDNN, PyTorch, TensorRT). Compatible with L4T r36.4.7. GPU via NVIDIA Container Runtime (`docker-compose.gpu.yml` override).
 - **detector (x86):** `pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime` (CUDA, cuDNN, PyTorch). Uses GPU when NVIDIA runtime available, falls back to CPU. Published as `scarguard-detector-x86`. The PyTorch tag is parameterized via `ARG PYTORCH_TAG` in `Dockerfile.x86`: override with `--build-arg PYTORCH_TAG=<tag>` to test a different version. Bump the default when cutting a release.
-- **web, notifier, deterrent, log-streamer, training-controller:** `python:3.11-slim`: no GPU needed.
+- **web, notifier, deterrent, off-watchdog, log-streamer, training-controller:** `python:3.11-slim`: no GPU needed.
 - **caddy:** `caddy:2-alpine` + Python for config parsing.
 - **redis:** `redis:7-alpine` (digest-pinned in `docker-compose.yml`).
 
@@ -204,8 +204,8 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
-| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
-| `scarguard-data` | detector, web, notifier, deterrent, trainer | rw (detector, web, deterrent, trainer), ro (notifier) | SQLite DBs, snapshots, training workspace and durable logs |
+| `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent, off-watchdog) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
+| `scarguard-data` | detector, web, notifier, deterrent, off-watchdog, trainer | rw (detector, web, deterrent, trainer), ro (notifier, off-watchdog) | SQLite DBs, snapshots, training workspace, durable logs, and the config decryption key |
 | `scarguard-models` | detector, web, notifier | rw (web: model upload), ro (detector, notifier: storage size for digests) | YOLO model files (`.pt`, `.engine`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
@@ -424,6 +424,7 @@ Defaults are sized for a Jetson Orin Nano:
 | web | 512 MB | 1.0 | FastAPI + Jinja + CSP/HSTS middleware |
 | notifier | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
 | deterrent | 256 MB | 0.5 | read_only rootfs + tmpfs /tmp |
+| off-watchdog | 128 MB | 0.25 | independent OFF-only crash recovery; read_only rootfs |
 | log-streamer | 128 MB | 0.25 | read_only rootfs + tmpfs /tmp |
 | training-controller | 64 MB | 0.25 | detector-only Docker API boundary |
 | trainer | 6 GB | 4.0 | limit includes child; unified-memory admission still applies |
@@ -436,6 +437,11 @@ Override via a `docker-compose.override.yml` if you're on beefier hardware.
 
 Every service also runs with `security_opt: no-new-privileges:true`
 and `cap_drop: [ALL]` (Caddy re-adds only `NET_BIND_SERVICE`).
+
+Redis uses `volatile-lru`: expiring caches remain evictable, while the bounded,
+signed OFF-watchdog lease records are not. Their separate expiring deadline
+markers may be evicted under pressure; that is fail-safe because the watchdog
+treats a missing marker as an expired lease and sends OFF.
 
 ### Trusted Proxies
 
