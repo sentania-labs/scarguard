@@ -233,7 +233,8 @@ async def change_password(
 
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
     # SG-13: bound input size before hashing/DB writes.
-    if len(new_password) > 255 or len(current_password) > 255:
+    # current_password may be None (admin resets another user; Form(None)).
+    if len(new_password) > 255 or (current_password is not None and len(current_password) > 255):
         return _redirect_err("Password is too long (max 255 characters).")
     if len(new_password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")

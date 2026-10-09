@@ -43,7 +43,13 @@ def main() -> None:
     # debugging or runs a second ingress. Override via env if your Docker
     # network uses non-default subnets.
     # SCARGUARD_TRUSTED_PROXIES requires explicit configuration of proxy identities.
-    trusted_proxies = os.environ.get("SCARGUARD_TRUSTED_PROXIES", "127.0.0.1")
+    # Default includes Docker bridge ranges so Caddy (on a bridge IP) is trusted
+    # when no env var is set.  Override via env if your Docker install uses
+    # non-default subnets or if you terminate TLS on an upstream proxy beyond Caddy.
+    trusted_proxies = os.environ.get(
+        "SCARGUARD_TRUSTED_PROXIES",
+        "127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16",
+    )
     proxy_count = len([p for p in trusted_proxies.split(",") if p.strip()])
     log.info(
         "Starting HTTP on port 8080 (TLS handled by Caddy; %d trusted proxy range(s) configured)",

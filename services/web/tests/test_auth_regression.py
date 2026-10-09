@@ -14,17 +14,19 @@ import auth as auth_module
 import pytest
 from fastapi.testclient import TestClient
 
-# ── Test setup helpers ───────────────────────────────────────────────────────
+# ── Test setup helpers ────────────────────────────────────────────────────────
 
 
-def _build_auth_client(monkeypatch, tmp_path):
-    """Return (TestClient, db_path) with auth enabled and an admin user."""
-    MOCK_CONFIG_AUTH = {
-        "system": {"auth": {"enabled": True}},
-        "redis": {"host": "localhost", "port": 6379},
-    }
-    monkeypatch.setattr("config_store.load", lambda: MOCK_CONFIG_AUTH)
-    monkeypatch.setattr("config_store.load_cached", lambda **_kw: MOCK_CONFIG_AUTH)
+def _build_auth_client(monkeypatch, tmp_path, auth_cfg=None):
+    """Return (TestClient, db_path) with auth enabled and an admin user.
+
+    ``auth_cfg`` can override the cached config dictionary (useful for
+    toggling ``auth.enabled`` per-test).
+    """
+    if auth_cfg is None:
+        auth_cfg = {"system": {"auth": {"enabled": True}}, "redis": {"host": "localhost", "port": 6379}}
+    monkeypatch.setattr("config_store.load", lambda: auth_cfg)
+    monkeypatch.setattr("config_store.load_cached", lambda **_kw: auth_cfg)
     monkeypatch.setattr("config_store.save", lambda _cfg: None)
     monkeypatch.setattr("config_store.set_armed", lambda _armed: None)
     monkeypatch.setattr("db.get_latest_event", lambda: None)
@@ -69,7 +71,7 @@ def auth_client(monkeypatch, tmp_path):
     return _build_auth_client(monkeypatch, tmp_path)
 
 
-# ── SG-13: Bound username/password size ──────────────────────────────────────
+# ── SG-13: Bound username/password size + len(None) guard ─────────────────────
 
 
 def test_sg_13_bound_username_size(auth_client):
@@ -84,7 +86,45 @@ def test_sg_13_bound_password_size(auth_client):
     assert res.status_code == 400
 
 
-# ── SG-15: Per-username lockout (no IP rotation bypass) ─────────────────────
+def test_sg_13_admin_reset_no_current_password(auth_client):
+    """Admin changes another user's password without current_password Form field.
+
+    The HTML form omits ``current_password`` for admin-initiated resets, so
+    FastAPI supplies the ``Form(None)`` default.  The unpatched code calls
+    ``len(None)`` which raises ``TypeError`` (HTTP 500).  After the fix the
+    route returns a redirect (HTTP 302) and the password is changed.
+    """
+    c, _ = auth_client
+
+    # Log in first to establish a valid session for this client
+    res_login = c.post(
+        "/login",
+        data={"username": "admin", "password": "validpassword123"},
+        follow_redirects=False,
+    )
+    assert res_login.status_code == 302
+
+    # Create a second (non-admin) user
+    res_create = c.post(
+        "/admin/users",
+        data={"username": "victim", "password": "victimpass1234", "role": "user"},
+        follow_redirects=True,
+    )
+    assert res_create.status_code == 200
+
+    # Admin resets victim's password — no current_password field
+    # The unpatched code crashes with len(None) → HTTP 500.
+    res = c.post(
+        "/admin/users/2/password",
+        data={"new_password": "newvictimpass1234"},
+        follow_redirects=False,
+    )
+    # Must NOT be a 500 crash; successful reset is a redirect (302)
+    assert res.status_code != 500
+    assert res.status_code == 302
+
+
+# ── SG-15: Per-username lockout (no IP rotation bypass) ──────────────────────
 
 
 def test_sg_15_ip_rotation_bypass(auth_client):
@@ -110,7 +150,7 @@ def test_sg_15_ip_rotation_bypass(auth_client):
     assert res.status_code == 429
 
 
-# ── SG-16: Bogus Bearer must not bypass CSRF ────────────────────────────────
+# ── SG-16: Bogus Bearer must not bypass CSRF ─────────────────────────────────
 
 
 def test_sg_16_csrf_bearer_bypass(auth_client):
@@ -155,7 +195,7 @@ def test_sg_29_revoke_on_password_change(auth_client):
     c.post(
         "/admin/users/1/password",
         data={
-            "new_password": "newpassword123",
+            "new_password": "newpassword1234",
             "current_password": "validpassword123",
         },
         follow_redirects=False,
