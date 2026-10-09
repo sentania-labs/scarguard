@@ -31,7 +31,6 @@ permissions:
 
 jobs:
 
-  # ── Detect detector-relevant changes (PR only) ──────────────────────────────
   # ── Build web (x86 runner) ───────────────────────────────────────────────────
   build-web:
     name: Build web image
@@ -466,7 +465,7 @@ jobs:
         if: always() && github.event_name != 'push'
         run: docker rmi scarguard-training-controller:test-${{ github.run_id }} || true
 
-  # ── Build trainer - Jetson/L4T (Orin runner, ARM64) ──────────────────────────
+  # ── Build trainer - Jetson/L4T (hosted arm64 runner) ─────────────────────────
   # Same L4T base as detector - ARM64 only, no x86 variant.  The
   # orin-maintenance-approved gate was dropped with the move off the Jetson:
   # its only justification was that this job ran on the controlled production
@@ -506,7 +505,6 @@ jobs:
         if: always()
         run: docker rmi scarguard-trainer:build-validate-${{ github.run_id }} || true
 
-  # ── Build detector - Jetson/L4T (Orin runner, ARM64) ─────────────────────────
   # ── Build detector - x86 CUDA+CPU (x86 runner) ─────────────────────────────
   build-detector-x86:
     name: Build detector image (x86)
