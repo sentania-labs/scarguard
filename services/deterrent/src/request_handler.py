@@ -146,6 +146,10 @@ class RequestHandler:
         )
         self._thread.start()
 
+    def is_alive(self) -> bool:
+        """Return whether the critical request-consumer thread is running."""
+        return self._thread is not None and self._thread.is_alive()
+
     def stop(self) -> None:
         """Stop accepting requests and wait for the thread to actually exit.
 
@@ -504,17 +508,30 @@ class RequestHandler:
 
         act_cfg = self._act_cfg_ref.get()
         results: list[dict[str, Any]] = []
-        any_failure = False
-        for device in act_cfg.devices:
+        results_lock = threading.Lock()
+
+        def switch_off(device: DeviceConfig) -> None:
             ok, err = controller.force_off(device, request_id=request_id)
-            results.append({
-                "device_id": device.device_id,
-                "name": device.name,
-                "ok": ok,
-                "error": err,
-            })
-            if not ok:
-                any_failure = True
+            with results_lock:
+                results.append({
+                    "device_id": device.device_id,
+                    "name": device.name,
+                    "ok": ok,
+                    "error": err,
+                })
+
+        workers = [
+            threading.Thread(
+                target=switch_off, args=(device,),
+                name=f"emergency-off-{device.device_id}", daemon=True,
+            )
+            for device in act_cfg.devices
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+        any_failure = any(not result["ok"] for result in results)
 
         logger.warning(
             "Force-OFF executed [request_id=%s] - %d devices, any_failure=%s",
@@ -560,6 +577,14 @@ class RequestHandler:
                 entry["switch_state"] = status.get(
                     device.dp_code or "switch_1",
                     status.get("switch_led", status.get("switch")),
+                )
+            else:
+                # The current web client renders name/type/online but predates
+                # the structured warning field. Put the safety warning in a
+                # rendered field too, while retaining the machine-readable key.
+                entry["name"] = f"{device.name} ⚠ STATUS UNKNOWN"
+                entry["warning"] = (
+                    "Device status unknown; physical OFF state is not verified"
                 )
             devices.append(entry)
 

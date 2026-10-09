@@ -92,11 +92,17 @@ class DigestScheduler:
         today = now.date()
 
         # Parse scheduled time
-        try:
-            parts = time_str.split(":")
-            scheduled = time(int(parts[0]), int(parts[1]))
-        except (ValueError, IndexError):
-            scheduled = time(7, 0)
+        if isinstance(time_str, int) and not isinstance(time_str, bool):
+            try:
+                scheduled = time(time_str // 60, time_str % 60)
+            except ValueError:
+                scheduled = time(7, 0)
+        else:
+            try:
+                parts = str(time_str).split(":")
+                scheduled = time(int(parts[0]), int(parts[1]))
+            except (ValueError, IndexError):
+                scheduled = time(7, 0)
 
         # Already sent today?
         if self._last_sent_date == today:

@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# scripts/restore-from-backup.sh - restore a SQLite DB from a v1.14 backup file.
+# scripts/restore-from-backup.sh - restore a SQLite DB from a backup snapshot.
 #
-# Stops the services that hold the target DB open, restores from the
-# named backup file (gunzipping if needed), and restarts. Run from the
-# host with docker compose available.
+# Stops every running service that opens the target database, runs the
+# Python restore (services/backup/src/restore.py) inside the backup
+# image, and restarts exactly the services it stopped. The restart runs
+# from an EXIT trap, so a refused or failed restore (restore.py puts the
+# previous state back itself) never leaves the stack down.
+#
+# Run from the host, in the directory you normally run `docker compose`
+# from. Requires docker compose v2.
 #
 # Usage:
 #   scripts/restore-from-backup.sh scarguard 2026-04-22T08-00-00.db.gz
@@ -12,7 +17,10 @@
 #
 # Backups live inside the scarguard-data named volume at
 # /data/backups/{db}/{filename} - list them with:
-#   docker compose run --rm --entrypoint sh backup -c 'ls -1 /data/backups/scarguard'
+#   docker compose run --rm --no-deps --entrypoint sh backup -c 'ls -1 /data/backups/scarguard'
+#
+# See BACKUP.md ("Restoring") for what is kept as a rollback copy and
+# how to roll back by hand.
 
 set -euo pipefail
 
@@ -26,65 +34,80 @@ fi
 DB_NAME=$1
 BACKUP_FILE=$2
 
+# Every service that opens the database, readers included: a reader keeps
+# the WAL/SHM alive and would see the file swap mid-flight. `trainer`
+# only exists under the opt-in training profile; enabling the profile on
+# every compose call lets the script see and stop it when it is running.
+# The backup sidecar is stopped too so no snapshot runs during the swap.
 case "$DB_NAME" in
-    scarguard|auth|deterrent) ;;
+    scarguard) SERVICES=(detector web notifier trainer backup) ;;
+    auth)      SERVICES=(web backup) ;;
+    deterrent) SERVICES=(deterrent web backup) ;;
     *)
-        echo "Error: db-name must be scarguard, auth, or deterrent."
+        echo "Error: db-name must be scarguard, auth, or deterrent." >&2
         exit 2
         ;;
 esac
+TARGET="/data/${DB_NAME}.db"
 
-case "$DB_NAME" in
-    scarguard) TARGET=/data/scarguard.db; SERVICES=(detector web notifier) ;;
-    auth)      TARGET=/data/auth.db;      SERVICES=(web) ;;
-    deterrent) TARGET=/data/deterrent.db; SERVICES=(deterrent web) ;;
-esac
+compose() {
+    docker compose --profile training "$@"
+}
 
-SOURCE="/data/backups/${DB_NAME}/${BACKUP_FILE}"
+STOPPED=()
 
-echo "→ Stopping services that hold ${DB_NAME}.db: ${SERVICES[*]}"
-docker compose stop "${SERVICES[@]}"
-
-echo "→ Backing up the current ${DB_NAME}.db to ${TARGET}.pre-restore"
-docker compose run --rm --entrypoint sh backup -c "
-    set -e
-    if [ -f '${TARGET}' ]; then
-        cp '${TARGET}' '${TARGET}.pre-restore'
+restart_services() {
+    if (( ${#STOPPED[@]} == 0 )); then
+        return
     fi
-    if [ ! -f '${SOURCE}' ]; then
-        echo 'Backup file ${SOURCE} not found - listing available:'
-        ls -1 /data/backups/${DB_NAME}/ 2>/dev/null || echo '(no backups for ${DB_NAME})'
-        exit 3
+    echo "→ Restarting services: ${STOPPED[*]}"
+    if ! compose start "${STOPPED[@]}"; then
+        echo "WARNING: could not restart ${STOPPED[*]}." >&2
+        echo "         Run: docker compose start ${STOPPED[*]}" >&2
     fi
-    if echo '${BACKUP_FILE}' | grep -q '\.gz\$'; then
-        gunzip -c '${SOURCE}' > '${TARGET}'
-    else
-        cp '${SOURCE}' '${TARGET}'
-    fi
-    echo 'Restored ${TARGET} from ${SOURCE}'
-"
+}
 
-echo "→ Verifying restored DB integrity"
-# SQLite's integrity_check can succeed at the process level (exit 0) while
-# still reporting corruption rows in stdout.  We must inspect the actual
-# output and require a single "ok" line.
-INTEGRITY_OUT=$(docker compose run --rm --entrypoint sh backup -c "
-    sqlite3 '${TARGET}' 'PRAGMA integrity_check'
-" 2>&1) || true
-INTEGRITY_FIRST=$(echo "${INTEGRITY_OUT}" | head -1 | tr -d '\r')
-if [[ "${INTEGRITY_FIRST}" != "ok" ]]; then
-    echo "WARNING: integrity_check failed - restoring pre-restore backup"
-    echo "    sqlite3 output: ${INTEGRITY_OUT}"
-    docker compose run --rm --entrypoint sh backup -c "
-        cp '${TARGET}.pre-restore' '${TARGET}'
-    "
-    docker compose start "${SERVICES[@]}"
-    exit 4
+on_exit() {
+    local rc=$?
+    trap - EXIT
+    if (( rc != 0 )); then
+        echo "✗ Restore did not complete (exit ${rc})." >&2
+        echo "  restore.py leaves ${TARGET} as it was, or puts it back, on every failure." >&2
+        if (( ${#STOPPED[@]} > 0 )); then
+            echo "  The stopped services are restarted now." >&2
+        fi
+    fi
+    restart_services
+    exit "${rc}"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+echo "→ Checking which of (${SERVICES[*]}) are running"
+RUNNING=$(compose ps --services --status running)
+for svc in "${SERVICES[@]}"; do
+    if grep -qx "${svc}" <<<"${RUNNING}"; then
+        STOPPED+=("${svc}")
+    fi
+done
+
+if (( ${#STOPPED[@]} > 0 )); then
+    echo "→ Stopping services that hold ${DB_NAME}.db: ${STOPPED[*]}"
+    compose stop "${STOPPED[@]}"
+else
+    echo "→ No running service holds ${DB_NAME}.db"
 fi
 
-echo "→ Restarting services: ${SERVICES[*]}"
-docker compose start "${SERVICES[@]}"
+echo "→ Restoring ${TARGET} from /data/backups/${DB_NAME}/${BACKUP_FILE}"
+# restore.py validates the snapshot (PRAGMA quick_check) before touching
+# the live files, moves db/-wal/-shm aside as *.pre-restore, swaps the
+# validated copy in atomically, and rolls back on any failure. A nonzero
+# exit lands in the EXIT trap above.
+compose run --rm --no-deps --entrypoint python backup src/restore.py "${DB_NAME}" "${BACKUP_FILE}"
 
-echo "✓ Restore complete. Pre-restore copy preserved at ${TARGET}.pre-restore"
+echo "✓ Restore complete."
+echo "  Rollback copy: ${TARGET}.pre-restore (and ${TARGET}-wal/-shm.pre-restore if they existed)."
 echo "  Once you've verified the system, remove it with:"
-echo "  docker compose run --rm --entrypoint sh backup -c 'rm ${TARGET}.pre-restore'"
+echo "    docker compose run --rm --no-deps --entrypoint sh backup -c 'rm -f ${TARGET}.pre-restore ${TARGET}-wal.pre-restore ${TARGET}-shm.pre-restore'"
+echo "  To undo the restore instead, follow 'Rolling back a restore' in BACKUP.md."

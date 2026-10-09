@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 from typing import Any
@@ -20,6 +21,7 @@ from pause_protocol import (
     COMMAND_CHANNEL,
     DEFAULT_PAUSE_TIMEOUT,
     HEARTBEAT_KEY,
+    MAX_PAUSE_TIMEOUT,
     STATE_KEY,
     STATE_TTL,
 )
@@ -79,7 +81,14 @@ class PauseHandler:
         action = payload.get("action")
         request_id = payload.get("request_id", "?")
         if action == "pause":
-            self._do_pause(request_id, payload.get("timeout", DEFAULT_PAUSE_TIMEOUT))
+            try:
+                timeout = float(payload.get("timeout", DEFAULT_PAUSE_TIMEOUT))
+                if not math.isfinite(timeout) or not 0 < timeout <= MAX_PAUSE_TIMEOUT:
+                    raise ValueError("timeout is outside the supported range")
+            except (TypeError, ValueError):
+                logger.warning("Invalid pause timeout in request %s", request_id)
+                return
+            self._do_pause(request_id, timeout)
         elif action == "resume":
             self._do_resume(request_id, reason="command")
         else:
