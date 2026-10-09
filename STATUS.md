@@ -52,7 +52,7 @@ codec support or inference. No production/device validation was performed.
 - **HTML email notifications:** Detection alert emails now use HTML with inline-embedded snapshot images (Content-ID). Plaintext fallback for clients that don't render HTML.
 - **One-click notification feedback:** Each detection event generates a one-time feedback token (UUID4). Email, Discord, and ntfy notifications include feedback links/buttons. Standalone confirmation page (no login required, 7-day token expiry).
 - **Config UI normal/expert modes:** Toggle switch hides advanced fields (stats intervals, backup settings, TLS, auth, schedule, per-camera model overrides, exclusion zones, action rules). `readForm()` preserves all values regardless of visibility.
-- **Docker health checks:** `/health` HTTP endpoint on web service; `/tmp/healthy` touch file for detector and notifier. Compose healthcheck blocks with `start_period` and retry intervals.
+- **Docker health checks:** `/health` HTTP endpoint on web service; `/tmp/healthy` touch file for detector and notifier. Detector health requires at least one live camera worker with progressing frames, so an exhausted worker or all-stalled feeds become unhealthy without taking healthy cameras down. Compose healthcheck blocks with `start_period` and retry intervals.
 - **SSE keepalive:** Event and feed SSE streams emit `: keepalive` comments every 15 seconds to prevent proxy/browser timeouts.
 - **Atomic config writes:** `config_store.save()` uses `tempfile.mkstemp` + `os.replace` to prevent partial writes on crash.
 - **SQLite indexes:** Indexes on `detection_events` for `timestamp`, `camera_name`, `class_name`, and `feedback` columns.

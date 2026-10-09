@@ -92,6 +92,17 @@ class TestConfig:
         assert resp.status_code == 200
         assert "Error" in resp.text or "error" in resp.text.lower()
 
+    def test_structured_save_rejects_zero_frame_skip(self, client, monkeypatch):
+        saved = []
+        monkeypatch.setattr("config_store.save", lambda cfg: saved.append(cfg))
+        resp = client.post(
+            "/config/structured",
+            json={"detection": {"frame_skip": 0}},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["ok"] is False
+        assert saved == []
+
     def test_page_populates_form_with_config_values(self, client, monkeypatch):
         """Form fields must reflect values from the config file, not defaults."""
         cfg = {

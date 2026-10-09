@@ -83,7 +83,7 @@ detection:
     - duck
     - raccoon
   cooldown_seconds: 30
-  frame_skip: 2
+  frame_skip: 2                    # integer >= 1; invalid values are rejected
 
   # Per-camera overrides and notification_rules / deterrent_rules belong in
   # each camera block. When an override is null, the corresponding global

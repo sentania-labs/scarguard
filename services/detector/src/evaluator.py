@@ -277,7 +277,7 @@ class EvaluationRunner:
 
             dets: list[dict] = []
             for result in results:
-                for box in result.boxes:
+                for box in result.boxes:  # type: ignore
                     class_name: str = result.names[int(box.cls)]
                     dets.append({
                         "class_name": class_name,

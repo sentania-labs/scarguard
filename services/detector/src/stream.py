@@ -129,6 +129,7 @@ class RTSPStream:
             if not self._reconnect():
                 return False, None
 
+        assert self._cap is not None
         ret, frame = self._cap.read()
         if not ret:
             logger.warning("[%s] Read failed - stream dropped", self.name)
@@ -150,6 +151,7 @@ class RTSPStream:
             if not self._reconnect():
                 return False
 
+        assert self._cap is not None
         ret = self._cap.grab()
         if not ret:
             logger.warning("[%s] Grab failed - stream dropped", self.name)
