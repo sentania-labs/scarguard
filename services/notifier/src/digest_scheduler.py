@@ -92,7 +92,7 @@ class DigestScheduler:
         today = now.date()
 
         # Parse scheduled time
-        if isinstance(time_str, int):
+        if isinstance(time_str, int) and not isinstance(time_str, bool):
             try:
                 scheduled = time(time_str // 60, time_str % 60)
             except ValueError:

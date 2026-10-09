@@ -36,6 +36,7 @@ HEARTBEAT_TTL = 90  # key TTL - expires if trainer stops writing
 # inference and the training subprocess on the GPU together, OOM-killing
 # the training run (pond_v3, 2026-07-11).
 DEFAULT_PAUSE_TIMEOUT = 86400  # 24 hours
+MAX_PAUSE_TIMEOUT = DEFAULT_PAUSE_TIMEOUT
 
 
 class PauseClient:
@@ -160,6 +161,9 @@ class PauseClient:
                 try:
                     state = json.loads(raw)
                 except (json.JSONDecodeError, TypeError):
+                    state = {}
+                if not isinstance(state, dict):
+                    logger.warning("Ignoring malformed detector state (not an object)")
                     state = {}
                 if (
                     state.get("state") == target_state
