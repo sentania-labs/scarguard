@@ -42,9 +42,13 @@ def main() -> None:
     # assumption breaks the moment someone adds a port binding for
     # debugging or runs a second ingress. Override via env if your Docker
     # network uses non-default subnets.
+    # SCARGUARD_TRUSTED_PROXIES requires explicit configuration of proxy identities.
+    # Default is 127.0.0.1. In docker-compose.yml, this is overridden to match the explicit subnet
+    # assigned to the Compose network so Caddy is trusted. Override via env if your Docker install uses
+    # non-default subnets or if you terminate TLS on an upstream proxy beyond Caddy.
     trusted_proxies = os.environ.get(
         "SCARGUARD_TRUSTED_PROXIES",
-        "127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16",
+        "127.0.0.1",
     )
     proxy_count = len([p for p in trusted_proxies.split(",") if p.strip()])
     log.info(

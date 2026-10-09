@@ -208,16 +208,25 @@ def _wants_html(request: Request) -> bool:
 
 
 def _parse_auth_enabled(value: object) -> bool:
-    """Parse the ``system.auth.enabled`` config value safely.
+    """Coerce the auth-enabled setting from YAML values.
 
-    A naive ``bool(value)`` cast would report ``"false"`` as truthy,
-    which silently keeps auth on when an operator quoted the value in
-    hand-edited YAML.  Accept real bools plus the usual false-ish string
-    spellings.  Default (missing value) is True - fail closed.
+    Only an explicit boolean ``False`` disables authentication.  Any other
+    value (``"false"``, ``0``, ``"0"``, ``None``) is treated as enabled so
+    that ambiguous or accidental YAML-string disables do not silently open
+    the door (contract requirement: "reject ambiguous auth settings").
+
+    When TLS is exposed the operator's intent to disable auth is rejected
+    outright -- auth stays enabled regardless of the value, because
+    disabling auth on a publicly-reachable interface is unsafe (SG-39).
     """
-    if isinstance(value, str):
-        return value.strip().lower() not in ("false", "0", "no", "off", "")
-    return bool(value)
+    if value is False:
+        return False
+    # Everything else enables auth by default.
+    return True
+
+
+def _is_tls(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
 @app.middleware("http")
@@ -237,7 +246,10 @@ async def auth_middleware(request: Request, call_next):
     cfg = load_cached()
     system_cfg = cfg.get("system") or {}
     auth_cfg = system_cfg.get("auth") or {}
-    auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
+    raw_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
+    # SG-39: in TLS mode the operator's intent to disable auth is rejected;
+    # auth stays enabled regardless of the configured value.
+    auth_enabled = raw_enabled if not _is_tls(request) else True
 
     # Expose deterrent state to base.html nav (controls Deterrent link visibility)
     act_cfg = cfg.get("deterrent") or {}
@@ -370,10 +382,18 @@ def _verify_csrf_token(token: str) -> bool:
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
     # Skip CSRF for API requests using Bearer auth (no cookie = no CSRF risk)
+    # Exemption follows actual successful bearer authentication.
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
-        request.state.csrf_token = ""
-        return await call_next(request)
+        raw_token = auth_header[7:]
+        db = auth_module.get_db(AUTH_DB_PATH)
+        try:
+            token_user = auth_module.validate_api_token(db, raw_token)
+            if token_user is not None:
+                request.state.csrf_token = ""
+                return await call_next(request)
+        finally:
+            db.close()
 
     # Skip CSRF for token-based feedback (the token itself is the auth)
     if request.url.path.startswith("/feedback/"):

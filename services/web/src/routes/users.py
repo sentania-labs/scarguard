@@ -90,6 +90,11 @@ async def create_user(
 
     if role not in VALID_ROLES:
         return _redirect_err(f"Invalid role: {role}")
+    # SG-13: bound username/password size before hashing/DB writes.
+    if len(username) > 255 or len(username) < 1:
+        return _redirect_err("Username must be between 1 and 255 characters.")
+    if len(password) > 255:
+        return _redirect_err("Password is too long (max 255 characters).")
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
     if len(password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
@@ -215,15 +220,22 @@ async def change_password(
     request: Request,
     user_id: int,
     new_password: str = Form(...),
+    current_password: str = Form(None),
 ) -> RedirectResponse:
     # Admins can change anyone's password; non-admins may only change their own.
     cur = getattr(request.state, "user", None)
     if cur is None:
         return RedirectResponse("/", status_code=302)
-    if current_role(request) != ROLE_ADMIN and cur.get("user_id") != user_id:
+
+    is_self = cur.get("user_id") == user_id
+    if current_role(request) != ROLE_ADMIN and not is_self:
         return RedirectResponse("/", status_code=302)
 
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
+    # SG-13: bound input size before hashing/DB writes.
+    # current_password may be None (admin resets another user; Form(None)).
+    if len(new_password) > 255 or (current_password is not None and len(current_password) > 255):
+        return _redirect_err("Password is too long (max 255 characters).")
     if len(new_password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
     if _is_common_password(new_password):
@@ -232,9 +244,45 @@ async def change_password(
     uid, uname, ip = _actor(request)
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
+        if is_self:
+            if not current_password:
+                return _redirect_err("Current password is required to change your own password.")
+            target_user = auth_module.get_user_by_id(db, user_id)
+            if not target_user or not auth_module.verify_password(current_password, target_user["password_hash"]):
+                return _redirect_err("Incorrect current password.")
+
         changed = auth_module.set_user_password(db, user_id, new_password)
         if not changed:
             return _redirect_err("User not found.")
+
+        auth_module.revoke_all_sessions(db, user_id)
+        auth_module.revoke_all_api_tokens(db, user_id)
+
+        if is_self:
+            from config_store import load_cached
+            auth_cfg = load_cached().get("system", {}).get("auth", {})
+            session_hours = auth_cfg.get("session_timeout_hours", 24)
+            raw_token = auth_module.create_session(db, user_id, timeout_hours=session_hours)
+            response = RedirectResponse("/admin/users", status_code=302)
+            is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+            response.set_cookie(
+                key="session",
+                value=raw_token,
+                httponly=True,
+                samesite="strict",
+                secure=is_https,
+                max_age=session_hours * 3600,
+            )
+            audit.record(
+                db,
+                action="user.password_reset",
+                user_id=uid,
+                username=uname,
+                client_ip=ip,
+                resource=f"user:{user_id}",
+                details={"self": uid == user_id},
+            )
+            return response
         audit.record(
             db,
             action="user.password_reset",
