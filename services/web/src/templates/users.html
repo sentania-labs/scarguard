@@ -75,8 +75,11 @@
           <form method="post" action="/admin/users/{{ u.id }}/password"
                 style="display:flex;gap:0.5rem;align-items:center;padding:0.2rem 0;">
             <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
-            <input type="password" name="new_password" placeholder="New password (min 8 chars)"
-                   minlength="8" style="max-width:220px;">
+            {% if u.id == current_user_id %}
+            <input type="password" name="current_password" placeholder="Current password" required style="max-width:180px;">
+            {% endif %}
+            <input type="password" name="new_password" placeholder="New password (min 12 chars)"
+                   minlength="12" style="max-width:220px;">
             <button type="submit" class="btn-secondary" style="font-size:0.78rem;white-space:nowrap;">
               Change password
             </button>
@@ -100,8 +103,8 @@
       <input type="text" id="new-username" name="username" required>
     </div>
     <div class="field-group" style="flex:1;min-width:160px;">
-      <label for="new-password">Password (min 8 chars)</label>
-      <input type="password" id="new-password" name="password" minlength="8" required>
+      <label for="new-password">Password (min 12 chars)</label>
+      <input type="password" id="new-password" name="password" minlength="12" required>
     </div>
     <div class="field-group" style="min-width:140px;">
       <label for="new-role">Role</label>

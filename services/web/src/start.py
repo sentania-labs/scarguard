@@ -42,10 +42,8 @@ def main() -> None:
     # assumption breaks the moment someone adds a port binding for
     # debugging or runs a second ingress. Override via env if your Docker
     # network uses non-default subnets.
-    trusted_proxies = os.environ.get(
-        "SCARGUARD_TRUSTED_PROXIES",
-        "127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16",
-    )
+    # SCARGUARD_TRUSTED_PROXIES requires explicit configuration of proxy identities.
+    trusted_proxies = os.environ.get("SCARGUARD_TRUSTED_PROXIES", "127.0.0.1")
     proxy_count = len([p for p in trusted_proxies.split(",") if p.strip()])
     log.info(
         "Starting HTTP on port 8080 (TLS handled by Caddy; %d trusted proxy range(s) configured)",

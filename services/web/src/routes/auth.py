@@ -102,11 +102,15 @@ async def login_post(
 
     safe_next = _safe_next(next)
     client_ip = request.client.host if request.client else None
+    
+    if len(username) > 255 or len(password) > 255:
+        return templates.TemplateResponse(request, "login.html", {"next": safe_next, "error": "Invalid username or password."}, status_code=400)
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
         # Check lockout before doing anything
         if auth_module.check_lockout(db, username, client_ip, max_attempts, lockout_minutes):
+            audit.record(db, action="login.abuse", username=username, client_ip=client_ip)
             return templates.TemplateResponse(
                 request,
                 "login.html",
@@ -286,6 +290,11 @@ async def setup_post(
         return _render_setup(
             request, token=token,
             error="Username must not be empty.", status_code=400,
+        )
+    if len(username) > 255 or len(password) > 255:
+        return _render_setup(
+            request, token=token,
+            error="Username or password too long.", status_code=400,
         )
     if len(password) < MIN_PASSWORD_LEN:
         return _render_setup(

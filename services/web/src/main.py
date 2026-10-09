@@ -207,17 +207,13 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept
 
 
-def _parse_auth_enabled(value: object) -> bool:
-    """Parse the ``system.auth.enabled`` config value safely.
-
-    A naive ``bool(value)`` cast would report ``"false"`` as truthy,
-    which silently keeps auth on when an operator quoted the value in
-    hand-edited YAML.  Accept real bools plus the usual false-ish string
-    spellings.  Default (missing value) is True - fail closed.
-    """
-    if isinstance(value, str):
-        return value.strip().lower() not in ("false", "0", "no", "off", "")
-    return bool(value)
+def _parse_auth_enabled(value: object, request: Request) -> bool:
+    if value is False:
+        is_tls = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+        if is_tls:
+            return True
+        return False
+    return True
 
 
 @app.middleware("http")
@@ -237,7 +233,7 @@ async def auth_middleware(request: Request, call_next):
     cfg = load_cached()
     system_cfg = cfg.get("system") or {}
     auth_cfg = system_cfg.get("auth") or {}
-    auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
+    auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True), request)
 
     # Expose deterrent state to base.html nav (controls Deterrent link visibility)
     act_cfg = cfg.get("deterrent") or {}
@@ -370,10 +366,18 @@ def _verify_csrf_token(token: str) -> bool:
 @app.middleware("http")
 async def csrf_middleware(request: Request, call_next):
     # Skip CSRF for API requests using Bearer auth (no cookie = no CSRF risk)
+    # Exemption follows actual successful bearer authentication.
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
-        request.state.csrf_token = ""
-        return await call_next(request)
+        raw_token = auth_header[7:]
+        db = auth_module.get_db(AUTH_DB_PATH)
+        try:
+            token_user = auth_module.validate_api_token(db, raw_token)
+            if token_user is not None:
+                request.state.csrf_token = ""
+                return await call_next(request)
+        finally:
+            db.close()
 
     # Skip CSRF for token-based feedback (the token itself is the auth)
     if request.url.path.startswith("/feedback/"):

@@ -402,6 +402,15 @@ def validate_session(
     return dict(row) if row else None
 
 
+
+def revoke_all_sessions(db: sqlite3.Connection, user_id: int) -> None:
+    db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    db.commit()
+
+def revoke_all_api_tokens(db: sqlite3.Connection, user_id: int) -> None:
+    db.execute("DELETE FROM api_tokens WHERE user_id=?", (user_id,))
+    db.commit()
+
 def delete_session(db: sqlite3.Connection, raw_token: str) -> None:
     token_hash = _hash_token(raw_token)
     db.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
@@ -498,12 +507,13 @@ def check_lockout(
     max_attempts: int,
     lockout_minutes: int,
 ) -> bool:
-    """Return True if this username is currently locked out."""
+    """Return True if this username+ip is currently locked out."""
     cutoff = _utcnow_minus(minutes=lockout_minutes)
+    # Use bounded per-origin/user delay
     count = db.execute(
         """SELECT COUNT(*) FROM login_attempts
-           WHERE username=? AND success=0 AND attempted_at > ?""",
-        (username, cutoff),
+           WHERE username=? AND (ip_address=? OR (ip_address IS NULL AND ? IS NULL)) AND success=0 AND attempted_at > ?""",
+        (username, ip, ip, cutoff),
     ).fetchone()[0]
     return count >= max_attempts
 
