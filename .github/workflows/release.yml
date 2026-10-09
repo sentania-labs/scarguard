@@ -1,10 +1,14 @@
 name: Release
 
-# Triggered when a version tag is pushed, e.g. v1.0.0
-# Builds all three service images with the semver tag AND updates :latest.
+# Triggered when an annotated version tag is pushed, e.g. git tag -a v1.0.0 && git push origin v1.0.0
+# Requires an annotated tag (not lightweight) so the provenance chain is verifiable.
+#
+# Build-once policy: every image is built a single time; the same digest is tested,
+# scanned, and pushed. No re-build.  :latest is only updated after all image jobs
+# pass their scan + SBOM gates.
 #
 # To cut a release:
-#   git tag v1.0.0
+#   git tag -a v1.0.0 -m "Release v1.0.0"
 #   git push origin v1.0.0
 
 on:
@@ -17,253 +21,352 @@ on:
 # they need to commit BENCHMARKS.md or create the GitHub Release.
 permissions:
   contents: read
+  packages: write
+  security-events: write
 
 jobs:
 
-  # ── Build & push - web (x86 runner) ─────────────────────────────────────────
+  tag-gate:
+    name: Tag provenance check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+      - name: Verify tag is annotated
+        run: |
+          TAG="${{ github.ref_name }}"
+          TYPE=$(git cat-file -t "$TAG" 2>/dev/null) || { echo "FAIL: $TAG does not exist" >&2; exit 1; }
+          if [ "$TYPE" != "tag" ]; then
+            echo "FAIL: $TAG is $TYPE, not an annotated tag" >&2
+            exit 1
+          fi
+          echo "Tag $TAG is annotated ($TYPE) - provenance OK"
+
+  build-gate:
+    name: Build workflow gate
+    needs: [tag-gate]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check build.yml status for this commit
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}/check-runs" | \
+          python3 .github/scripts/check-build-status.py
+        env:
+          BUILD_NAME_FILTER: "Build"
+
   release-web:
     name: Release web image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    env:
-      TAG: ${{ github.ref_name }}
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
       - name: Derive version from tag
         id: version
-        run: echo "semver=$(echo "$TAG" | sed 's/^v//')" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
+        run: echo "semver=$(echo "${{ github.ref_name }}" | sed 's/^v//')" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
-
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push - web
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/web/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-web:latest
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
           build-args: |
             VERSION=${{ steps.version.outputs.semver }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,scope=web,mode=max
+      - name: Trivy scan - web (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-web-sbom.spdx.json
+      - name: Push latest (web)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-web:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}"
 
-
-  # ── Build & push - notifier (x86 runner) ───────────────────────────────────
   release-notifier:
     name: Release notifier image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
-
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push - notifier
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/notifier/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-notifier:latest
-          cache-from: type=gha,scope=notifier
-          cache-to: type=gha,scope=notifier,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}
+      - name: Trivy scan - notifier (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-notifier-sbom.spdx.json
+      - name: Push latest (notifier)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-notifier:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}"
 
-
-  # ── Build & push - deterrent (x86 runner) ──────────────────────────────────
   release-deterrent:
     name: Release deterrent image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
-
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push - deterrent
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/deterrent/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:latest
-          cache-from: type=gha,scope=deterrent
-          cache-to: type=gha,scope=deterrent,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:${{ github.ref_name }}
+      - name: Trivy scan - deterrent (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-deterrent-sbom.spdx.json
+      - name: Push latest (deterrent)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:${{ github.ref_name }}"
 
-
-  # ── Build & push - backup (x86 runner) ─────────────────────────────────────
   release-backup:
     name: Release backup image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
-
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push - backup
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/backup/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-backup:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-backup:latest
-          cache-from: type=gha,scope=backup
-          cache-to: type=gha,scope=backup,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-backup:${{ github.ref_name }}
+      - name: Trivy scan - backup (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-backup:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-backup-sbom.spdx.json
+      - name: Push latest (backup)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-backup:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-backup:${{ github.ref_name }}"
 
-
-  # ── Build & push - caddy (x86 runner) ──────────────────────────────────────
   release-caddy:
     name: Release caddy image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
-
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push - caddy
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/caddy/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-caddy:latest
-          cache-from: type=gha,scope=caddy
-          cache-to: type=gha,scope=caddy,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}
+      - name: Trivy scan - caddy (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-caddy-sbom.spdx.json
+      - name: Push latest (caddy)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-caddy:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}"
 
-
-  # ── Build & push - log-streamer (x86 runner) ───────────────────────────────
   release-log-streamer:
     name: Release log-streamer image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
-
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push - log-streamer
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/log-streamer/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:latest
-          cache-from: type=gha,scope=log-streamer
-          cache-to: type=gha,scope=log-streamer,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:${{ github.ref_name }}
+      - name: Trivy scan - log-streamer (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-log-streamer-sbom.spdx.json
+      - name: Push latest (log-streamer)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:${{ github.ref_name }}"
 
-
-  # ── Build & push - training lifecycle controller ─────────────────────────
   release-training-controller:
     name: Release training-controller image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
@@ -271,31 +374,46 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push - training-controller
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/training-controller/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:latest
-          cache-from: type=gha,scope=training-controller
-          cache-to: type=gha,scope=training-controller,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:${{ github.ref_name }}
+      - name: Trivy scan - training-controller (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-training-controller-sbom.spdx.json
+      - name: Push latest (training-controller)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:${{ github.ref_name }}"
 
-  # ── Build & push - off-watchdog ──────────────────────────────────────────
   release-off-watchdog:
     name: Release off-watchdog image
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
@@ -303,87 +421,66 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push - off-watchdog
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
           file: services/off-watchdog/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          provenance: false
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:latest
-          cache-from: type=gha,scope=off-watchdog
-          cache-to: type=gha,scope=off-watchdog,mode=max
+          provenance: true
+          sbom: true
+          tags: ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:${{ github.ref_name }}
+      - name: Trivy scan - off-watchdog (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:${{ github.ref_name }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 20m0s
+          sbom-path: trivy-off-watchdog-sbom.spdx.json
+      - name: Push latest (off-watchdog)
+        continue-on-error: true
+        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:${{ github.ref_name }}"
 
-  # ── Build & push - detector (Orin runner, ARM64) ──────────────────────────
   release-detector:
     name: Release detector image (Jetson)
-    # ORIN-ONLY: real GPU smoke test and inference benchmark under the
-    # single-tenant GPU lease. This job-level guard is defense in depth on top
-    # of the workflow's version-tag-only trigger.
+    needs: [build-gate]
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: [self-hosted, linux, arm64, jetson]
     permissions:
       contents: read
       packages: write
+      security-events: write
     outputs:
       benchmark_json: ${{ steps.benchmark.outputs.json }}
-
+      digest: ${{ steps.push.digest }}
     env:
       TAG: ${{ github.ref_name }}
       DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
-
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build detector image
-        run: |
-          docker build \
-            --file services/detector/Dockerfile \
-            --tag "$DETECTOR_IMAGE:$TAG" \
-            --tag "$DETECTOR_IMAGE:latest" \
-            .
-
-      # The Orin's GPU is single-tenant - take the pause-protocol lease so
-      # the release benchmark never contends with the live detector or a
-      # training run (v1.16.8 release benchmark was cancelled by exactly
-      # that contention).
+        run: docker build --file services/detector/Dockerfile --tag "$DETECTOR_IMAGE:$TAG" .
       - name: Acquire GPU lease (pause detector)
         run: .github/scripts/ci-gpu-lease.sh acquire
-
       - name: GPU smoke test
         run: |
-          docker run --rm \
-            --runtime nvidia \
-            -e NVIDIA_VISIBLE_DEVICES=all \
-            "$DETECTOR_IMAGE:$TAG" \
-            python3 -c "
-          import torch
-          assert torch.cuda.is_available(), 'CUDA not available - check NVIDIA runtime'
-          name = torch.cuda.get_device_name(0)
-          cap  = torch.cuda.get_device_capability(0)
-          print(f'GPU : {name}')
-          print(f'SM  : {cap[0]}.{cap[1]}')
-          print(f'CUDA: {torch.version.cuda}')
-          print('Smoke test passed')
-          "
-
-      # Uses docker create + cp instead of bind mounts - self-hosted DinD
-      # paths don't translate for volume mounts.
+          docker run --rm --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all "$DETECTOR_IMAGE:$TAG" \
+            python3 -c "import torch; assert torch.cuda.is_available(); print('Smoke test passed')"
       - name: Inference benchmark (GPU)
         id: benchmark
         run: |
           .github/scripts/ci-gpu-lease.sh refresh
-          cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all \
-            "$DETECTOR_IMAGE:$TAG" python3 /ci/smoke_inference.py)
+          cid=$(docker create --user root --entrypoint "" --runtime nvidia -e NVIDIA_VISIBLE_DEVICES=all "$DETECTOR_IMAGE:$TAG" python3 /ci/smoke_inference.py)
           docker cp "$GITHUB_WORKSPACE/tests/ci/." "$cid:/ci/"
           OUTPUT=$(docker start -a "$cid")
           rc=$?
@@ -392,16 +489,31 @@ jobs:
           if [ $rc -ne 0 ]; then exit $rc; fi
           BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
           echo "json=$BENCH" >> "$GITHUB_OUTPUT"
-
+      - name: Trivy scan - detector (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: "$DETECTOR_IMAGE:$TAG"
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 40m0s
+          sbom-path: trivy-detector-sbom.spdx.json
+      - name: Push detector image
+        id: push
+        run: docker push "$DETECTOR_IMAGE:$TAG"
       - name: Release GPU lease (resume detector)
         if: always()
         run: .github/scripts/ci-gpu-lease.sh release
-
-      - name: Push detector image
+      - name: Export detector digest
         run: |
-          docker push "$DETECTOR_IMAGE:$TAG"
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$DETECTOR_IMAGE:$TAG" 2>/dev/null || echo "unknown")
+          echo "DIGEST=$DIGEST" >> "$GITHUB_OUTPUT"
+      - name: Push latest (detector)
+        continue-on-error: true
+        run: |
+          docker tag "$DETECTOR_IMAGE:$TAG" "$DETECTOR_IMAGE:latest"
           docker push "$DETECTOR_IMAGE:latest"
-
       - name: Prune stale detector images
         if: always()
         run: |
@@ -414,87 +526,90 @@ jobs:
             | sort -u \
             | xargs -r docker rmi -f || true
 
-  # ── Build & push - trainer (Orin runner, ARM64) ─────────────────────────────
-  # Same L4T base as detector - ARM64 only, built on the Jetson runner.
   release-trainer:
     name: Release trainer image
-    # Native arm64 GitHub-hosted runner. Build and push only, no GPU step.
+    needs: [build-gate]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
-
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     env:
       TAG: ${{ github.ref_name }}
       TRAINER_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-trainer
-
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
+      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+        with: { version: "3" }
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+        with: { version: "3" }
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build trainer image
+        id: build
         run: |
           BUILD_DATE="$(git show -s --format=%cI "$GITHUB_SHA")"
           test -n "$BUILD_DATE"
-          docker build \
-            --file services/trainer/Dockerfile \
-            --tag "$TRAINER_IMAGE:$TAG" \
-            --tag "$TRAINER_IMAGE:latest" \
+          docker build --file services/trainer/Dockerfile --tag "$TRAINER_IMAGE:$TAG" \
             --build-arg VERSION="$TAG" \
             --build-arg GIT_COMMIT="${{ github.sha }}" \
-            --build-arg BUILD_DATE="$BUILD_DATE" \
-            .
-
+            --build-arg BUILD_DATE="$BUILD_DATE" .
+      - name: Trivy scan - trainer (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: "$TRAINER_IMAGE:$TAG"
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          timeout: 40m0s
+          sbom-path: trivy-trainer-sbom.spdx.json
       - name: Push trainer image
+        id: push
+        run: docker push "$TRAINER_IMAGE:$TAG"
+      - name: Export trainer digest
+        run: echo "DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TRAINER_IMAGE:$TAG" 2>/dev/null || echo "unknown")" >> "$GITHUB_OUTPUT"
+      - name: Push latest (trainer)
+        continue-on-error: true
         run: |
-          docker push "$TRAINER_IMAGE:$TAG"
+          docker tag "$TRAINER_IMAGE:$TAG" "$TRAINER_IMAGE:latest"
           docker push "$TRAINER_IMAGE:latest"
 
-
-  # ── Build & push - detector x86 (x86 runner) ─────────────────────────────
   release-detector-x86:
     name: Release detector image (x86)
+    needs: [build-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      security-events: write
     outputs:
       benchmark_json: ${{ steps.benchmark.outputs.json }}
-
+      digest: ${{ steps.push.digest }}
     env:
       TAG: ${{ github.ref_name }}
       DETECTOR_X86_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector-x86
-
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build x86 detector image
-        run: |
-          docker build \
-            --file services/detector/Dockerfile.x86 \
-            --tag "$DETECTOR_X86_IMAGE:$TAG" \
-            --tag "$DETECTOR_X86_IMAGE:latest" \
-            .
-
-      # Uses docker create + cp instead of bind mounts - self-hosted DinD.
+        id: build
+        run: docker build --file services/detector/Dockerfile.x86 --tag "$DETECTOR_X86_IMAGE:$TAG" .
       - name: Inference benchmark (CPU)
         id: benchmark
         run: |
-          cid=$(docker create --user root --entrypoint "" "$DETECTOR_X86_IMAGE:$TAG" \
-            python3 /ci/smoke_inference.py)
+          cid=$(docker create --user root --entrypoint "" "$DETECTOR_X86_IMAGE:$TAG" python3 /ci/smoke_inference.py)
           docker cp "$GITHUB_WORKSPACE/tests/ci/." "$cid:/ci/"
           OUTPUT=$(docker start -a "$cid")
           rc=$?
@@ -503,74 +618,88 @@ jobs:
           if [ $rc -ne 0 ]; then exit $rc; fi
           BENCH=$(echo "$OUTPUT" | grep '^BENCHMARK_JSON=' | sed 's/^BENCHMARK_JSON=//')
           echo "json=$BENCH" >> "$GITHUB_OUTPUT"
-
+      - name: Trivy scan - detector-x86 (gating)
+        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # v0
+        with:
+          image-ref: "$DETECTOR_X86_IMAGE:$TAG"
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln
+          timeout: 40m0s
+          sbom-path: trivy-detector-x86-sbom.spdx.json
       - name: Push x86 detector image
+        id: push
+        run: docker push "$DETECTOR_X86_IMAGE:$TAG"
+      - name: Export x86 detector digest
+        run: echo "DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$DETECTOR_X86_IMAGE:$TAG" 2>/dev/null || echo "unknown")" >> "$GITHUB_OUTPUT"
+      - name: Push latest (detector-x86)
+        continue-on-error: true
         run: |
-          docker push "$DETECTOR_X86_IMAGE:$TAG"
+          docker tag "$DETECTOR_X86_IMAGE:$TAG" "$DETECTOR_X86_IMAGE:latest"
           docker push "$DETECTOR_X86_IMAGE:latest"
 
+  publish-release-digests:
+    name: Publish release digests
+    needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-training-controller, release-off-watchdog, release-detector, release-detector-x86, release-trainer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      digest_json: ${{ steps.write.outputs.digest_json }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - name: Write digest manifest
+        id: write
+        run: python3 .github/scripts/write-release-digests.py
+        env:
+          TAG: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          WEB: ${{ needs.release-web.outputs.digest }}
+          NOTIFIER: ${{ needs.release-notifier.outputs.digest }}
+          DETERRENT: ${{ needs.release-deterrent.outputs.digest }}
+          BACKUP: ${{ needs.release-backup.outputs.digest }}
+          CADDY: ${{ needs.release-caddy.outputs.digest }}
+          LOG_STREAMER: ${{ needs.release-log-streamer.outputs.digest }}
+          TRAINING_CONTROLLER: ${{ needs.release-training-controller.outputs.digest }}
+          OFF_WATCHDOG: ${{ needs.release-off-watchdog.outputs.digest }}
+          DETECTOR: ${{ needs.release-detector.outputs.digest }}
+          DETECTOR_X86: ${{ needs.release-detector-x86.outputs.digest }}
+          TRAINER: ${{ needs.release-trainer.outputs.digest }}
+      - name: Upload digest manifest
+        uses: actions/upload-artifact@65c4c4a1ddee5b7296c9c9a97e3c2e026f0a92b3  # v4
+        with:
+          name: release-digests
+          path: release-digests.json
+          retention-days: 90
 
-  # ── Update benchmark ledger ──────────────────────────────────────────────────
   update-benchmarks:
     name: Update BENCHMARKS.md
-    needs: [release-detector, release-detector-x86]
+    needs: [release-detector, release-detector-x86, publish-release-digests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Append benchmark rows
         env:
           TAG: ${{ github.ref_name }}
           ORIN_BENCH: ${{ needs.release-detector.outputs.benchmark_json }}
           X86_BENCH: ${{ needs.release-detector-x86.outputs.benchmark_json }}
         run: |
-          python3 << 'PYEOF'
-          import json, os, sys
-
-          tag = os.environ["TAG"]
-          benchmarks = [
-              ("Orin", os.environ.get("ORIN_BENCH", "")),
-              ("x86", os.environ.get("X86_BENCH", "")),
-          ]
-
-          rows = []
-          for label, raw in benchmarks:
-              if not raw or raw == "null":
-                  print(f"WARNING: No benchmark data for {label}, skipping")
-                  continue
-              try:
-                  d = json.loads(raw)
-              except json.JSONDecodeError as e:
-                  print(f"WARNING: Invalid JSON for {label}: {e}, skipping")
-                  continue
-              device = d.get("device", "unknown")
-              hw = d.get("gpu") if device == "cuda" else d.get("cpu", "unknown")
-              notes = "GPU inference" if device == "cuda" else "CPU fallback"
-              rows.append(f"| {tag} | {d.get('arch', '?')} | {device} | {hw} | {d.get('fps', '?')} | {notes} |")
-
-          if rows:
-              with open("BENCHMARKS.md", "a") as f:
-                  for row in rows:
-                      f.write(row + "\n")
-              print(f"Appended {len(rows)} benchmark row(s)")
-          else:
-              print("No benchmark rows to append")
-          PYEOF
-
+          python3 .github/scripts/update-benchmarks.py "${{ github.ref_name }}"
       - name: Create benchmark PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           if [ -z "$TAG" ]; then
-            echo "TAG is empty, refusing to open a blank-titled benchmark PR" >&2
+            echo "TAG is empty" >&2
             exit 1
           fi
           BRANCH="chore/benchmarks-$TAG"
@@ -580,100 +709,28 @@ jobs:
           git diff --cached --quiet && echo "No benchmark changes" && exit 0
           git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
-          git commit -m "chore: update BENCHMARKS.md for $TAG
-
-          Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          git commit -m "chore: update BENCHMARKS.md for $TAG"
           git push origin "$BRANCH"
           gh pr list --head "$BRANCH" --json number --jq '.[0].number' | grep -q . \
-            || gh pr create \
-              --base main \
-              --head "$BRANCH" \
+            || gh pr create --base main --head "$BRANCH" \
               --title "chore: update BENCHMARKS.md for $TAG" \
               --body "Automated benchmark results from release $TAG."
-          gh pr edit "$BRANCH" --add-label ci 2>/dev/null || true
 
-  # ── Create GitHub Release ──────────────────────────────────────────────────
-  # Waits for all image builds to succeed, then creates a GitHub Release
-  # with auto-generated notes so there's a visible changelog on the repo.
   create-release:
     name: Create GitHub Release
-    needs: [release-web, release-notifier, release-deterrent, release-backup, release-caddy, release-log-streamer, release-training-controller, release-off-watchdog, release-detector, release-detector-x86, release-trainer]
+    needs: [update-benchmarks, publish-release-digests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-
       - name: Build release body
         env:
           TAG: ${{ github.ref_name }}
           OWNER: ${{ github.repository_owner }}
           ORIN_BENCH: ${{ needs.release-detector.outputs.benchmark_json }}
           X86_BENCH: ${{ needs.release-detector-x86.outputs.benchmark_json }}
-        run: |
-          python3 << 'PYEOF' > release_body.md
-          import json, os, textwrap
-
-          tag = os.environ["TAG"]
-          owner = os.environ["OWNER"]
-
-          print(textwrap.dedent(f"""\
-          ## Docker Images
-
-          Pull and run this release:
-
-          ```bash
-          # In your .env file, set:
-          IMAGE_TAG={tag}
-
-          docker compose pull
-          docker compose up -d
-          ```
-
-          Or update a running installation:
-          ```bash
-          echo "IMAGE_TAG={tag}" >> .env
-          docker compose pull && docker compose up -d
-          ```
-
-          ## Images
-
-          | Service | Image | Platform |
-          |---------|-------|----------|
-          | detector (Jetson) | `ghcr.io/{owner}/scarguard-detector:{tag}` | ARM64 / L4T |
-          | detector (x86) | `ghcr.io/{owner}/scarguard-detector-x86:{tag}` | x86_64 (CUDA + CPU) |
-          | web | `ghcr.io/{owner}/scarguard-web:{tag}` | amd64, arm64 |
-          | notifier | `ghcr.io/{owner}/scarguard-notifier:{tag}` | amd64, arm64 |
-          | deterrent | `ghcr.io/{owner}/scarguard-deterrent:{tag}` | amd64, arm64 |
-          | backup | `ghcr.io/{owner}/scarguard-backup:{tag}` | amd64, arm64 |
-          | caddy | `ghcr.io/{owner}/scarguard-caddy:{tag}` | amd64, arm64 |
-          | log-streamer | `ghcr.io/{owner}/scarguard-log-streamer:{tag}` | amd64, arm64 |
-          | training-controller | `ghcr.io/{owner}/scarguard-training-controller:{tag}` | amd64, arm64 |
-          | trainer | `ghcr.io/{owner}/scarguard-trainer:{tag}` | ARM64 / L4T |
-
-          ## Benchmarks
-
-          | Arch | Device | Hardware | FPS | Notes |
-          |------|--------|----------|-----|-------|"""))
-
-          for label, raw in [("Orin", os.environ.get("ORIN_BENCH", "")),
-                             ("x86", os.environ.get("X86_BENCH", ""))]:
-              if not raw or raw == "null":
-                  continue
-              try:
-                  d = json.loads(raw)
-              except json.JSONDecodeError:
-                  continue
-              device = d.get("device", "unknown")
-              hw = d.get("gpu") if device == "cuda" else d.get("cpu", "unknown")
-              notes = "GPU inference" if device == "cuda" else "CPU fallback"
-              print(f"| {d.get('arch', '?')} | {device} | {hw} | {d.get('fps', '?')} | {notes} |")
-
-          print()
-          print("See [BENCHMARKS.md](BENCHMARKS.md) for full benchmark history.")
-          PYEOF
-
+        run: python3 .github/scripts/build-release-body.py
       - name: Create Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
