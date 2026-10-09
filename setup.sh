@@ -198,9 +198,17 @@ if [[ -f ".env" ]]; then
         fi
         info "Backfilled OFF_WATCHDOG_HMAC_KEY (authenticates bounded activation leases)"
     fi
-    if ! grep -q '^TRAINING_CONTROLLER_TOKEN=.\{32\}' .env; then
+    if ! grep -q '^TRAINING_CONTROLLER_TOKEN=.\\{32\\}' .env; then
         bash infra/backfill-training-controller-token.sh .env
         info "Backfilled TRAINING_CONTROLLER_TOKEN (protects detector lifecycle API)"
+    fi
+    # v1.15 (FDY-0558): Inject the host Docker GID so the training-controller
+    # can open the Docker socket on any distro.  setup.sh writes it into .env
+    # so docker compose expands it at run-time.
+    if ! grep -q '^DOCKER_GID=' .env; then
+        DOCKER_GID=$(getent group docker 2>/dev/null | cut -d: -f3 || echo 999)
+        echo "DOCKER_GID=${DOCKER_GID}" >> .env
+        info "Backfilled DOCKER_GID=${DOCKER_GID}"
     fi
     if ! grep -q '^COMPOSE_FILE=' .env; then
         if [[ "$NVIDIA_OK" == "true" ]]; then
@@ -244,6 +252,11 @@ else
     # with web, detector, notifier, deterrent, or other Compose peers.
     CONTROLLER_TOKEN=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
     sed -i "s|^TRAINING_CONTROLLER_TOKEN=.*|TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}|" .env
+
+    # v1.15 (FDY-0558): Inject the host Docker GID so the training-controller
+    # can open the Docker socket on any distro.
+    DOCKER_GID=$(getent group docker 2>/dev/null | cut -d: -f3 || echo 999)
+    sed -i "s/^DOCKER_GID=.*/DOCKER_GID=${DOCKER_GID}/" .env || echo "DOCKER_GID=${DOCKER_GID}" >> .env
 
     if [[ "$HTTP_PORT_VALUE" != "80" ]]; then
         sed -i "s/^HTTP_PORT=.*/HTTP_PORT=${HTTP_PORT_VALUE}/" .env
