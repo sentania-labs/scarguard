@@ -2,5 +2,5 @@ redis==7.4.0
 pyyaml==6.0.3
 pydantic==2.12.5
 tinytuya==1.17.6
-tzdata==2025.3
+tzdata==2026.5
 cryptography==50.0.1
