@@ -290,3 +290,30 @@ def test_sg_39_tls_rejects_boolean_false(monkeypatch, tmp_path):
     assert res3.status_code == 200, (
         f"In TLS mode, auth enabled=false must be rejected; session valid, got {res3.status_code}"
     )
+
+# ── SG-P2: Trusted Proxies Configuration ─────────────────────────────────────
+
+def test_sg_p2_trusted_proxy_x_forwarded_for():
+    """A request from a trusted proxy yields the client address via X-Forwarded-For; from an untrusted source, it does not."""
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    app = FastAPI()
+    @app.get("/")
+    def get_ip(request: Request):
+        return {"ip": request.client.host if request.client else None}
+
+    # We wrap our mini-app in the Uvicorn proxy middleware, configuring it to
+    # trust the subnet 172.24.0.0/16 (which matches what we put in docker-compose.yml).
+    app_trusted = ProxyHeadersMiddleware(app, trusted_hosts="172.24.0.0/16")
+
+    # 1. From a trusted proxy (172.24.0.5)
+    client_trusted = TestClient(app_trusted, client=("172.24.0.5", 12345))
+    res_trusted = client_trusted.get("/", headers={"X-Forwarded-For": "203.0.113.1"})
+    assert res_trusted.json()["ip"] == "203.0.113.1", "Expected client IP to be extracted from X-Forwarded-For when sent by trusted proxy"
+
+    # 2. From an untrusted proxy (192.168.1.1)
+    client_untrusted = TestClient(app_trusted, client=("192.168.1.1", 12345))
+    res_untrusted = client_untrusted.get("/", headers={"X-Forwarded-For": "203.0.113.1"})
+    assert res_untrusted.json()["ip"] == "192.168.1.1", "Expected client IP to be the actual proxy IP when sent by untrusted proxy"

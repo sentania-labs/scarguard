@@ -439,13 +439,11 @@ and `cap_drop: [ALL]` (Caddy re-adds only `NET_BIND_SERVICE`).
 
 ### Trusted Proxies
 
-`web` runs behind Caddy inside the Docker network.  The default value for
-``forwarded_allow_ips`` matches the Docker bridge address space:
-
-``127.0.0.1,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16``
-
-so that Caddy (reaching ``web`` from a bridge IP) has its ``X-Forwarded-For``
-headers respected.  Override via the
+`web` runs behind Caddy inside the Docker network. By default, it trusts only
+``127.0.0.1``. The reference `docker-compose.yml` configures a fixed subnet
+for the default network (`172.24.0.0/16`) and explicitly passes it to `web` via
+the ``SCARGUARD_TRUSTED_PROXIES`` environment variable so that Caddy's
+``X-Forwarded-For`` headers are respected.  Override via the
 ``SCARGUARD_TRUSTED_PROXIES`` environment variable if your Docker install uses
 non-default subnets or if you terminate TLS on an upstream proxy
 beyond Caddy.

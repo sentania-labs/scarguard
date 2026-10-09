@@ -157,6 +157,8 @@ services:
       dockerfile: services/detector/Dockerfile
     image: ${DETECTOR_IMAGE:-ghcr.io/sentania-labs/scarguard-detector}:${IMAGE_TAG:-latest}
     environment:
+      # Trust Caddy reverse proxy on the explicit scarguard network subnet
+      SCARGUARD_TRUSTED_PROXIES: 172.24.0.0/16
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
@@ -594,3 +596,9 @@ volumes:
     name: scarguard-training-controller-state
   scarguard-notifier:
     name: scarguard-notifier
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16
