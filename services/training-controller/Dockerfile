@@ -14,7 +14,8 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 # parser.
 COPY services/training-controller/requirements.lock /tmp/requirements.lock
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /tmp/requirements.lock
+    && pip install --no-cache-dir -r /tmp/requirements.lock \
+    && python3 -m pip uninstall -y pip setuptools wheel
 
 COPY services/training-controller/src/ ./src/
 
