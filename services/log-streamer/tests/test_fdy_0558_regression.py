@@ -27,7 +27,26 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _find_repo_root() -> Path | None:
+    """Find the checkout root when repository artifacts are available."""
+    test_path = Path(__file__).resolve()
+    for candidate in test_path.parents:
+        if (candidate / "docker-compose.yml").is_file() and (
+            candidate / "services" / "training-controller" / "Dockerfile"
+        ).is_file():
+            return candidate
+    return None
+
+
+REPO_ROOT = _find_repo_root()
+if REPO_ROOT is None:
+    pytest.skip(
+        "FDY-0558 artifact checks require a repository checkout; "
+        "the log-streamer image contains only service files",
+        allow_module_level=True,
+    )
+
 DOCKER_COMPOSE_PATH = REPO_ROOT / "docker-compose.yml"
 TRAINING_CONTROLLER_DOCKERFILE = REPO_ROOT / "services" / "training-controller" / "Dockerfile"
 
