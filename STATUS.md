@@ -3,7 +3,8 @@
 FDY-0568 adds authentication before upload reads, header CSRF for multipart
 browser flows, streamed request/file limits, and matching generated Caddy
 limits. Config UI exposes separate model and dataset/video limits (500 MiB
-defaults). Regression tests exercise real ASGI handlers and proxy generation,
+defaults). Quoted integer limits in raw YAML are also honored by the proxy.
+Regression tests exercise real ASGI handlers and proxy generation,
 including a 500 MiB synthetic video with bounded Python allocations. Video
 probing and database writes are mocked in that size test; it does not validate
 codec support or inference. No production/device validation was performed.

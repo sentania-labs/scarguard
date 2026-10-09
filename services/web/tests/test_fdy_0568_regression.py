@@ -205,19 +205,35 @@ def test_small_form_csrf_still_works(client: Any) -> None:
     assert response.status_code == 422  # handler reached, missing file
 
 
-def test_config_ui_and_proxy_generator(tmp_path: Path) -> None:
-    from config_model import StructuredConfigPayload
+@pytest.mark.parametrize("spelling", ["integer", "quoted", "decimal", "padded"])
+@pytest.mark.parametrize("model_mb,dataset_mb", [(700, 900), (1, 16384), (500, 500)])
+def test_config_ui_and_proxy_generator(
+    tmp_path: Path, spelling: str, model_mb: int, dataset_mb: int,
+) -> None:
+    import yaml
+    from config_model import StructuredConfigPayload, UploadLimitsConfig
 
     # Generate the actual artifact from the entrypoint's production heredoc.
     script = (ROOT / "config/caddy-entrypoint.sh").read_text()
     source = script.split("<<'PYEOF'\n", 1)[1].split("\nPYEOF", 1)[0]
     config = tmp_path / "config.yml"
-    config.write_text("system:\n  uploads:\n    model_mb: 700\n    dataset_mb: 900\n")
+    limits = {"model_mb": model_mb, "dataset_mb": dataset_mb}
+    raw_limits = {
+        key: {
+            "integer": value,
+            "quoted": str(value),
+            "decimal": f"{value}.0",
+            "padded": f" +{value:_}.00 ",
+        }[spelling]
+        for key, value in limits.items()
+    }
+    config.write_text(yaml.safe_dump({"system": {"uploads": raw_limits}}))
+    validated = UploadLimitsConfig.model_validate(raw_limits)
     target = tmp_path / "Caddyfile"
     subprocess.run([sys.executable, "-", str(config), str(target)], input=source, text=True, check=True)
     result = target.read_text()
-    assert f"max_size {701 * MIB}" in result
-    assert f"max_size {901 * MIB}" in result
+    assert f"max_size {(validated.model_mb + 1) * MIB}" in result
+    assert f"max_size {(validated.dataset_mb + 1) * MIB}" in result
     assert "max_size 1048576" in result
     assert result.index("request_body") < result.index("reverse_proxy")
     assert StructuredConfigPayload().system.uploads.dataset_mb == 500

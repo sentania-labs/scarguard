@@ -22,7 +22,7 @@ CADDYFILE="/etc/caddy/Caddyfile"
 
 generate_caddyfile() {
     python3 - "$CONFIG_PATH" "$CADDYFILE" <<'PYEOF'
-import os, sys, yaml, pathlib
+import os, sys, yaml, pathlib, re
 
 config_path = sys.argv[1]
 caddyfile_path = sys.argv[2]
@@ -99,6 +99,17 @@ if not isinstance(uploads_cfg, dict):
     uploads_cfg = {}
 def upload_bytes(key):
     value = uploads_cfg.get(key, 500)
+    # Raw YAML may quote integer settings; the application's Pydantic
+    # model accepts those strings too. Never truncate fractional limits.
+    if isinstance(value, str):
+        value = value.strip()
+        if re.fullmatch(r"[+-]?[0-9](?:_?[0-9])*(?:\.0+)?", value):
+            try:
+                value = int(value.split(".", 1)[0])
+            except ValueError:
+                value = 500
+        else:
+            value = 500
     if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 16384:
         value = 500
     return (value + 1) * 1024 * 1024

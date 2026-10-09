@@ -494,7 +494,9 @@ feedback clears previous corrections. Viewer accounts have read-only access.
 Configure `system.uploads.model_mb` and `system.uploads.dataset_mb` in the
 Authentication section of the config UI or raw YAML. Both default to 500 MiB
 (524,288,000 bytes), preserving 500 MB training uploads. Values from 1 through
-16384 MiB are accepted. These settings replace the undocumented
+16384 MiB are accepted, including quoted integers in raw YAML (for example,
+`model_mb: "700"` or `model_mb: "700.0"`); the application and Caddy use the same limit. These settings
+replace the undocumented
 `MODEL_UPLOAD_MAX_BYTES` / `TRAINING_UPLOAD_MAX_BYTES` environment overrides.
 Copy any intentional override into the corresponding YAML/UI setting before
 upgrading. Upload copy chunks are fixed at 4 MiB; chunk-size environment
