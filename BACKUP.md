@@ -33,15 +33,49 @@ Configured under `backup:` in `scarguard.yml`. Defaults:
 backup:
   enabled: true
   interval_hours: 24        # run once a day
-  retention_daily: 14       # keep the last 14 cycle outputs
-  retention_weekly: 8       # plus 8 weekly samples beyond that
+  retention_daily: 14       # keep one recovery point for each of the last 14 days
+  retention_weekly: 8       # plus one per ISO week for 8 further weeks
   compress: true            # gzip the output
 ```
 
-Files land at `/data/backups/{db_name}/{YYYY-MM-DDTHH-MM-SS}.db.gz`
-inside the Docker volume. Rough disk sizing: a year-old production
-deployment tends to produce ~200 KB per database per cycle (compressed),
-so 14 daily + 8 weekly ≈ 13 MB total for all three DBs at steady state.
+Scheduled snapshots land at
+`/data/backups/{db_name}/{YYYY-MM-DDTHH-MM-SS}.db.gz`; manual ones
+(admin UI / Redis trigger) carry a `-manual` tag:
+`{YYYY-MM-DDTHH-MM-SS}-manual.db.gz`. Retention treats the two kinds
+separately:
+
+* **Scheduled:** files are grouped by their `YYYY-MM-DD` prefix and
+  the `retention_daily` most recent days are kept. Every snapshot of
+  the newest day is kept (with `interval_hours` below 24 you get
+  intra-day points for the current day); each older day collapses to
+  its newest snapshot. The sidecar runs a cycle every time it starts,
+  so several same-day snapshots are normal; they never crowd out
+  earlier days. Beyond those days one snapshot per ISO week is kept
+  for `retention_weekly` weeks.
+* **Manual:** the newest 10 are kept (`MANUAL_RETENTION` in
+  `services/backup/src/main.py`), regardless of how many daily points
+  exist. Manual backups therefore neither consume nor evict daily
+  recovery points.
+* Files the sidecar did not name (`YYYY-MM-DDTHH-MM-SS...`) are left
+  alone. In-progress `*.tmp` / `*.partial` staging files are left alone
+  while they are fresh; one older than an hour can only be the orphan
+  of a cycle that died mid-write and is removed.
+
+Every snapshot is `PRAGMA quick_check`ed before it is published under
+its final name; a failed check leaves no file behind. Staging files use
+unique names, two snapshots in the same second get distinct names, and
+the admin page never lists `*.tmp` / `*.partial` files.
+
+Cycles are serialized. A manual trigger that arrives while the
+scheduled cycle is running is not dropped: the sidecar publishes a
+`queued` status, waits for the running cycle, and then runs. Further
+manual triggers while one is already waiting are coalesced into it
+(`skipped` status): the waiting cycle will produce an equally fresh
+snapshot.
+
+Rough disk sizing: a year-old production deployment tends to produce
+~200 KB per database per cycle (compressed), so 14 daily + 8 weekly +
+up to 10 manual ≈ 18 MB total for all three DBs at steady state.
 
 ## Seeing what's backed up
 
@@ -72,15 +106,14 @@ docker compose exec redis redis-cli -a "$REDIS_PASSWORD" \
 
 ## Restoring
 
-Use `scripts/restore-from-backup.sh` from the host. The script stops
-the services that hold the target DB open, preserves the pre-restore
-state in a `.pre-restore` sidecar file, unpacks the backup, runs
-`PRAGMA integrity_check`, and restarts. If the integrity check fails,
-the script rolls back to the `.pre-restore` copy automatically.
+Use `scripts/restore-from-backup.sh` from the host (docker compose v2).
+It runs `services/backup/src/restore.py` inside the backup image; the
+image has no `sqlite3` CLI, so validation uses Python's `sqlite3`
+module.
 
 ```bash
 # List available backups
-docker compose run --rm --entrypoint sh backup \
+docker compose run --rm --no-deps --entrypoint sh backup \
   -c 'ls -1 /data/backups/scarguard/'
 
 # Restore
@@ -89,13 +122,95 @@ scripts/restore-from-backup.sh auth      2026-04-22T08-00-00.db.gz
 scripts/restore-from-backup.sh deterrent 2026-04-22T08-00-00.db.gz
 ```
 
-Once you've verified the restored system, remove the
-`.pre-restore` sidecar:
+What the script does:
+
+1. Finds which of the services that open the database are running
+   (`scarguard.db`: detector, web, notifier, trainer, backup;
+   `auth.db`: web, backup; `deterrent.db`: deterrent, web, backup) and
+   stops exactly those. The opt-in `trainer` is included only when it
+   is running.
+2. Runs `restore.py`, which
+   * refuses in-progress (`*.tmp`, `*.partial`) or unknown files, an
+     existing `.pre-restore` copy from an earlier restore (it is never
+     overwritten), and a database some process still holds open
+     (checked again right before the swap);
+   * unpacks the snapshot into a uniquely named staging file next to
+     the target and runs `PRAGMA quick_check` on it **before** touching
+     the live files - a corrupt or truncated snapshot is rejected with
+     the live database untouched;
+   * moves `<db>.db`, `<db>.db-wal` and `<db>.db-shm` aside together as
+     `*.pre-restore`. The old WAL is never replayed into the restored
+     file, and the three pre-restore files are a coherent rollback
+     copy;
+   * renames the validated copy into place atomically and fsyncs;
+   * on any failure after validation, puts the previous files back
+     byte-for-byte (an absent database stays absent).
+3. Restarts the services it stopped. This happens from an exit trap,
+   so it also happens when the restore is refused or fails: a failed
+   restore is a rolled-back restore, not an outage.
+
+`quick_check` is the validation that runs; it is faster than
+`integrity_check` and catches a non-database, truncated or
+structurally broken file, but not every index inconsistency. Web
+startup still runs the full `PRAGMA integrity_check` on every database
+(see below), so a deeper problem in a restored file is reported on the
+next start.
+
+Once you've verified the restored system, remove the rollback copy:
 
 ```bash
-docker compose run --rm --entrypoint sh backup \
-  -c 'rm /data/scarguard.db.pre-restore'
+docker compose run --rm --no-deps --entrypoint sh backup \
+  -c 'rm -f /data/scarguard.db.pre-restore /data/scarguard.db-wal.pre-restore /data/scarguard.db-shm.pre-restore'
 ```
+
+A second restore of the same database refuses to run while these
+files exist.
+
+### Rolling back a restore
+
+To go back to the pre-restore state, stop the same services the
+script stopped, put the trio back, and start them again:
+
+```bash
+# scarguard.db; add `trainer` when the training profile is in use
+docker compose --profile training stop detector web notifier trainer backup
+docker compose run --rm --no-deps --entrypoint sh backup -c '
+  cd /data &&
+  rm -f scarguard.db scarguard.db-wal scarguard.db-shm &&
+  for f in scarguard.db scarguard.db-wal scarguard.db-shm; do
+    [ -f "$f.pre-restore" ] && mv "$f.pre-restore" "$f"
+  done; true'
+docker compose --profile training start detector web notifier trainer backup
+```
+
+Moving the `-wal` file back with the database is what makes the
+rollback complete: the rows that were only in the WAL at restore time
+are replayed on the next open, exactly as they would have been.
+
+### Restore limitations
+
+* The restore path is exercised end to end by
+  `services/backup/tests/test_restore_regression.py` on a disposable
+  dataset (stale WAL, absent target, corrupt and truncated snapshots,
+  rename/fsync faults, a database held open by another process, and
+  the host script's restart-on-failure path against a stand-in
+  `docker`). It has not been run against a production volume.
+* The "database still open" guard relies on SQLite's WAL shared-memory
+  lock, which every ScarGuard service uses; a connection in rollback
+  journal mode is not detected. Stopping the services remains the
+  precondition; the guard is a safety net. It queries the lock through
+  a read-only descriptor, so a `-shm` created by the root-run trainer
+  is covered too. If the query itself cannot run (unreadable `-shm`,
+  unexpected platform), the restore refuses; after stopping every
+  service you can bypass the check with `RESTORE_SKIP_OPEN_CHECK=1`
+  in the restore command's environment.
+* If a failed restore cannot put a `.pre-restore` file back (disk
+  fault), the error names exactly which file still holds the previous
+  state; follow "Rolling back a restore" for it.
+* If the restore container is killed between moving the live files
+  aside and renaming the staged copy in, the database is absent and
+  the `.pre-restore` trio holds the previous state: follow "Rolling
+  back a restore".
 
 ## Recovery from suspected corruption
 
@@ -104,12 +219,18 @@ logs the result. If you see `INTEGRITY CHECK FAILED` in the logs:
 
 1. Stop the affected services (`docker compose stop detector web
    notifier deterrent`).
-2. `docker compose run --rm --entrypoint sh backup -c 'sqlite3
-   /data/scarguard.db "PRAGMA integrity_check"'`, confirm the
-   failure.
+2. Confirm the failure. The backup image has no `sqlite3` CLI; use
+   Python:
+   ```bash
+   docker compose run --rm --no-deps --entrypoint python backup -c '
+   import sqlite3
+   c = sqlite3.connect("file:/data/scarguard.db?mode=ro", uri=True)
+   print(c.execute("PRAGMA integrity_check").fetchall())'
+   ```
 3. Restore the most recent clean backup with the script above.
 4. If no backup exists or all are equally corrupted: you can
-   sometimes recover partial data with `sqlite3 ... .recover`;
+   sometimes recover partial data with the `sqlite3` CLI's `.recover`
+   command on a copy of the file (on the host, not in the image);
    otherwise start fresh and accept the data loss.
 
 ## Off-device backups

@@ -56,6 +56,8 @@ def _list_backups() -> list[dict[str, Any]]:
         if not db_dir.is_dir():
             continue
         for f in sorted(db_dir.glob("*.db*"), reverse=True):
+            if f.name.endswith(".partial") or f.name.endswith(".tmp"):
+                continue
             try:
                 stat = f.stat()
             except OSError:
@@ -108,6 +110,8 @@ def _safe_resolve(db: str, filename: str) -> Path | None:
         if not db_dir.is_dir() or db_dir.name != db:
             continue
         for f in db_dir.glob("*.db*"):
+            if f.name.endswith(".partial") or f.name.endswith(".tmp"):
+                continue
             if f.name == filename and f.is_file():
                 resolved = f.resolve()
                 try:
