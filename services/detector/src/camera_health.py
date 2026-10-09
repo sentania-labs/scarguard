@@ -83,6 +83,17 @@ class CameraHealthTracker:
                     state.online_since = None
                     state.last_reconnect_start = now
 
+    def record_terminal_failure(self, camera_name: str) -> None:
+        """Mark a camera offline immediately after its worker exhausts retries."""
+        now = time.monotonic()
+        with self._lock:
+            state = self._cameras.setdefault(camera_name, _CameraState())
+            state.last_failure_at = now
+            if state.offline_since is None:
+                state.offline_since = now
+                state.online_since = None
+                state.last_reconnect_start = now
+
     def check_alerts(self) -> list[dict]:
         """Return alert events for cameras whose state crossed an alerting threshold.
 
