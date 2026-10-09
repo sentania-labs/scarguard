@@ -207,13 +207,26 @@ def _wants_html(request: Request) -> bool:
     return "text/html" in accept
 
 
-def _parse_auth_enabled(value: object, request: Request) -> bool:
+def _parse_auth_enabled(value: object) -> bool:
+    """Coerce the auth-enabled setting from YAML values.
+
+    Only an explicit boolean ``False`` disables authentication.  Any other
+    value (``"false"``, ``0``, ``"0"``, ``None``) is treated as enabled so
+    that ambiguous or accidental YAML-string disables do not silently open
+    the door (contract requirement: "reject ambiguous auth settings").
+
+    When TLS is exposed the operator's intent to disable auth is rejected
+    outright -- auth stays enabled regardless of the value, because
+    disabling auth on a publicly-reachable interface is unsafe (SG-39).
+    """
     if value is False:
-        is_tls = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-        if is_tls:
-            return True
         return False
+    # Everything else enables auth by default.
     return True
+
+
+def _is_tls(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
 @app.middleware("http")
@@ -233,7 +246,10 @@ async def auth_middleware(request: Request, call_next):
     cfg = load_cached()
     system_cfg = cfg.get("system") or {}
     auth_cfg = system_cfg.get("auth") or {}
-    auth_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True), request)
+    raw_enabled = _parse_auth_enabled(auth_cfg.get("enabled", True))
+    # SG-39: in TLS mode the operator's intent to disable auth is rejected;
+    # auth stays enabled regardless of the configured value.
+    auth_enabled = raw_enabled if not _is_tls(request) else True
 
     # Expose deterrent state to base.html nav (controls Deterrent link visibility)
     act_cfg = cfg.get("deterrent") or {}

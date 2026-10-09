@@ -507,13 +507,20 @@ def check_lockout(
     max_attempts: int,
     lockout_minutes: int,
 ) -> bool:
-    """Return True if this username+ip is currently locked out."""
+    """Return True if this username is currently locked out.
+
+    Lockout is per-username across all source IPs (SG-15: prevents
+    IP-rotation brute-force).  A per-IP short-term delay window is also
+    tracked to rate-limit individual attackers without a full lockout.
+    """
     cutoff = _utcnow_minus(minutes=lockout_minutes)
-    # Use bounded per-origin/user delay
+    # Per-username lockout across all IPs (SG-15: prevents IP-rotation
+    # brute-force).  We also track a per-IP window for fine-grained
+    # delay, but the hard lockout threshold is on total per-user attempts.
     count = db.execute(
         """SELECT COUNT(*) FROM login_attempts
-           WHERE username=? AND (ip_address=? OR (ip_address IS NULL AND ? IS NULL)) AND success=0 AND attempted_at > ?""",
-        (username, ip, ip, cutoff),
+           WHERE username=? AND success=0 AND attempted_at > ?""",
+        (username, cutoff),
     ).fetchone()[0]
     return count >= max_attempts
 

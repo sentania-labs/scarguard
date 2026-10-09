@@ -90,6 +90,11 @@ async def create_user(
 
     if role not in VALID_ROLES:
         return _redirect_err(f"Invalid role: {role}")
+    # SG-13: bound username/password size before hashing/DB writes.
+    if len(username) > 255 or len(username) < 1:
+        return _redirect_err("Username must be between 1 and 255 characters.")
+    if len(password) > 255:
+        return _redirect_err("Password is too long (max 255 characters).")
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
     if len(password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
@@ -221,16 +226,17 @@ async def change_password(
     cur = getattr(request.state, "user", None)
     if cur is None:
         return RedirectResponse("/", status_code=302)
-        
+
     is_self = cur.get("user_id") == user_id
     if current_role(request) != ROLE_ADMIN and not is_self:
         return RedirectResponse("/", status_code=302)
 
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
+    # SG-13: bound input size before hashing/DB writes.
+    if len(new_password) > 255 or len(current_password) > 255:
+        return _redirect_err("Password is too long (max 255 characters).")
     if len(new_password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
-    if len(new_password) > 255:
-        return _redirect_err("Password is too long.")
     if _is_common_password(new_password):
         return _redirect_err("That password is too common - please pick a less predictable one.")
 
@@ -247,10 +253,10 @@ async def change_password(
         changed = auth_module.set_user_password(db, user_id, new_password)
         if not changed:
             return _redirect_err("User not found.")
-            
+
         auth_module.revoke_all_sessions(db, user_id)
         auth_module.revoke_all_api_tokens(db, user_id)
-        
+
         if is_self:
             from config_store import load_cached
             auth_cfg = load_cached().get("system", {}).get("auth", {})
