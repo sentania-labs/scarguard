@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import tinytuya
+from activation_lease import ActivationLease, RedisActivationLeases
 from actuation_models import DeviceConfig
 from deterrent_safety import (
     CLOUD_CALL_TIMEOUT_SEC,
@@ -87,7 +88,13 @@ class TuyaCloudController:
     OpenAPI.  Token refresh is handled automatically by the library.
     """
 
-    def __init__(self, api_key: str, api_secret: str, api_region: str = "us") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        api_region: str = "us",
+        activation_leases: RedisActivationLeases | None = None,
+    ) -> None:
         self._cloud = self._bounded_factory(
             lambda: tinytuya.Cloud(
                 apiRegion=api_region,
@@ -102,6 +109,7 @@ class TuyaCloudController:
         self._safety_only = False
         self._retired_lock = threading.Lock()
         self._retired_off_routes: dict[str, TuyaCloudController] = {}
+        self._activation_leases = activation_leases
         # Busy tracking - device_id → True while activate_device is running for
         # that device. Consulted by the reconciliation loop so it doesn't
         # race a legitimate in-flight actuation.
@@ -249,7 +257,19 @@ class TuyaCloudController:
         event_type: str,
         should_continue: Callable[[], bool] | None,
     ) -> ActivationResult:
-        # Arm the OFF deadline before attempting ON. An ON request can be
+        lease: ActivationLease | None = None
+        if self._activation_leases is not None:
+            try:
+                lease = self._activation_leases.arm(device.device_id, duration_sec)
+            except Exception as exc:
+                logger.error("Activation lease failed; refusing ON for %s: %s", device.name, exc)
+                return ActivationResult(
+                    on_success=False, off_success=None,
+                    error="Independent OFF watchdog lease could not be recorded",
+                    on_ack_ms=None, off_attempts=0, cancelled=True,
+                )
+
+        # Arm the in-process OFF deadline before attempting ON. An ON request can be
         # applied by the cloud even when its response is lost, so starting a
         # timer only after an acknowledgement leaves the dangerous case open.
         self.last_off_deadline_started_at = time.monotonic()
@@ -344,6 +364,11 @@ class TuyaCloudController:
                 watchdog.cancel()
 
         if off_success:
+            try:
+                if self._activation_leases is not None and lease is not None:
+                    self._activation_leases.clear(lease)
+            except Exception:
+                logger.warning("Could not clear activation lease for %s", device.name)
             return ActivationResult(
                 on_success=True, off_success=True, error=None,
                 on_ack_ms=on_ack_ms, off_attempts=off_attempts,

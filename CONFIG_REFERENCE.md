@@ -11,6 +11,9 @@ system:
   stats_interval: 5             # seconds between system stats collection (1-60)
   visit_timeout_seconds: 300    # gap before a visit session is closed (60-3600)
   training_nudge_threshold: 100 # labeled events before showing training nudge banner (10-10000)
+  uploads:
+    model_mb: 500              # model file limit in MiB (1-16384)
+    dataset_mb: 500            # training dataset/video file limit in MiB (1-16384)
   auth:
     enabled: true               # master toggle for authentication (default: true)
     session_timeout_hours: 24   # session expiry (default: 24)
@@ -391,6 +394,31 @@ Firing is gated by two cooldown layers:
 | `sound` | `switch` | Tuya sirens/alarms |
 | `plug` | `switch_1` | Tuya smart plugs |
 
+### Independent OFF watchdog
+
+Every ON attempt first writes an HMAC-authenticated activation lease to Redis.
+The lease deadline is derived from the requested, per-device activation (which
+is clamped to `MAX_ACTUATION_SEC`) plus the bounded cloud admission time; it can
+never be indefinite or exceed that envelope. If Redis or the dedicated signing
+key is unavailable, the production deterrent service refuses to send ON.
+
+The separate `off-watchdog` container reads the same configured device registry
+and Tuya credentials, performs a conservative OFF sweep for every configured
+device at startup, then sends OFF when a valid lease expires. It has no
+activation API or true-valued cloud command. Successful normal OFF clears only
+the matching lease, so it cannot erase a newer activation.
+
+Lease records are non-expiring Redis keys protected by the stack's
+`volatile-lru` policy; a separate expiring deadline marker makes eviction
+fail-safe (a missing marker means OFF). The watchdog also tracks each observed
+lease against a monotonic deadline, so a backward wall-clock correction cannot
+make an activation indefinite. Startup OFF covers watchdog restarts.
+
+This covers a deterrent process/container crash only while the host, Redis,
+network, and Tuya Cloud remain reachable. Host failure, loss of power, or cloud
+failure cannot be repaired by software on that host. Device firmware auto-off
+is still required for those cases and has not been verified by Scott.
+
 Override per-device with `dp_code` if your device uses a different DP.
 
 
@@ -485,3 +513,41 @@ there are no new configuration keys. Corrected-class suggestions come from
 `detection.target_classes`; operators may also type a class. Bulk wrong-class
 feedback preserves each event's own corrected box. Correct/false-positive
 feedback clears previous corrections. Viewer accounts have read-only access.
+
+## Upload limits and CSRF (FDY-0568)
+
+Configure `system.uploads.model_mb` and `system.uploads.dataset_mb` in the
+Authentication section of the config UI or raw YAML. Both default to 500 MiB
+(524,288,000 bytes), preserving 500 MB training uploads. Values from 1 through
+16384 MiB are accepted, including quoted integers in raw YAML (for example,
+`model_mb: "700"` or `model_mb: "700.0"`); the application and Caddy use the same limit. These settings
+replace the undocumented
+`MODEL_UPLOAD_MAX_BYTES` / `TRAINING_UPLOAD_MAX_BYTES` environment overrides.
+Copy any intentional override into the corresponding YAML/UI setting before
+upgrading. Upload copy chunks are fixed at 4 MiB; chunk-size environment
+variables are no longer used.
+
+Authentication and upload admin authorization run before body consumption.
+Cookie-authenticated multipart requests require `X-CSRF-Token` matching the
+signed CSRF cookie; native upload forms use JavaScript to send this header.
+Small URL-encoded forms retain hidden-field CSRF support. Valid bearer-auth
+requests retain their CSRF exemption. Disabling authentication on HTTP still
+explicitly grants anonymous admin access, as before.
+
+The application counts actual streamed bytes even with missing or false
+Content-Length and rejects excess with HTTP 413. Each upload permits one
+file, up to 16 text fields of 64 KiB each, 64 KiB of headers per part, and
+at most 1 MiB of envelope
+allowance beyond its file limit. The parser enforces the file limit while
+spooling; it closes temporary files on rejection. Ordinary requests, including
+TLS certificate uploads and URL-encoded forms (even at upload URLs), have a
+1 MiB request cap.
+Certificate/key validation retains its existing 64 KiB per-item limit.
+
+Caddy applies matching request caps from the same YAML on config reload.
+A limit increase can briefly remain subject to the old proxy cap until the
+reload completes. Uploads spool to temporary disk before chunked destination
+writes; allow space for approximately two copies of a maximum-size file.
+A memory-backed `/tmp` consumes RAM for the spool: provision disk-backed
+temporary storage for large uploads. Limits bound individual requests, not
+aggregate disk use from concurrent authorized uploads.

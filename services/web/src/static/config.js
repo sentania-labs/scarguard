@@ -543,6 +543,10 @@ function readForm() {
 
   return {
     system: {
+      uploads: {
+        model_mb: Number(document.getElementById("upload-model-mb").value),
+        dataset_mb: Number(document.getElementById("upload-dataset-mb").value),
+      },
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),

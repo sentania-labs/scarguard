@@ -180,7 +180,7 @@
     fd.append("corrected_bboxes", JSON.stringify(_boxes));
 
     var url = "/admin/training/uploads/" + uploadId + "/browse/" + frameIdx + "/annotate";
-    fetch(url, { method: "POST", body: fd, credentials: "same-origin" })
+    fetch(url, { method: "POST", body: fd, headers: {"X-CSRF-Token": getCsrfToken()}, credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();

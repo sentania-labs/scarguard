@@ -1,5 +1,11 @@
 # ScarGuard
 
+Upload sizes are configurable under Config → Authentication: model and
+training dataset/video limits default to 500 MiB each. Uploads authenticate
+before reading files and enforce streamed byte limits. See
+[upload limits and CSRF](CONFIG_REFERENCE.md#upload-limits-and-csrf-fdy-0568)
+for API headers, temporary disk capacity, and legacy environment migration.
+
 An AI-powered wildlife detection and notification system. ScarGuard watches RTSP camera feeds for target species, primarily great blue herons, and sends real-time notifications so you (or downstream automation) can respond to protect a backyard koi pond.
 
 The reference deployment runs on an NVIDIA Jetson Orin Nano with UniFi cameras, but ScarGuard works with any RTSP-capable camera and any system that can run Docker with an NVIDIA GPU.
@@ -94,6 +100,7 @@ ScarGuard works with any RTSP-capable cameras and any Docker host with an NVIDIA
 | `web` | FastAPI + Jinja UI, REST API, SQLite access | `python:3.11-slim` |
 | `notifier` | Redis subscriber, Discord + email + webhook + ntfy dispatch | `python:3.11-slim` |
 | `deterrent` | Tuya Cloud device control (sprinklers, lights, sirens) | `python:3.11-slim` |
+| `off-watchdog` | Independent expiry-driven OFF recovery if deterrent crashes | `python:3.11-slim` |
 | `log-streamer` | Tails container logs, backfills reconnect gaps, and publishes a rolling health signal to Redis | `python:3.11-slim` |
 | `training-controller` | Allowlisted detector stop/restore boundary for training (opt-in profile) | `python:3.11-slim` |
 | `trainer` | Video processing, dataset prep, YOLO training (ARM64/Jetson only, opt-in profile) | `dustynv/l4t-pytorch:r36.4.0` |
@@ -746,7 +753,8 @@ system:
 
 **Logs page**, **Admin → Logs**
 
-Live tail of container logs from all services (detector, notifier, deterrent, web, caddy, trainer, backup). Filter by:
+Live tail of container logs from all services (detector, notifier, deterrent,
+off-watchdog, web, caddy, trainer, backup). Filter by:
 - Service
 - Log level (All / Debug+ / Info+ / Warning+ / Error only)
 - Tail depth (200–2000 lines)
