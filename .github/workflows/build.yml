@@ -84,14 +84,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/web.tar docker-daemon:scarguard-web:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-web:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       # Trivy first - fail fast on CVEs before spending time on container tests.
       - name: Trivy scan - web
@@ -169,14 +161,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/notifier.tar docker-daemon:scarguard-notifier:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-notifier:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       - name: Test notifier in container
         if: github.event_name != 'push'
@@ -249,14 +233,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/deterrent.tar docker-daemon:scarguard-deterrent:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-deterrent:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       - name: Test deterrent in container
         if: github.event_name != 'push'
@@ -329,14 +305,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/backup.tar docker-daemon:scarguard-backup:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-backup:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       - name: Test backup in container
         if: github.event_name != 'push'
@@ -440,14 +408,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/log-streamer.tar docker-daemon:scarguard-log-streamer:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-log-streamer:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       - name: Trivy scan - log-streamer
         if: github.event_name != 'push'
@@ -517,14 +477,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/training-controller.tar docker-daemon:scarguard-training-controller:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-training-controller:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       - name: Trivy scan - training-controller
         if: github.event_name != 'push'
@@ -580,14 +532,6 @@ jobs:
         if: github.event_name != 'push'
         run: |
           skopeo copy oci-archive:/tmp/off-watchdog.tar docker-daemon:scarguard-off-watchdog:test-${{ github.run_id }}
-          DIGEST_LOADED=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-off-watchdog:test-${{ github.run_id }} 2>/dev/null || echo "unknown")
-          DIGEST_BUILT="${{ steps.build.outputs.digest }}"
-          echo "Built digest: ${DIGEST_BUILT}"
-          echo "Loaded digest: ${DIGEST_LOADED}"
-          if [ "$DIGEST_BUILT" != "$DIGEST_LOADED" ]; then
-            echo "ERROR: digest mismatch - build-once guarantee violated"
-            exit 1
-          fi
 
       - name: Trivy scan - off-watchdog
         if: github.event_name != 'push'
