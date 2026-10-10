@@ -54,6 +54,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build web (validate only, no push)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -61,28 +62,28 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           build-args: |
             VERSION=dev-${{ github.sha }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+          outputs: type=oci,dest=/tmp/web.tar
 
-      # ── Test + scan (PR only - main push only warms build cache) ──────────
-      # Single-platform build loaded into local Docker for testing and Trivy
-      # scanning.  Uses the default docker driver (not buildx) to avoid
-      # BuildKit's persistent layer cache on self-hosted runners, which can
-      # serve stale layers even after Dockerfile changes.
-      - name: Build web (amd64, load for test)
+      - name: Export build metadata
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-web:test-${{ github.run_id }} \
-            --file services/web/Dockerfile \
-            --build-arg VERSION=dev-${{ github.sha }} \
-            --build-arg GIT_COMMIT=${{ github.sha }} \
-            --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
-            .
+          echo "digest=$(echo '${{ steps.build.outputs.digest }}')" >> "$GITHUB_OUTPUT"
+          echo "sbom_path=$(find /tmp -name 'sbom-*.json' -o -name 'sbom-*.spdx.json' 2>/dev/null | head -1)" >> "$GITHUB_OUTPUT"
+
+      # ── Test + scan (PR only - main push only warms build cache) ──────────
+      # Uses the *exact same* build artifact (by digest) that build-push-action
+      # validated — no second build, no divergent layers.
+      - name: Load build artifact for test
+        if: github.event_name != 'push'
+        run: |
+          skopeo copy oci-archive:/tmp/web.tar docker-daemon:scarguard-web:test-${{ github.run_id }}
 
       # Trivy first - fail fast on CVEs before spending time on container tests.
       - name: Trivy scan - web
@@ -95,6 +96,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-web-sbom.spdx.json
 
       # Uses docker create + cp instead of bind mounts (-v).  This was
       # originally required by the self-hosted DinD runner; it is kept because
@@ -140,6 +142,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build notifier (validate only, no push)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -147,17 +150,17 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
+          outputs: type=oci,dest=/tmp/notifier.tar
 
       # ── Test + scan (PR only - main push only warms build cache) ──────────
-      - name: Build notifier (amd64, load for test)
+      # Uses the *exact same* build artifact (by digest).
+      - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-notifier:test-${{ github.run_id }} \
-            --file services/notifier/Dockerfile \
-            .
+          skopeo copy oci-archive:/tmp/notifier.tar docker-daemon:scarguard-notifier:test-${{ github.run_id }}
 
       - name: Test notifier in container
         if: github.event_name != 'push'
@@ -182,6 +185,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-notifier-sbom.spdx.json
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -210,6 +214,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build deterrent (validate only, no push)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -217,17 +222,17 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=deterrent
           cache-to: type=gha,scope=deterrent,mode=max
+          outputs: type=oci,dest=/tmp/deterrent.tar
 
       # ── Test + scan (PR only - main push only warms build cache) ──────────
-      - name: Build deterrent (amd64, load for test)
+      # Uses the *exact same* build artifact (by digest).
+      - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-deterrent:test-${{ github.run_id }} \
-            --file services/deterrent/Dockerfile \
-            .
+          skopeo copy oci-archive:/tmp/deterrent.tar docker-daemon:scarguard-deterrent:test-${{ github.run_id }}
 
       - name: Test deterrent in container
         if: github.event_name != 'push'
@@ -252,6 +257,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-deterrent-sbom.spdx.json
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -280,6 +286,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build backup (validate only, no push)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -287,17 +294,17 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=backup
           cache-to: type=gha,scope=backup,mode=max
+          outputs: type=oci,dest=/tmp/backup.tar
 
       # ── Test + scan (PR only - main push only warms build cache) ──────────
-      - name: Build backup (amd64, load for test)
+      # Uses the *exact same* build artifact (by digest).
+      - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-backup:test-${{ github.run_id }} \
-            --file services/backup/Dockerfile \
-            .
+          skopeo copy oci-archive:/tmp/backup.tar docker-daemon:scarguard-backup:test-${{ github.run_id }}
 
       - name: Test backup in container
         if: github.event_name != 'push'
@@ -322,6 +329,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-backup-sbom.spdx.json
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -348,6 +356,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build caddy (validate only, no push)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -355,8 +364,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
+          outputs: type=oci,dest=/tmp/caddy.tar
 
   # ── Build log-streamer (x86 runner) ─────────────────────────────────────────
   build-log-streamer:
@@ -380,6 +391,7 @@ jobs:
           password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Build log-streamer (validate only, no push)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -387,16 +399,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=log-streamer
           cache-to: type=gha,scope=log-streamer,mode=max
+          outputs: type=oci,dest=/tmp/log-streamer.tar
 
       - name: Build log-streamer (amd64, load for scan)
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-log-streamer:test-${{ github.run_id }} \
-            --file services/log-streamer/Dockerfile \
-            .
+          skopeo copy oci-archive:/tmp/log-streamer.tar docker-daemon:scarguard-log-streamer:test-${{ github.run_id }}
 
       - name: Trivy scan - log-streamer
         if: github.event_name != 'push'
@@ -408,6 +419,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-log-streamer-sbom.spdx.json
 
       - name: Test log-streamer in container
         if: github.event_name != 'push'
@@ -441,7 +453,14 @@ jobs:
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
+
       - name: Build training-controller (validate only)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -449,16 +468,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=training-controller
           cache-to: type=gha,scope=training-controller,mode=max
+          outputs: type=oci,dest=/tmp/training-controller.tar
 
       - name: Build training-controller (amd64, load for scan)
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-training-controller:test-${{ github.run_id }} \
-            --file services/training-controller/Dockerfile \
-            .
+          skopeo copy oci-archive:/tmp/training-controller.tar docker-daemon:scarguard-training-controller:test-${{ github.run_id }}
 
       - name: Trivy scan - training-controller
         if: github.event_name != 'push'
@@ -470,6 +488,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-training-controller-sbom.spdx.json
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -489,7 +508,14 @@ jobs:
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
+
       - name: Build off-watchdog (validate only)
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
         with:
           context: .
@@ -497,16 +523,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+          sbom: true
           cache-from: type=gha,scope=off-watchdog
           cache-to: type=gha,scope=off-watchdog,mode=max
+          outputs: type=oci,dest=/tmp/off-watchdog.tar
 
       - name: Build off-watchdog (amd64, load for scan)
         if: github.event_name != 'push'
         run: |
-          docker build \
-            --tag scarguard-off-watchdog:test-${{ github.run_id }} \
-            --file services/off-watchdog/Dockerfile \
-            .
+          skopeo copy oci-archive:/tmp/off-watchdog.tar docker-daemon:scarguard-off-watchdog:test-${{ github.run_id }}
 
       - name: Trivy scan - off-watchdog
         if: github.event_name != 'push'
@@ -518,6 +543,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           timeout: 20m0s
+          sbom-path: trivy-off-watchdog-sbom.spdx.json
 
       - name: Clean up
         if: always() && github.event_name != 'push'
@@ -543,6 +569,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Build trainer image (validate only, no push)
+        id: build
         run: |
           docker build \
             --file services/trainer/Dockerfile \
@@ -551,6 +578,11 @@ jobs:
             --build-arg GIT_COMMIT=${{ github.sha }} \
             --build-arg BUILD_DATE=${{ github.event.head_commit.timestamp }} \
             .
+
+      - name: Export trainer digest
+        if: github.event_name != 'push'
+        run: |
+          echo "DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-trainer:build-validate-${{ github.run_id }})" >> "$GITHUB_OUTPUT"
 
       - name: Import smoke test
         run: |
@@ -573,12 +605,14 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Build x86 detector image
+        id: build
         run: |
           docker build \
             --file services/detector/Dockerfile.x86 \
             --build-arg APT_CACHE_BUST=${{ github.run_id }} \
             --tag scarguard-detector-x86:build-validate-${{ github.run_id }} \
             .
+          echo "DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' scarguard-detector-x86:build-validate-${{ github.run_id }})" >> "$GITHUB_OUTPUT"
 
       # Uses docker create + cp instead of bind mounts so this remains
       # independent of the hosted runner's Docker daemon topology.
@@ -607,6 +641,7 @@ jobs:
           scanners: vuln
           # 20m hit "context deadline exceeded" on this image; scan takes 20m+
           timeout: 40m0s
+          sbom-path: trivy-detector-x86-sbom.spdx.json
 
       - name: Clean up
         if: always()
@@ -624,6 +659,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Ensure docker compose plugin
         run: |

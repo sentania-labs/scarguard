@@ -284,6 +284,7 @@ def test_build_keeps_hosted_validation_without_orin_dependency() -> None:
         "build-caddy",
         "build-log-streamer",
         "build-training-controller",
+        "build-off-watchdog",
     }
     assert workflow_is_triggered(build, "pull_request", ref_type="branch", ref_name="main")
     assert workflow_is_triggered(build, "push", ref_type="branch", ref_name="main")
