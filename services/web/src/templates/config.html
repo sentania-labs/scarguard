@@ -386,11 +386,12 @@
           port 465, STARTTLS with a verified certificate on any other port. A relay with a private
           CA can set <code>smtp_ca_file</code> (a PEM path, e.g. under <code>/config/certs</code>);
           an intentional plaintext relay needs <code>smtp_insecure_plaintext: true</code>.
-          Set these per channel in the Advanced (raw YAML) tab; the table below shows each
-          channel's current settings and anything the notifier will refuse. If saving this form
-          fails with "Invalid config payload", fix the channel flagged below in the raw YAML tab
-          (which names the field). Snapshots are attached only when they are real JPEG/PNG
-          images inside the snapshot directory.
+          Set these per channel with the "Allow LAN destination", "Trusted CA file" and
+          "INSECURE: allow plaintext SMTP" fields on each channel card below (all off by default).
+          Saving refuses a channel the notifier would refuse and names the channel and field.
+          The table below shows each channel's saved settings and anything the notifier will
+          refuse. Snapshots are attached only when they are real JPEG/PNG images inside the
+          snapshot directory.
         </p>
         {% set _sec_channels = cfg.notifications.channels | selectattr("type", "defined") | list %}
         {% set _sec_problems = cfg.notifications.destination_problems() %}

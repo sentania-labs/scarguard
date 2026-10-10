@@ -96,29 +96,136 @@ def test_structured_save_skips_redacted_discord_secret(client, saved):
     assert resp.status_code == 200
 
 
-def test_structured_save_keeps_stored_lan_opt_in(client, saved, monkeypatch):
-    """The form never sends allow_internal; a stored LAN opt-in must survive
-    an unrelated form save instead of blocking it."""
-    _stored(monkeypatch, [{
-        "name": "ha", "type": "webhook", "enabled": True,
-        "url": "http://192.168.1.50:8123/api/webhook/pond", "allow_internal": True,
-    }, {
-        "name": "relay", "type": "email", "enabled": True, "smtp_host": "192.168.1.25",
-        "smtp_port": 25, "to_addresses": ["a@example.com"], "allow_internal": True,
-        "smtp_insecure_plaintext": True,
-    }])
+def test_structured_save_persists_lan_opt_ins_sent_by_the_form(client, saved, monkeypatch):
+    """The channel editor sends allow_internal, smtp_ca_file and
+    smtp_insecure_plaintext; what it sends is what is stored."""
     form_channels = [
         {"name": "ha", "type": "webhook", "enabled": True,
-         "url": "http://192.168.1.50:8123/api/webhook/pond", "method": "POST"},
+         "url": "http://192.168.1.50:8123/api/webhook/pond", "method": "POST",
+         "allow_internal": True},
+        {"name": "lan-ntfy", "type": "ntfy", "enabled": True, "topic": "pond",
+         "server": "http://192.168.1.60", "allow_internal": True},
         {"name": "relay", "type": "email", "enabled": True, "smtp_host": "192.168.1.25",
-         "smtp_port": 25, "to_addresses": ["a@example.com"]},
+         "smtp_port": 25, "to_addresses": ["a@example.com"], "allow_internal": True,
+         "smtp_insecure_plaintext": True, "smtp_ca_file": ""},
+        {"name": "private-ca", "type": "email", "enabled": True, "smtp_host": "mail.example.com",
+         "smtp_port": 587, "to_addresses": ["a@example.com"], "allow_internal": False,
+         "smtp_insecure_plaintext": False, "smtp_ca_file": "/config/certs/smtp-ca.pem"},
     ]
     resp = client.post("/config/structured", json=_payload(form_channels))
     assert resp.status_code == 200, resp.text
     stored = {c["name"]: c for c in saved[0]["notifications"]["channels"]}
     assert stored["ha"]["allow_internal"] is True
+    assert stored["lan-ntfy"]["allow_internal"] is True
     assert stored["relay"]["allow_internal"] is True
     assert stored["relay"]["smtp_insecure_plaintext"] is True
+    assert "smtp_ca_file" not in stored["relay"]
+    assert stored["private-ca"]["smtp_ca_file"] == "/config/certs/smtp-ca.pem"
+    assert stored["private-ca"]["smtp_insecure_plaintext"] is False
+
+
+def test_structured_save_is_strict_about_omitted_lan_opt_in(client, saved, monkeypatch):
+    """A payload without allow_internal means off, even when the stored
+    channel had it on: the save is refused and names channel and field
+    (the URL path, which may carry a token, is never echoed)."""
+    _stored(monkeypatch, [{
+        "name": "ha", "type": "webhook", "enabled": True,
+        "url": "http://192.168.1.50:8123/api/webhook/pond", "allow_internal": True,
+    }])
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "ha", "type": "webhook", "enabled": True,
+         "url": "http://192.168.1.50:8123/api/webhook/pond", "method": "POST"},
+    ]))
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["ok"] is False
+    assert "'ha'" in body["error"] and "allow_internal" in body["error"]
+    assert "/api/webhook/pond" not in body["error"]
+    assert saved == []
+
+
+def test_structured_save_refuses_stale_form_that_omits_a_stored_opt_in(
+    client, saved, monkeypatch,
+):
+    """A cached pre-FDY-0571 config.js does not send allow_internal. For a
+    hostname destination the static check cannot see the LAN address, so
+    dropping the stored opt-in would silently break sends - refuse instead."""
+    _stored(monkeypatch, [{
+        "name": "ha", "type": "webhook", "enabled": True,
+        "url": "http://homeassistant.local:8123/api/webhook/pond", "allow_internal": True,
+    }])
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "ha", "type": "webhook", "enabled": True,
+         "url": "http://homeassistant.local:8123/api/webhook/pond", "method": "POST"},
+    ]))
+    assert resp.status_code == 422
+    error = resp.json()["error"]
+    assert "allow_internal was not sent" in error and "reload" in error
+    assert "/api/webhook/pond" not in error
+    assert saved == []
+
+
+def test_structured_save_rename_keeps_form_opt_in(client, saved, monkeypatch):
+    _stored(monkeypatch, [{
+        "name": "ha", "type": "webhook", "enabled": True,
+        "url": "http://192.168.1.50/x", "allow_internal": True,
+    }])
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "home", "prev_name": "ha", "type": "webhook", "enabled": True,
+         "url": "http://192.168.1.50/x", "method": "POST", "allow_internal": True},
+    ]))
+    assert resp.status_code == 200, resp.text
+    [home] = saved[0]["notifications"]["channels"]
+    assert home["name"] == "home" and home["allow_internal"] is True
+    assert "prev_name" not in home
+
+
+def test_structured_save_drops_hand_edited_discord_opt_in(client, saved, monkeypatch):
+    _stored(monkeypatch, [{"name": "d", "type": "discord", "enabled": True,
+                           "webhook_url": "https://discord.com/api/webhooks/1/x",
+                           "allow_internal": True}])
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "d", "type": "discord", "enabled": True, "webhook_url": "***REDACTED***"},
+    ]))
+    assert resp.status_code == 200, resp.text
+    assert "allow_internal" not in saved[0]["notifications"]["channels"][0]
+
+
+def test_structured_save_refuses_port_zero(client, saved):
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "h", "type": "webhook", "enabled": True, "url": "https://example.com:0/x",
+         "allow_internal": False},
+    ]))
+    assert resp.status_code == 422
+    assert "port must be an integer between 1 and 65535" in resp.json()["error"]
+
+
+def test_structured_save_clears_stored_opt_ins_the_form_turns_off(client, saved, monkeypatch):
+    _stored(monkeypatch, [{
+        "name": "mail", "type": "email", "enabled": True, "smtp_host": "smtp.example.com",
+        "smtp_port": 587, "to_addresses": ["a@example.com"], "allow_internal": True,
+        "smtp_insecure_plaintext": True, "smtp_ca_file": "/config/certs/old-ca.pem",
+    }])
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "mail", "type": "email", "enabled": True, "smtp_host": "smtp.example.com",
+         "smtp_port": 587, "to_addresses": ["a@example.com"], "allow_internal": False,
+         "smtp_insecure_plaintext": False, "smtp_ca_file": ""},
+    ]))
+    assert resp.status_code == 200, resp.text
+    mail = saved[0]["notifications"]["channels"][0]
+    assert mail["allow_internal"] is False
+    assert mail["smtp_insecure_plaintext"] is False
+    assert "smtp_ca_file" not in mail
+
+
+def test_structured_save_refuses_non_boolean_opt_in(client, saved):
+    resp = client.post("/config/structured", json=_payload([
+        {"name": "ha", "type": "webhook", "enabled": True, "url": "http://192.168.1.50/x",
+         "allow_internal": "true"},
+    ]))
+    assert resp.status_code == 422
+    assert "allow_internal must be true or false" in resp.json()["error"]
+    assert saved == []
 
 
 def test_structured_save_metadata_refused_even_with_stored_opt_in(client, saved, monkeypatch):

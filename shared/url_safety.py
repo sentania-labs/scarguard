@@ -202,7 +202,7 @@ def _parse_url(url: str) -> tuple[str, int]:
         raise UnsafeURLError("URL has an invalid port") from exc
     if port is None:
         port = 443 if parsed.scheme == "https" else 80
-    return host, port
+    return host, _check_port(port)
 
 
 def check_url_static(url: str, *, allow_internal: bool = False) -> None:
@@ -296,19 +296,13 @@ def _is_opaque(value: str) -> bool:
     return value.startswith(_OPAQUE_PREFIXES)
 
 
-def channel_destination_errors(
-    channel: dict[str, Any],
-    *,
-    missing_allow_internal: bool = False,
-) -> list[str]:
+def channel_destination_errors(channel: dict[str, Any]) -> list[str]:
     """Static destination problems for one ``notifications.channels`` entry.
 
-    *missing_allow_internal* is the value assumed when the channel has no
-    ``allow_internal`` key. The notifier and whole-document checks use the
-    default (absent means off). The web form's partial payload passes True:
-    the form does not carry the key, and the stored value is merged back in
-    after validation, so absence there means "unchanged", not "off".
-    Always-denied addresses fail either way.
+    A missing ``allow_internal`` means off, for the notifier, whole-document
+    (raw YAML / restore) checks and the structured form alike: the channel
+    editor always sends the checkbox. Always-denied addresses fail whatever
+    ``allow_internal`` says.
 
     Messages name the channel and field, never the destination value
     (Discord webhook URLs and webhook query strings carry credentials).
@@ -320,10 +314,7 @@ def channel_destination_errors(
     for flag in ("allow_internal", "smtp_insecure_plaintext"):
         if flag in channel and not isinstance(channel[flag], bool):
             errors.append(f"{label}: {flag} must be true or false")
-    if "allow_internal" in channel:
-        allow_internal = channel["allow_internal"] is True
-    else:
-        allow_internal = missing_allow_internal
+    allow_internal = channel.get("allow_internal") is True
 
     def _url(field: str, value: Any, *, internal: bool) -> None:
         if not isinstance(value, str) or not value.strip() or _is_opaque(value):

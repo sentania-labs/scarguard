@@ -197,7 +197,7 @@ notifications:
   #     type: email
   #     enabled: true
   #     smtp_host: smtp.gmail.com
-  #     smtp_port: 587             # 587 for STARTTLS, 465 for SSL, 25 for plain
+  #     smtp_port: 587             # 465 = implicit TLS; any other port requires STARTTLS
   #     smtp_user: you@example.com
   #     smtp_pass: "your-app-password"
   #     to_addresses: [you@example.com]
@@ -217,7 +217,32 @@ notifications:
   #     enabled: true
   #     url: "http://homeassistant.local:8123/api/webhook/scarguard"
   #     method: POST
+  #     allow_internal: true       # resolves to a LAN address
   #     # auth_token: "Bearer ..." # optional
+  #
+  # Destination policy (CONFIG_REFERENCE.md, "Notification destinations"):
+  # LAN addresses (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7) need
+  # allow_internal: true on that channel (webhook, ntfy, email; default off).
+  # Loopback, cloud metadata (169.254.169.254) and the Docker networks
+  # (172.17.0.0/16, 172.24.0.0/16) are always refused. Redirects are never
+  # followed. All three settings are on the channel card in the web UI.
+  #
+  #   - name: lan-ntfy             # self-hosted ntfy on the LAN
+  #     type: ntfy
+  #     enabled: true
+  #     server: "http://192.168.1.60:8080"
+  #     topic: "scarguard-alerts"
+  #     allow_internal: true       # LAN destination opt-in
+  #
+  #   - name: lan-relay            # SMTP relay with a private CA
+  #     type: email
+  #     enabled: true
+  #     smtp_host: mail.lan.example
+  #     smtp_port: 587             # STARTTLS, certificate verified against the CA below
+  #     smtp_ca_file: /config/certs/smtp-ca.pem   # PEM; put it in the config volume's certs/
+  #     allow_internal: true       # the relay is on the LAN
+  #     # smtp_insecure_plaintext: true  # INSECURE: only for an intentional plaintext relay
+  #     to_addresses: [you@example.com]
 
 
 # ── TLS ───────────────────────────────────────────────────────────────────────

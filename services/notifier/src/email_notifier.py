@@ -7,7 +7,7 @@ Transport security:
   does not offer it is refused before any credentials are sent, unless the
   channel sets ``smtp_insecure_plaintext: true`` - an explicit opt-in for an
   intentional plaintext relay, which then skips STARTTLS entirely (the
-  pre-v1.18 behaviour on non-587 ports).
+  behaviour before FDY-0571 on ports other than 587 and 465).
 
 TLS always verifies the certificate chain and hostname against the system
 trust store plus certifi, plus ``smtp_ca_file`` when set (for a LAN relay
@@ -202,8 +202,14 @@ class EmailNotifier:
         self._insecure_plaintext: bool = cfg.get("smtp_insecure_plaintext") is True
         self._ca_file: str = cfg.get("smtp_ca_file") or ""
         errors = channel_destination_errors({**cfg, "type": "email", "name": self._name})
-        if self._ca_file and not errors and not os.path.isfile(self._ca_file):
-            errors.append(f"smtp_ca_file {self._ca_file} does not exist")
+        if self._ca_file and not errors:
+            if not os.path.isfile(self._ca_file):
+                errors.append(f"smtp_ca_file {self._ca_file} does not exist")
+            else:
+                try:
+                    _tls_context(self._ca_file)
+                except (ssl.SSLError, OSError):
+                    errors.append(f"smtp_ca_file {self._ca_file} is not a readable PEM CA certificate")
         for err in errors:
             logger.error("Email [%s] disabled - %s", self._name, err)
         self._enabled = not errors

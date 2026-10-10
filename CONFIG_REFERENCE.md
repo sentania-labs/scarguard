@@ -105,16 +105,33 @@ notifications:
       priority: 3                      # 1 (min) to 5 (max/urgent)
       include_snapshot: true
       enabled: true
+    - name: lan-ntfy                   # self-hosted ntfy on the LAN
+      type: ntfy
+      server: "http://192.168.1.60:8080"
+      topic: "scarguard-alerts"
+      allow_internal: true             # LAN destination opt-in (default false)
+      enabled: false
     - name: deterrent-webhook          # points to a downstream system (e.g. Scar's Revenge)
       type: webhook
       url: "http://192.168.1.x/api/fire"
       method: POST
       auth_token: "YOUR_TOKEN"         # optional Bearer token
+      allow_internal: true             # LAN destination opt-in (default false)
       enabled: false
     - name: home-assistant
       type: webhook
       url: "http://homeassistant.local:8123/api/webhook/scarguard"
       method: POST
+      allow_internal: true             # resolves to a LAN address
+      enabled: false
+    - name: lan-relay                  # SMTP relay with a private CA
+      type: email
+      smtp_host: "mail.lan.example"
+      smtp_port: 587                   # 465 = implicit TLS; any other port = STARTTLS required
+      smtp_ca_file: /config/certs/smtp-ca.pem   # optional extra trusted CA (PEM)
+      allow_internal: true
+      # smtp_insecure_plaintext: true  # INSECURE opt-in: plaintext relay, no TLS
+      to_addresses: [you@example.com]
       enabled: false
 redis:
   host: redis
@@ -165,6 +182,83 @@ redis:
   settings writes to it would break every save. Caddy ignores the flag (and
   logs that it did), and web refuses saves and restores that set it to `true`;
   a value already on disk does not block structured-form saves.
+
+### Notification destinations and attachments (FDY-0571)
+
+Notification channels send credentials (Discord webhook tokens, bearer
+tokens, ntfy and SMTP passwords) and snapshot images, so every destination
+and attachment is checked.
+
+**Destination policy** (`shared/url_safety.py`, the same rules at save and
+at send):
+
+| Destination | Policy |
+|---|---|
+| Loopback (127/8, ::1), link-local incl. cloud metadata (169.254.169.254 and other known metadata IPs), multicast, unspecified/reserved, the Docker bridge 172.17.0.0/16, the ScarGuard compose network 172.24.0.0/16, ScarGuard's own service names (`redis`, `web`, ...) and `localhost` | **Always refused**, even with `allow_internal: true` |
+| LAN ranges 10/8, 172.16/12, 192.168/16, 100.64/10 (CGNAT, e.g. Tailscale), IPv6 ULA fc00::/7 | Refused unless the channel sets `allow_internal: true` |
+| Globally routable addresses | Allowed |
+
+- Webhook and ntfy URLs must be `http`/`https`; SMTP and URL ports must be 1-65535.
+- **Save time**: the structured form, raw-YAML editor and backup restore refuse
+  an enabled channel the notifier would refuse. These checks are static (no
+  DNS): scheme, port, literal and legacy IP forms, service names, flag types
+  and an absolute `smtp_ca_file` path. A hostname such as
+  `homeassistant.local` passes the save check and is judged by address at
+  send time. Errors name the channel and field (and at most an IP literal or
+  service name); they never echo a URL path, query or credential. When a
+  structured save fails for a destination and another reason at once, only
+  the destination problem is reported.
+- **Send time**: the notifier resolves the host once, checks every returned
+  address, then connects only to those addresses (TLS SNI and certificate
+  hostname checks still use the configured name). A DNS answer that changes
+  between check and connect (DNS rebinding) therefore cannot redirect the
+  request. HTTP redirects are never followed and proxy environment
+  variables are ignored. A channel whose stored destination fails the
+  static check is disabled at notifier start (logged); a send whose
+  resolved address is refused is dropped and logged.
+- Discord channels never accept `allow_internal` (Discord is always public).
+
+**Per-channel settings** (all configurable on the channel card in
+Settings > Notifications, all off by default):
+
+| Key | Channel types | Meaning |
+|---|---|---|
+| `allow_internal` | webhook, ntfy, email | `true` permits LAN destinations listed above. Must be a boolean: a string like `"yes"` is refused on save, and a hand-edited one makes the notifier disable the whole channel (logged). |
+| `smtp_ca_file` | email | Absolute path to an extra trusted CA certificate (PEM) for a relay with a private CA, e.g. `/config/certs/smtp-ca.pem` (the notifier mounts the config volume read-only at `/config`). Added to the system trust store and certifi; the notifier disables the channel (logged) if the file is missing or is not a readable PEM certificate. |
+| `smtp_insecure_plaintext` | email | **INSECURE** explicit opt-in for an intentional plaintext relay: STARTTLS is skipped and mail plus the SMTP password are sent unencrypted. Shown as an INSECURE badge on the config page; the notifier logs a warning. Has no effect on port 465. |
+
+**SMTP transport**: port 465 uses implicit TLS; every other port (587, 25,
+2525, ...) requires STARTTLS before AUTH, and a server that does not offer it
+is refused before any credential is sent unless `smtp_insecure_plaintext` is
+`true`. Certificates and hostnames are always verified; a self-signed or
+private-CA relay needs `smtp_ca_file`. Previously only port 587 used
+STARTTLS (without certificate verification) and other non-465 ports such as
+25 sent plaintext; such relays now need STARTTLS with a verifiable certificate (or `smtp_ca_file`), or the
+explicit plaintext opt-in.
+
+**Structured save is strict**: the channel editor always sends
+`allow_internal` (webhook, ntfy, email) and `smtp_ca_file` /
+`smtp_insecure_plaintext` (email), and what it sends is stored: unticking a
+box stores `false` and an empty CA path removes `smtp_ca_file`. An omitted
+setting is never read as "keep what was stored": with nothing stored it means
+off, and when the stored channel has it turned on the save is refused with
+"was not sent; reload the config page" (a browser still running a cached
+older `config.js`). A LAN channel saved without the opt-in is refused with a
+message naming the channel and `allow_internal`. A hand-edited
+`allow_internal` on a Discord channel is dropped on the next structured save.
+
+**Snapshot attachments**: a snapshot is attached only if it resolves
+(symlinks included) to a regular file inside `SNAPSHOT_DIR`
+(`/data/snapshots`), has a `.jpg`/`.jpeg`/`.png` suffix, really is a JPEG or
+PNG of that type (Pillow verifies the bytes), and is at most 20 MB and 40
+megapixels. Anything else is refused and the notification is sent without an
+image.
+
+**Limitations**: the save-time check cannot resolve hostnames, so a
+hostname that resolves to a refused address is only caught at send time
+(logged by the notifier, not shown on save). The config page's
+destination-security table shows each channel's saved settings and static
+problems.
 
 ## Detection Logic
 

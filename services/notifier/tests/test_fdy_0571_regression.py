@@ -573,6 +573,14 @@ class TestSMTPDestinations:
         _email(587, smtp_ca_file=str(tmp_path / "nope.pem")).send(SAMPLE_EVENT)
         assert srv.sessions == [] and net.dials == []
 
+    def test_non_pem_ca_file_disables_channel(self, net, tmp_path, smtp_servers, certs):
+        srv = smtp_servers(certs)
+        _route_smtp(net, srv, 587)
+        junk = tmp_path / "not-a-ca.pem"
+        junk.write_text("not a certificate\n")
+        _email(587, smtp_ca_file=str(junk)).send(SAMPLE_EVENT)
+        assert srv.sessions == [] and net.dials == []
+
     def test_numeric_string_port_still_works(self, net, certs, smtp_servers):
         srv = smtp_servers(certs)
         _route_smtp(net, srv, 587)
