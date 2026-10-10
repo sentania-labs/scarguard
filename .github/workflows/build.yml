@@ -69,6 +69,7 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+          outputs: type=oci,dest=/tmp/web.tar
 
       - name: Export build metadata
         if: github.event_name != 'push'
@@ -82,7 +83,7 @@ jobs:
       - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-web@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/web.tar docker-daemon:scarguard-web@${{ steps.build.outputs.digest }}
           docker tag scarguard-web@${{ steps.build.outputs.digest }} scarguard-web:test-${{ github.run_id }}
 
       # Trivy first - fail fast on CVEs before spending time on container tests.
@@ -153,13 +154,14 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=notifier
           cache-to: type=gha,scope=notifier,mode=max
+          outputs: type=oci,dest=/tmp/notifier.tar
 
       # ── Test + scan (PR only - main push only warms build cache) ──────────
       # Uses the *exact same* build artifact (by digest).
       - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-notifier@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/notifier.tar docker-daemon:scarguard-notifier@${{ steps.build.outputs.digest }}
           docker tag scarguard-notifier@${{ steps.build.outputs.digest }} scarguard-notifier:test-${{ github.run_id }}
 
       - name: Test notifier in container
@@ -225,13 +227,14 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=deterrent
           cache-to: type=gha,scope=deterrent,mode=max
+          outputs: type=oci,dest=/tmp/deterrent.tar
 
       # ── Test + scan (PR only - main push only warms build cache) ──────────
       # Uses the *exact same* build artifact (by digest).
       - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-deterrent@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/deterrent.tar docker-daemon:scarguard-deterrent@${{ steps.build.outputs.digest }}
           docker tag scarguard-deterrent@${{ steps.build.outputs.digest }} scarguard-deterrent:test-${{ github.run_id }}
 
       - name: Test deterrent in container
@@ -297,13 +300,14 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=backup
           cache-to: type=gha,scope=backup,mode=max
+          outputs: type=oci,dest=/tmp/backup.tar
 
       # ── Test + scan (PR only - main push only warms build cache) ──────────
       # Uses the *exact same* build artifact (by digest).
       - name: Load build artifact for test
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-backup@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/backup.tar docker-daemon:scarguard-backup@${{ steps.build.outputs.digest }}
           docker tag scarguard-backup@${{ steps.build.outputs.digest }} scarguard-backup:test-${{ github.run_id }}
 
       - name: Test backup in container
@@ -367,6 +371,7 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
+          outputs: type=oci,dest=/tmp/caddy.tar
 
   # ── Build log-streamer (x86 runner) ─────────────────────────────────────────
   build-log-streamer:
@@ -401,11 +406,12 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=log-streamer
           cache-to: type=gha,scope=log-streamer,mode=max
+          outputs: type=oci,dest=/tmp/log-streamer.tar
 
       - name: Build log-streamer (amd64, load for scan)
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-log-streamer@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/log-streamer.tar docker-daemon:scarguard-log-streamer@${{ steps.build.outputs.digest }}
           docker tag scarguard-log-streamer@${{ steps.build.outputs.digest }} scarguard-log-streamer:test-${{ github.run_id }}
 
       - name: Trivy scan - log-streamer
@@ -452,6 +458,12 @@ jobs:
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
+
       - name: Build training-controller (validate only)
         id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
@@ -464,11 +476,12 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=training-controller
           cache-to: type=gha,scope=training-controller,mode=max
+          outputs: type=oci,dest=/tmp/training-controller.tar
 
       - name: Build training-controller (amd64, load for scan)
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-training-controller@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/training-controller.tar docker-daemon:scarguard-training-controller@${{ steps.build.outputs.digest }}
           docker tag scarguard-training-controller@${{ steps.build.outputs.digest }} scarguard-training-controller:test-${{ github.run_id }}
 
       - name: Trivy scan - training-controller
@@ -501,6 +514,12 @@ jobs:
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
+
       - name: Build off-watchdog (validate only)
         id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5
@@ -513,11 +532,12 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=off-watchdog
           cache-to: type=gha,scope=off-watchdog,mode=max
+          outputs: type=oci,dest=/tmp/off-watchdog.tar
 
       - name: Build off-watchdog (amd64, load for scan)
         if: github.event_name != 'push'
         run: |
-          docker pull scarguard-off-watchdog@${{ steps.build.outputs.digest }}
+          skopeo copy oci-archive:/tmp/off-watchdog.tar docker-daemon:scarguard-off-watchdog@${{ steps.build.outputs.digest }}
           docker tag scarguard-off-watchdog@${{ steps.build.outputs.digest }} scarguard-off-watchdog:test-${{ github.run_id }}
 
       - name: Trivy scan - off-watchdog
@@ -646,6 +666,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_API_KEY }}
 
       - name: Ensure docker compose plugin
         run: |

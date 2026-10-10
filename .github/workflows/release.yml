@@ -54,6 +54,7 @@ jobs:
       actions: read
       contents: read
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - name: Check build.yml status for this commit
         run: |
           curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -77,7 +78,7 @@ jobs:
       - name: Derive version from tag
         id: version
         run: echo "semver=$(echo "${{ github.ref_name }}" | sed 's/^v//')" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -112,9 +113,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-web-sbom.spdx.json
-      - name: Push latest (web)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-web:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-web:${{ github.ref_name }}"
 
   release-notifier:
     name: Release notifier image
@@ -128,7 +126,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -159,9 +157,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-notifier-sbom.spdx.json
-      - name: Push latest (notifier)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-notifier:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-notifier:${{ github.ref_name }}"
 
   release-deterrent:
     name: Release deterrent image
@@ -175,7 +170,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -206,9 +201,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-deterrent-sbom.spdx.json
-      - name: Push latest (deterrent)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-deterrent:${{ github.ref_name }}"
 
   release-backup:
     name: Release backup image
@@ -222,7 +214,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -253,9 +245,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-backup-sbom.spdx.json
-      - name: Push latest (backup)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-backup:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-backup:${{ github.ref_name }}"
 
   release-caddy:
     name: Release caddy image
@@ -269,7 +258,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -300,9 +289,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-caddy-sbom.spdx.json
-      - name: Push latest (caddy)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-caddy:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-caddy:${{ github.ref_name }}"
 
   release-log-streamer:
     name: Release log-streamer image
@@ -316,7 +302,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -347,9 +333,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-log-streamer-sbom.spdx.json
-      - name: Push latest (log-streamer)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-log-streamer:${{ github.ref_name }}"
 
   release-training-controller:
     name: Release training-controller image
@@ -363,7 +346,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -394,9 +377,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-training-controller-sbom.spdx.json
-      - name: Push latest (training-controller)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-training-controller:${{ github.ref_name }}"
 
   release-off-watchdog:
     name: Release off-watchdog image
@@ -410,7 +390,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -441,9 +421,6 @@ jobs:
           ignore-unfixed: true
           timeout: 20m0s
           sbom-path: trivy-off-watchdog-sbom.spdx.json
-      - name: Push latest (off-watchdog)
-        continue-on-error: true
-        run: docker buildx imagetools create --tag "ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:latest" "ghcr.io/${{ github.repository_owner }}/scarguard-off-watchdog:${{ github.ref_name }}"
 
   release-detector:
     name: Release detector image (Jetson)
@@ -456,7 +433,7 @@ jobs:
       security-events: write
     outputs:
       benchmark_json: ${{ steps.benchmark.outputs.json }}
-      digest: ${{ steps.push.digest }}
+      digest: ${{ steps.export_digest.outputs.DIGEST }}
     env:
       TAG: ${{ github.ref_name }}
       DETECTOR_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector
@@ -506,14 +483,10 @@ jobs:
         if: always()
         run: .github/scripts/ci-gpu-lease.sh release
       - name: Export detector digest
+        id: export_digest
         run: |
           DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$DETECTOR_IMAGE:$TAG" 2>/dev/null || echo "unknown")
           echo "DIGEST=$DIGEST" >> "$GITHUB_OUTPUT"
-      - name: Push latest (detector)
-        continue-on-error: true
-        run: |
-          docker tag "$DETECTOR_IMAGE:$TAG" "$DETECTOR_IMAGE:latest"
-          docker push "$DETECTOR_IMAGE:latest"
       - name: Prune stale detector images
         if: always()
         run: |
@@ -535,13 +508,13 @@ jobs:
       packages: write
       security-events: write
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.export_digest.outputs.DIGEST }}
     env:
       TAG: ${{ github.ref_name }}
       TRAINER_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-trainer
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      - uses: docker/setup-qemu-action@34e114876b0b11c390a56381ad16ebd13914f8d5  # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
         with: { version: "3" }
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
         with: { version: "3" }
@@ -574,12 +547,8 @@ jobs:
         id: push
         run: docker push "$TRAINER_IMAGE:$TAG"
       - name: Export trainer digest
+        id: export_digest
         run: echo "DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TRAINER_IMAGE:$TAG" 2>/dev/null || echo "unknown")" >> "$GITHUB_OUTPUT"
-      - name: Push latest (trainer)
-        continue-on-error: true
-        run: |
-          docker tag "$TRAINER_IMAGE:$TAG" "$TRAINER_IMAGE:latest"
-          docker push "$TRAINER_IMAGE:latest"
 
   release-detector-x86:
     name: Release detector image (x86)
@@ -591,7 +560,7 @@ jobs:
       security-events: write
     outputs:
       benchmark_json: ${{ steps.benchmark.outputs.json }}
-      digest: ${{ steps.push.digest }}
+      digest: ${{ steps.export_digest.outputs.DIGEST }}
     env:
       TAG: ${{ github.ref_name }}
       DETECTOR_X86_IMAGE: ghcr.io/${{ github.repository_owner }}/scarguard-detector-x86
@@ -633,12 +602,8 @@ jobs:
         id: push
         run: docker push "$DETECTOR_X86_IMAGE:$TAG"
       - name: Export x86 detector digest
+        id: export_digest
         run: echo "DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$DETECTOR_X86_IMAGE:$TAG" 2>/dev/null || echo "unknown")" >> "$GITHUB_OUTPUT"
-      - name: Push latest (detector-x86)
-        continue-on-error: true
-        run: |
-          docker tag "$DETECTOR_X86_IMAGE:$TAG" "$DETECTOR_X86_IMAGE:latest"
-          docker push "$DETECTOR_X86_IMAGE:latest"
 
   publish-release-digests:
     name: Publish release digests
@@ -736,3 +701,26 @@ jobs:
         with:
           generate_release_notes: true
           body_path: release_body.md
+
+  promote-latest:
+    name: Promote latest tags
+    needs: [publish-release-digests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote latest
+        continue-on-error: true
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          TAG="${{ github.ref_name }}"
+          for IMG in web notifier deterrent backup caddy log-streamer training-controller off-watchdog detector detector-x86 trainer; do
+            docker buildx imagetools create -t ghcr.io/$OWNER/scarguard-$IMG:latest ghcr.io/$OWNER/scarguard-$IMG:$TAG
+          done

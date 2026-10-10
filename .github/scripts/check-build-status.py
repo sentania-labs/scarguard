@@ -14,9 +14,8 @@ try:
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read().decode())
 except Exception as e:
-    print(f"WARNING: Could not fetch check-runs: {e}")
-    print("INFO: build gate passed")
-    sys.exit(0)
+    print(f"FAIL: Could not fetch check-runs: {e}")
+    sys.exit(1)
 
 for run in data.get("check_runs", []):
     name = run.get("name", "")
@@ -27,6 +26,8 @@ for run in data.get("check_runs", []):
             print(f"OK: {name} succeeded")
             sys.exit(0)
         else:
-            print(f"WARN: {name} status={status} conclusion={conclusion}")
+            print(f"FAIL: {name} status={status} conclusion={conclusion}")
+            sys.exit(1)
 
-print("INFO: build gate passed")
+print(f"FAIL: No completed successful check found matching {build_filter}")
+sys.exit(1)
