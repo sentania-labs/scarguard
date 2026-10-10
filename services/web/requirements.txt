@@ -6,7 +6,7 @@ pyyaml==6.0.3
 pydantic==2.12.5
 redis==7.4.0
 aiofiles==25.1.0
-tzdata==2025.3
+tzdata==2026.5
 astral==3.2
 bcrypt==5.0.0
 cryptography==50.0.1
