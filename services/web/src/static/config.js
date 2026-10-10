@@ -592,6 +592,10 @@ function readForm() {
     },
     notifications: {
       channels: readChannels(),
+      delivery: {
+        queue_size: (v => isNaN(v) ? 50 : v)(parseInt(document.getElementById("notif-delivery-queue-size").value, 10)),
+        send_deadline_seconds: (v => isNaN(v) ? 60 : v)(parseInt(document.getElementById("notif-delivery-send-deadline").value, 10)),
+      },
     },
     tls: {
       mode: document.getElementById("tls-mode").value,
@@ -677,6 +681,12 @@ function validate(data) {
   const tw = data.training.defaults.workers;
   if (!Number.isInteger(tw) || tw < 0 || tw > 4)
     errors.push("Training: data-loader workers must be from 0 through 4 on Jetson Orin");
+
+  const delivery = data.notifications.delivery;
+  if (delivery.queue_size < 1 || delivery.queue_size > 1000)
+    errors.push("Notification delivery: queue size must be from 1 through 1000");
+  if (delivery.send_deadline_seconds < 5 || delivery.send_deadline_seconds > 600)
+    errors.push("Notification delivery: send deadline must be from 5 through 600 seconds");
 
   const sched = data.system.schedule;
   const timeRe = /^\d{2}:\d{2}$/;

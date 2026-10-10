@@ -182,6 +182,11 @@ detection:
 # The legacy flat `notifications.discord` and `notifications.email` blocks
 # were removed in v0.13.2 and are stripped from the file on the next save.
 notifications:
+  # Per-channel delivery queues: a slow channel only delays itself.
+  # Config page: Notifications tab > Notification Delivery (expert mode).
+  delivery:
+    queue_size: 50              # events one channel may hold before spilling to the retry queue (1-1000)
+    send_deadline_seconds: 60   # longest one send may run before the event is queued for retry (5-600)
   channels: []
   # Example channels - uncomment and adjust:
   #

@@ -332,8 +332,18 @@ class DetectionConfig(BaseModel):
         return v
 
 
+class NotificationDeliveryConfig(BaseModel):
+    """Per-channel delivery bounds used by the notifier's channel queues (FDY-0572)."""
+
+    # Undelivered events one channel may hold before further ones go to the retry queue.
+    queue_size: int = Field(default=50, ge=1, le=1000)
+    # Longest a single send may run before the event is queued for retry.
+    send_deadline_seconds: int = Field(default=60, ge=5, le=600)
+
+
 class NotificationsConfig(BaseModel):
     channels: list[dict] = []
+    delivery: NotificationDeliveryConfig = Field(default_factory=NotificationDeliveryConfig)
 
     def destination_problems(self) -> dict[str, list[str]]:
         """Problems per enabled channel, as the notifier will judge them.
