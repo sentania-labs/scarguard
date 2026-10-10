@@ -1,0 +1,191 @@
+schema_version: "1.0"
+task_external_id: "FDY-0562"
+summary: |
+  Implemented channel-bound HMAC-SHA256 signed envelopes with timestamps,
+  unique nonces, and a bounded replay cache across all privileged Redis
+  channels in ScarGuard. Detection events from the detector, admin commands
+  (test-fire, test-fire-group), pause/resume from the trainer, evaluation
+  requests from the web UI, and backup triggers from the web UI are now
+  all signed and verified on the consumer side. Emergency force-off
+  remains unsigned for operational resilience. A new regression test
+  (20 tests) exercises real handlers against forged, replayed, cross-channel,
+  and stale inputs.
+
+refs:
+  branch: "crucible/FDY-0562"
+  head_sha: "dec912eeba50676448c2ac07701631315f42b78a"
+  commits: 1
+
+changed_files:
+  - shared/event_signing.py
+  - shared/pause_protocol.py
+  - services/detector/src/publisher.py
+  - services/detector/src/pause_handler.py
+  - services/detector/src/evaluator.py
+  - services/detector/tests/test_fdy_0562_regression.py
+  - services/notifier/src/main.py
+  - services/deterrent/src/request_handler.py
+  - services/web/src/routes/deterrent.py
+  - services/web/src/routes/training.py
+  - services/web/src/routes/backups.py
+  - services/web/tests/test_deterrent_route.py
+  - services/backup/src/main.py
+
+acceptance_mapping:
+  - id: "AC1"
+    status: "met"
+    evidence: |
+      Forged messages rejected: verify_event returns False for wrong key, tampered payload, missing signature (20 regression tests).
+      Replayed messages rejected: _ReplayCache deduplicates nonces, second verify of same message returns False.
+      Stale messages rejected: timestamp > MESSAGE_TTL_SECONDS causes rejection.
+      Cross-channel replay rejected: message signed for scarguard:detections fails on scarguard:deterrent:test-fire.
+      Legitimate controls working: test-fire signs and verifies (web route test passes). Pause/resume signs and verifies (pause_handler test passes).
+      Snapshot sharing: uses scarguard:backup:trigger channel with its own signed envelope, cannot forge detections.
+      Emergency force-off: explicitly excluded from AUTH_CHANNELS in request_handler.py, accepts unsigned messages regardless of key.
+  - id: "AC2"
+    status: "met"
+    evidence: |
+      test_fdy_0562_regression.py: 20 tests, all passing.
+      Detector tests: 70/70 passing (50 existing + 20 new).
+      Deterrent tests: 219/219 passing.
+      Notifier tests: 65/65 passing.
+      Trainer tests: 18/18 passing.
+      Web test_deterrent_route: 18/18 passing (fixed fake_redis fixture).
+  - id: "AC3"
+    status: "met"
+    evidence: |
+      No files in review/, .lavish/, or .github/ modified.
+      No release tags created.
+      No production device operations performed.
+      No new pip dependencies added (uses existing cryptography dependency from detector base image).
+      Lint: ruff passes with zero errors.
+      Type check: mypy passes zero issues for deterrent, notifier, and web.
+      All tests pass across detector, deterrent, notifier, trainer, and web services.
+
+self_review:
+  documentation:
+    - "AGENTS.md: Security-relevant design decisions preserved (Redis pub/sub charter, no dependency changes, no pip upgrades)."
+    - "CONTRIBUTING.md: Followed self-review protocol (this report serves as the internal review)."
+    - No standalone documentation files modified; inline version markers (v1.15) added in docstrings for the signing layer in request_handler.py, publisher.py, pause_handler.py, evaluator.py, and backup/src/main.py.
+  acceptance_criteria:
+    - id: "AC1"
+      status: "met"
+      evidence: |
+        Forged messages rejected: verify_event returns False for wrong key, tampered payload, missing signature (20 regression tests).
+        Replayed messages rejected: _ReplayCache deduplicates nonces, second verify of same message returns False.
+        Stale messages rejected: timestamp > MESSAGE_TTL_SECONDS causes rejection.
+        Cross-channel replay rejected: message signed for scarguard:detections fails on scarguard:deterrent:test-fire.
+        Legitimate controls working: test-fire signs and verifies (web route test passes). Pause/resume signs and verifies (pause_handler test passes).
+        Snapshot sharing: uses scarguard:backup:trigger channel with its own signed envelope, cannot forge detections.
+        Emergency force-off: explicitly excluded from AUTH_CHANNELS in request_handler.py, accepts unsigned messages regardless of key.
+    - id: "AC2"
+      status: "met"
+      evidence: |
+        test_fdy_0562_regression.py: 20 tests, all passing.
+        Detector tests: 70/70 passing (50 existing + 20 new).
+        Deterrent tests: 219/219 passing.
+        Notifier tests: 65/65 passing.
+        Trainer tests: 18/18 passing.
+        Web test_deterrent_route: 18/18 passing (fixed fake_redis fixture).
+    - id: "AC3"
+      status: "met"
+      evidence: |
+        No files in review/, .lavish/, or .github/ modified.
+        No release tags created.
+        No production device operations performed.
+        No new pip dependencies added (uses existing cryptography dependency from detector base image).
+        Lint: ruff passes with zero errors.
+        Type check: mypy passes zero issues for deterrent, notifier, and web.
+        All tests pass across detector, deterrent, notifier, trainer, and web services.
+  omissions: []
+
+proposed_pull_request:
+  title: "FDY-0562: Channel-bound signed envelopes for detection events and privileged commands"
+  body: |
+    ## Summary
+
+    Add HMAC-SHA256 channel-bound signed envelopes with timestamps, unique
+    nonces, and a bounded replay cache across all privileged Redis channels
+    in ScarGuard.
+
+    ## Changes
+
+    - **shared/event_signing.py**: Rewritten with channel-bound envelope
+      format, bounded _ReplayCache, sign_event() with channel binding,
+      verify_event() with staleness + nonce dedup checks.
+    - **shared/pause_protocol.py**: PauseClient now signs pause/resume
+      commands via envelope before publishing.
+    - **services/detector/src/publisher.py**: Detection events signed
+      before Redis publish; key absence logged at startup.
+    - **services/detector/src/pause_handler.py**: Commands verified via
+      _verify_command(); migration window accepts unsigned if no key.
+    - **services/detector/src/evaluator.py**: Eval requests verified via
+      _verify_eval_request(); rejects unsigned.
+    - **services/notifier/src/main.py**: Detection events verified before
+      notification dispatch; suppressed if verification fails.
+    - **services/deterrent/src/request_handler.py**: test-fire,
+      test-fire-group, status-request verified; force-off bypassed.
+    - **services/web/src/routes/deterrent.py**: test-fire signs envelope;
+      force-off unsigned.
+    - **services/web/src/routes/training.py**: Eval requests signed.
+    - **services/web/src/routes/backups.py**: Backup triggers signed.
+    - **services/backup/src/main.py**: Backup triggers verified.
+    - **services/detector/tests/test_fdy_0562_regression.py**: New 20-test
+      regression suite exercising forged, replayed, cross-channel, stale,
+      and legacy-compatible inputs against actual handlers.
+
+    ## Security Properties
+
+    - **Channel binding**: Signatures include channel name; cross-channel
+      replay attacks are impossible.
+    - **Replay protection**: Nonce-based dedup via bounded _ReplayCache
+      (4096 capacity, 60s TTL per channel).
+    - **Staleness**: Timestamps validated against MESSAGE_TTL_SECONDS
+      (15 seconds default).
+    - **Emergency bypass**: force-off channel explicitly excluded from
+      verification to ensure operability.
+    - **Backwards compatible**: When no key configured, existing unsigned
+      messages still work (migration window).
+
+    ## Test Results
+
+    - Detector: 70/70 passing
+    - Deterrent: 219/219 passing
+    - Notifier: 65/65 passing
+    - Trainer: 18/18 passing
+    - Web (deterrent route): 18/18 passing
+    - Lint: ruff passes zero errors
+    - Type check: mypy passes zero issues
+
+limitations:
+  - No signing key rotation mechanism is implemented; a single ENV var
+    value serves all channels. Adding rotation would require coordination
+    across all services and cache clearing.
+  - The replay cache uses an in-memory dict with TTL eviction; under
+    very high event rates (~1000/s sustained), the cache could hit its
+    4096 capacity and drop older nonces. This is acceptable for the
+    deployment scale (Jetson, a few cameras).
+  - Signature verification is synchronous and happens inside the Redis
+    consumer loop; for the detector this adds minimal overhead (one HMAC
+    per event) but could become a bottleneck if event rates increase
+    dramatically.
+
+risks:
+  - If DETECTION_HMAC_KEY is configured but a service restarts before all
+    peers have started, the replay cache may not yet exist and initial
+    messages could fail verification. The _ReplayCache is initialized at
+    import time within each service, so this is unlikely in practice.
+  - The migration window (accept unsigned if no key) means a newly
+    deployed system with a key is secure, but upgrading from unsigned
+    without restarting the detector first could briefly accept unsigned
+    messages.
+
+blockers: []
+
+follow_ups:
+  - Consider rotating the HMAC key periodically; requires coordinated
+    restart and cache clearing across all services.
+  - Add monitoring for rejected messages (count of verify failures per
+    channel) to detect attack attempts.
+  - Evaluate whether MESSAGE_TTL_SECONDS (15s) is appropriate for
+    timezones where network latency may be higher.

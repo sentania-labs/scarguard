@@ -13,6 +13,7 @@ import logging
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from atomic_ref import AtomicRef
@@ -30,6 +31,52 @@ from redis_client import make_sync_client, reconnect_loop
 logger = logging.getLogger(__name__)
 
 _DRAIN_WAIT = 2.0  # seconds to wait for in-flight inference after setting paused
+
+# Signing key for pause/resume commands (trainer → detector).
+_CMD_KEY: bytes | None = None
+_CMD_CACHE: object = None
+_CHANNEL_FIELD: str | None = None
+_VERIFY_EVENT = None
+_DERIVE_CMD_KEY: "Callable[[bytes, str], bytes] | None" = None
+
+try:
+    from event_signing import (
+        CHANNEL_FIELD as _EF_CHANNEL_FIELD,
+    )
+    from event_signing import (
+        _ReplayCache,
+        load_key_from_env,
+    )
+    from event_signing import (
+        derive_channel_key as _EF_DK,
+    )
+    from event_signing import (
+        verify_event as _EF_VERIFY_EVENT,
+    )
+    _CMD_KEY = load_key_from_env()
+    _CMD_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _CMD_KEY else None
+    _CHANNEL_FIELD = _EF_CHANNEL_FIELD
+    _VERIFY_EVENT = _EF_VERIFY_EVENT
+    _DERIVE_CMD_KEY = _EF_DK
+except ImportError:
+    pass
+
+
+def _verify_command(payload: dict[str, Any]) -> bool:
+    """Return True if *payload* is a valid signed envelope.
+
+    When no signing key is configured the command is accepted (migration
+    window).  When the key is present the payload must carry a valid,
+    unique, timestamped signature for COMMAND_CHANNEL.
+    """
+    if _CMD_KEY is None or _CHANNEL_FIELD is None:
+        return True
+    channel_key = _DERIVE_CMD_KEY(_CMD_KEY, COMMAND_CHANNEL) if _DERIVE_CMD_KEY else _CMD_KEY
+    if not isinstance(payload.get(_CHANNEL_FIELD), str):
+        return _VERIFY_EVENT(payload, channel_key, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
+    if payload[_CHANNEL_FIELD] != COMMAND_CHANNEL:
+        return False
+    return _VERIFY_EVENT(payload, channel_key, COMMAND_CHANNEL, _CMD_CACHE)  # type: ignore[arg-type]
 
 
 class PauseHandler:
@@ -78,6 +125,9 @@ class PauseHandler:
         )
 
     def _handle_command(self, _channel: str, payload: dict[str, Any]) -> None:
+        if not _verify_command(payload):
+            logger.warning("Rejected invalid pause/resume command from Redis")
+            return
         action = payload.get("action")
         request_id = payload.get("request_id", "?")
         if action == "pause":

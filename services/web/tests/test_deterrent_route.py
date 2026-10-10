@@ -17,8 +17,14 @@ def fake_redis(monkeypatch):
     touches a real Redis. Returns whatever we tell it to."""
     captured: dict[str, Any] = {"payloads": []}
 
-    async def _fake_request(channel: str, prefix: str, payload: dict[str, Any], timeout_sec: float = 15.0) -> dict[str, Any]:
-        captured["payloads"].append({"channel": channel, "payload": payload})
+    async def _fake_request(
+        channel: str,
+        prefix: str,
+        payload: dict[str, Any],
+        timeout_sec: float = 15.0,
+        signed: bool = True,
+    ) -> dict[str, Any]:
+        captured["payloads"].append({"channel": channel, "payload": payload, "signed": signed})
         return captured.get("response", {"ok": True, "device_name": "x"})
 
     monkeypatch.setattr(

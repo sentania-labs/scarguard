@@ -397,6 +397,7 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       DATA_DIR: /data
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     volumes:
       - scarguard-config:/config:ro
       - scarguard-data:/data
