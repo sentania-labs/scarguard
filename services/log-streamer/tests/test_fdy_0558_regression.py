@@ -205,7 +205,11 @@ class TestSocketProxyDenials:
                 in_proxy = True
                 continue
             if in_proxy:
-                if re.match(r"^  [a-z][-a-z0-9_]*:", line) and line.startswith("  ") and not line.startswith("    "):
+                if (
+                    re.match(r"^  [a-z][-a-z0-9_]*:", line)
+                    and line.startswith("  ")
+                    and not line.startswith("    ")
+                ):
                     break
                 if "build:" in line:
                     found_build = True
@@ -357,7 +361,11 @@ class TestTrainingControllerHardening:
             if in_tc:
                 if line.strip().startswith("#"):
                     continue
-                if re.match(r"^  [a-z]+:", line) and line.startswith("  ") and not line.startswith("    "):
+                if (
+                    re.match(r"^  [a-z]+:", line)
+                    and line.startswith("  ")
+                    and not line.startswith("    ")
+                ):
                     break
                 m = re.match(r'^    user:\s*"([^"]+)"', line)
                 if not m:
@@ -424,6 +432,7 @@ class TestLogStreamingPreserved:
 # 5. Adversarial: verify Dockerfile user directive works end-to-end
 # ---------------------------------------------------------------------------
 
+
 class TestAdversarial:
     """Adversarial probes that should fail under the new configuration."""
 
@@ -480,8 +489,7 @@ class TestHTTPIntegration:
                     b"POST /v1/detector/lease/acquire HTTP/1.1\r\n"
                     b"Host: controller\r\n"
                     b"Content-Length: " + str(len(big_body)).encode() + b"\r\n"
-                    b"Connection: close\r\n\r\n"
-                    + big_body.encode(),
+                    b"Connection: close\r\n\r\n" + big_body.encode(),
                 )
                 response = client.recv(65536)
             assert b"400" in response.split(b"\r\n", 1)[0]
@@ -538,18 +546,20 @@ class TestDetectorRecreation:
         backend = RecreationBackend()
         state_path = REPO_ROOT / "tmp_fdy_0558_lease.json"
         try:
-            state_path.write_text(json.dumps({
-                "state": "leased",
-                "owner": OWNER,
-                "container_id": "old-id",
-                "stopped_by_controller": True,
-                "detector_state_before": "running",
-                "acquired_at": 1000.0,
-                "heartbeat_at": 1000.0,
-            }))
-            controller = main.DetectorLeaseController(
-                backend, state_path, lambda: OWNER
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "state": "leased",
+                        "owner": OWNER,
+                        "container_id": "old-id",
+                        "stopped_by_controller": True,
+                        "detector_state_before": "running",
+                        "acquired_at": 1000.0,
+                        "heartbeat_at": 1000.0,
+                    }
+                )
             )
+            controller = main.DetectorLeaseController(backend, state_path, lambda: OWNER)
 
             state = controller.heartbeat(OWNER)
 
@@ -584,18 +594,20 @@ class TestDetectorRecreation:
         backend = NoDetectorBackend()
         state_path = REPO_ROOT / "tmp_fdy_0558_lease2.json"
         try:
-            state_path.write_text(json.dumps({
-                "state": "leased",
-                "owner": OWNER,
-                "container_id": "old-id",
-                "stopped_by_controller": True,
-                "detector_state_before": "running",
-                "acquired_at": 1000.0,
-                "heartbeat_at": 1000.0,
-            }))
-            controller = main.DetectorLeaseController(
-                backend, state_path, lambda: OWNER
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "state": "leased",
+                        "owner": OWNER,
+                        "container_id": "old-id",
+                        "stopped_by_controller": True,
+                        "detector_state_before": "running",
+                        "acquired_at": 1000.0,
+                        "heartbeat_at": 1000.0,
+                    }
+                )
             )
+            controller = main.DetectorLeaseController(backend, state_path, lambda: OWNER)
 
             state = controller.heartbeat(OWNER)
 

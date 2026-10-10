@@ -25,7 +25,8 @@ AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "/data/auth.db")
 # v1.14 bootstrap-token path. Main.py generates on first boot when no users
 # exist; /setup POST verifies and deletes on successful claim.
 BOOTSTRAP_TOKEN_PATH = os.environ.get(
-    "BOOTSTRAP_TOKEN_PATH", "/data/bootstrap_token",
+    "BOOTSTRAP_TOKEN_PATH",
+    "/data/bootstrap_token",
 )
 
 
@@ -69,6 +70,7 @@ def _is_https(request: Request) -> bool:
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 
+
 def _safe_next(value: str) -> str:
     """Sanitize a redirect-next value: must be a relative path, not protocol-relative."""
     if value and value.startswith("/") and not value.startswith("//"):
@@ -104,7 +106,12 @@ async def login_post(
     client_ip = request.client.host if request.client else None
 
     if len(username) > 255 or len(password) > 255:
-        return templates.TemplateResponse(request, "login.html", {"next": safe_next, "error": "Invalid username or password."}, status_code=400)
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"next": safe_next, "error": "Invalid username or password."},
+            status_code=400,
+        )
 
     db = auth_module.get_db(AUTH_DB_PATH)
     try:
@@ -178,6 +185,7 @@ async def login_post(
 
 # ── Logout ────────────────────────────────────────────────────────────────────
 
+
 @router.post("/logout")
 async def logout(request: Request) -> RedirectResponse:
     raw_token = request.cookies.get("session")
@@ -216,11 +224,29 @@ def _is_common_password(password: str) -> bool:
     """
     lowered = password.strip().lower()
     common = {
-        "password", "password1", "password123", "passw0rd",
-        "admin", "administrator", "letmein", "qwerty", "qwerty123",
-        "12345678", "123456789", "1234567890", "changeme", "welcome",
-        "iloveyou", "monkey", "dragon", "baseball", "football",
-        "sunshine", "princess", "scarguard", "scarguard123",
+        "password",
+        "password1",
+        "password123",
+        "passw0rd",
+        "admin",
+        "administrator",
+        "letmein",
+        "qwerty",
+        "qwerty123",
+        "12345678",
+        "123456789",
+        "1234567890",
+        "changeme",
+        "welcome",
+        "iloveyou",
+        "monkey",
+        "dragon",
+        "baseball",
+        "football",
+        "sunshine",
+        "princess",
+        "scarguard",
+        "scarguard123",
     }
     return lowered in common
 
@@ -287,30 +313,38 @@ async def setup_post(
     # Validate user input
     if not username.strip():
         return _render_setup(
-            request, token=token,
-            error="Username must not be empty.", status_code=400,
+            request,
+            token=token,
+            error="Username must not be empty.",
+            status_code=400,
         )
     if len(username) > 255 or len(password) > 255:
         return _render_setup(
-            request, token=token,
-            error="Username or password too long.", status_code=400,
+            request,
+            token=token,
+            error="Username or password too long.",
+            status_code=400,
         )
     if len(password) < MIN_PASSWORD_LEN:
         return _render_setup(
-            request, token=token,
+            request,
+            token=token,
             error=f"Password must be at least {MIN_PASSWORD_LEN} characters.",
             status_code=400,
         )
     if _is_common_password(password):
         return _render_setup(
-            request, token=token,
+            request,
+            token=token,
             error="That password is too common - please pick a less predictable one.",
             status_code=400,
         )
     if password != confirm_password:
         return _render_setup(
-            request, token=token,
-            error="Passwords do not match.", status_code=400,
+            request,
+            token=token,
+            error="Passwords do not match.",
+            status_code=400,
         )
 
     auth_cfg = _get_auth_cfg()

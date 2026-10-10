@@ -24,7 +24,11 @@ def test_subscribe_loop_survives_malformed_messages() -> None:
         {"type": "message", "channel": "scarguard:detections", "data": json.dumps(["a list"])},
         {"type": "message", "channel": "scarguard:detections", "data": json.dumps(None)},
         {"type": "message", "channel": "scarguard:detections", "data": json.dumps({"crash": True})},
-        {"type": "message", "channel": "scarguard:detections", "data": json.dumps({"class_name": "valid"})},
+        {
+            "type": "message",
+            "channel": "scarguard:detections",
+            "data": json.dumps({"class_name": "valid"}),
+        },
     ]
 
     class FakePubSub:
@@ -50,9 +54,10 @@ def test_subscribe_loop_survives_malformed_messages() -> None:
         def close(self) -> None:
             pass
 
-    with patch("main.redis_lib.Redis", return_value=FakeRedis()), \
-         patch("event_signing.load_key_from_env", return_value=None):
-
+    with (
+        patch("main.redis_lib.Redis", return_value=FakeRedis()),
+        patch("event_signing.load_key_from_env", return_value=None),
+    ):
         subscribe_loop({}, FakeQueue(), shutdown_event)
 
     # verify it kept processing and saw the valid one

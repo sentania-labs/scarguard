@@ -173,12 +173,17 @@ class EmailNotifier:
         snapshot_bytes: bytes | None = None
         if self._include_snapshot and snapshot_path:
             snapshot_bytes = annotate_snapshot(
-                snapshot_path, event.get("bbox"), event.get("frame_size"),
+                snapshot_path,
+                event.get("bbox"),
+                event.get("frame_size"),
             )
 
         # Build HTML body
         html_body = _build_html_body(
-            class_name, confidence, camera_name, timestamp,
+            class_name,
+            confidence,
+            camera_name,
+            timestamp,
             has_snapshot=bool(snapshot_bytes),
             base_url=base_url,
             feedback_token=feedback_token,
@@ -201,7 +206,9 @@ class EmailNotifier:
             encoders.encode_base64(img_part)
             img_part.add_header("Content-ID", "<snapshot>")
             img_part.add_header(
-                "Content-Disposition", "inline", filename="snapshot.jpg",
+                "Content-Disposition",
+                "inline",
+                filename="snapshot.jpg",
             )
             msg.attach(img_part)
 

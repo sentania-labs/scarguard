@@ -106,7 +106,8 @@ class ModelClassesHandler(threading.Thread):
                 if self._stop.is_set():
                     break
                 logger.warning(
-                    "ModelClassesHandler: Redis error - retry in %ds", backoff,
+                    "ModelClassesHandler: Redis error - retry in %ds",
+                    backoff,
                     exc_info=True,
                 )
                 self._stop.wait(backoff)
@@ -117,7 +118,8 @@ class ModelClassesHandler(threading.Thread):
                 if self._stop.is_set():
                     break
                 logger.exception(
-                    "ModelClassesHandler: unexpected error - retry in %ds", backoff,
+                    "ModelClassesHandler: unexpected error - retry in %ds",
+                    backoff,
                 )
                 self._stop.wait(backoff)
                 backoff = min(backoff * 2, 60)
@@ -309,6 +311,7 @@ def _names_from_pt_cpu(abs_path: str) -> Any | None:
 def _load_yolo(abs_path: str) -> Any:
     """Indirection point so tests can monkeypatch without ultralytics installed."""
     from ultralytics import YOLO
+
     return YOLO(abs_path)
 
 
@@ -343,10 +346,7 @@ def _looks_like_stub_names(classes: list[str]) -> bool:
     """Detect ultralytics' auto-generated placeholder names."""
     if not classes:
         return True
-    return all(
-        c.startswith("class_") and c[len("class_"):].isdigit()
-        for c in classes
-    )
+    return all(c.startswith("class_") and c[len("class_") :].isdigit() for c in classes)
 
 
 # ── Legacy entry point - still used by existing tests ─────────────────────

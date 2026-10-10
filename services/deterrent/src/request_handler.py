@@ -188,7 +188,10 @@ class RequestHandler:
         port = int(self._redis_cfg.get("port", 6379))
         password = os.environ.get("REDIS_PASSWORD", "") or None
         return redis_lib.Redis(
-            host=host, port=port, password=password, decode_responses=True,
+            host=host,
+            port=port,
+            password=password,
+            decode_responses=True,
         )
 
     def _run(self) -> None:
@@ -212,12 +215,16 @@ class RequestHandler:
                 client = self._make_client()
                 pubsub = client.pubsub()
                 pubsub.subscribe(
-                    TEST_FIRE_CHANNEL, STATUS_REQUEST_CHANNEL, FORCE_OFF_CHANNEL,
+                    TEST_FIRE_CHANNEL,
+                    STATUS_REQUEST_CHANNEL,
+                    FORCE_OFF_CHANNEL,
                     TEST_FIRE_GROUP_CHANNEL,
                 )
                 logger.info(
                     "Subscribed to %s, %s, %s, %s",
-                    TEST_FIRE_CHANNEL, STATUS_REQUEST_CHANNEL, FORCE_OFF_CHANNEL,
+                    TEST_FIRE_CHANNEL,
+                    STATUS_REQUEST_CHANNEL,
+                    FORCE_OFF_CHANNEL,
                     TEST_FIRE_GROUP_CHANNEL,
                 )
                 delay = 5
@@ -240,10 +247,7 @@ class RequestHandler:
                         continue
 
                     # Verify signed envelopes on authenticated channels.
-                    if (
-                        self._cmd_key is not None
-                        and channel in AUTH_CHANNELS
-                    ):
+                    if self._cmd_key is not None and channel in AUTH_CHANNELS:
                         if not verify_event(
                             payload,
                             derive_channel_key(self._cmd_key, channel),
@@ -251,8 +255,8 @@ class RequestHandler:
                             cache=self._cmd_cache,
                         ):
                             logger.warning(
-                                "Rejected unsigned/malformed/replayed command "
-                                "on %s", channel,
+                                "Rejected unsigned/malformed/replayed command on %s",
+                                channel,
                             )
                             continue
 
@@ -324,60 +328,93 @@ class RequestHandler:
             return
 
         if self._controller_ref.get() is None:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": "No Tuya credentials configured",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "No Tuya credentials configured",
+                    }
+                ),
+            )
             return
 
         act_cfg = self._act_cfg_ref.get()
         if not any(d.device_id == device_id for d in act_cfg.devices):
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": f"Device {device_id} not found in config",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"Device {device_id} not found in config",
+                    }
+                ),
+            )
             return
 
         if self._job_queue is None:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": "Deterrent worker unavailable",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "Deterrent worker unavailable",
+                    }
+                ),
+            )
             return
 
         # Shares the group test-fire's slot: both drive hardware through the
         # same worker, and refusing the second is better than queueing it
         # behind something the operator has stopped watching.
         if not self._in_flight.claim():
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": "A test-fire is already in progress",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "A test-fire is already in progress",
+                    }
+                ),
+            )
             return
 
         try:
             # Never a blocking put: see _handle_test_fire_group.
-            self._job_queue.put_nowait({
-                "__job": JOB_TEST_FIRE,
-                "device_id": device_id,
-                "duration_sec": duration,
-                "request_id": request_id,
-                "result_channel": result_channel,
-                # Must not outlive the caller's wait: see test_fire_timeout_sec.
-                "expires_at": time.monotonic() + test_fire_timeout_sec(),
-                # Stamped at enqueue, not read at execution. A force-off can
-                # land while this job is still queued behind a detection
-                # sequence; the worker compares against this and refuses,
-                # rather than turning the device back on after the panic
-                # button reported success.
-                "force_off_gen": self._force_off_latch.generation,
-            })
+            self._job_queue.put_nowait(
+                {
+                    "__job": JOB_TEST_FIRE,
+                    "device_id": device_id,
+                    "duration_sec": duration,
+                    "request_id": request_id,
+                    "result_channel": result_channel,
+                    # Must not outlive the caller's wait: see test_fire_timeout_sec.
+                    "expires_at": time.monotonic() + test_fire_timeout_sec(),
+                    # Stamped at enqueue, not read at execution. A force-off can
+                    # land while this job is still queued behind a detection
+                    # sequence; the worker compares against this and refuses,
+                    # rather than turning the device back on after the panic
+                    # button reported success.
+                    "force_off_gen": self._force_off_latch.generation,
+                }
+            )
         except queue.Full:
             self._in_flight.release()
-            client.publish(result_channel, json.dumps({
-                "ok": False,
-                "error": "Deterrent worker is saturated, try again shortly",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "Deterrent worker is saturated, try again shortly",
+                    }
+                ),
+            )
             return
 
         logger.info(
-            "Queued test-fire for device %s [rid=%s]", device_id, request_id,
+            "Queued test-fire for device %s [rid=%s]",
+            device_id,
+            request_id,
         )
 
     def _handle_test_fire_group(
@@ -407,9 +444,15 @@ class RequestHandler:
             return
 
         if self._job_queue is None:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": "Deterrent worker unavailable",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "Deterrent worker unavailable",
+                    }
+                ),
+            )
             return
 
         # One in flight at a time. Claimed here and released by the worker when
@@ -419,10 +462,15 @@ class RequestHandler:
         # arriving before the worker dequeues would all see a free lock and all
         # enqueue, which is exactly the stacking the guard exists to stop.
         if not self._in_flight.claim():
-            client.publish(result_channel, json.dumps({
-                "ok": False,
-                "error": "A test-fire is already in progress",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "A test-fire is already in progress",
+                    }
+                ),
+            )
             return
 
         try:
@@ -430,31 +478,40 @@ class RequestHandler:
             # is the sole consumer of the emergency force-off channel: blocking
             # here would make the panic button unanswerable, which is the whole
             # reason the sequence was moved off this thread in the first place.
-            self._job_queue.put_nowait({
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": group_name,
-                "request_id": request_id,
-                "result_channel": result_channel,
-                # The worker is FIFO and a detection sequence can hold it for
-                # minutes, so this job can outlive the caller's wait. Without
-                # an expiry the worker would dequeue it afterwards and fire
-                # real hardware with nobody watching, after the operator had
-                # already been told the request failed.
-                "expires_at": time.monotonic() + group_test_fire_timeout_sec(),
-                # See the single-device path: the generation belongs to the
-                # moment the operator pressed the button, not the moment the
-                # worker got around to it.
-                "force_off_gen": self._force_off_latch.generation,
-            })
+            self._job_queue.put_nowait(
+                {
+                    "__job": JOB_TEST_FIRE_GROUP,
+                    "group_name": group_name,
+                    "request_id": request_id,
+                    "result_channel": result_channel,
+                    # The worker is FIFO and a detection sequence can hold it for
+                    # minutes, so this job can outlive the caller's wait. Without
+                    # an expiry the worker would dequeue it afterwards and fire
+                    # real hardware with nobody watching, after the operator had
+                    # already been told the request failed.
+                    "expires_at": time.monotonic() + group_test_fire_timeout_sec(),
+                    # See the single-device path: the generation belongs to the
+                    # moment the operator pressed the button, not the moment the
+                    # worker got around to it.
+                    "force_off_gen": self._force_off_latch.generation,
+                }
+            )
         except queue.Full:
             self._in_flight.release()
-            client.publish(result_channel, json.dumps({
-                "ok": False,
-                "error": "Deterrent worker is saturated, try again shortly",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "Deterrent worker is saturated, try again shortly",
+                    }
+                ),
+            )
             return
         logger.info(
-            "Queued group test-fire for [%s] [rid=%s]", group_name, request_id,
+            "Queued group test-fire for [%s] [rid=%s]",
+            group_name,
+            request_id,
         )
 
     @staticmethod
@@ -516,7 +573,9 @@ class RequestHandler:
             client.publish("scarguard:deterrent:stuck", json.dumps(payload))
             logger.warning(
                 "Published stuck event for %s (%s) [rid=%s]",
-                device.name, device.device_id, request_id,
+                device.name,
+                device.device_id,
+                request_id,
             )
         except Exception:
             logger.exception("Failed to publish stuck event for %s", device.name)
@@ -545,9 +604,15 @@ class RequestHandler:
 
         controller = self._controller_ref.get()
         if controller is None:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": "No Tuya credentials configured",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "No Tuya credentials configured",
+                    }
+                ),
+            )
             return
 
         act_cfg = self._act_cfg_ref.get()
@@ -557,17 +622,21 @@ class RequestHandler:
         def switch_off(device: DeviceConfig) -> None:
             ok, err = controller.force_off(device, request_id=request_id)
             with results_lock:
-                results.append({
-                    "device_id": device.device_id,
-                    "name": device.name,
-                    "ok": ok,
-                    "error": err,
-                })
+                results.append(
+                    {
+                        "device_id": device.device_id,
+                        "name": device.name,
+                        "ok": ok,
+                        "error": err,
+                    }
+                )
 
         workers = [
             threading.Thread(
-                target=switch_off, args=(device,),
-                name=f"emergency-off-{device.device_id}", daemon=True,
+                target=switch_off,
+                args=(device,),
+                name=f"emergency-off-{device.device_id}",
+                daemon=True,
             )
             for device in act_cfg.devices
         ]
@@ -579,12 +648,19 @@ class RequestHandler:
 
         logger.warning(
             "Force-OFF executed [request_id=%s] - %d devices, any_failure=%s",
-            request_id, len(results), any_failure,
+            request_id,
+            len(results),
+            any_failure,
         )
-        client.publish(result_channel, json.dumps({
-            "ok": not any_failure,
-            "devices": results,
-        }))
+        client.publish(
+            result_channel,
+            json.dumps(
+                {
+                    "ok": not any_failure,
+                    "devices": results,
+                }
+            ),
+        )
 
     def _handle_status_request(
         self,
@@ -599,9 +675,15 @@ class RequestHandler:
 
         controller = self._controller_ref.get()
         if controller is None:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": "No Tuya credentials configured",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "No Tuya credentials configured",
+                    }
+                ),
+            )
             return
 
         act_cfg = self._act_cfg_ref.get()
@@ -627,13 +709,16 @@ class RequestHandler:
                 # the structured warning field. Put the safety warning in a
                 # rendered field too, while retaining the machine-readable key.
                 entry["name"] = f"{device.name} ⚠ STATUS UNKNOWN"
-                entry["warning"] = (
-                    "Device status unknown; physical OFF state is not verified"
-                )
+                entry["warning"] = "Device status unknown; physical OFF state is not verified"
             devices.append(entry)
 
-        client.publish(result_channel, json.dumps({
-            "ok": True,
-            "devices": devices,
-        }))
+        client.publish(
+            result_channel,
+            json.dumps(
+                {
+                    "ok": True,
+                    "devices": devices,
+                }
+            ),
+        )
         logger.info("Device status response sent (%d devices)", len(devices))

@@ -45,7 +45,9 @@ class BatteryMonitor:
             return
         self._shutdown.clear()
         self._thread = threading.Thread(
-            target=self._run, name="battery-monitor", daemon=True,
+            target=self._run,
+            name="battery-monitor",
+            daemon=True,
         )
         self._thread.start()
         logger.info("Battery monitor started")
@@ -98,7 +100,7 @@ class BatteryMonitor:
             "camera_name": f"deterrent:{device.name}",
             "snapshot_path": None,
             "message": (
-                f"Deterrent device \"{device.name}\" battery is at {battery}% "
+                f'Deterrent device "{device.name}" battery is at {battery}% '
                 f"(threshold: {threshold}%)"
             ),
         }
@@ -106,7 +108,9 @@ class BatteryMonitor:
             self._redis.publish("scarguard:detections", json.dumps(alert))
             logger.warning(
                 "Low battery alert: %s at %d%% (threshold %d%%)",
-                device.name, battery, threshold,
+                device.name,
+                battery,
+                threshold,
             )
         except Exception:
             logger.exception("Failed to publish battery alert for %s", device.name)

@@ -66,12 +66,7 @@ def group_test_fire_timeout_sec() -> float:
     to completion once started, and the inter-device wait the loop performs
     before it notices the window has closed.
     """
-    worst = (
-        MAX_PRE_DELAY_SEC
-        + MAX_GROUP_TEST_FIRE_SEC
-        + MAX_ACTUATION_SEC
-        + MAX_INTER_DELAY_SEC
-    )
+    worst = MAX_PRE_DELAY_SEC + MAX_GROUP_TEST_FIRE_SEC + MAX_ACTUATION_SEC + MAX_INTER_DELAY_SEC
     return worst * 1.2
 
 
@@ -101,9 +96,7 @@ CLOUD_CALL_TIMEOUT_SEC: float = 2.0
 # Emergency handlers and lifecycle sweeps parallelise devices, so this bound
 # does not grow with the configured device count.
 EMERGENCY_OFF_BOUND_SEC: float = (
-    CLOUD_CALL_TIMEOUT_SEC * (1 + len(OFF_RETRY_BACKOFF_SEC))
-    + sum(OFF_RETRY_BACKOFF_SEC)
-    + 1.0
+    CLOUD_CALL_TIMEOUT_SEC * (1 + len(OFF_RETRY_BACKOFF_SEC)) + sum(OFF_RETRY_BACKOFF_SEC) + 1.0
 )
 
 # Compose must leave enough time for a complete bounded shutdown sweep and a

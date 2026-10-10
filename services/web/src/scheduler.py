@@ -118,6 +118,7 @@ def transitions_between(
     transitions.sort()
     return transitions
 
+
 class ArmScheduler:
     def __init__(self) -> None:
         self._thread: threading.Thread | None = None
@@ -128,9 +129,7 @@ class ArmScheduler:
     def start(self) -> None:
         self._stop_event.clear()
         self._last_tick = datetime.now(timezone.utc)
-        self._thread = threading.Thread(
-            target=self._run, name="arm-scheduler", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name="arm-scheduler", daemon=True)
         self._thread.start()
         logger.info("Web Arm scheduler started")
 
@@ -176,9 +175,7 @@ class ArmScheduler:
         if latitude is None or longitude is None:
             return []
 
-        sunrise_utc, sunset_utc = _compute_solar_transitions(
-            start, latitude, longitude, tz
-        )
+        sunrise_utc, sunset_utc = _compute_solar_transitions(start, latitude, longitude, tz)
         transitions: list[tuple[datetime, bool]] = []
 
         if sunrise_utc is not None and start <= sunrise_utc <= end:
@@ -280,7 +277,7 @@ class ArmScheduler:
                     db,
                     action="rearm.auto",
                     username="system",
-                    details="Auto-rearm triggered by scheduler expiration"
+                    details="Auto-rearm triggered by scheduler expiration",
                 )
             finally:
                 db.close()

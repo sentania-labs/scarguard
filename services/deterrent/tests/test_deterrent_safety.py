@@ -78,12 +78,15 @@ class TestSafetyConstants:
         assert MIN_ACTUATION_SEC >= 0.1
 
 
-@pytest.mark.parametrize("hostile", [
-    1e9,         # one billion seconds (~31 years)
-    86400.0,     # one day
-    3600.0,      # one hour
-    61.0,        # 61 seconds - one second past MAX_ACTUATION_SEC
-])
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        1e9,  # one billion seconds (~31 years)
+        86400.0,  # one day
+        3600.0,  # one hour
+        61.0,  # 61 seconds - one second past MAX_ACTUATION_SEC
+    ],
+)
 def test_hostile_inputs_are_bounded_to_max_actuation(hostile: float) -> None:
     """Whatever the layer, the absolute ceiling is MAX_ACTUATION_SEC."""
     out = clamp_duration(hostile, max_sec=MAX_ACTUATION_SEC, default=3.0)

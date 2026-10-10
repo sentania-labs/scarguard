@@ -53,11 +53,13 @@ class TestClassesEndpoint:
     def test_happy_path(self, client, sample_models):
         with patch(
             "routes.models._fetch_model_classes_via_redis",
-            new=AsyncMock(return_value={
-                "ok": True,
-                "classes": ["person", "bird", "cat"],
-                "warning": None,
-            }),
+            new=AsyncMock(
+                return_value={
+                    "ok": True,
+                    "classes": ["person", "bird", "cat"],
+                    "warning": None,
+                }
+            ),
         ):
             resp = client.get("/models/yolov8n.pt/classes")
         assert resp.status_code == 200
@@ -69,11 +71,13 @@ class TestClassesEndpoint:
     def test_engine_no_names_returns_warning(self, client, sample_models):
         with patch(
             "routes.models._fetch_model_classes_via_redis",
-            new=AsyncMock(return_value={
-                "ok": True,
-                "classes": [],
-                "warning": "Class names not embedded in this .engine file",
-            }),
+            new=AsyncMock(
+                return_value={
+                    "ok": True,
+                    "classes": [],
+                    "warning": "Class names not embedded in this .engine file",
+                }
+            ),
         ):
             resp = client.get("/models/heron.engine/classes")
         assert resp.status_code == 200
@@ -85,10 +89,12 @@ class TestClassesEndpoint:
     def test_detector_timeout_surfaces_error(self, client, sample_models):
         with patch(
             "routes.models._fetch_model_classes_via_redis",
-            new=AsyncMock(return_value={
-                "ok": False,
-                "error": "Request timed out",
-            }),
+            new=AsyncMock(
+                return_value={
+                    "ok": False,
+                    "error": "Request timed out",
+                }
+            ),
         ):
             resp = client.get("/models/yolov8n.pt/classes")
         # Endpoint still returns 200 with ok:false so the client JS can render
@@ -98,6 +104,7 @@ class TestClassesEndpoint:
 
     def test_redis_raises_returns_structured_error(self, client, sample_models):
         from routes import models as models_mod
+
         models_mod._classes_cache.clear()
 
         async def _boom(*_a, **_kw):
@@ -115,11 +122,16 @@ class TestClassesEndpoint:
     def test_second_call_uses_cache(self, client, sample_models):
         # Clear the module-level cache so the first call populates it
         from routes import models as models_mod
+
         models_mod._classes_cache.clear()
 
-        fetch = AsyncMock(return_value={
-            "ok": True, "classes": ["x", "y"], "warning": None,
-        })
+        fetch = AsyncMock(
+            return_value={
+                "ok": True,
+                "classes": ["x", "y"],
+                "warning": None,
+            }
+        )
         with patch("routes.models._fetch_model_classes_via_redis", new=fetch):
             first = client.get("/models/yolov8n.pt/classes").json()
             second = client.get("/models/yolov8n.pt/classes").json()
@@ -131,18 +143,27 @@ class TestClassesEndpoint:
 
     def test_cache_invalidates_on_mtime_change(self, client, sample_models):
         from routes import models as models_mod
+
         models_mod._classes_cache.clear()
 
-        fetch = AsyncMock(return_value={
-            "ok": True, "classes": ["x"], "warning": None,
-        })
+        fetch = AsyncMock(
+            return_value={
+                "ok": True,
+                "classes": ["x"],
+                "warning": None,
+            }
+        )
         with patch("routes.models._fetch_model_classes_via_redis", new=fetch):
             client.get("/models/yolov8n.pt/classes")
         # Bump mtime
         os.utime(str(sample_models["pt"]), (1000, 1000))
-        fetch2 = AsyncMock(return_value={
-            "ok": True, "classes": ["y"], "warning": None,
-        })
+        fetch2 = AsyncMock(
+            return_value={
+                "ok": True,
+                "classes": ["y"],
+                "warning": None,
+            }
+        )
         with patch("routes.models._fetch_model_classes_via_redis", new=fetch2):
             resp = client.get("/models/yolov8n.pt/classes")
         assert resp.json()["classes"] == ["y"]

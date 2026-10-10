@@ -64,6 +64,7 @@ def test_expire_set_on_first_hit(fake_redis: MagicMock) -> None:
 
 def test_fail_open_on_redis_error(fake_redis: MagicMock) -> None:
     import redis as redis_lib
+
     fake_redis.incr.side_effect = redis_lib.RedisError("boom")
     limiter = RateLimiter(fake_redis)
     allowed, _ = limiter.check("user:1", "s", capacity=5, window_seconds=60)

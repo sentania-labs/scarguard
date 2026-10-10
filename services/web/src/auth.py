@@ -138,12 +138,8 @@ def _migrate_add_role_column(conn: sqlite3.Connection) -> None:
     if "role" in cols:
         return
     try:
-        conn.execute(
-            "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'"
-        )
-        conn.execute(
-            "UPDATE users SET role = CASE WHEN is_admin THEN 'admin' ELSE 'user' END"
-        )
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+        conn.execute("UPDATE users SET role = CASE WHEN is_admin THEN 'admin' ELSE 'user' END")
         _log.info("Migrated users table: added 'role' column and backfilled from is_admin")
     except sqlite3.Error as exc:
         _log.warning("Failed to add role column to users table: %s", exc)
@@ -158,15 +154,14 @@ def users_exist(db_path: str = AUTH_DB_PATH) -> bool:
     """Return True if at least one non-disabled user exists."""
     conn = _connect(db_path)
     try:
-        row = conn.execute(
-            "SELECT 1 FROM users WHERE disabled=0 LIMIT 1"
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM users WHERE disabled=0 LIMIT 1").fetchone()
         return row is not None
     finally:
         conn.close()
 
 
 # ── Passwords ───────────────────────────────────────────────────────────────
+
 
 def _prehash(password: str) -> bytes:
     """SHA-256 pre-hash so bcrypt's 72-byte limit never truncates passwords."""
@@ -190,6 +185,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 # ── Users ───────────────────────────────────────────────────────────────────
+
 
 def create_user(
     db: sqlite3.Connection,
@@ -359,6 +355,7 @@ def delete_user(db: sqlite3.Connection, user_id: int) -> None:
 
 # ── Sessions ─────────────────────────────────────────────────────────────────
 
+
 def _hash_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
@@ -381,9 +378,7 @@ def create_session(
     return raw
 
 
-def validate_session(
-    db: sqlite3.Connection, raw_token: str
-) -> dict[str, Any] | None:
+def validate_session(db: sqlite3.Connection, raw_token: str) -> dict[str, Any] | None:
     """Validate a raw session token. Returns the user dict if valid, else None.
 
     The returned dict carries ``role`` (v0.12.7+) alongside the legacy
@@ -402,14 +397,15 @@ def validate_session(
     return dict(row) if row else None
 
 
-
 def revoke_all_sessions(db: sqlite3.Connection, user_id: int) -> None:
     db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
     db.commit()
 
+
 def revoke_all_api_tokens(db: sqlite3.Connection, user_id: int) -> None:
     db.execute("DELETE FROM api_tokens WHERE user_id=?", (user_id,))
     db.commit()
+
 
 def delete_session(db: sqlite3.Connection, raw_token: str) -> None:
     token_hash = _hash_token(raw_token)
@@ -424,6 +420,7 @@ def purge_expired_sessions(db: sqlite3.Connection) -> None:
 
 
 # ── API Tokens ───────────────────────────────────────────────────────────────
+
 
 def create_api_token(db: sqlite3.Connection, user_id: int, name: str) -> str:
     """Create an API token and return the raw token (shown to user once only)."""
@@ -500,6 +497,7 @@ def delete_api_token(db: sqlite3.Connection, token_id: int) -> None:
 
 # ── Rate limiting / lockout ──────────────────────────────────────────────────
 
+
 def check_lockout(
     db: sqlite3.Connection,
     username: str,
@@ -548,6 +546,7 @@ def record_attempt(
 
 # ── Time helpers ─────────────────────────────────────────────────────────────
 
+
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -561,6 +560,7 @@ def _utcnow_minus(hours: int = 0, minutes: int = 0) -> str:
 
 
 # ── CLI entrypoint (used by setup.sh) ────────────────────────────────────────
+
 
 def _cli_create_admin(username: str, password: str) -> None:
     if len(password) < 8:

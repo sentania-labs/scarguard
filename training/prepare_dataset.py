@@ -109,9 +109,7 @@ def set_active_classes(classes: list[str]) -> None:
     """Set the active class list (model index order) and filter OID labels."""
     UNIFIED_CLASSES[:] = classes
     OID_CLASSES.clear()
-    OID_CLASSES.update(
-        {mid: cls for mid, cls in OID_ALL_CLASSES.items() if cls in classes}
-    )
+    OID_CLASSES.update({mid: cls for mid, cls in OID_ALL_CLASSES.items() if cls in classes})
     print(f"Active classes ({len(classes)}): {classes}")
     known = set(CLASS_MAP.values()) | set(OID_ALL_CLASSES.values())
     for cls in classes:
@@ -120,6 +118,7 @@ def set_active_classes(classes: list[str]) -> None:
                 f"  WARNING: class '{cls}' has no CLASS_MAP aliases and no "
                 f"Open Images coverage - only exact-name labels will match"
             )
+
 
 OID_ANNOTATIONS = {
     "train": "https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-bbox.csv",
@@ -142,76 +141,98 @@ def _parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
-        "--orin-host", default="scott@orin",
+        "--orin-host",
+        default="scott@orin",
         help="SSH target for pulling ScarGuard data",
     )
     p.add_argument(
-        "--orin-container", default="",
+        "--orin-container",
+        default="",
         help="Web container name on Orin (auto-detected if empty)",
     )
     p.add_argument(
-        "--scarguard-zip", default="",
+        "--scarguard-zip",
+        default="",
         help="Pre-downloaded ScarGuard export zip (skips SSH pull)",
     )
     p.add_argument(
-        "--roboflow-key", default="",
-        help="Roboflow API key for downloading Universe datasets",
+        "--roboflow-key-file",
+        default="",
+        help="Roboflow API key file for downloading Universe datasets",
     )
     p.add_argument(
-        "--output", default="./merged_dataset",
+        "--output",
+        default="./merged_dataset",
         help="Output directory for the merged dataset",
     )
     p.add_argument(
-        "--val-split", type=float, default=0.15,
+        "--val-split",
+        type=float,
+        default=0.15,
         help="Fraction of images held out for validation",
     )
     p.add_argument("--seed", type=int, default=42, help="Random seed for split")
     p.add_argument(
-        "--skip-orin", action="store_true",
+        "--skip-orin",
+        action="store_true",
         help="Skip pulling from Orin",
     )
     p.add_argument(
-        "--skip-roboflow", action="store_true",
+        "--skip-roboflow",
+        action="store_true",
         help="Skip Roboflow downloads",
     )
     p.add_argument(
-        "--skip-oid", action="store_true",
+        "--skip-oid",
+        action="store_true",
         help="Skip Open Images downloads",
     )
     p.add_argument(
-        "--max-oid-per-class", type=int, default=1500,
+        "--max-oid-per-class",
+        type=int,
+        default=1500,
         help="Cap Open Images images per class to keep dataset balanced",
     )
     p.add_argument(
-        "--oid-workers", type=int, default=16,
+        "--oid-workers",
+        type=int,
+        default=16,
         help="Parallel download threads for Open Images",
     )
     p.add_argument(
-        "--local-db", default="",
+        "--local-db",
+        default="",
         help="Path to local scarguard.db (replaces SSH pull when running on Orin)",
     )
     p.add_argument(
-        "--local-snapshots", default="",
+        "--local-snapshots",
+        default="",
         help="Snapshot directory for local DB mode",
     )
     p.add_argument(
-        "--training-uploads-db", default="",
+        "--training-uploads-db",
+        default="",
         help="Path to DB with training_events table (video upload annotations)",
     )
     p.add_argument(
-        "--training-uploads-frames", default="",
+        "--training-uploads-frames",
+        default="",
         help="Root frames directory for training uploads",
     )
     p.add_argument(
-        "--skip-training-uploads", action="store_true",
+        "--skip-training-uploads",
+        action="store_true",
         help="Skip training uploads source",
     )
     p.add_argument(
-        "--background-sample-interval", type=int, default=10,
+        "--background-sample-interval",
+        type=int,
+        default=10,
         help="Export every Nth frame from background uploads as negative sample",
     )
     p.add_argument(
-        "--classes", default=",".join(DEFAULT_CLASSES),
+        "--classes",
+        default=",".join(DEFAULT_CLASSES),
         help="Comma-separated ordered class list; order defines model class indices",
     )
     return p.parse_args()
@@ -249,7 +270,9 @@ def _resolve_class(name: str) -> str | None:
 def _ssh(host: str, cmd: str, *, timeout: int = 120) -> str:
     r = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, cmd],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     if r.returncode != 0:
         raise RuntimeError(f"SSH failed: {cmd}\n  stderr: {r.stderr.strip()}")
@@ -265,13 +288,14 @@ def _scp(src: str, dst: str, *, timeout: int = 300) -> None:
 
 def _pull_orin_ssh(host: str, container: str, work_dir: Path) -> list[Sample]:
     """Pull ScarGuard training data from the Orin via SSH + docker cp."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Pulling ScarGuard data from {host}")
     print("=" * 60)
 
     if not container:
         container = _ssh(
-            host, "docker ps --format '{{.Names}}' | grep -i web | head -1",
+            host,
+            "docker ps --format '{{.Names}}' | grep -i web | head -1",
         )
     if not container:
         print("  ERROR: Could not find web container on Orin", file=sys.stderr)
@@ -321,17 +345,22 @@ def _pull_orin_ssh(host: str, container: str, work_dir: Path) -> list[Sample]:
     snap_dir.mkdir()
     result = subprocess.run(
         [
-            "ssh", "-o", "BatchMode=yes", host,
+            "ssh",
+            "-o",
+            "BatchMode=yes",
+            host,
             f"cd {remote_tmp}/snapshots && tar cf - -T {remote_tmp}/needed.txt 2>/dev/null",
         ],
-        capture_output=True, timeout=600,
+        capture_output=True,
+        timeout=600,
     )
     if result.stdout:
         tar_path = work_dir / "snapshots.tar"
         tar_path.write_bytes(result.stdout)
         subprocess.run(
             ["tar", "xf", str(tar_path), "-C", str(snap_dir)],
-            check=True, capture_output=True,
+            check=True,
+            capture_output=True,
         )
         print(f"  Snapshots: {tar_path.stat().st_size / 1_048_576:.1f} MB")
     else:
@@ -347,7 +376,7 @@ def _pull_orin_zip(zip_path: Path, work_dir: Path) -> list[Sample]:
 
     import yaml
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Loading ScarGuard export from {zip_path}")
     print("=" * 60)
 
@@ -466,7 +495,9 @@ def pull_training_uploads(
         # corrected_bboxes is additive (added in v1.16+); SELECT it via a
         # tolerant query that falls back if the column is missing.
         cols = {row[1] for row in conn.execute("PRAGMA table_info(training_events)").fetchall()}
-        bboxes_col = "te.corrected_bboxes" if "corrected_bboxes" in cols else "NULL AS corrected_bboxes"
+        bboxes_col = (
+            "te.corrected_bboxes" if "corrected_bboxes" in cols else "NULL AS corrected_bboxes"
+        )
         events = conn.execute(f"""
             SELECT te.id, te.upload_id, te.frame_idx, te.bbox,
                    te.predicted_class, te.confidence, te.review_state,
@@ -489,13 +520,16 @@ def pull_training_uploads(
 
     # Positive samples: group by (upload_id, frame_idx) for multi-detection labels
     from collections import defaultdict
+
     frame_labels: dict[tuple[str, int], list[str]] = defaultdict(list)
     frame_paths: dict[tuple[str, int], Path] = {}
 
     for r in events:
         row = dict(r)
         key = (row["upload_id"], row["frame_idx"])
-        frame_paths[key] = Path(frames_dir) / row["upload_id"] / "frames" / f"{row['frame_idx']:06d}.jpg"
+        frame_paths[key] = (
+            Path(frames_dir) / row["upload_id"] / "frames" / f"{row['frame_idx']:06d}.jpg"
+        )
 
         # Human-drawn replacement boxes override the detector entirely:
         # one or more {cls, bbox} entries replace the original prediction.
@@ -517,7 +551,9 @@ def pull_training_uploads(
                     continue
                 target = _resolve_class(cls_name)
                 if target is None:
-                    print(f"    WARNING: Unmapped re-label class '{cls_name}' in training_event {row['id']}")
+                    print(
+                        f"    WARNING: Unmapped re-label class '{cls_name}' in training_event {row['id']}"
+                    )
                     skipped += 1
                     continue
                 cls_idx = UNIFIED_CLASSES.index(target)
@@ -525,7 +561,11 @@ def pull_training_uploads(
                 frame_labels[key].append(line)
             continue
 
-        cls = row["corrected_class"] if row["review_state"] == "corrected" and row.get("corrected_class") else row["predicted_class"]
+        cls = (
+            row["corrected_class"]
+            if row["review_state"] == "corrected" and row.get("corrected_class")
+            else row["predicted_class"]
+        )
         target = _resolve_class(cls)
         if target is None:
             print(f"    WARNING: Unmapped class '{cls}' in training_event {row['id']}")
@@ -579,7 +619,7 @@ def pull_roboflow(api_key: str, work_dir: Path) -> list[Sample]:
 
     import yaml
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Downloading Roboflow datasets")
     print("=" * 60)
 
@@ -653,7 +693,7 @@ def pull_open_images(
         print("\nOpen Images: no active classes have OID coverage - skipping")
         return []
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Downloading Open Images ({', '.join(active)})")
     print("=" * 60)
 
@@ -701,13 +741,15 @@ def pull_open_images(
                     "bboxes": [],
                 }
 
-            image_data[img_id]["bboxes"].append({
-                "class": target_cls,
-                "xmin": float(parts[xmin_col]),
-                "xmax": float(parts[xmax_col]),
-                "ymin": float(parts[ymin_col]),
-                "ymax": float(parts[ymax_col]),
-            })
+            image_data[img_id]["bboxes"].append(
+                {
+                    "class": target_cls,
+                    "xmin": float(parts[xmin_col]),
+                    "xmax": float(parts[xmax_col]),
+                    "ymin": float(parts[ymin_col]),
+                    "ymax": float(parts[ymax_col]),
+                }
+            )
             row_count += 1
             if row_count % 5_000_000 == 0:
                 counts = "  ".join(
@@ -776,9 +818,7 @@ def pull_open_images(
             y_center = (ymin + ymax) / 2
             width = xmax - xmin
             height = ymax - ymin
-            lines.append(
-                f"{cls_idx} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}"
-            )
+            lines.append(f"{cls_idx} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
         samples.append(Sample(image=img_path, label_lines=lines, source="open-images"))
 
     print(f"  {len(samples)} samples ready")
@@ -851,7 +891,7 @@ def merge_and_split(
 ) -> None:
     """Write a unified YOLO dataset with a randomised train/val split."""
     output_dir = output_dir.resolve()
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Merging {len(samples)} samples")
     print("=" * 60)
 
@@ -940,8 +980,8 @@ def main() -> None:
         sys.exit(1)
     set_active_classes(classes)
 
-    if not args.skip_roboflow and not args.roboflow_key:
-        print("ERROR: --roboflow-key is required (or use --skip-roboflow)", file=sys.stderr)
+    if not args.skip_roboflow and not args.roboflow_key_file:
+        print("ERROR: --roboflow-key-file is required (or use --skip-roboflow)", file=sys.stderr)
         sys.exit(1)
 
     with tempfile.TemporaryDirectory(prefix="sg_train_") as tmp:
@@ -950,7 +990,9 @@ def main() -> None:
 
         if not args.skip_orin:
             if args.local_db:
-                samples.extend(_pull_orin_local(args.local_db, args.local_snapshots or "/data/snapshots"))
+                samples.extend(
+                    _pull_orin_local(args.local_db, args.local_snapshots or "/data/snapshots")
+                )
             elif args.scarguard_zip:
                 samples.extend(_pull_orin_zip(Path(args.scarguard_zip), work_dir))
             else:
@@ -959,7 +1001,9 @@ def main() -> None:
                 )
 
         if not args.skip_roboflow:
-            samples.extend(pull_roboflow(args.roboflow_key, work_dir))
+            with open(args.roboflow_key_file) as f:
+                rf_key = f.read().strip()
+            samples.extend(pull_roboflow(rf_key, work_dir))
 
         if not args.skip_oid:
             samples.extend(

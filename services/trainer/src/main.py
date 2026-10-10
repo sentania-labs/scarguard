@@ -34,9 +34,21 @@ JOB_NOTIFY_CHANNEL = "scarguard:training:job:notify"
 POLL_INTERVAL = 30
 
 
+def _decrypt_secrets(cfg: dict) -> None:
+    import secret_box
+
+    key = secret_box.try_load_key()
+    if key:
+        secret_box.decrypt_in_place(cfg, key)
+    elif secret_box.has_encrypted_secrets(cfg):
+        logger.error("Failed to decrypt trainer secrets - wrong key on disk?")
+
+
 def _load_config() -> dict:
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f) or {}
+        cfg = yaml.safe_load(f) or {}
+    _decrypt_secrets(cfg)
+    return cfg
 
 
 def _connect_db() -> sqlite3.Connection:

@@ -179,8 +179,12 @@ def get_latency_summary(last_n: int = 100) -> dict[str, Any]:
         out["count"] = len(rows)
         event_ids = [r["id"] for r in rows]
 
-        trig = sorted(float(r["trigger_delay_ms"]) for r in rows if r["trigger_delay_ms"] is not None)
-        dur = sorted(float(r["total_duration_sec"]) for r in rows if r["total_duration_sec"] is not None)
+        trig = sorted(
+            float(r["trigger_delay_ms"]) for r in rows if r["trigger_delay_ms"] is not None
+        )
+        dur = sorted(
+            float(r["total_duration_sec"]) for r in rows if r["total_duration_sec"] is not None
+        )
 
         placeholders = ",".join("?" * len(event_ids))
         ack_rows = conn.execute(
@@ -191,13 +195,16 @@ def get_latency_summary(last_n: int = 100) -> dict[str, Any]:
         ack = sorted(float(r["cloud_ack_ms"]) for r in ack_rows)
 
         out["trigger_delay_ms"] = {
-            "p50": _percentile(trig, 0.50), "p95": _percentile(trig, 0.95),
+            "p50": _percentile(trig, 0.50),
+            "p95": _percentile(trig, 0.95),
         }
         out["cloud_ack_ms"] = {
-            "p50": _percentile(ack, 0.50), "p95": _percentile(ack, 0.95),
+            "p50": _percentile(ack, 0.50),
+            "p95": _percentile(ack, 0.95),
         }
         out["total_duration_sec"] = {
-            "p50": _percentile(dur, 0.50), "p95": _percentile(dur, 0.95),
+            "p50": _percentile(dur, 0.50),
+            "p95": _percentile(dur, 0.95),
         }
         return out
     except Exception:

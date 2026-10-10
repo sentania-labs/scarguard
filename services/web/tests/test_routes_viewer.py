@@ -147,6 +147,7 @@ def _as(client, role: str):
 
 # ── Anonymous / unauthenticated ───────────────────────────────────────────────
 
+
 class TestAnonymous:
     def test_dashboard_redirects_to_login(self, auth_client):
         _as(auth_client, "")
@@ -161,6 +162,7 @@ class TestAnonymous:
 
 
 # ── Regular "user" role ───────────────────────────────────────────────────────
+
 
 class TestUserRole:
     def test_user_can_see_dashboard(self, auth_client):
@@ -201,6 +203,7 @@ class TestUserRole:
 
 
 # ── Viewer (read-only admin) ──────────────────────────────────────────────────
+
 
 class TestViewerRole:
     def test_viewer_dashboard(self, auth_client):
@@ -305,6 +308,7 @@ class TestViewerRole:
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
 
+
 class TestAdminRole:
     def test_admin_sees_everything(self, auth_client):
         _as(auth_client, "admin")
@@ -340,26 +344,43 @@ class TestEventFeedbackAccess:
 
     def test_viewer_cannot_batch_review(self, auth_client: Any) -> None:
         _as(auth_client, "viewer")
-        result = auth_client.post('/events/feedback/batch', json={
-            'event_ids': [1], 'feedback': 'correct',
-        })
+        result = auth_client.post(
+            "/events/feedback/batch",
+            json={
+                "event_ids": [1],
+                "feedback": "correct",
+            },
+        )
         assert result.status_code == 403
 
     def test_viewer_cannot_review_single_event(self, auth_client: Any) -> None:
         _as(auth_client, "viewer")
-        assert auth_client.post('/events/1/feedback', data={'feedback': 'correct'}).status_code == 403
+        assert (
+            auth_client.post("/events/1/feedback", data={"feedback": "correct"}).status_code == 403
+        )
 
     def test_anonymous_cannot_batch_review(self, auth_client: Any) -> None:
         _as(auth_client, "")
-        result = auth_client.post('/events/feedback/batch', json={
-            'event_ids': [1], 'feedback': 'correct',
-        }, follow_redirects=False)
+        result = auth_client.post(
+            "/events/feedback/batch",
+            json={
+                "event_ids": [1],
+                "feedback": "correct",
+            },
+            follow_redirects=False,
+        )
         assert result.status_code == 302
 
-    def test_regular_user_can_batch_review(self, auth_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_regular_user_can_batch_review(
+        self, auth_client: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _as(auth_client, "user")
-        monkeypatch.setattr('db.update_feedback_batch', lambda *args: True)
-        result = auth_client.post('/events/feedback/batch', json={
-            'event_ids': [1], 'feedback': 'correct',
-        })
+        monkeypatch.setattr("db.update_feedback_batch", lambda *args: True)
+        result = auth_client.post(
+            "/events/feedback/batch",
+            json={
+                "event_ids": [1],
+                "feedback": "correct",
+            },
+        )
         assert result.status_code == 200

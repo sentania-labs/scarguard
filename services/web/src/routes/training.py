@@ -56,24 +56,29 @@ async def training_dashboard(
     # positives are tracked separately - they become background samples in
     # the export, not labeled instances.
     by_class = stats["by_class"]
-    max_positive = max(
-        (v["correct"] + v["wrong_class"] for v in by_class.values()),
-        default=1,
-    ) or 1
+    max_positive = (
+        max(
+            (v["correct"] + v["wrong_class"] for v in by_class.values()),
+            default=1,
+        )
+        or 1
+    )
 
     class_chart: list[dict] = []
     for cls_name, counts in sorted(by_class.items()):
         positive = counts["correct"] + counts["wrong_class"]
-        class_chart.append({
-            "name": cls_name.replace("_", " ").title(),
-            "raw_name": cls_name,
-            "correct": counts["correct"],
-            "false_positive": counts["false_positive"],
-            "wrong_class": counts["wrong_class"],
-            "positive": positive,
-            "bar_pct": (positive / max_positive) * 100,
-            "low_data": positive < 500,
-        })
+        class_chart.append(
+            {
+                "name": cls_name.replace("_", " ").title(),
+                "raw_name": cls_name,
+                "correct": counts["correct"],
+                "false_positive": counts["false_positive"],
+                "wrong_class": counts["wrong_class"],
+                "positive": positive,
+                "bar_pct": (positive / max_positive) * 100,
+                "low_data": positive < 500,
+            }
+        )
 
     # Count exportable events (correct + wrong_class with bbox + false_positive
     # as background samples)
@@ -134,12 +139,14 @@ async def export_dataset(
         # the export instead of returning a degenerate zip the user
         # would only discover at training time.
         return StreamingResponse(
-            iter([
-                b"No positive labels in the selected range. "
-                b"Exports require at least one Correct or Wrong-Class "
-                b"event with a bounding box; false positives alone are "
-                b"not a trainable dataset.",
-            ]),
+            iter(
+                [
+                    b"No positive labels in the selected range. "
+                    b"Exports require at least one Correct or Wrong-Class "
+                    b"event with a bounding box; false positives alone are "
+                    b"not a trainable dataset.",
+                ]
+            ),
             media_type="text/plain",
             status_code=404,
         )
@@ -180,10 +187,16 @@ async def export_dataset(
             # If the user drew a corrected bbox, prefer it over the original.
             raw_corrected = row.get("corrected_bbox")
             if raw_corrected:
-                bbox = json.loads(raw_corrected) if isinstance(raw_corrected, str) else raw_corrected
+                bbox = (
+                    json.loads(raw_corrected) if isinstance(raw_corrected, str) else raw_corrected
+                )
             else:
                 bbox = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
-            frame_size = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
+            frame_size = (
+                json.loads(row["frame_size"])
+                if isinstance(row["frame_size"], str)
+                else row["frame_size"]
+            )
             class_idx = class_to_idx[_effective_class(row)]
             x1, y1, x2, y2 = bbox
             fw, fh = frame_size
@@ -287,7 +300,9 @@ async def start_evaluation(
 
     # Resolve model paths - validate against directory listing to avoid
     # path traversal (CodeQL py/path-injection).
-    allowed = {f.name for f in MODELS_DIR.iterdir() if f.is_file()} if MODELS_DIR.is_dir() else set()
+    allowed = (
+        {f.name for f in MODELS_DIR.iterdir() if f.is_file()} if MODELS_DIR.is_dir() else set()
+    )
     for raw_name in (model_a, model_b):
         if not raw_name:
             continue
@@ -315,7 +330,12 @@ async def start_evaluation(
     else:
         publish_data = json.dumps(eval_request)
 
-    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+    client = aioredis.Redis(
+        host=host,
+        port=port,
+        password=os.environ.get("REDIS_PASSWORD", "") or None,
+        decode_responses=True,
+    )
     try:
         await client.publish(EVAL_REQUEST_CHANNEL, publish_data)
     finally:
@@ -344,7 +364,12 @@ async def evaluate_stream(request: Request) -> Response:
     max_poll_seconds = 600  # 10-minute timeout
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+        client = aioredis.Redis(
+            host=host,
+            port=port,
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
         try:
             yield ": connected\n\n"
             elapsed = 0.0

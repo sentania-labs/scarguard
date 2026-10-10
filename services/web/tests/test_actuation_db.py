@@ -1,5 +1,6 @@
 """Tests for services/web/src/actuation_db.py (read-only view of
 deterrent SQLite)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -66,11 +67,10 @@ def _insert_event(
         " pre_delay_sec, total_duration_sec, device_count, success_count, "
         " group_name, trigger_delay_ms, queue_depth) "
         "VALUES (?, 'bird', 'pond', 0.9, 0.0, ?, ?, ?, 'g', ?, 0)",
-        (ts, total_duration_sec, len(actions or []), len(actions or []),
-         trigger_delay_ms),
+        (ts, total_duration_sec, len(actions or []), len(actions or []), trigger_delay_ms),
     )
     event_id = cur.lastrowid
-    for name, ack in (actions or []):
+    for name, ack in actions or []:
         conn.execute(
             "INSERT INTO device_actions "
             "(event_id, device_name, device_id, device_type, duration_sec, "

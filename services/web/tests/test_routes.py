@@ -28,13 +28,17 @@ class TestDashboard:
 
     def test_disarm_calls_set_armed(self, client, monkeypatch):
         calls = []
-        monkeypatch.setattr("config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed")))
+        monkeypatch.setattr(
+            "config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed"))
+        )
         client.post("/disarm")
         assert calls == [False]
 
     def test_arm_calls_set_armed(self, client, monkeypatch):
         calls = []
-        monkeypatch.setattr("config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed")))
+        monkeypatch.setattr(
+            "config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed"))
+        )
         client.post("/arm")
         assert calls == [True]
 
@@ -108,7 +112,12 @@ class TestConfig:
         cfg = {
             "system": {"armed": False, "log_level": "debug"},
             "cameras": [
-                {"name": "pond-north", "rtsp_url": "rtsp://localhost/test", "enabled": True, "resolution": 720}
+                {
+                    "name": "pond-north",
+                    "rtsp_url": "rtsp://localhost/test",
+                    "enabled": True,
+                    "resolution": 720,
+                }
             ],
             "detection": {
                 "model_path": "/models/custom.pt",
@@ -118,8 +127,21 @@ class TestConfig:
                 "frame_skip": 2,
             },
             "notifications": {
-                "discord": {"enabled": True, "webhook_url": "https://discord.com/api/webhooks/test", "mention_role": "", "include_snapshot": True},
-                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+                "discord": {
+                    "enabled": True,
+                    "webhook_url": "https://discord.com/api/webhooks/test",
+                    "mention_role": "",
+                    "include_snapshot": True,
+                },
+                "email": {
+                    "enabled": False,
+                    "smtp_host": "",
+                    "smtp_port": 587,
+                    "smtp_user": "",
+                    "smtp_pass": "",
+                    "to_addresses": [],
+                    "include_snapshot": True,
+                },
             },
         }
         monkeypatch.setattr("config_store.load", lambda: cfg)
@@ -139,7 +161,12 @@ class TestConfig:
         cfg = {
             "system": {"armed": True, "log_level": "warning"},
             "cameras": [
-                {"name": "", "rtsp_url": "rtsp://localhost/bad", "enabled": True, "resolution": 720},
+                {
+                    "name": "",
+                    "rtsp_url": "rtsp://localhost/bad",
+                    "enabled": True,
+                    "resolution": 720,
+                },
             ],
             "detection": {
                 "model_path": "/models/best.pt",
@@ -207,7 +234,12 @@ class TestConfig:
         payload = {
             "system": {"armed": True, "log_level": "info"},
             "cameras": [
-                {"name": "pond-north", "rtsp_url": "rtsp://localhost/test", "enabled": True, "resolution": 720}
+                {
+                    "name": "pond-north",
+                    "rtsp_url": "rtsp://localhost/test",
+                    "enabled": True,
+                    "resolution": 720,
+                }
             ],
             "detection": {
                 "model_path": "/models/best.pt",
@@ -217,8 +249,21 @@ class TestConfig:
                 "frame_skip": 2,
             },
             "notifications": {
-                "discord": {"enabled": False, "webhook_url": "", "mention_role": "", "include_snapshot": True},
-                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+                "discord": {
+                    "enabled": False,
+                    "webhook_url": "",
+                    "mention_role": "",
+                    "include_snapshot": True,
+                },
+                "email": {
+                    "enabled": False,
+                    "smtp_host": "",
+                    "smtp_port": 587,
+                    "smtp_user": "",
+                    "smtp_pass": "",
+                    "to_addresses": [],
+                    "include_snapshot": True,
+                },
             },
         }
         resp = client.post("/config/structured", json=payload)
@@ -227,7 +272,9 @@ class TestConfig:
         assert len(saved_cfgs) == 1
         saved_cam = saved_cfgs[0]["cameras"][0]
         assert "exclusion_zones" in saved_cam, "exclusion_zones were dropped on save"
-        assert saved_cam["exclusion_zones"] == [{"x": 10, "y": 20, "w": 50, "h": 60, "label": "decoy"}]
+        assert saved_cam["exclusion_zones"] == [
+            {"x": 10, "y": 20, "w": 50, "h": 60, "label": "decoy"}
+        ]
 
     def test_structured_save_preserves_redis_and_unknown_keys(self, client, monkeypatch):
         """Keys the form doesn't touch (redis, webhooks) must survive a structured save."""
@@ -260,8 +307,21 @@ class TestConfig:
                 "frame_skip": 2,
             },
             "notifications": {
-                "discord": {"enabled": False, "webhook_url": "", "mention_role": "", "include_snapshot": True},
-                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+                "discord": {
+                    "enabled": False,
+                    "webhook_url": "",
+                    "mention_role": "",
+                    "include_snapshot": True,
+                },
+                "email": {
+                    "enabled": False,
+                    "smtp_host": "",
+                    "smtp_port": 587,
+                    "smtp_user": "",
+                    "smtp_pass": "",
+                    "to_addresses": [],
+                    "include_snapshot": True,
+                },
             },
         }
         resp = client.post("/config/structured", json=payload)
@@ -428,8 +488,21 @@ class TestConfig:
                 "frame_skip": 2,
             },
             "notifications": {
-                "discord": {"enabled": False, "webhook_url": "", "mention_role": "", "include_snapshot": True},
-                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+                "discord": {
+                    "enabled": False,
+                    "webhook_url": "",
+                    "mention_role": "",
+                    "include_snapshot": True,
+                },
+                "email": {
+                    "enabled": False,
+                    "smtp_host": "",
+                    "smtp_port": 587,
+                    "smtp_user": "",
+                    "smtp_pass": "",
+                    "to_addresses": [],
+                    "include_snapshot": True,
+                },
             },
         }
         resp = client.post("/config/structured", json=payload)
@@ -457,8 +530,21 @@ class TestConfigErrorScrubbing:
                 "frame_skip": 2,
             },
             "notifications": {
-                "discord": {"enabled": False, "webhook_url": "", "mention_role": "", "include_snapshot": True},
-                "email": {"enabled": False, "smtp_host": "", "smtp_port": 587, "smtp_user": "", "smtp_pass": "", "to_addresses": [], "include_snapshot": True},
+                "discord": {
+                    "enabled": False,
+                    "webhook_url": "",
+                    "mention_role": "",
+                    "include_snapshot": True,
+                },
+                "email": {
+                    "enabled": False,
+                    "smtp_host": "",
+                    "smtp_port": 587,
+                    "smtp_user": "",
+                    "smtp_pass": "",
+                    "to_addresses": [],
+                    "include_snapshot": True,
+                },
             },
         }
         resp = client.post("/config/structured", json=bad_payload)

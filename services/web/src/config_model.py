@@ -251,8 +251,7 @@ class ExclusionZoneConfig(BaseModel):
                 raise ValueError(f"Point {i} must have exactly 2 coordinates, got {len(pt)}")
             if not (0.0 <= pt[0] <= 1.0 and 0.0 <= pt[1] <= 1.0):
                 raise ValueError(
-                    f"Point {i} coordinates must be between 0.0 and 1.0, "
-                    f"got ({pt[0]}, {pt[1]})"
+                    f"Point {i} coordinates must be between 0.0 and 1.0, got ({pt[0]}, {pt[1]})"
                 )
         return v
 
@@ -368,7 +367,8 @@ class TLSConfig(BaseModel):
         # for it, so only a public FQDN will do; otherwise it only builds
         # feedback links and a LAN host/IP[:port] is fine.
         self.domain = tls_safety.validate_domain(
-            self.domain, for_certificate=self.mode == "auto",
+            self.domain,
+            for_certificate=self.mode == "auto",
         )
         if self.mode == "auto" and not self.domain:
             raise ValueError("tls.domain is required when tls.mode is auto")
@@ -476,7 +476,6 @@ class ActuationDeviceConfig(BaseModel):
         if not v.strip():
             raise ValueError("Device ID must not be empty")
         return v.strip()
-
 
 
 # ── Deterrent randomisation ranges ───────────────────────────────────────────

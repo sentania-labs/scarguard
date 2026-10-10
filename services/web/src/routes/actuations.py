@@ -56,7 +56,8 @@ async def actuations_page(
 ) -> Response:
     offset = (page - 1) * PAGE_SIZE
     events = actuation_db.get_actuations(
-        limit=PAGE_SIZE, offset=offset,
+        limit=PAGE_SIZE,
+        offset=offset,
         trigger_class=trigger_class or None,
         camera=camera or None,
         date_from=date_from or None,
@@ -105,7 +106,8 @@ async def actuations_stream(request: Request) -> StreamingResponse:
 
     async def generator():
         client = aioredis.Redis(
-            host=host, port=port,
+            host=host,
+            port=port,
             password=os.environ.get("REDIS_PASSWORD", "") or None,
             decode_responses=True,
         )
@@ -117,7 +119,8 @@ async def actuations_stream(request: Request) -> StreamingResponse:
                 try:
                     while not await request.is_disconnected():
                         message = await pubsub.get_message(
-                            ignore_subscribe_messages=True, timeout=15.0,
+                            ignore_subscribe_messages=True,
+                            timeout=15.0,
                         )
                         if message is None:
                             yield ": keepalive\n\n"
@@ -154,11 +157,11 @@ def _render_actuation_row(event: dict) -> str:
     total_dur = event.get("total_duration_sec", 0.0)
     trigger_delay_ms = event.get("trigger_delay_ms")
 
-    device_names = ", ".join(
-        _html.escape(a.get("device_name", "")) for a in actions
-    ) or "\u2014"
+    device_names = ", ".join(_html.escape(a.get("device_name", "")) for a in actions) or "\u2014"
 
-    status_class = "ok" if success_count == device_count else ("warn" if success_count > 0 else "err")
+    status_class = (
+        "ok" if success_count == device_count else ("warn" if success_count > 0 else "err")
+    )
 
     delay_cell = (
         f"{trigger_delay_ms:.0f}ms" if isinstance(trigger_delay_ms, (int, float)) else "\u2014"

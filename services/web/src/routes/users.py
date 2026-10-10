@@ -47,6 +47,7 @@ def _actor(request: Request) -> tuple[int | None, str | None, str | None]:
 
 # ── User list ─────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_class=HTMLResponse)
 async def users_list(request: Request) -> Response:
     gate = require_admin(request)
@@ -75,6 +76,7 @@ async def users_list(request: Request) -> Response:
 
 # ── Create user ───────────────────────────────────────────────────────────────
 
+
 @router.post("")
 async def create_user(
     request: Request,
@@ -96,6 +98,7 @@ async def create_user(
     if len(password) > 255:
         return _redirect_err("Password is too long (max 255 characters).")
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
+
     if len(password) < MIN_PASSWORD_LEN:
         return _redirect_err(f"Password must be at least {MIN_PASSWORD_LEN} characters.")
     if _is_common_password(password):
@@ -123,6 +126,7 @@ async def create_user(
 
 
 # ── Change role ───────────────────────────────────────────────────────────────
+
 
 @router.post("/{user_id}/role")
 async def change_role(
@@ -154,9 +158,7 @@ async def change_role(
         # succeed.
         ok = auth_module.try_demote_admin(db, user_id, role)
         if not ok:
-            return _redirect_err(
-                "Cannot demote the last admin - promote another user first."
-            )
+            return _redirect_err("Cannot demote the last admin - promote another user first.")
         uid, uname, ip = _actor(request)
         audit.record(
             db,
@@ -174,6 +176,7 @@ async def change_role(
 
 
 # ── Disable / enable user ─────────────────────────────────────────────────────
+
 
 @router.post("/{user_id}/disable")
 async def toggle_disable(request: Request, user_id: int) -> RedirectResponse:
@@ -215,6 +218,7 @@ async def toggle_disable(request: Request, user_id: int) -> RedirectResponse:
 
 # ── Change password ───────────────────────────────────────────────────────────
 
+
 @router.post("/{user_id}/password")
 async def change_password(
     request: Request,
@@ -232,6 +236,7 @@ async def change_password(
         return RedirectResponse("/", status_code=302)
 
     from routes.auth import MIN_PASSWORD_LEN, _is_common_password
+
     # SG-13: bound input size before hashing/DB writes.
     # current_password may be None (admin resets another user; Form(None)).
     if len(new_password) > 255 or (current_password is not None and len(current_password) > 255):
@@ -248,7 +253,9 @@ async def change_password(
             if not current_password:
                 return _redirect_err("Current password is required to change your own password.")
             target_user = auth_module.get_user_by_id(db, user_id)
-            if not target_user or not auth_module.verify_password(current_password, target_user["password_hash"]):
+            if not target_user or not auth_module.verify_password(
+                current_password, target_user["password_hash"]
+            ):
                 return _redirect_err("Incorrect current password.")
 
         changed = auth_module.set_user_password(db, user_id, new_password)
@@ -260,11 +267,14 @@ async def change_password(
 
         if is_self:
             from config_store import load_cached
+
             auth_cfg = load_cached().get("system", {}).get("auth", {})
             session_hours = auth_cfg.get("session_timeout_hours", 24)
             raw_token = auth_module.create_session(db, user_id, timeout_hours=session_hours)
             response = RedirectResponse("/admin/users", status_code=302)
-            is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+            is_https = (
+                request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+            )
             response.set_cookie(
                 key="session",
                 value=raw_token,
@@ -299,6 +309,7 @@ async def change_password(
 
 
 # ── Delete user ───────────────────────────────────────────────────────────────
+
 
 @router.post("/{user_id}/delete")
 async def delete_user(request: Request, user_id: int) -> RedirectResponse:
@@ -338,6 +349,7 @@ async def delete_user(request: Request, user_id: int) -> RedirectResponse:
 
 
 # ── API Tokens ────────────────────────────────────────────────────────────────
+
 
 @router.post("/api-tokens", response_class=HTMLResponse)
 async def create_api_token(

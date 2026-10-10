@@ -76,7 +76,8 @@ async def feedback_page(request: Request, token: str, v: str = "") -> HTMLRespon
 
 
 @router.post(
-    "/{token}", response_class=HTMLResponse,
+    "/{token}",
+    response_class=HTMLResponse,
     # Unauthenticated route - limit by IP to prevent a spammer hammering
     # every feedback link they can enumerate.
     dependencies=[Depends(rate_limit("feedback-submit", capacity=30, window_seconds=3600))],

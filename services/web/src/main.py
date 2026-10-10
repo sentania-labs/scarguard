@@ -60,6 +60,7 @@ app.mount("/model-files", StaticFiles(directory=MODELS_DIR), name="model-files")
 
 arm_scheduler: ArmScheduler | None = None
 
+
 @app.on_event("startup")
 async def _startup() -> None:
     global backup_manager, arm_scheduler
@@ -125,9 +126,9 @@ def _check_db_integrity() -> None:
             log.info("Integrity check ok for %s", name)
         else:
             log.error(
-                "INTEGRITY CHECK FAILED for %s - restore from backup. "
-                "First failure: %r",
-                name, result,
+                "INTEGRITY CHECK FAILED for %s - restore from backup. First failure: %r",
+                name,
+                result,
             )
 
 
@@ -172,7 +173,8 @@ def _ensure_bootstrap_token() -> None:
             "    Browse to: /setup?token=%s\n"
             "  Token also stored at %s (chmod 600).\n"
             "═══════════════════════════════════════════════════════════",
-            token, BOOTSTRAP_TOKEN_PATH,
+            token,
+            BOOTSTRAP_TOKEN_PATH,
         )
     except Exception as exc:
         log.error("Failed to generate bootstrap token: %s", exc)
@@ -187,6 +189,7 @@ def _ensure_secret_key() -> None:
     import logging
 
     import secret_box
+
     log = logging.getLogger("startup")
     try:
         if secret_box.write_key_if_missing():
@@ -248,6 +251,7 @@ async def auth_middleware(request: Request, call_next):
 
     # Load auth config (cached by config_store)
     from config_store import load_cached  # local import to avoid circular at module level
+
     cfg = load_cached()
     system_cfg = cfg.get("system") or {}
     auth_cfg = system_cfg.get("auth") or {}
@@ -423,9 +427,7 @@ async def csrf_middleware(request: Request, call_next):
         # Require a valid CSRF cookie (SameSite=Strict blocks cross-site)
         if not submitted_cookie or not _verify_csrf_token(submitted_cookie):
             if _wants_html(request):
-                return RedirectResponse(
-                    f"/login?next={request.url.path}", status_code=302
-                )
+                return RedirectResponse(f"/login?next={request.url.path}", status_code=302)
             return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
 
         # Multipart callers must send the header before we parse any files.
@@ -442,9 +444,7 @@ async def csrf_middleware(request: Request, call_next):
 
         if submitted_token is None or not hmac.compare_digest(submitted_token, submitted_cookie):
             if _wants_html(request):
-                return RedirectResponse(
-                    f"/login?next={request.url.path}", status_code=302
-                )
+                return RedirectResponse(f"/login?next={request.url.path}", status_code=302)
             return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
 
     # Inject token into request state so templates can access it
@@ -459,7 +459,8 @@ async def csrf_middleware(request: Request, call_next):
             value=csrf_cookie,
             httponly=False,  # JS needs to read it for fetch headers
             samesite="strict",
-            secure=request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https",
+            secure=request.headers.get("x-forwarded-proto") == "https"
+            or request.url.scheme == "https",
             path="/",
         )
 
@@ -473,6 +474,7 @@ app.middleware("http")(auth_middleware)
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health() -> dict[str, str]:

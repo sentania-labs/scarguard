@@ -109,7 +109,8 @@ class TestInsertWithHashChain:
             eid = insert_event(_make_event())
         conn = _get_conn()
         row = conn.execute(
-            "SELECT prev_hash, row_hash FROM actuation_events WHERE id = ?", (eid,),
+            "SELECT prev_hash, row_hash FROM actuation_events WHERE id = ?",
+            (eid,),
         ).fetchone()
         assert row["prev_hash"] == ""  # first row - no predecessor
         assert len(row["row_hash"]) == 64  # SHA-256 hex digest
@@ -134,8 +135,13 @@ class TestInsertWithHashChain:
     def test_row_hash_is_deterministic(self) -> None:
         """Same inputs produce the same hash."""
         expected = _compute_row_hash(
-            _TEST_KEY, "", "2026-05-20T12:00:00Z", "heron", "pond-north",
-            "detection", "req-001",
+            _TEST_KEY,
+            "",
+            "2026-05-20T12:00:00Z",
+            "heron",
+            "pond-north",
+            "detection",
+            "req-001",
         )
         with patch.dict(os.environ, {"DETECTION_HMAC_KEY": _TEST_KEY_B64}):
             init_db()
@@ -173,7 +179,8 @@ class TestVerifyChain:
         # Tamper with the stored row_hash.
         conn = _get_conn()
         conn.execute(
-            "UPDATE actuation_events SET row_hash = 'bad' WHERE id = ?", (eid,),
+            "UPDATE actuation_events SET row_hash = 'bad' WHERE id = ?",
+            (eid,),
         )
         conn.commit()
         with patch.dict(os.environ, {"DETECTION_HMAC_KEY": _TEST_KEY_B64}):
@@ -194,6 +201,7 @@ class TestVerifyChain:
         conn.commit()
 
         import actuation_db
+
         actuation_db._hmac_key_loaded = False
         actuation_db._hmac_key = None
 
@@ -220,6 +228,7 @@ class TestVerifyChain:
     def test_verify_without_key(self) -> None:
         """verify_chain returns a clear error when the key is absent."""
         import actuation_db
+
         actuation_db._hmac_key_loaded = False
         actuation_db._hmac_key = None
         with patch.dict(os.environ, {"DETECTION_HMAC_KEY": ""}, clear=False):
@@ -238,13 +247,15 @@ class TestGracefulDegradation:
             eid = insert_event(_make_event())
         conn = _get_conn()
         row = conn.execute(
-            "SELECT prev_hash, row_hash FROM actuation_events WHERE id = ?", (eid,),
+            "SELECT prev_hash, row_hash FROM actuation_events WHERE id = ?",
+            (eid,),
         ).fetchone()
         assert row["prev_hash"] == ""
         assert row["row_hash"] == ""
 
     def test_warning_logged_once(self, caplog: pytest.LogCaptureFixture) -> None:
         import actuation_db
+
         actuation_db._hmac_key_loaded = False
         actuation_db._hmac_key = None
 

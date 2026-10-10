@@ -89,9 +89,7 @@ class TestRoleMigration:
     def test_legacy_db_backfills_role_from_is_admin(self, legacy_auth):
         db = legacy_auth.get_db()
         try:
-            rows = list(db.execute(
-                "SELECT username, is_admin, role FROM users ORDER BY id"
-            ))
+            rows = list(db.execute("SELECT username, is_admin, role FROM users ORDER BY id"))
         finally:
             db.close()
         assert rows[0]["username"] == "legacy_admin"

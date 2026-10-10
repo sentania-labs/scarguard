@@ -35,8 +35,9 @@ class LimitedUploadParser(MultiPartParser):
     """Stop oversized file parts during parsing, closing partial spools."""
 
     def __init__(self, request: Request, limit: int) -> None:
-        super().__init__(request.headers, request.stream(), max_files=1,
-                         max_fields=16, max_part_size=64 * 1024)
+        super().__init__(
+            request.headers, request.stream(), max_files=1, max_fields=16, max_part_size=64 * 1024
+        )
         self.limit = limit
         self.file_bytes = 0
         self.header_bytes = 0
@@ -73,7 +74,10 @@ class LimitedUploadParser(MultiPartParser):
 
 @asynccontextmanager
 async def upload_form(request: Request, path: str) -> AsyncIterator[FormData]:
-    if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "multipart/form-data":
+    if (
+        request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        != "multipart/form-data"
+    ):
         raise HTTPException(status_code=422, detail="Multipart file required")
     parser = LimitedUploadParser(request, file_limit(path))
     try:
@@ -82,8 +86,9 @@ async def upload_form(request: Request, path: str) -> AsyncIterator[FormData]:
         except MultipartParseError as exc:
             raise HTTPException(status_code=400, detail="Malformed multipart upload") from exc
         except MultiPartException as exc:
-            raise HTTPException(status_code=413 if isinstance(exc, FileLimitExceeded) else 400,
-                                detail=exc.message) from exc
+            raise HTTPException(
+                status_code=413 if isinstance(exc, FileLimitExceeded) else 400, detail=exc.message
+            ) from exc
         if not parser.complete:
             raise HTTPException(status_code=400, detail="Incomplete multipart upload")
         yield form
@@ -124,10 +129,14 @@ class RequestLimitMiddleware:
         length = request.headers.get("content-length")
         if length is not None:
             if not length.isascii() or not length.isdecimal():
-                await JSONResponse({"error": "Invalid Content-Length"}, status_code=400)(scope, receive, send)
+                await JSONResponse({"error": "Invalid Content-Length"}, status_code=400)(
+                    scope, receive, send
+                )
                 return
             if len(length.lstrip("0")) > 20 or int(length.lstrip("0") or "0") > limit:
-                await JSONResponse({"error": "Request too large"}, status_code=413)(scope, receive, send)
+                await JSONResponse({"error": "Request too large"}, status_code=413)(
+                    scope, receive, send
+                )
                 return
         consumed = 0
         exceeded = False
@@ -154,4 +163,6 @@ class RequestLimitMiddleware:
             if not exceeded:
                 raise
         if exceeded:
-            await JSONResponse({"error": "Request too large"}, status_code=413)(scope, receive, send)
+            await JSONResponse({"error": "Request too large"}, status_code=413)(
+                scope, receive, send
+            )

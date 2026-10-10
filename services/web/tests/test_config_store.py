@@ -47,29 +47,31 @@ class TestActionRulesMigration:
         loaded = config_store.load()
         cam = loaded["cameras"][0]
         assert "action_rules" not in cam
-        assert cam["notification_rules"] == [
-            {"class_name": "bird", "channels": ["discord"]}
-        ]
+        assert cam["notification_rules"] == [{"class_name": "bird", "channels": ["discord"]}]
 
     def test_save_strips_action_rules(self, tmp_path, monkeypatch):
         cfg_path = tmp_path / "scarguard.yml"
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
-        config_store.save({
-            "cameras": [{
-                "name": "pond",
-                "rtsp_url": "rtsp://x",
-                "action_rules": [{"class_name": "*", "channels": ["x"]}],
-            }],
-        })
+        config_store.save(
+            {
+                "cameras": [
+                    {
+                        "name": "pond",
+                        "rtsp_url": "rtsp://x",
+                        "action_rules": [{"class_name": "*", "channels": ["x"]}],
+                    }
+                ],
+            }
+        )
         reloaded = config_store.load()
         cam = reloaded["cameras"][0]
         assert "action_rules" not in cam
-        assert cam["notification_rules"] == [
-            {"class_name": "*", "channels": ["x"]}
-        ]
+        assert cam["notification_rules"] == [{"class_name": "*", "channels": ["x"]}]
 
     def test_load_preserves_existing_notification_rules_when_both_present(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """If both keys exist, notification_rules wins; action_rules is dropped."""
         cfg_path = tmp_path / "scarguard.yml"
@@ -84,9 +86,7 @@ class TestActionRulesMigration:
         loaded = config_store.load()
         cam = loaded["cameras"][0]
         assert "action_rules" not in cam
-        assert cam["notification_rules"] == [
-            {"class_name": "new", "channels": ["new"]}
-        ]
+        assert cam["notification_rules"] == [{"class_name": "new", "channels": ["new"]}]
 
 
 class TestStaleSystemKeysStrip:
@@ -97,13 +97,15 @@ class TestStaleSystemKeysStrip:
     def test_save_strips_snapshot_retention_days(self, tmp_path, monkeypatch):
         cfg_path = tmp_path / "scarguard.yml"
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
-        config_store.save({
-            "system": {
-                "armed": True,
-                "snapshot_retention_days": 30,
-                "retention_days": 90,
-            },
-        })
+        config_store.save(
+            {
+                "system": {
+                    "armed": True,
+                    "snapshot_retention_days": 30,
+                    "retention_days": 90,
+                },
+            }
+        )
         reloaded = config_store.load()
         assert "snapshot_retention_days" not in reloaded["system"]
         assert reloaded["system"]["retention_days"] == 90
@@ -111,23 +113,27 @@ class TestStaleSystemKeysStrip:
     def test_save_strips_metrics_retention_days(self, tmp_path, monkeypatch):
         cfg_path = tmp_path / "scarguard.yml"
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
-        config_store.save({
-            "system": {"armed": True, "metrics_retention_days": 60},
-        })
+        config_store.save(
+            {
+                "system": {"armed": True, "metrics_retention_days": 60},
+            }
+        )
         reloaded = config_store.load()
         assert "metrics_retention_days" not in reloaded["system"]
 
     def test_save_strips_both_retention_keys(self, tmp_path, monkeypatch):
         cfg_path = tmp_path / "scarguard.yml"
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
-        config_store.save({
-            "system": {
-                "armed": True,
-                "snapshot_retention_days": 14,
-                "metrics_retention_days": 60,
-                "retention_days": 90,
-            },
-        })
+        config_store.save(
+            {
+                "system": {
+                    "armed": True,
+                    "snapshot_retention_days": 14,
+                    "metrics_retention_days": 60,
+                    "retention_days": 90,
+                },
+            }
+        )
         reloaded = config_store.load()
         assert "snapshot_retention_days" not in reloaded["system"]
         assert "metrics_retention_days" not in reloaded["system"]
@@ -148,12 +154,14 @@ class TestCameraConfidenceThreshold:
     def test_round_trip_preserves_confidence(self, tmp_path, monkeypatch):
         cfg_path = tmp_path / "scarguard.yml"
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
-        config_store.save({
-            "cameras": [
-                {"name": "pond", "rtsp_url": "rtsp://x", "confidence_threshold": 0.45},
-                {"name": "yard", "rtsp_url": "rtsp://y"},  # no override
-            ],
-        })
+        config_store.save(
+            {
+                "cameras": [
+                    {"name": "pond", "rtsp_url": "rtsp://x", "confidence_threshold": 0.45},
+                    {"name": "yard", "rtsp_url": "rtsp://y"},  # no override
+                ],
+            }
+        )
         reloaded = config_store.load()
         assert reloaded["cameras"][0]["confidence_threshold"] == 0.45
         assert "confidence_threshold" not in reloaded["cameras"][1]

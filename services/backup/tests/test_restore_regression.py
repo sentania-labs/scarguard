@@ -58,6 +58,7 @@ def _checkout() -> Path:
 @pytest.fixture()
 def restore_mod() -> ModuleType:
     import restore
+
     return restore
 
 
@@ -68,6 +69,7 @@ def dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     backup_root = data_dir / "backups"
     backup_root.mkdir(parents=True)
     import main as backup_main
+
     monkeypatch.setattr(backup_main, "DATA_DIR", data_dir)
     monkeypatch.setattr(backup_main, "BACKUP_ROOT", backup_root)
     return data_dir, backup_root
@@ -119,6 +121,7 @@ def _tables(path: Path) -> set[str]:
 def _snapshot_from_sidecar(dirs: tuple[Path, Path], table: str, rows: int) -> str:
     """Produce a real sidecar snapshot of a database holding *table*."""
     import main as backup_main
+
     data_dir, _ = dirs
     src = data_dir / f"src-{table}.db"
     _make_db(src, table, rows)
@@ -136,7 +139,8 @@ def _data_entries(data_dir: Path) -> set[str]:
 
 
 def test_restore_swaps_in_snapshot_without_replaying_stale_wal(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     data_dir, backup_root = dirs
     target = data_dir / "scarguard.db"
@@ -183,7 +187,8 @@ def test_restore_swaps_in_snapshot_without_replaying_stale_wal(
 
 
 def test_restore_rejects_bad_snapshots_and_leaves_absent_target_absent(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     data_dir, backup_root = dirs
     db_dir = backup_root / "scarguard"
@@ -212,7 +217,8 @@ def test_restore_rejects_bad_snapshots_and_leaves_absent_target_absent(
 
 
 def test_restore_rejects_bad_snapshot_without_touching_existing_target(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     data_dir, backup_root = dirs
     target = data_dir / "scarguard.db"
@@ -226,7 +232,10 @@ def test_restore_rejects_bad_snapshot_without_touching_existing_target(
         restore_mod.do_restore("scarguard", "bad.db.gz", data_dir, backup_root)
 
     assert _data_entries(data_dir) == {
-        "backups", "scarguard.db", "scarguard.db-wal", "scarguard.db-shm",
+        "backups",
+        "scarguard.db",
+        "scarguard.db-wal",
+        "scarguard.db-shm",
     }
     assert target.read_bytes() == db_bytes
     assert Path(f"{target}-wal").read_bytes() == wal_bytes
@@ -235,7 +244,10 @@ def test_restore_rejects_bad_snapshot_without_touching_existing_target(
 
 @pytest.mark.parametrize("fault", ["replace_staged", "fsync_dir"])
 def test_restore_rolls_back_when_the_swap_itself_fails(
-    restore_mod: ModuleType, dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, fault: str,
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    fault: str,
 ) -> None:
     data_dir, backup_root = dirs
     target = data_dir / "scarguard.db"
@@ -249,18 +261,23 @@ def test_restore_rolls_back_when_the_swap_itself_fails(
             if ".restore-" in str(src):
                 raise OSError("disk fault during rename")
             real_replace(src, dst)
+
         monkeypatch.setattr(restore_mod.os, "replace", failing_replace)
     else:
         # Fails after the rename succeeded: the restored file must be undone too.
         def failing_fsync_dir(path: Path) -> None:
             raise OSError("fsync fault after replace")
+
         monkeypatch.setattr(restore_mod, "fsync_dir", failing_fsync_dir)
 
     with pytest.raises(restore_mod.RestoreError, match="rolled back"):
         restore_mod.do_restore("scarguard", snapshot, data_dir, backup_root)
 
     assert _data_entries(data_dir) == {
-        "backups", "scarguard.db", "scarguard.db-wal", "scarguard.db-shm",
+        "backups",
+        "scarguard.db",
+        "scarguard.db-wal",
+        "scarguard.db-shm",
     }
     assert target.read_bytes() == db_bytes
     assert Path(f"{target}-wal").read_bytes() == wal_bytes
@@ -274,7 +291,8 @@ def test_restore_rolls_back_when_the_swap_itself_fails(
 
 
 def test_restore_refuses_in_progress_missing_and_traversal_names(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     data_dir, backup_root = dirs
     target = data_dir / "scarguard.db"
@@ -300,7 +318,8 @@ def test_restore_refuses_in_progress_missing_and_traversal_names(
 
 
 def test_restore_refuses_while_a_service_still_holds_the_database(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     data_dir, backup_root = dirs
     target = data_dir / "scarguard.db"
@@ -310,15 +329,20 @@ def test_restore_refuses_while_a_service_still_holds_the_database(
     # A separate process (like a running service container) keeps a
     # WAL-mode connection open across the restore attempt.
     holder = subprocess.Popen(
-        [sys.executable, "-c", (
-            "import sqlite3, sys, time\n"
-            f"c = sqlite3.connect({str(target)!r})\n"
-            "c.execute('PRAGMA journal_mode=WAL')\n"
-            "c.execute('SELECT COUNT(*) FROM t').fetchone()\n"
-            "print('ready', flush=True)\n"
-            "time.sleep(60)\n"
-        )],
-        stdout=subprocess.PIPE, text=True,
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sqlite3, sys, time\n"
+                f"c = sqlite3.connect({str(target)!r})\n"
+                "c.execute('PRAGMA journal_mode=WAL')\n"
+                "c.execute('SELECT COUNT(*) FROM t').fetchone()\n"
+                "print('ready', flush=True)\n"
+                "time.sleep(60)\n"
+            ),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
     )
     try:
         assert holder.stdout is not None and holder.stdout.readline().strip() == "ready"
@@ -341,7 +365,8 @@ def test_restore_refuses_while_a_service_still_holds_the_database(
 
 
 def test_restore_never_overwrites_an_earlier_rollback_copy(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     data_dir, backup_root = dirs
     target = data_dir / "scarguard.db"
@@ -364,7 +389,8 @@ def test_restore_never_overwrites_an_earlier_rollback_copy(
 
 
 def test_restore_cli_is_what_the_script_runs(
-    restore_mod: ModuleType, dirs: tuple[Path, Path],
+    restore_mod: ModuleType,
+    dirs: tuple[Path, Path],
 ) -> None:
     """Drive restore.py exactly as scripts/restore-from-backup.sh does
     (``python src/restore.py <db> <file>`` with DATA_DIR in the env)."""
@@ -377,7 +403,11 @@ def test_restore_cli_is_what_the_script_runs(
     workdir = Path(restore_mod.__file__).resolve().parent.parent  # /app or services/backup
 
     ok = subprocess.run(
-        [*cmd, snapshot], cwd=workdir, env=env, capture_output=True, text=True,
+        [*cmd, snapshot],
+        cwd=workdir,
+        env=env,
+        capture_output=True,
+        text=True,
     )
     assert ok.returncode == 0, ok.stdout + ok.stderr
     assert "Restored" in ok.stdout
@@ -388,7 +418,11 @@ def test_restore_cli_is_what_the_script_runs(
     (data_dir / "scarguard.db-wal.pre-restore").unlink()
     (data_dir / "scarguard.db-shm.pre-restore").unlink()
     bad = subprocess.run(
-        [*cmd, "missing.db.gz"], cwd=workdir, env=env, capture_output=True, text=True,
+        [*cmd, "missing.db.gz"],
+        cwd=workdir,
+        env=env,
+        capture_output=True,
+        text=True,
     )
     assert bad.returncode == 1
     assert "not found" in bad.stdout and snapshot in bad.stdout
@@ -409,16 +443,23 @@ def _seed(db_dir: Path, names: list[str]) -> None:
 
 def test_retention_keeps_recovery_points_per_day_not_per_file(dirs: tuple[Path, Path]) -> None:
     import main as backup_main
+
     _, backup_root = dirs
     today = date(2026, 4, 22)
     d1, d2, d3 = (today - timedelta(days=i) for i in (1, 2, 3))
     # Several same-day snapshots, as left by sidecar restarts.
-    _seed(backup_root / "scarguard", [
-        f"{today}T10-00-00.db.gz", f"{today}T09-00-00.db.gz", f"{today}T08-00-00.db.gz",
-        f"{d1}T09-00-00.db.gz", f"{d1}T08-00-00.db.gz",
-        f"{d2}T08-00-00.db.gz",
-        f"{d3}T08-00-00.db.gz",
-    ])
+    _seed(
+        backup_root / "scarguard",
+        [
+            f"{today}T10-00-00.db.gz",
+            f"{today}T09-00-00.db.gz",
+            f"{today}T08-00-00.db.gz",
+            f"{d1}T09-00-00.db.gz",
+            f"{d1}T08-00-00.db.gz",
+            f"{d2}T08-00-00.db.gz",
+            f"{d3}T08-00-00.db.gz",
+        ],
+    )
 
     deleted = backup_main.prune_backups("scarguard", daily=3, weekly=0)
 
@@ -428,13 +469,16 @@ def test_retention_keeps_recovery_points_per_day_not_per_file(dirs: tuple[Path, 
     assert remaining == [
         f"{d2}T08-00-00.db.gz",
         f"{d1}T09-00-00.db.gz",
-        f"{today}T08-00-00.db.gz", f"{today}T09-00-00.db.gz", f"{today}T10-00-00.db.gz",
+        f"{today}T08-00-00.db.gz",
+        f"{today}T09-00-00.db.gz",
+        f"{today}T10-00-00.db.gz",
     ]
     assert deleted == 2
 
 
 def test_retention_removes_only_orphaned_in_progress_files(dirs: tuple[Path, Path]) -> None:
     import main as backup_main
+
     _, backup_root = dirs
     db_dir = backup_root / "scarguard"
     orphan = "2026-04-20T08-00-00.db.gz.0badf00d.partial"
@@ -453,6 +497,7 @@ def test_manual_backups_and_daily_points_are_retained_independently(
     dirs: tuple[Path, Path],
 ) -> None:
     import main as backup_main
+
     _, backup_root = dirs
     today = date(2026, 4, 22)
     scheduled = [f"{today - timedelta(days=i)}T08-00-00.db.gz" for i in range(14)]
@@ -466,7 +511,7 @@ def test_manual_backups_and_daily_points_are_retained_independently(
     remaining = {p.name for p in (backup_root / "auth").iterdir()}
     assert set(scheduled) <= remaining, "manual backups must not evict daily recovery points"
     kept_manual = sorted(n for n in remaining if "-manual" in n)
-    assert kept_manual == sorted(manual)[-backup_main.MANUAL_RETENTION:]
+    assert kept_manual == sorted(manual)[-backup_main.MANUAL_RETENTION :]
     assert partial in remaining and set(foreign) <= remaining  # never touched
 
     # And the other way round: a flood of daily points never evicts manual ones.
@@ -477,9 +522,11 @@ def test_manual_backups_and_daily_points_are_retained_independently(
 
 
 def test_overlapping_cycle_waits_its_turn_instead_of_being_dropped(
-    dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch,
+    dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import main as backup_main
+
     data_dir, backup_root = dirs
     _make_db(data_dir / "scarguard.db", "t", 2)
     monkeypatch.setattr(backup_main, "DATABASES", (("scarguard", data_dir / "scarguard.db"),))
@@ -525,9 +572,11 @@ def test_overlapping_cycle_waits_its_turn_instead_of_being_dropped(
 
 
 def test_same_second_snapshots_get_unique_names_and_leave_no_temp_files(
-    dirs: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch,
+    dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import main as backup_main
+
     data_dir, backup_root = dirs
     src = data_dir / "scarguard.db"
     _make_db(src, "t", 3)
@@ -559,6 +608,7 @@ def test_same_second_snapshots_get_unique_names_and_leave_no_temp_files(
 
 def test_corrupt_source_leaves_no_snapshot_or_temp_file(dirs: tuple[Path, Path]) -> None:
     import main as backup_main
+
     data_dir, backup_root = dirs
     src = data_dir / "scarguard.db"
     src.write_bytes(b"not a database" * 512)
@@ -578,22 +628,32 @@ def web_backups_route(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     web-service-local helper modules are stubbed; the listing/resolve
     code under test is pure filesystem logic."""
     for name in (
-        "fastapi", "fastapi.responses", "fastapi.templating", "starlette",
-        "starlette.responses", "audit", "config_store", "rate_limit_dep",
-        "route_auth", "sse_limiter",
+        "fastapi",
+        "fastapi.responses",
+        "fastapi.templating",
+        "starlette",
+        "starlette.responses",
+        "audit",
+        "config_store",
+        "rate_limit_dep",
+        "route_auth",
+        "sse_limiter",
     ):
         monkeypatch.setitem(sys.modules, name, MagicMock())
     for name in [m for m in sys.modules if m == "routes" or m.startswith("routes.")]:
         monkeypatch.delitem(sys.modules, name)
     monkeypatch.syspath_prepend(str(_checkout() / "services" / "web" / "src"))
     from routes import backups as backups_route
+
     yield backups_route
     for name in [m for m in sys.modules if m == "routes" or m.startswith("routes.")]:
         del sys.modules[name]
 
 
 def test_web_listing_and_download_skip_in_progress_files(
-    web_backups_route: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    web_backups_route: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backup_root = tmp_path / "backups"
     assert web_backups_route.__file__.endswith("routes/backups.py")
@@ -631,7 +691,7 @@ def _docker_shim(tmp_path: Path, run_rc: int) -> tuple[Path, Path]:
     shim.write_text(
         "#!/usr/bin/env bash\n"
         f"echo \"$*\" >> '{log}'\n"
-        "case \"$*\" in\n"
+        'case "$*" in\n'
         "  *' ps --services --status running'*) printf 'redis\\nweb\\ndetector\\nbackup\\n' ;;\n"
         f"  *' run '*) exit {run_rc} ;;\n"
         "esac\n"
@@ -646,7 +706,10 @@ def _run_script(bin_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
     return subprocess.run(
         ["bash", str(repo / "scripts" / "restore-from-backup.sh"), *args],
-        cwd=repo, env=env, capture_output=True, text=True,
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
     )
 
 

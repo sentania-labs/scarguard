@@ -1,4 +1,3 @@
-
 import config_store
 import pytest
 from fastapi.testclient import TestClient
@@ -19,8 +18,14 @@ def setup_config(tmp_path, monkeypatch):
     monkeypatch.setattr("main._verify_csrf_token", lambda token: True)
 
     # We patch it directly on the app instance if possible, or just mock route_auth and bypass the middleware entirely by not returning 401
-    monkeypatch.setattr("route_auth.current_user", lambda req: getattr(req.state, "user", {"username": "admin", "role": "admin"}))
-    monkeypatch.setattr("route_auth.current_role", lambda req: getattr(req.state, "user", {"role": "admin"}).get("role", "admin"))
+    monkeypatch.setattr(
+        "route_auth.current_user",
+        lambda req: getattr(req.state, "user", {"username": "admin", "role": "admin"}),
+    )
+    monkeypatch.setattr(
+        "route_auth.current_role",
+        lambda req: getattr(req.state, "user", {"role": "admin"}).get("role", "admin"),
+    )
     monkeypatch.setattr("routes.auth.BOOTSTRAP_TOKEN_PATH", str(tmp_path / "bootstrap_token"))
     monkeypatch.setattr("secret_box.DEFAULT_KEY_PATH", str(tmp_path / "secret_key"))
     monkeypatch.setattr("config_backup.BACKUP_DIR", tmp_path / "backups")
@@ -31,6 +36,7 @@ def setup_config(tmp_path, monkeypatch):
 
     import auth
     import main
+
     main.auth_module.AUTH_DB_PATH = auth_db_path
     auth.init_db(auth_db_path)
 
@@ -53,26 +59,26 @@ def test_optimistic_revision_prevents_stale_save(setup_config):
             "backup": {},
             "summary_report": {},
             "config_api": {},
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
+            "uploads": {"model_mb": 100, "dataset_mb": 100},
         },
         "cameras": [],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
 
     # Meanwhile, another user updates the config to revision 2
     cfg = config_store.load()
-    config_store.save(cfg) # bumps to 2
+    config_store.save(cfg)  # bumps to 2
 
     # The first user tries to save their stale payload
     resp = client.post(
         "/config/structured",
         json=stale_payload,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 409
     assert "modified by another user" in resp.json()["error"]
@@ -82,28 +88,25 @@ def test_invalid_rule_missing_class_name(setup_config):
     client, cfg_path = setup_config
     # Payload with missing class_name
     payload = {
-        "system": {
-            "revision": 2,
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
-        },
+        "system": {"revision": 2, "uploads": {"model_mb": 100, "dataset_mb": 100}},
         "cameras": [
             {
                 "name": "cam1",
                 "rtsp_url": "rtsp://localhost",
-                "notification_rules": [{"channels": ["email"]}] # missing class_name
+                "notification_rules": [{"channels": ["email"]}],  # missing class_name
             }
         ],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
     resp = client.post(
         "/config/structured",
         json=payload,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 422
 
@@ -113,14 +116,17 @@ def test_rearm_deadline_persisted_in_config(setup_config, monkeypatch):
 
     # Mock current_role to return "user" so we can trigger nonadmin rearm
     import route_auth
-    monkeypatch.setattr(route_auth, "current_user", lambda req: {"username": "testuser", "role": "user"})
+
+    monkeypatch.setattr(
+        route_auth, "current_user", lambda req: {"username": "testuser", "role": "user"}
+    )
     monkeypatch.setattr(route_auth, "current_role", lambda req: "user")
 
     # Disarm via dashboard
     resp = client.post(
         "/disarm",
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 200
 
@@ -144,6 +150,7 @@ def test_solar_schedule_returns_transitions(setup_config):
         return sunrise, sunset
 
     from unittest.mock import patch
+
     with patch("scheduler._compute_solar_transitions", mock_solar):
         from scheduler import ArmScheduler
 
@@ -151,6 +158,7 @@ def test_solar_schedule_returns_transitions(setup_config):
 
         # Simulate a config with solar enabled
         import config_store
+
         cfg = config_store.load()
         cfg["system"] = {
             "revision": 1,
@@ -183,6 +191,7 @@ def test_fixed_schedule_applies_timezone(setup_config):
     # Mock config to have a non-UTC timezone with fixed times
     import config_store
     from scheduler import _parse_time, transitions_between
+
     cfg = config_store.load()
     cfg["system"] = {
         "revision": 2,
@@ -198,6 +207,7 @@ def test_fixed_schedule_applies_timezone(setup_config):
     config_store.save(cfg)
 
     from zoneinfo import ZoneInfo
+
     tz = ZoneInfo("America/New_York")
 
     start = datetime(2026, 10, 10, 5, 0, 0, tzinfo=timezone.utc)  # 00:00 ET
@@ -241,21 +251,21 @@ def test_revision_reflected_in_save_response(setup_config):
             "backup": {},
             "summary_report": {},
             "config_api": {},
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
+            "uploads": {"model_mb": 100, "dataset_mb": 100},
         },
         "cameras": [],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
 
     resp = client.post(
         "/config/structured",
         json=payload,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -269,28 +279,25 @@ def test_invalid_deterrent_rule_missing_class_name(setup_config):
     """Invalid deterrent rules without class_name must be rejected at save."""
     client, cfg_path = setup_config
     payload = {
-        "system": {
-            "revision": 3,
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
-        },
+        "system": {"revision": 3, "uploads": {"model_mb": 100, "dataset_mb": 100}},
         "cameras": [
             {
                 "name": "cam1",
                 "rtsp_url": "rtsp://localhost",
-                "deterrent_rules": [{"groups": ["sprinklers"]}]  # missing class_name
+                "deterrent_rules": [{"groups": ["sprinklers"]}],  # missing class_name
             }
         ],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
     resp = client.post(
         "/config/structured",
         json=payload,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 422
 
@@ -303,13 +310,15 @@ def test_reload_preserves_disarm_state(setup_config):
 
     # Simulate user disarm with auto-rearm
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(route_auth, "current_user", lambda req: {"username": "testuser", "role": "user"})
+    monkeypatch.setattr(
+        route_auth, "current_user", lambda req: {"username": "testuser", "role": "user"}
+    )
     monkeypatch.setattr(route_auth, "current_role", lambda req: "user")
 
     resp = client.post(
         "/disarm",
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 200
 
@@ -326,6 +335,7 @@ def test_reload_preserves_disarm_state(setup_config):
 def test_admin_rearm_overrides_user_disarm(setup_config):
     """Admin arm should override a pending user disarm (rearm_at cleared)."""
     import config_store
+
     client, _ = setup_config
 
     # User disarms first
@@ -346,20 +356,20 @@ def test_admin_rearm_overrides_user_disarm(setup_config):
             "backup": {},
             "summary_report": {},
             "config_api": {},
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
+            "uploads": {"model_mb": 100, "dataset_mb": 100},
         },
         "cameras": [],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
     resp = client.post(
         "/config/structured",
         json=payload,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp.status_code == 200
     cfg = config_store.load()
@@ -387,21 +397,21 @@ def test_double_save_after_revision_update_succeeds(setup_config):
             "backup": {},
             "summary_report": {},
             "config_api": {},
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
+            "uploads": {"model_mb": 100, "dataset_mb": 100},
         },
         "cameras": [],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
 
     resp1 = client.post(
         "/config/structured",
         json=payload1,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
     assert resp1.status_code == 200
     new_rev = resp1.json().get("revision", rev1 + 1)
@@ -418,21 +428,23 @@ def test_double_save_after_revision_update_succeeds(setup_config):
             "backup": {},
             "summary_report": {},
             "config_api": {},
-            "uploads": {"model_mb": 100, "dataset_mb": 100}
+            "uploads": {"model_mb": 100, "dataset_mb": 100},
         },
         "cameras": [],
         "detection": {},
         "notifications": {"channels": []},
         "tls": {},
         "deterrent": {},
-        "training": {}
+        "training": {},
     }
 
     resp2 = client.post(
         "/config/structured",
         json=payload2,
         cookies={"session_id": "test", "csrf_token": "test-csrf"},
-        headers={"x-csrf-token": "test-csrf"}
+        headers={"x-csrf-token": "test-csrf"},
     )
-    assert resp2.status_code == 200, f"Second save with updated revision must succeed, got {resp2.status_code}"
+    assert resp2.status_code == 200, (
+        f"Second save with updated revision must succeed, got {resp2.status_code}"
+    )
     assert resp2.json()["ok"] is True

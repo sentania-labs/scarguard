@@ -32,13 +32,18 @@ def _get_limiter() -> RateLimiter | None:
         return _limiter
     try:
         import config_store
+
         redis_cfg = config_store.load_cached().get("redis", {}) or {}
         host = redis_cfg.get("host", "redis")
         port = int(redis_cfg.get("port", 6379))
         password = os.environ.get("REDIS_PASSWORD", "") or None
         client = redis_lib.Redis(
-            host=host, port=port, password=password, decode_responses=True,
-            socket_connect_timeout=2, socket_timeout=2,
+            host=host,
+            port=port,
+            password=password,
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
         )
         _limiter = RateLimiter(client)
         return _limiter
@@ -70,6 +75,7 @@ def rate_limit(scope: str, capacity: int, window_seconds: int) -> Callable[[Requ
         @router.post("/test-fire", dependencies=[Depends(rate_limit("test-fire", 10, 60))])
         async def test_fire(...): ...
     """
+
     def dep(request: Request) -> None:
         limiter = _get_limiter()
         if limiter is None:
@@ -79,11 +85,14 @@ def rate_limit(scope: str, capacity: int, window_seconds: int) -> Callable[[Requ
         if not allowed:
             logger.warning(
                 "Rate limit hit [%s] by %s - retry after %ds",
-                scope, principal, retry_after,
+                scope,
+                principal,
+                retry_after,
             )
             raise HTTPException(
                 status_code=429,
                 detail=f"Too many requests - retry in {retry_after}s",
                 headers={"Retry-After": str(retry_after)},
             )
+
     return dep

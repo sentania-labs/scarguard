@@ -242,9 +242,7 @@ def test_failed_training_exit_creates_no_candidate(
     assert _candidates(env) == []
 
 
-def test_malicious_training_output_is_rejected(
-    env: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_malicious_training_output_is_rejected(env: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_train(env, "out.write_bytes(payload)\n", checkpoint_bytes({"x": _Evil()}))
     result = _run(env, monkeypatch)
     _live_untouched(env)
@@ -352,9 +350,7 @@ def test_promotion_keeps_rollback_copy_and_audit_trail(env: dict) -> None:
     assert any(r["sha256"] == manifest["sha256"] for r in store.list_rollbacks())
 
 
-def test_failed_promotion_preserves_live_model(
-    env: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_failed_promotion_preserves_live_model(env: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     store, manifest = _store_with_candidate(env)
 
     def broken_replace(*_args: object) -> None:
@@ -371,9 +367,7 @@ def test_failed_promotion_preserves_live_model(
     assert store.live_provenance("trained.pt", live_sha) == {"status": "unresolved"}
 
 
-def test_failed_ledger_write_undoes_promotion(
-    env: dict, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_failed_ledger_write_undoes_promotion(env: dict, monkeypatch: pytest.MonkeyPatch) -> None:
     store, manifest = _store_with_candidate(env)
 
     real_append = store._append_history
@@ -501,7 +495,9 @@ def test_stack_global_and_dotted_names_cannot_smuggle_code(tmp_path: Path) -> No
         return b"\x8c" + bytes([len(raw)]) + raw + b"\x94"  # SHORT_BINUNICODE + MEMOIZE
 
     smuggled = (
-        b"\x80\x04" + short_unicode("ultralytics.nn.tasks") + short_unicode("torch.load")
+        b"\x80\x04"
+        + short_unicode("ultralytics.nn.tasks")
+        + short_unicode("torch.load")
         + b"\x93."  # STACK_GLOBAL, STOP
     )
     path = tmp_path / "model.pt"
@@ -527,54 +523,141 @@ _TENSOR = _g("torch", "Tensor")
 # Hand-assembled protocol-2 pickles. Each would call DetectionModel(cfg) at
 # load time, and Ultralytics' parse_model eval()s cfg["activation"].
 _LAYER_CALL_BYPASSES = {
-    "rebuild_from_type_calls_layer": b"\x80\x02" + _REBUILD + b"(" + _DM + _TENSOR
-    + b"}" + _u("activation") + _u("x") + b"s\x85}tR.",
-    "rebuild_from_type_calls_reconstructor": b"\x80\x02" + _REBUILD + b"("
-    + _g("copyreg", "_reconstructor") + _TENSOR + b"(" + _DM + _DM + b"}t}tR.",
-    "rebuild_from_type_calls_getattr": b"\x80\x02" + _REBUILD + b"("
-    + _g("__builtin__", "getattr") + _TENSOR + b"(" + _DM + _u("x") + b"t}tR.",
-    "build_sets_init_on_class": b"\x80\x02" + _g("argparse", "Namespace")
-    + b"N}" + _u("__init__") + _DM + b"s\x86b.",
-    "reconstructor_with_layer_base": b"\x80\x02" + _g("copyreg", "_reconstructor")
-    + b"(" + _DM + _DM + b"}tR.",
+    "rebuild_from_type_calls_layer": b"\x80\x02"
+    + _REBUILD
+    + b"("
+    + _DM
+    + _TENSOR
+    + b"}"
+    + _u("activation")
+    + _u("x")
+    + b"s\x85}tR.",
+    "rebuild_from_type_calls_reconstructor": b"\x80\x02"
+    + _REBUILD
+    + b"("
+    + _g("copyreg", "_reconstructor")
+    + _TENSOR
+    + b"("
+    + _DM
+    + _DM
+    + b"}t}tR.",
+    "rebuild_from_type_calls_getattr": b"\x80\x02"
+    + _REBUILD
+    + b"("
+    + _g("__builtin__", "getattr")
+    + _TENSOR
+    + b"("
+    + _DM
+    + _u("x")
+    + b"t}tR.",
+    "build_sets_init_on_class": b"\x80\x02"
+    + _g("argparse", "Namespace")
+    + b"N}"
+    + _u("__init__")
+    + _DM
+    + b"s\x86b.",
+    "reconstructor_with_layer_base": b"\x80\x02"
+    + _g("copyreg", "_reconstructor")
+    + b"("
+    + _DM
+    + _DM
+    + b"}tR.",
     # ns.append = pickle.loads (a module re-export reached through the layer
     # wildcard), then APPEND calls it with attacker bytes.
-    "append_calls_reexported_loader": b"\x80\x02" + _g("types", "SimpleNamespace") + b")R}"
-    + _u("append") + _g("__builtin__", "getattr") + _g("ultralytics.nn.tasks", "pickle")
-    + _u("loads") + b"\x86Rsb" + b"C\x01xa.",
-    "append_calls_layer_method": b"\x80\x02" + _g("types", "SimpleNamespace") + b")R}"
-    + _u("append") + _g("__builtin__", "getattr") + _DM + _u("load") + b"\x86Rsb"
+    "append_calls_reexported_loader": b"\x80\x02"
+    + _g("types", "SimpleNamespace")
+    + b")R}"
+    + _u("append")
+    + _g("__builtin__", "getattr")
+    + _g("ultralytics.nn.tasks", "pickle")
+    + _u("loads")
+    + b"\x86Rsb"
+    + b"C\x01xa.",
+    "append_calls_layer_method": b"\x80\x02"
+    + _g("types", "SimpleNamespace")
+    + b")R}"
+    + _u("append")
+    + _g("__builtin__", "getattr")
+    + _DM
+    + _u("load")
+    + b"\x86Rsb"
     + b"C\x01xa.",
     # An instance-level __setstate__ is called by the next BUILD.
-    "instance_setstate": b"\x80\x02" + _g("types", "SimpleNamespace") + b")R}"
-    + _u("__setstate__") + _g("__builtin__", "getattr") + _DM + _u("load") + b"\x86Rsb"
+    "instance_setstate": b"\x80\x02"
+    + _g("types", "SimpleNamespace")
+    + b")R}"
+    + _u("__setstate__")
+    + _g("__builtin__", "getattr")
+    + _DM
+    + _u("load")
+    + b"\x86Rsb"
     + b"C\x01xb.",
     # numpy.ndarray((1,), dtype("O"), b"AAAAAAAA"): an object array over raw
     # bytes, i.e. a forged PyObject pointer.
-    "ndarray_forges_object_pointer": b"\x80\x02" + _g("numpy", "ndarray") + b"(K\x01\x85"
-    + _g("numpy", "dtype") + _u("O") + b"\x89\x88\x87R"
-    + _g("_codecs", "encode") + _u("AAAAAAAA") + _u("latin1") + b"\x86RtR.",
-    "object_dtype_scalar": b"\x80\x02" + _g("numpy.core.multiarray", "scalar")
-    + _g("numpy", "dtype") + _u("O") + b"\x89\x88\x87R"
-    + _g("_codecs", "encode") + _u("AAAAAAAA") + _u("latin1") + b"\x86R\x86R.",
+    "ndarray_forges_object_pointer": b"\x80\x02"
+    + _g("numpy", "ndarray")
+    + b"(K\x01\x85"
+    + _g("numpy", "dtype")
+    + _u("O")
+    + b"\x89\x88\x87R"
+    + _g("_codecs", "encode")
+    + _u("AAAAAAAA")
+    + _u("latin1")
+    + b"\x86RtR.",
+    "object_dtype_scalar": b"\x80\x02"
+    + _g("numpy.core.multiarray", "scalar")
+    + _g("numpy", "dtype")
+    + _u("O")
+    + b"\x89\x88\x87R"
+    + _g("_codecs", "encode")
+    + _u("AAAAAAAA")
+    + _u("latin1")
+    + b"\x86R\x86R.",
     # model.float = DEFAULT_CFG_DICT.clear: a singleton under a layer module,
     # whose method ultralytics' loader then calls.
-    "getattr_on_singleton": b"\x80\x02}" + _u("model") + _DM + b")\x81}" + _u("float")
-    + _g("__builtin__", "getattr") + _g("ultralytics.nn.tasks", "DEFAULT_CFG_DICT")
-    + _u("clear") + b"\x86Rsbs.",
+    "getattr_on_singleton": b"\x80\x02}"
+    + _u("model")
+    + _DM
+    + b")\x81}"
+    + _u("float")
+    + _g("__builtin__", "getattr")
+    + _g("ultralytics.nn.tasks", "DEFAULT_CFG_DICT")
+    + _u("clear")
+    + b"\x86Rsbs.",
     # A layer method hidden in a nested hook dict, called during inference.
-    "layer_method_as_forward_hook": b"\x80\x02" + _DM + b")\x81}" + _u("_forward_pre_hooks")
-    + _g("collections", "OrderedDict") + b")RK\x00" + _g("__builtin__", "getattr")
-    + _g("ultralytics.nn.modules.head", "Detect") + _u("forward") + b"\x86Rssb.",
+    "layer_method_as_forward_hook": b"\x80\x02"
+    + _DM
+    + b")\x81}"
+    + _u("_forward_pre_hooks")
+    + _g("collections", "OrderedDict")
+    + b")RK\x00"
+    + _g("__builtin__", "getattr")
+    + _g("ultralytics.nn.modules.head", "Detect")
+    + _u("forward")
+    + b"\x86Rssb.",
     # NEWOBJ of a module object re-exported under a layer module (torch.nn.functional).
     "newobj_of_module_alias": b"\x80\x02" + _g("ultralytics.nn.modules.block", "F") + b")\x81.",
     # The state dict is changed after BUILD validated it (memo alias).
-    "mutate_after_build": b"\x80\x02" + _DM + b")\x81}q\x00b" + b"h\x00" + _u("detect")
-    + _g("__builtin__", "getattr") + _g("ultralytics.nn.modules.head", "Detect")
-    + _u("forward") + b"\x86Rs0.",
+    "mutate_after_build": b"\x80\x02"
+    + _DM
+    + b")\x81}q\x00b"
+    + b"h\x00"
+    + _u("detect")
+    + _g("__builtin__", "getattr")
+    + _g("ultralytics.nn.modules.head", "Detect")
+    + _u("forward")
+    + b"\x86Rs0.",
     # A numeric dtype whose BUILD state adds fields (structured, object field).
-    "dtype_state_adds_fields": b"\x80\x02" + _g("numpy", "dtype") + _u("f8") + b"\x89\x88\x87R"
-    + b"(K\x03" + _u("<") + b"N" + b"(" + _u("a") + b"t}NJ\xff\xff\xff\xffJ\xff\xff\xff\xffK\x00tb.",
+    "dtype_state_adds_fields": b"\x80\x02"
+    + _g("numpy", "dtype")
+    + _u("f8")
+    + b"\x89\x88\x87R"
+    + b"(K\x03"
+    + _u("<")
+    + b"N"
+    + b"("
+    + _u("a")
+    + b"t}NJ\xff\xff\xff\xffJ\xff\xff\xff\xffK\x00tb.",
 }
 
 
@@ -599,10 +682,19 @@ def _tensor_pickle(numel: int, view: int) -> bytes:
         return b"M" + value.to_bytes(2, "little")  # BININT2
 
     return (
-        b"\x80\x02" + _g("torch._utils", "_rebuild_tensor_v2") + b"(("
-        + _u("storage") + _g("torch", "FloatStorage") + _u("0") + _u("cpu") + int2(numel)
-        + b"tQK\x00" + int2(view) + b"\x85K\x01\x85\x89"
-        + _g("collections", "OrderedDict") + b")RtR."
+        b"\x80\x02"
+        + _g("torch._utils", "_rebuild_tensor_v2")
+        + b"(("
+        + _u("storage")
+        + _g("torch", "FloatStorage")
+        + _u("0")
+        + _u("cpu")
+        + int2(numel)
+        + b"tQK\x00"
+        + int2(view)
+        + b"\x85K\x01\x85\x89"
+        + _g("collections", "OrderedDict")
+        + b")RtR."
     )
 
 
@@ -676,8 +768,12 @@ def test_yaml_layer_that_downloads_weights_is_rejected(tmp_path: Path) -> None:
         # which downloads URLs (process_video inference path).
         pickle.dumps({"train_args": {"data": "http://127.0.0.1:8765/evil.yaml"}}, 2),
         pickle.dumps({"train_args": {"data": ["ul://evil/data.yaml"]}}, 2),
-        b"\x80\x02" + _DM + b")\x81}" + _u("args")
-        + pickle.dumps({"data": "https://example.invalid/a.yaml"}, 2)[2:-1] + b"sb.",
+        b"\x80\x02"
+        + _DM
+        + b")\x81}"
+        + _u("args")
+        + pickle.dumps({"data": "https://example.invalid/a.yaml"}, 2)[2:-1]
+        + b"sb.",
     ],
 )
 def test_training_arguments_cannot_name_urls(tmp_path: Path, data: bytes) -> None:
@@ -710,10 +806,23 @@ def test_torch_save_shaped_layer_pickle_is_accepted(tmp_path: Path) -> None:
     # Segment.detect stored as getattr(Detect, "forward"), and a v10Detect head.
     head = "ultralytics.nn.modules.head"
     data = (
-        b"\x80\x02}" + _u("model") + _DM + b")\x81}"
-        + _u("detect") + _g("__builtin__", "getattr") + _g(head, "Detect") + _u("forward")
-        + b"\x86Rs" + _u("_modules") + _g("collections", "OrderedDict") + b")R"
-        + _u("head") + _g(head, "v10Detect") + b")\x81}" + _u("nc") + b"K\x03"
+        b"\x80\x02}"
+        + _u("model")
+        + _DM
+        + b")\x81}"
+        + _u("detect")
+        + _g("__builtin__", "getattr")
+        + _g(head, "Detect")
+        + _u("forward")
+        + b"\x86Rs"
+        + _u("_modules")
+        + _g("collections", "OrderedDict")
+        + b")R"
+        + _u("head")
+        + _g(head, "v10Detect")
+        + b")\x81}"
+        + _u("nc")
+        + b"K\x03"
         + b"s"  # SETITEM nc
         + b"b"  # BUILD v10Detect
         + b"s"  # SETITEM _modules["head"]
@@ -728,11 +837,24 @@ def test_torch_save_shaped_layer_pickle_is_accepted(tmp_path: Path) -> None:
 def test_failed_promotion_attempt_does_not_grant_provenance(env: dict) -> None:
     store, manifest = _store_with_candidate(env)
     (env["store"] / "history.jsonl").write_text(
-        json.dumps({"action": "promote_started", "at": "t1", "target_name": "pond.pt",
-                    "result_sha256": manifest["sha256"], "candidate_id": manifest["id"]})
+        json.dumps(
+            {
+                "action": "promote_started",
+                "at": "t1",
+                "target_name": "pond.pt",
+                "result_sha256": manifest["sha256"],
+                "candidate_id": manifest["id"],
+            }
+        )
         + "\n"
-        + json.dumps({"action": "promote_failed", "at": "t1", "target_name": "pond.pt",
-                      "result_sha256": manifest["sha256"]})
+        + json.dumps(
+            {
+                "action": "promote_failed",
+                "at": "t1",
+                "target_name": "pond.pt",
+                "result_sha256": manifest["sha256"],
+            }
+        )
         + "\n"
     )
     assert store.live_provenance("pond.pt", manifest["sha256"]) == {"status": "unresolved"}
@@ -807,7 +929,9 @@ def no_inflation(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("archive member inflated before bounds were checked")
 
-    def guarded_open(self: zipfile.ZipFile, name: object, mode: str = "r", *a: object, **k: object) -> object:
+    def guarded_open(
+        self: zipfile.ZipFile, name: object, mode: str = "r", *a: object, **k: object
+    ) -> object:
         if mode != "w":  # the fixtures themselves are still written through here
             refuse()
         return real_open(self, name, mode, *a, **k)  # type: ignore[arg-type]
@@ -840,8 +964,11 @@ def test_declared_expansion_over_absolute_cap_is_rejected(
     half = model_store._MAX_ZIP_UNCOMPRESSED_BYTES // 2 + 1
     path = _bounded_zip(
         tmp_path,
-        [("best/data.pkl", pickle_bytes, None), ("best/data/0", b"\x00" * 64, half),
-         ("best/data/1", b"\x00" * 64, half)],
+        [
+            ("best/data.pkl", pickle_bytes, None),
+            ("best/data/0", b"\x00" * 64, half),
+            ("best/data/1", b"\x00" * 64, half),
+        ],
     )
     with pytest.raises(model_store.CandidateValidationError, match="expands too far"):
         model_store.validate_model_file(path, ".pt")
@@ -853,8 +980,10 @@ def test_oversized_data_pickle_is_rejected_before_inflation(
     # Padded so the expansion ratio is fine; only the pickle bound can reject it.
     path = _bounded_zip(
         tmp_path,
-        [("best/data.pkl", b"\x80\x02N.", model_store._MAX_PICKLE_BYTES + 1),
-         ("best/data/0", os.urandom(10 << 20), None)],
+        [
+            ("best/data.pkl", b"\x80\x02N.", model_store._MAX_PICKLE_BYTES + 1),
+            ("best/data/0", os.urandom(10 << 20), None),
+        ],
     )
     with pytest.raises(model_store.CandidateValidationError, match="pickle is too large"):
         model_store.validate_model_file(path, ".pt")

@@ -42,10 +42,13 @@ class WebhookNotifier:
         try:
             validate_external_url(self._url, allow_internal=allow_internal)
             self._enabled = True
-        except UnsafeURLError as exc:
+        except UnsafeURLError:
+            from url_safety import redact_url
+
             logger.error(
-                "Webhook [%s] disabled - unsafe URL %r: %s",
-                self._name, self._url, exc,
+                "Webhook [%s] disabled - unsafe URL %r",
+                self._name,
+                redact_url(self._url),
             )
             self._enabled = False
 
@@ -84,7 +87,10 @@ class WebhookNotifier:
         resp.raise_for_status()
         logger.info(
             "Webhook [%s] %s %s → %d",
-            self._name, self._method, self._url, resp.status_code,
+            self._name,
+            self._method,
+            self._url,
+            resp.status_code,
         )
 
     def _send_digest(self, report: dict) -> None:
@@ -107,8 +113,11 @@ class WebhookNotifier:
             "training": report.get("training"),
         }
         resp = requests.request(
-            self._method, self._url, json=payload,
-            headers=self._headers, timeout=15,
+            self._method,
+            self._url,
+            json=payload,
+            headers=self._headers,
+            timeout=15,
         )
         resp.raise_for_status()
         logger.info("Webhook [%s] digest sent → %d", self._name, resp.status_code)

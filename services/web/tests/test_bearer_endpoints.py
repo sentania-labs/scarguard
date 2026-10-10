@@ -137,6 +137,7 @@ def bearer_client(monkeypatch):
             raise _redis_err
 
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "Redis", lambda **kw: _StubRedis(**kw))
 
     from fastapi.testclient import TestClient
@@ -186,16 +187,17 @@ class TestBearerAuthAccepted:
         ids=[f"{m} {p}" for m, p in _BEARER_ENDPOINTS],
     )
     def test_valid_token_is_not_401(
-        self, bearer_client, method: str, path: str,
+        self,
+        bearer_client,
+        method: str,
+        path: str,
     ) -> None:
         resp = bearer_client.request(
             method,
             path,
             headers={"Authorization": f"Bearer {_VALID_TOKEN}"},
         )
-        assert resp.status_code != 401, (
-            f"{method} {path} returned 401 with a valid Bearer token"
-        )
+        assert resp.status_code != 401, f"{method} {path} returned 401 with a valid Bearer token"
 
     @pytest.mark.parametrize(
         "method,path",
@@ -203,13 +205,17 @@ class TestBearerAuthAccepted:
         ids=[f"{m} {p}" for m, p in _BEARER_SSE_ENDPOINTS],
     )
     def test_valid_token_is_not_401_sse(
-        self, bearer_client, method: str, path: str,
+        self,
+        bearer_client,
+        method: str,
+        path: str,
     ) -> None:
         result: dict[str, Any] = {}
 
         def _req() -> None:
             r = bearer_client.request(
-                method, path,
+                method,
+                path,
                 headers={"Authorization": f"Bearer {_VALID_TOKEN}"},
             )
             result["status"] = r.status_code
@@ -234,7 +240,10 @@ class TestBearerAuthEnforced:
         ids=[f"{m} {p}" for m, p in _BEARER_ENDPOINTS],
     )
     def test_missing_token_is_401(
-        self, bearer_client, method: str, path: str,
+        self,
+        bearer_client,
+        method: str,
+        path: str,
     ) -> None:
         resp = bearer_client.request(
             method,
@@ -251,7 +260,10 @@ class TestBearerAuthEnforced:
         ids=[f"{m} {p}" for m, p in _BEARER_SSE_ENDPOINTS],
     )
     def test_missing_token_is_401_sse(
-        self, bearer_client, method: str, path: str,
+        self,
+        bearer_client,
+        method: str,
+        path: str,
     ) -> None:
         # Auth rejection returns a plain 401 immediately (no streaming).
         resp = bearer_client.request(

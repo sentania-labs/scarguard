@@ -32,8 +32,11 @@ def _redis_conn(cfg: dict) -> redis_lib.Redis:
     port = int(redis_cfg.get("port", 6379))
     pw = os.environ.get("REDIS_PASSWORD", "") or None
     return redis_lib.Redis(
-        host=host, port=port, password=pw,
-        socket_timeout=2, socket_connect_timeout=2,
+        host=host,
+        port=port,
+        password=pw,
+        socket_timeout=2,
+        socket_connect_timeout=2,
     )
 
 
@@ -85,7 +88,9 @@ async def about_page(request: Request) -> HTMLResponse:
 
     # Deterrent status: enabled in config + log-streamer has seen it running
     deterrent_cfg = cfg.get("deterrent", {})
-    deterrent_enabled = bool(deterrent_cfg.get("enabled", False)) if isinstance(deterrent_cfg, dict) else False
+    deterrent_enabled = (
+        bool(deterrent_cfg.get("enabled", False)) if isinstance(deterrent_cfg, dict) else False
+    )
     deterrent_running = False
     if redis_ok:
         try:

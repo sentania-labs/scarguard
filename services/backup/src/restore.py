@@ -159,7 +159,8 @@ def _available_snapshots(db_dir: Path) -> list[str]:
     if not db_dir.is_dir():
         return []
     return sorted(
-        p.name for p in db_dir.glob("*.db*")
+        p.name
+        for p in db_dir.glob("*.db*")
         if p.is_file() and not p.name.endswith(IN_PROGRESS_SUFFIXES)
     )
 
@@ -223,7 +224,9 @@ def do_restore(
         stale.unlink()
 
     # Stage and validate first: a bad snapshot never touches the live files.
-    fd, staged_name = tempfile.mkstemp(dir=data_dir, prefix=f".{db_name}.db.restore-", suffix=".tmp")
+    fd, staged_name = tempfile.mkstemp(
+        dir=data_dir, prefix=f".{db_name}.db.restore-", suffix=".tmp"
+    )
     staged = Path(staged_name)
     try:
         _unpack(source, staged, fd)

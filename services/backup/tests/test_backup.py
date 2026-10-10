@@ -22,6 +22,7 @@ def isolated_dirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     data_dir.mkdir()
     backup_root.mkdir()
     import main as backup_main
+
     monkeypatch.setattr(backup_main, "DATA_DIR", data_dir)
     monkeypatch.setattr(backup_main, "BACKUP_ROOT", backup_root)
     return data_dir, backup_root
@@ -40,11 +41,14 @@ def _make_db(path: Path, rows: int = 5) -> None:
 class TestBackupDatabase:
     def test_creates_backup_when_source_exists(self, isolated_dirs) -> None:
         import main as backup_main
+
         data_dir, backup_root = isolated_dirs
         src = data_dir / "scarguard.db"
         _make_db(src, rows=10)
         result = backup_main.backup_database(
-            "scarguard", src, compress=True,
+            "scarguard",
+            src,
+            compress=True,
         )
         assert result is not None
         assert result.exists()
@@ -53,14 +57,18 @@ class TestBackupDatabase:
 
     def test_returns_none_when_source_missing(self, isolated_dirs) -> None:
         import main as backup_main
+
         data_dir, _ = isolated_dirs
         result = backup_main.backup_database(
-            "ghost", data_dir / "ghost.db", compress=True,
+            "ghost",
+            data_dir / "ghost.db",
+            compress=True,
         )
         assert result is None
 
     def test_compressed_backup_round_trips(self, isolated_dirs) -> None:
         import main as backup_main
+
         data_dir, _ = isolated_dirs
         src = data_dir / "scarguard.db"
         _make_db(src, rows=5)
@@ -80,6 +88,7 @@ class TestBackupDatabase:
 
     def test_uncompressed_backup_round_trips(self, isolated_dirs) -> None:
         import main as backup_main
+
         data_dir, _ = isolated_dirs
         src = data_dir / "scarguard.db"
         _make_db(src, rows=3)
@@ -94,6 +103,7 @@ class TestBackupDatabase:
 
     def test_creates_dated_filename(self, isolated_dirs) -> None:
         import main as backup_main
+
         data_dir, _ = isolated_dirs
         src = data_dir / "scarguard.db"
         _make_db(src)
@@ -101,6 +111,7 @@ class TestBackupDatabase:
         assert out is not None
         # Filename starts with YYYY-MM-DDTHH-MM-SS
         import re
+
         assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}", out.name)
 
 
@@ -114,10 +125,19 @@ class TestPruneBackups:
 
     def test_keeps_n_most_recent(self, isolated_dirs) -> None:
         import main as backup_main
+
         _, backup_root = isolated_dirs
-        self._seed(backup_root, "scarguard", [
-            "2026-04-22", "2026-04-21", "2026-04-20", "2026-04-19", "2026-04-18",
-        ])
+        self._seed(
+            backup_root,
+            "scarguard",
+            [
+                "2026-04-22",
+                "2026-04-21",
+                "2026-04-20",
+                "2026-04-19",
+                "2026-04-18",
+            ],
+        )
         deleted = backup_main.prune_backups("scarguard", daily=3, weekly=0)
         assert deleted == 2
         remaining = sorted((backup_root / "scarguard").iterdir())
@@ -126,11 +146,13 @@ class TestPruneBackups:
 
     def test_keeps_weekly_samples_beyond_dailies(self, isolated_dirs) -> None:
         import main as backup_main
+
         _, backup_root = isolated_dirs
         # 30 daily files; daily=7 + weekly=3 should keep 7 + 3 = 10.
         dates = []
         for i in range(30):
             from datetime import date, timedelta
+
             dates.append((date(2026, 4, 22) - timedelta(days=i)).isoformat())
         self._seed(backup_root, "auth", dates)
         backup_main.prune_backups("auth", daily=7, weekly=3)
@@ -140,6 +162,7 @@ class TestPruneBackups:
 
     def test_returns_zero_when_no_backups(self, isolated_dirs) -> None:
         import main as backup_main
+
         deleted = backup_main.prune_backups("nonexistent", daily=14, weekly=8)
         assert deleted == 0
 
@@ -147,6 +170,7 @@ class TestPruneBackups:
 class TestRunBackupCycle:
     def test_publishes_started_and_completed(self, isolated_dirs) -> None:
         import main as backup_main
+
         data_dir, _ = isolated_dirs
         # Seed all three DBs.
         _make_db(data_dir / "scarguard.db", rows=2)
@@ -154,6 +178,7 @@ class TestRunBackupCycle:
         _make_db(data_dir / "deterrent.db", rows=2)
         # Re-bind DATABASES on the freshly-isolated paths
         import importlib
+
         importlib.reload(backup_main)
         backup_main.DATA_DIR = data_dir
         backup_main.BACKUP_ROOT = data_dir / "backups"
@@ -172,7 +197,6 @@ class TestRunBackupCycle:
         assert len(result["results"]) == 3
         # Two publishes: started + completed
         assert publisher.publish.call_count == 2
-
 
     # Path-traversal coverage for the web download route lives in the
     # web tests (services/web/tests/test_db_backups_route.py); the

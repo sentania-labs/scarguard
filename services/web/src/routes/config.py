@@ -407,7 +407,10 @@ async def save_structured_config(request: Request) -> Response:
     existing_revision = existing.get("system", {}).get("revision", 0)
     if payload.system.revision != existing_revision:
         return JSONResponse(
-            {"ok": False, "error": "Config was modified by another user. Reload to see latest changes."},
+            {
+                "ok": False,
+                "error": "Config was modified by another user. Reload to see latest changes.",
+            },
             status_code=409,
         )
 

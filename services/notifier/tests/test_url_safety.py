@@ -9,22 +9,28 @@ from url_safety import UnsafeURLError, validate_external_url
 
 
 class TestSchemeRejection:
-    @pytest.mark.parametrize("url", [
-        "ftp://example.com/foo",
-        "file:///etc/passwd",
-        "gopher://example.com/",
-        "javascript:alert(1)",
-        "data:text/plain,hello",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "ftp://example.com/foo",
+            "file:///etc/passwd",
+            "gopher://example.com/",
+            "javascript:alert(1)",
+            "data:text/plain,hello",
+        ],
+    )
     def test_rejects_non_http(self, url: str) -> None:
         with pytest.raises(UnsafeURLError, match="scheme"):
             validate_external_url(url)
 
-    @pytest.mark.parametrize("url", [
-        "",
-        "   ",
-        "not-a-url",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "",
+            "   ",
+            "not-a-url",
+        ],
+    )
     def test_rejects_empty_or_garbage(self, url: str) -> None:
         with pytest.raises(UnsafeURLError):
             validate_external_url(url)
@@ -37,30 +43,39 @@ class TestSchemeRejection:
 class TestLiteralIPs:
     """Literal IPs should be checked without DNS round-trip."""
 
-    @pytest.mark.parametrize("url", [
-        "http://127.0.0.1/",
-        "http://127.0.0.1:6379/",
-        "http://[::1]/",
-        "http://0.0.0.0/",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1/",
+            "http://127.0.0.1:6379/",
+            "http://[::1]/",
+            "http://0.0.0.0/",
+        ],
+    )
     def test_rejects_loopback(self, url: str) -> None:
         with pytest.raises(UnsafeURLError):
             validate_external_url(url)
 
-    @pytest.mark.parametrize("url", [
-        "http://10.0.0.1/",
-        "http://192.168.1.1/",
-        "http://172.16.0.1/",
-        "http://172.31.255.255/",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://10.0.0.1/",
+            "http://192.168.1.1/",
+            "http://172.16.0.1/",
+            "http://172.31.255.255/",
+        ],
+    )
     def test_rejects_rfc1918(self, url: str) -> None:
         with pytest.raises(UnsafeURLError):
             validate_external_url(url)
 
-    @pytest.mark.parametrize("url", [
-        "http://169.254.169.254/latest/meta-data/",  # AWS/GCP IMDS
-        "http://169.254.1.1/",  # link-local
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.169.254/latest/meta-data/",  # AWS/GCP IMDS
+            "http://169.254.1.1/",  # link-local
+        ],
+    )
     def test_rejects_link_local(self, url: str) -> None:
         with pytest.raises(UnsafeURLError):
             validate_external_url(url)
@@ -101,6 +116,7 @@ class TestHostnameResolution:
         # Mock getaddrinfo to claim a name resolves to loopback.
         with patch("url_safety.socket.getaddrinfo") as gai:
             import socket
+
             gai.return_value = [
                 (socket.AF_INET, 0, 0, "", ("127.0.0.1", 0)),
             ]
@@ -110,6 +126,7 @@ class TestHostnameResolution:
     def test_rejects_hostname_resolving_to_rfc1918(self) -> None:
         with patch("url_safety.socket.getaddrinfo") as gai:
             import socket
+
             gai.return_value = [
                 (socket.AF_INET, 0, 0, "", ("10.0.0.5", 0)),
             ]
@@ -120,6 +137,7 @@ class TestHostnameResolution:
         # 1.1.1.1 is real public IP - not in any "reserved" range.
         with patch("url_safety.socket.getaddrinfo") as gai:
             import socket
+
             gai.return_value = [
                 (socket.AF_INET, 0, 0, "", ("1.1.1.1", 0)),
             ]
@@ -127,6 +145,7 @@ class TestHostnameResolution:
 
     def test_dns_failure_raises(self) -> None:
         import socket
+
         with patch("url_safety.socket.getaddrinfo", side_effect=socket.gaierror("nope")):
             with pytest.raises(UnsafeURLError, match="DNS"):
                 validate_external_url("https://nonexistent.invalid/")
@@ -136,6 +155,7 @@ class TestHostnameResolution:
         Otherwise an attacker can DNS-rebind to a private target after the check."""
         with patch("url_safety.socket.getaddrinfo") as gai:
             import socket
+
             gai.return_value = [
                 (socket.AF_INET, 0, 0, "", ("1.1.1.1", 0)),
                 (socket.AF_INET, 0, 0, "", ("10.0.0.1", 0)),
@@ -148,6 +168,7 @@ class TestDiscordWebhookHappy:
     def test_real_discord_url_validates(self) -> None:
         with patch("url_safety.socket.getaddrinfo") as gai:
             import socket
+
             gai.return_value = [
                 (socket.AF_INET, 0, 0, "", ("162.159.135.232", 0)),
             ]

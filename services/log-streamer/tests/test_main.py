@@ -56,9 +56,7 @@ class FakeRedis:
 
     def zremrangebyscore(self, key: str, minimum: float, maximum: float) -> int:
         removed = [
-            member
-            for member, score in self.sorted_sets[key].items()
-            if minimum <= score <= maximum
+            member for member, score in self.sorted_sets[key].items() if minimum <= score <= maximum
         ]
         for member in removed:
             del self.sorted_sets[key][member]
@@ -247,9 +245,10 @@ def test_reattach_backfills_gap_and_deduplicates_live_overlap(caplog: Any) -> No
         "before-2",
         "before-1",
     ]
-    assert json.loads(redis_client.lists[buffer_key][0])[
-        "__scarguard_log_buffer__"
-    ] == "scarguard-log-buffer-v1"
+    assert (
+        json.loads(redis_client.lists[buffer_key][0])["__scarguard_log_buffer__"]
+        == "scarguard-log-buffer-v1"
+    )
     assert len(redis_client.sorted_sets[main.HEALTH_EVENTS_KEY]) == 3
     assert redis_client.values[main.HEALTH_KEY] == "3"
     assert len(results) == 1
@@ -409,12 +408,9 @@ def test_legacy_migration_preserves_unobserved_history(monkeypatch: Any) -> None
 
     assert _buffer_texts(redis_client, buffer_key) == ["seen", "older-unseen"]
     entries = [
-        main.BufferedLogEntry.model_validate_json(entry)
-        for entry in redis_client.lists[buffer_key]
+        main.BufferedLogEntry.model_validate_json(entry) for entry in redis_client.lists[buffer_key]
     ]
-    assert entries[0].identity == _event_identity(
-        "container-1", "2026-09-09T12:00:01Z", "seen"
-    )
+    assert entries[0].identity == _event_identity("container-1", "2026-09-09T12:00:01Z", "seen")
     assert entries[1].identity.startswith("legacy-buffer:")
 
 
@@ -459,12 +455,9 @@ def test_legacy_migration_matches_repeated_text_in_newest_window(
     _tail_container("web", container, lambda _result: None, lambda: redis_client)
 
     entries = [
-        main.BufferedLogEntry.model_validate_json(entry)
-        for entry in redis_client.lists[buffer_key]
+        main.BufferedLogEntry.model_validate_json(entry) for entry in redis_client.lists[buffer_key]
     ]
-    assert entries[0].identity == _event_identity(
-        "container-1", "2026-09-09T12:00:01Z", "repeated"
-    )
+    assert entries[0].identity == _event_identity("container-1", "2026-09-09T12:00:01Z", "repeated")
     assert entries[1].text == "filler-0"
     assert entries[-1].text == "repeated"
     assert entries[-1].identity.startswith("legacy-buffer:")

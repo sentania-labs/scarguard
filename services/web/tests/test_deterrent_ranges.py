@@ -59,7 +59,8 @@ class TestRangeChecker:
     def test_rejects_spray_above_the_actuation_ceiling(self) -> None:
         """A range above the clamp would be silently truncated at fire time."""
         err = check_actuation_range(
-            "spray_duration_range", [MAX_ACTUATION_SEC + 1, MAX_ACTUATION_SEC + 5],
+            "spray_duration_range",
+            [MAX_ACTUATION_SEC + 1, MAX_ACTUATION_SEC + 5],
         )
         assert "between" in (err or "")
 
@@ -94,7 +95,6 @@ class TestLoadPathStaysPermissive:
         assert len(cfg.devices) == 1, "device registry was discarded"
         assert len(cfg.groups) == 1, "groups were discarded"
         assert cfg.defaults.pre_delay_range == [300.0, 300.0]
-
 
 
 class TestSaveRouteRejectsBadRanges:
@@ -135,9 +135,11 @@ class TestSaveRouteRejectsBadRanges:
         """Group overrides bypass the defaults, so they need checking too."""
         resp = client.post(
             "/admin/deterrent",
-            json={"groups": [
-                {"name": "g", "devices": [], "inter_device_delay_range": [3000, 3000]},
-            ]},
+            json={
+                "groups": [
+                    {"name": "g", "devices": [], "inter_device_delay_range": [3000, 3000]},
+                ]
+            },
         )
         assert resp.status_code == 400
         assert "group g" in resp.json()["error"]
@@ -146,10 +148,12 @@ class TestSaveRouteRejectsBadRanges:
     def test_reports_every_problem_not_just_the_first(self, client, saved) -> None:
         resp = client.post(
             "/admin/deterrent",
-            json={"defaults": {
-                "pre_delay_range": [300, 300],
-                "device_count_range": [1, 999],
-            }},
+            json={
+                "defaults": {
+                    "pre_delay_range": [300, 300],
+                    "device_count_range": [1, 999],
+                }
+            },
         )
         assert resp.status_code == 400
         err = resp.json()["error"]
@@ -158,12 +162,14 @@ class TestSaveRouteRejectsBadRanges:
     def test_accepts_values_within_bounds(self, client, saved) -> None:
         resp = client.post(
             "/admin/deterrent",
-            json={"defaults": {
-                "pre_delay_range": [0, 3],
-                "spray_duration_range": [3, 8],
-                "inter_device_delay_range": [1, 5],
-                "device_count_range": [1, 4],
-            }},
+            json={
+                "defaults": {
+                    "pre_delay_range": [0, 3],
+                    "spray_duration_range": [3, 8],
+                    "inter_device_delay_range": [1, 5],
+                    "device_count_range": [1, 4],
+                }
+            },
         )
         assert resp.status_code == 200
         assert len(saved) == 1
@@ -195,10 +201,7 @@ class TestTimeoutDerivation:
         # runs to completion, then the inter-device wait the loop performs
         # before it notices the window closed.
         worst = (
-            MAX_PRE_DELAY_SEC
-            + MAX_GROUP_TEST_FIRE_SEC
-            + MAX_ACTUATION_SEC
-            + MAX_INTER_DELAY_SEC
+            MAX_PRE_DELAY_SEC + MAX_GROUP_TEST_FIRE_SEC + MAX_ACTUATION_SEC + MAX_INTER_DELAY_SEC
         )
         assert group_test_fire_timeout_sec() > worst, (
             "the route gives up while hardware may still be firing"

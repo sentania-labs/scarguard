@@ -106,7 +106,8 @@ def pick_group_window(defaults: ActuationDefaults) -> float | None:
     if window > MAX_GROUP_ACTUATION_SEC:
         logger.warning(
             "Group window %.0fs exceeds the %.0fs cap, clamping",
-            window, MAX_GROUP_ACTUATION_SEC,
+            window,
+            MAX_GROUP_ACTUATION_SEC,
         )
         window = MAX_GROUP_ACTUATION_SEC
     return window

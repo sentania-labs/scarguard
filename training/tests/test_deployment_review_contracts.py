@@ -37,6 +37,7 @@ def test_documented_upgrade_backfills_controller_token(
     token = values["TRAINING_CONTROLLER_TOKEN"]
     assert len(token) >= 32
 
+
 def test_training_controller_mounts_the_shared_config() -> None:
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
     controller = compose.split("  training-controller:", 1)[1].split("  trainer:", 1)[0]

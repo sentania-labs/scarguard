@@ -94,9 +94,7 @@ class SnapshotGrabber(threading.Thread):
         self._pool.shutdown(wait=False)
         logger.info("SnapshotGrabber stopped")
 
-    def _handle_request(
-        self, client: redis_lib.Redis, camera_name: str, request_id: str
-    ) -> None:
+    def _handle_request(self, client: redis_lib.Redis, camera_name: str, request_id: str) -> None:
         """Grab a single frame from the camera and publish the result."""
         result_channel = f"scarguard:snapshot:result:{request_id}"
 
@@ -104,16 +102,28 @@ class SnapshotGrabber(threading.Thread):
             cam_cfg = self._cameras.get(camera_name)
 
         if cam_cfg is None:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": f"Camera '{camera_name}' not found or disabled",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"Camera '{camera_name}' not found or disabled",
+                    }
+                ),
+            )
             return
 
         rtsp_url = cam_cfg.get("rtsp_url", "")
         if not rtsp_url:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": f"No RTSP URL for camera '{camera_name}'",
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"No RTSP URL for camera '{camera_name}'",
+                    }
+                ),
+            )
             return
 
         try:
@@ -125,9 +135,15 @@ class SnapshotGrabber(threading.Thread):
                 cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
 
                 if not cap.isOpened():
-                    client.publish(result_channel, json.dumps({
-                        "ok": False, "error": f"Cannot open stream for '{camera_name}'",
-                    }))
+                    client.publish(
+                        result_channel,
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "error": f"Cannot open stream for '{camera_name}'",
+                            }
+                        ),
+                    )
                     return
 
                 ret, frame = cap.read()
@@ -135,9 +151,15 @@ class SnapshotGrabber(threading.Thread):
                 cap.release()
 
             if not ret or frame is None:
-                client.publish(result_channel, json.dumps({
-                    "ok": False, "error": f"Failed to read frame from '{camera_name}'",
-                }))
+                client.publish(
+                    result_channel,
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": f"Failed to read frame from '{camera_name}'",
+                        }
+                    ),
+                )
                 return
 
             # Sanitize camera name for filesystem safety (allow only
@@ -174,13 +196,26 @@ class SnapshotGrabber(threading.Thread):
                     pass
                 raise
 
-            client.publish(result_channel, json.dumps({
-                "ok": True, "snapshot_path": str(filepath), "filename": filename,
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "snapshot_path": str(filepath),
+                        "filename": filename,
+                    }
+                ),
+            )
             logger.info("Snapshot grabbed: %s -> %s", camera_name, filename)
 
         except Exception as exc:
-            client.publish(result_channel, json.dumps({
-                "ok": False, "error": str(exc),
-            }))
+            client.publish(
+                result_channel,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": str(exc),
+                    }
+                ),
+            )
             logger.exception("Snapshot grab failed for %s", camera_name)

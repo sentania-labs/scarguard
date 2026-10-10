@@ -118,9 +118,7 @@ def _page_context(
         entry["provenance"] = index.get((str(entry["name"]), sha256 or ""), {"status": UNRESOLVED})
     candidates = store.list_candidates() if store else []
     # Only echo a name that belongs to a real candidate, never raw URL text.
-    uploaded_name = next(
-        (str(c["requested_name"]) for c in candidates if c["id"] == uploaded), ""
-    )
+    uploaded_name = next((str(c["requested_name"]) for c in candidates if c["id"] == uploaded), "")
     return {
         "files": files,
         "uploaded": uploaded_name,
@@ -134,9 +132,7 @@ def _page_context(
 
 
 async def _render(request: Request, status_code: int = 200, **kwargs: Any) -> Response:
-    context = await run_in_threadpool(
-        partial(_page_context, has_admin_access(request), **kwargs)
-    )
+    context = await run_in_threadpool(partial(_page_context, has_admin_access(request), **kwargs))
     return templates.TemplateResponse(request, "models.html", context, status_code=status_code)
 
 
@@ -150,7 +146,8 @@ async def models_page(request: Request, uploaded: str = "", notice: str = "") ->
 
 
 @router.post(
-    "", response_class=HTMLResponse,
+    "",
+    response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("model-upload", capacity=10, window_seconds=3600))],
 )
 async def upload_model(request: Request) -> Response:
@@ -205,13 +202,12 @@ async def _save_model(request: Request, file: StarletteUploadFile) -> Response:
                 await run_in_threadpool(staged.abort)
                 max_size_mb = round(max_upload_bytes / 1_048_576, 1)
                 audit.record_request(
-                    request, action="model.candidate_rejected",
+                    request,
+                    action="model.candidate_rejected",
                     resource=Path(filename).name[:255],
                     details={"reason": f"exceeds {max_size_mb} MB"},
                 )
-                return await _render(
-                    request, error=f"Upload exceeds max size of {max_size_mb} MB."
-                )
+                return await _render(request, error=f"Upload exceeds max size of {max_size_mb} MB.")
             await run_in_threadpool(staged.write, chunk)
         # commit() cleans up after itself on failure; once it has started, a
         # cancelled request must not race it by deleting the staging directory
@@ -232,7 +228,9 @@ async def _save_model(request: Request, file: StarletteUploadFile) -> Response:
         )
     except CandidateValidationError as exc:
         audit.record_request(
-            request, action="model.candidate_rejected", resource=Path(filename).name[:255],
+            request,
+            action="model.candidate_rejected",
+            resource=Path(filename).name[:255],
             details={"reason": str(exc)[:500]},
         )
         return await _render(request, error=f"Upload rejected - {exc}")
@@ -249,7 +247,9 @@ async def _save_model(request: Request, file: StarletteUploadFile) -> Response:
         await file.close()
 
     audit.record_request(
-        request, action="model.candidate_upload", resource=manifest["id"],
+        request,
+        action="model.candidate_upload",
+        resource=manifest["id"],
         details={"name": manifest["requested_name"], "sha256": manifest["sha256"]},
     )
     return RedirectResponse(url=f"/models?uploaded={manifest['id']}", status_code=303)
@@ -277,13 +277,16 @@ async def promote_candidate(request: Request, candidate_id: str) -> Response:
     except (ModelStoreError, OSError) as exc:
         logger.warning("Model promotion of %s failed: %s", candidate_id, exc)
         audit.record_request(
-            request, action="model.promote_failed", resource=candidate_id[:64],
+            request,
+            action="model.promote_failed",
+            resource=candidate_id[:64],
             details={"target_name": target[:128], "reason": str(exc)[:500]},
         )
         return await _render(request, status_code=400, error=f"Promotion failed - {exc}")
     _forget_cached(record["target_name"])
-    audit.record_request(request, action="model.promote", resource=record["target_name"],
-                         details=record)
+    audit.record_request(
+        request, action="model.promote", resource=record["target_name"], details=record
+    )
     return RedirectResponse(url="/models?notice=promoted", status_code=303)
 
 
@@ -300,13 +303,16 @@ async def restore_rollback(request: Request, rollback_id: str) -> Response:
     except (ModelStoreError, OSError) as exc:
         logger.warning("Model rollback %s failed: %s", rollback_id, exc)
         audit.record_request(
-            request, action="model.rollback_failed", resource=rollback_id[:64],
+            request,
+            action="model.rollback_failed",
+            resource=rollback_id[:64],
             details={"reason": str(exc)[:500]},
         )
         return await _render(request, status_code=400, error=f"Rollback failed - {exc}")
     _forget_cached(record["target_name"])
-    audit.record_request(request, action="model.rollback", resource=record["target_name"],
-                         details=record)
+    audit.record_request(
+        request, action="model.rollback", resource=record["target_name"], details=record
+    )
     return RedirectResponse(url="/models?notice=restored", status_code=303)
 
 
@@ -321,8 +327,9 @@ async def discard_candidate(request: Request, candidate_id: str) -> Response:
         )
     except (ModelStoreError, OSError) as exc:
         return await _render(request, status_code=400, error=f"Discard failed - {exc}")
-    audit.record_request(request, action="model.candidate_discard", resource=candidate_id,
-                         details=record)
+    audit.record_request(
+        request, action="model.candidate_discard", resource=candidate_id, details=record
+    )
     return RedirectResponse(url="/models?notice=discarded", status_code=303)
 
 
@@ -464,12 +471,16 @@ async def model_classes(request: Request, filename: str) -> Response:
         # a graceful error path instead of a 500.
         req_id = uuid.uuid4().hex[:8]
         logger.exception(
-            "Redis RPC failed [%s] while introspecting %s", req_id, filename,
+            "Redis RPC failed [%s] while introspecting %s",
+            req_id,
+            filename,
         )
-        return JSONResponse({
-            "ok": False,
-            "error": f"Unable to reach detector for class introspection (request_id={req_id})",
-        })
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": f"Unable to reach detector for class introspection (request_id={req_id})",
+            }
+        )
 
     if result.get("ok"):
         if len(_classes_cache) >= _CLASSES_CACHE_MAX:

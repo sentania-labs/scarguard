@@ -182,7 +182,9 @@ def execute_plan(
     if pre_delay > MAX_PRE_DELAY_SEC:
         logger.warning(
             "Pre-delay %.1fs exceeds the %.0fs cap, clamping [rid=%s]",
-            pre_delay, MAX_PRE_DELAY_SEC, request_id,
+            pre_delay,
+            MAX_PRE_DELAY_SEC,
+            request_id,
         )
         pre_delay = MAX_PRE_DELAY_SEC
 
@@ -193,21 +195,22 @@ def execute_plan(
         logger.debug("Pre-delay: %.1fs", pre_delay)
         if not _wait(pre_delay, should_continue):
             logger.warning(
-                "%s: aborted during the pre-delay [rid=%s]", label, request_id,
+                "%s: aborted during the pre-delay [rid=%s]",
+                label,
+                request_id,
             )
             return PlanExecution(
-                actions=[], pre_delay_sec=pre_delay,
-                total_duration_sec=time.monotonic() - t_start, aborted=True,
+                actions=[],
+                pre_delay_sec=pre_delay,
+                total_duration_sec=time.monotonic() - t_start,
+                aborted=True,
             )
 
     # The firing window starts once waiting is done (see docstring).
     fire_start = time.monotonic()
 
     def window_closed() -> bool:
-        return (
-            deadline_sec is not None
-            and (time.monotonic() - fire_start) >= deadline_sec
-        )
+        return deadline_sec is not None and (time.monotonic() - fire_start) >= deadline_sec
 
     aborted = False
     cycle = 0
@@ -217,7 +220,10 @@ def execute_plan(
             if should_continue is not None and not should_continue():
                 logger.info(
                     "%s: aborted before cycle %d after %d device(s) [rid=%s]",
-                    label, cycle, len(actions), request_id,
+                    label,
+                    cycle,
+                    len(actions),
+                    request_id,
                 )
                 break
             # Re-roll: new subset, new durations, new delays.
@@ -243,9 +249,10 @@ def execute_plan(
             # actuation record and the cooldown even though nothing was firing.
             if should_continue is not None and not should_continue():
                 logger.warning(
-                    "%s: aborted before the inter-device wait, after %d "
-                    "device(s) [rid=%s]",
-                    label, len(actions), request_id,
+                    "%s: aborted before the inter-device wait, after %d device(s) [rid=%s]",
+                    label,
+                    len(actions),
+                    request_id,
                 )
                 aborted = True
                 break
@@ -254,15 +261,18 @@ def execute_plan(
             if inter_delay < inter_delays[i]:
                 logger.warning(
                     "Inter-device delay %.1fs exceeds the %.0fs cap, clamping [rid=%s]",
-                    inter_delays[i], MAX_INTER_DELAY_SEC, request_id,
+                    inter_delays[i],
+                    MAX_INTER_DELAY_SEC,
+                    request_id,
                 )
             if inter_delay > 0:
                 logger.debug("Inter-device delay: %.1fs", inter_delay)
                 if not _wait(inter_delay, should_continue):
                     logger.warning(
-                        "%s: aborted during the inter-device wait, after %d "
-                        "device(s) [rid=%s]",
-                        label, len(actions), request_id,
+                        "%s: aborted during the inter-device wait, after %d device(s) [rid=%s]",
+                        label,
+                        len(actions),
+                        request_id,
                     )
                     aborted = True
                     break
@@ -279,7 +289,10 @@ def execute_plan(
             if should_continue is not None and not should_continue():
                 logger.warning(
                     "%s: aborted after %d device(s), %d cycle(s) in [rid=%s]",
-                    label, len(actions), cycle, request_id,
+                    label,
+                    len(actions),
+                    cycle,
+                    request_id,
                 )
                 aborted = True
                 break
@@ -288,7 +301,11 @@ def execute_plan(
                 logger.info(
                     "%s: window of %.0fs elapsed, stopping after %d device(s) "
                     "across %d cycle(s) [rid=%s]",
-                    label, deadline_sec, len(actions), cycle, request_id,
+                    label,
+                    deadline_sec,
+                    len(actions),
+                    cycle,
+                    request_id,
                 )
                 break
 
@@ -302,10 +319,15 @@ def execute_plan(
             )
             logger.info(
                 "%s: firing device %s (%s) for %.1fs [rid=%s]",
-                label, device.name, device.type, duration, request_id,
+                label,
+                device.name,
+                device.type,
+                duration,
+                request_id,
             )
             result = controller.activate_device(
-                device, duration,
+                device,
+                duration,
                 request_id=request_id,
                 event_type=event_type,
                 should_continue=should_continue,
@@ -313,18 +335,20 @@ def execute_plan(
             if result.cancelled:
                 aborted = True
                 break
-            actions.append(DeviceAction(
-                device_name=device.name,
-                device_id=device.device_id,
-                device_type=device.type,
-                duration_sec=duration,
-                delay_before_sec=inter_delay,
-                success=result.success,
-                error=result.error,
-                cloud_ack_ms=result.on_ack_ms,
-                off_attempts=result.off_attempts,
-                stuck=result.stuck,
-            ))
+            actions.append(
+                DeviceAction(
+                    device_name=device.name,
+                    device_id=device.device_id,
+                    device_type=device.type,
+                    duration_sec=duration,
+                    delay_before_sec=inter_delay,
+                    success=result.success,
+                    error=result.error,
+                    cloud_ack_ms=result.on_ack_ms,
+                    off_attempts=result.off_attempts,
+                    stuck=result.stuck,
+                )
+            )
             if result.stuck:
                 on_stuck(device, result.error or STUCK_FALLBACK_ERROR)
 
@@ -336,7 +360,10 @@ def execute_plan(
             "%s: hit the %d-cycle ceiling with the window still open, stopping "
             "after %d device(s). Either the sprays are configured far shorter "
             "than the window, or the exit condition is wrong [rid=%s]",
-            label, MAX_ROTATION_CYCLES, len(actions), request_id,
+            label,
+            MAX_ROTATION_CYCLES,
+            len(actions),
+            request_id,
         )
 
     return PlanExecution(

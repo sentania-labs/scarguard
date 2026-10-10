@@ -33,6 +33,7 @@ def _get_hmac_key() -> bytes | None:
     global _hmac_key, _hmac_key_loaded
     if not _hmac_key_loaded:
         from event_signing import load_key_from_env
+
         _hmac_key = load_key_from_env()
         _hmac_key_loaded = True
     return _hmac_key
@@ -48,15 +49,18 @@ def _compute_row_hash(
     request_id: str,
 ) -> str:
     """Compute HMAC-SHA256 over the canonical pipe-delimited row fields."""
-    canonical = "|".join([
-        prev_hash,
-        timestamp,
-        trigger_class,
-        trigger_camera,
-        event_type,
-        request_id,
-    ])
+    canonical = "|".join(
+        [
+            prev_hash,
+            timestamp,
+            trigger_class,
+            trigger_camera,
+            event_type,
+            request_id,
+        ]
+    )
     return hmac.new(key, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
 
 _lock = threading.Lock()
 _local = threading.local()
@@ -121,35 +125,54 @@ def init_db() -> None:
         # event_type to distinguish detection / test_fire / force_off /
         # reconcile, off_attempts to surface OFF retry pressure.
         _add_column_if_missing(
-            conn, "actuation_events", "request_id", "TEXT NOT NULL DEFAULT ''",
+            conn,
+            "actuation_events",
+            "request_id",
+            "TEXT NOT NULL DEFAULT ''",
         )
         _add_column_if_missing(
-            conn, "actuation_events", "event_type",
+            conn,
+            "actuation_events",
+            "event_type",
             "TEXT NOT NULL DEFAULT 'detection'",
         )
         _add_column_if_missing(
-            conn, "device_actions", "off_attempts", "INTEGER NOT NULL DEFAULT 1",
+            conn,
+            "device_actions",
+            "off_attempts",
+            "INTEGER NOT NULL DEFAULT 1",
         )
         _add_column_if_missing(
-            conn, "device_actions", "stuck", "INTEGER NOT NULL DEFAULT 0",
+            conn,
+            "device_actions",
+            "stuck",
+            "INTEGER NOT NULL DEFAULT 0",
         )
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_actuation_request_id "
-            "ON actuation_events(request_id)",
+            "CREATE INDEX IF NOT EXISTS idx_actuation_request_id ON actuation_events(request_id)",
         )
         # v1.14.4: tamper-evident HMAC hash chain columns.
         _add_column_if_missing(
-            conn, "actuation_events", "prev_hash", "TEXT NOT NULL DEFAULT ''",
+            conn,
+            "actuation_events",
+            "prev_hash",
+            "TEXT NOT NULL DEFAULT ''",
         )
         _add_column_if_missing(
-            conn, "actuation_events", "row_hash", "TEXT NOT NULL DEFAULT ''",
+            conn,
+            "actuation_events",
+            "row_hash",
+            "TEXT NOT NULL DEFAULT ''",
         )
         conn.commit()
         logger.info("Actuation database initialised at %s", DB_PATH)
 
 
 def _add_column_if_missing(
-    conn: sqlite3.Connection, table: str, column: str, type_clause: str,
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    type_clause: str,
 ) -> None:
     """Add *column* of *type_clause* to *table* if it doesn't already exist."""
     cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}

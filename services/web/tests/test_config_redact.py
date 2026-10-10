@@ -1,4 +1,5 @@
 """Tests for services/web/src/config_redact.py."""
+
 from __future__ import annotations
 
 import pytest
@@ -88,18 +89,20 @@ class TestRedactConfig:
         """Custom header dict keeps its shape; only credential values masked."""
         cfg = {
             "notifications": {
-                "channels": [{
-                    "name": "hook",
-                    "type": "webhook",
-                    "url": "https://example.com",
-                    "headers": {
-                        "Content-Type": "application/json",
-                        "X-Source": "scarguard",
-                        "Authorization": "Bearer secret123",
-                        "X-API-Key": "key456",
-                        "Cookie": "session=abc",
-                    },
-                }]
+                "channels": [
+                    {
+                        "name": "hook",
+                        "type": "webhook",
+                        "url": "https://example.com",
+                        "headers": {
+                            "Content-Type": "application/json",
+                            "X-Source": "scarguard",
+                            "Authorization": "Bearer secret123",
+                            "X-API-Key": "key456",
+                            "Cookie": "session=abc",
+                        },
+                    }
+                ]
             }
         }
         red = redact_config(cfg)

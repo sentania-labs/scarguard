@@ -81,7 +81,9 @@ class TestArbitraryCodeExecution:
             stop_event=MagicMock(),
         )
 
-    def test_arbitrary_code_execution_blocked(self, handler: ModelClassesHandler, tmp_path: Path) -> None:
+    def test_arbitrary_code_execution_blocked(
+        self, handler: ModelClassesHandler, tmp_path: Path
+    ) -> None:
         """A checkpoint whose unpickle runs arbitrary code must not execute it.
 
         Creates a malicious .pt file and passes it to the real handler's
@@ -123,7 +125,9 @@ class TestArbitraryCodeExecution:
 class TestPathSafety:
     """Tests that validate path-level safety (work without torch)."""
 
-    def test_regression_url_download_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_regression_url_download_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """URL paths must be rejected with a clear error."""
         monkeypatch.setattr(mch, "_MODELS_ROOT", tmp_path.resolve())
 
@@ -141,7 +145,9 @@ class TestPathSafety:
             or "not found" in str(url_res.get("error", "")).lower()
         )
 
-    def test_regression_symlink_escape_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_regression_symlink_escape_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A path that escapes _MODELS_ROOT via symlinks must be rejected."""
         models_root = tmp_path / "models"
         models_root.mkdir()
@@ -161,7 +167,9 @@ class TestPathSafety:
         res = handler._introspect(str(inside_symlink))
         assert res["ok"] is False
 
-    def test_regression_traversal_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_regression_traversal_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Path traversal with ../ must be rejected."""
         models_root = tmp_path / "models"
         models_root.mkdir()
@@ -178,7 +186,9 @@ class TestPathSafety:
         res = handler._introspect("../../outside.pt")
         assert res["ok"] is False
 
-    def test_regression_supported_suffixes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_regression_supported_suffixes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Only .pt, .engine, .onnx are accepted for path validation."""
         models_root = tmp_path / "models"
         models_root.mkdir()
@@ -206,7 +216,9 @@ class TestPathSafety:
             res = handler._introspect(str(fpath))
             assert res["ok"] is False, f"Unsupported suffix {bad_suffix} should be rejected"
 
-    def test_regression_empty_and_http_paths(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_regression_empty_and_http_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Empty and HTTP-path strings must be rejected."""
         monkeypatch.setattr(mch, "_MODELS_ROOT", tmp_path.resolve())
 
@@ -231,9 +243,7 @@ class TestSafeLoadImport:
         except ImportError:
             pytest.skip("torch not installed")
 
-        assert hasattr(safe_load, "_load_torch_safe"), (
-            "safe_load must expose _load_torch_safe"
-        )
+        assert hasattr(safe_load, "_load_torch_safe"), "safe_load must expose _load_torch_safe"
         # safe_load no longer monkeypatches torch.load globally;
         # the monkey-patch was removed because it broke YOLO checkpoint
         # loading (weights_only=True rejects Ultralytics custom classes).
@@ -246,6 +256,7 @@ class TestSafeLoadImport:
 
         try:
             from ultralytics.utils import downloads
+
             assert hasattr(downloads, "attempt_download_asset"), (
                 "download blocker must patch ultralytics downloads"
             )

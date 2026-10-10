@@ -45,7 +45,12 @@ class FakeRedis:
         return int(key in self.values)
 
     def eval(
-        self, script: str, count: int, key: str, deadline: str, expected: str,
+        self,
+        script: str,
+        count: int,
+        key: str,
+        deadline: str,
+        expected: str,
     ) -> int:
         if self.values.get(key) != expected:
             return 0
@@ -76,12 +81,18 @@ def test_expired_lease_recovers_after_deterrent_crash() -> None:
     controller = FakeOffController()
     devices = {
         "pond-device": WatchdogDevice(
-            name="pond", device_id="pond-device", type="sprinkler",
+            name="pond",
+            device_id="pond-device",
+            type="sprinkler",
         ),
     }
 
     handled, safe = process_expired_leases(
-        client, devices, controller, signing_key, now=lease.expires_at + 0.01,
+        client,
+        devices,
+        controller,
+        signing_key,
+        now=lease.expires_at + 0.01,
     )
 
     assert handled == 1
@@ -101,12 +112,18 @@ def test_tampered_or_indefinite_lease_never_authorizes_state_change() -> None:
     controller = FakeOffController()
     devices = {
         "pond-device": WatchdogDevice(
-            name="pond", device_id="pond-device", type="sprinkler",
+            name="pond",
+            device_id="pond-device",
+            type="sprinkler",
         ),
     }
 
     assert process_expired_leases(
-        client, devices, controller, signing_key, now=time.time() + 90_000,
+        client,
+        devices,
+        controller,
+        signing_key,
+        now=time.time() + 90_000,
     ) == (0, True)
     assert controller.calls == []
 
@@ -116,7 +133,10 @@ def test_startup_is_conservative_and_compose_is_independent() -> None:
     devices = {
         "one": WatchdogDevice(name="one", device_id="one", type="light"),
         "two": WatchdogDevice(
-            name="two", device_id="two", type="plug", enabled=False,
+            name="two",
+            device_id="two",
+            type="plug",
+            enabled=False,
         ),
     }
     assert startup_off_sweep(devices, controller)
@@ -141,7 +161,8 @@ def test_off_only_controller_artifact_contains_no_true_switch_command() -> None:
 
 
 def test_real_entrypoints_recover_after_killed_deterrent(
-    monkeypatch: Any, tmp_path: Path,
+    monkeypatch: Any,
+    tmp_path: Path,
 ) -> None:
     """Kill a real controller after ON, then run watchdog main to recover."""
     deterrent_src = str(Path("services/deterrent/src").resolve())
@@ -163,7 +184,9 @@ def test_real_entrypoints_recover_after_killed_deterrent(
 
         class FakeCloud:
             def sendcommand(
-                self, device_id: str, payload: dict[str, Any],
+                self,
+                device_id: str,
+                payload: dict[str, Any],
             ) -> dict[str, Any]:
                 value = payload["commands"][0]["value"]
                 commands.append(value)
@@ -180,12 +203,15 @@ def test_real_entrypoints_recover_after_killed_deterrent(
 
         def activate() -> None:
             controller = TuyaCloudController(
-                chr(120), chr(121),
+                chr(120),
+                chr(121),
                 activation_leases=RedisActivationLeases(store, signing_key),
             )
             controller.activate_device(
                 DeviceConfig(
-                    name="pond", device_id="pond-device", type="sprinkler",
+                    name="pond",
+                    device_id="pond-device",
+                    type="sprinkler",
                 ),
                 0.5,
             )
@@ -222,7 +248,9 @@ def test_real_entrypoints_recover_after_killed_deterrent(
             lambda: (
                 {
                     "pond-device": WatchdogDevice(
-                        name="pond", device_id="pond-device", type="sprinkler",
+                        name="pond",
+                        device_id="pond-device",
+                        type="sprinkler",
                     ),
                 },
                 SharedOffController(),

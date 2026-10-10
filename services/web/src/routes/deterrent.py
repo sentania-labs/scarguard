@@ -139,8 +139,16 @@ async def save_deterrent(request: Request) -> Response:
 
         # Resolve effective values: use input unless it's redacted/empty,
         # in which case keep the existing value.
-        eff_key = api_key if (api_key and api_key != REDACTED_PLACEHOLDER) else existing_tuya.get("api_key", "")
-        eff_secret = api_secret if (api_secret and api_secret != REDACTED_PLACEHOLDER) else existing_tuya.get("api_secret", "")
+        eff_key = (
+            api_key
+            if (api_key and api_key != REDACTED_PLACEHOLDER)
+            else existing_tuya.get("api_key", "")
+        )
+        eff_secret = (
+            api_secret
+            if (api_secret and api_secret != REDACTED_PLACEHOLDER)
+            else existing_tuya.get("api_secret", "")
+        )
         eff_region = api_region if api_region else existing_tuya.get("api_region", "us")
 
         if eff_key and eff_secret:
@@ -194,7 +202,8 @@ async def save_deterrent(request: Request) -> Response:
     if not isinstance(registry_devices, list):
         registry_devices = []
     registered_names: set[str] = {
-        d["name"] for d in registry_devices
+        d["name"]
+        for d in registry_devices
         if isinstance(d, dict) and isinstance(d.get("name"), str)
     }
 
@@ -222,7 +231,8 @@ async def save_deterrent(request: Request) -> Response:
             if orphaned:
                 log.warning(
                     "Group %r references unknown device name(s) %s - dropping",
-                    name, orphaned,
+                    name,
+                    orphaned,
                 )
             entry: dict[str, Any] = {
                 "name": name,
@@ -249,15 +259,14 @@ async def save_deterrent(request: Request) -> Response:
     defaults_input = body.get("defaults")
     if isinstance(defaults_input, dict):
         range_errors += check_actuation_ranges(defaults_input)
-    for g in (body.get("groups") or []):
+    for g in body.get("groups") or []:
         if isinstance(g, dict):
             name = g.get("name") or "(unnamed)"
-            range_errors += [
-                f"group {name}: {e}" for e in check_actuation_ranges(g)
-            ]
+            range_errors += [f"group {name}: {e}" for e in check_actuation_ranges(g)]
     if range_errors:
         return JSONResponse(
-            {"ok": False, "error": "; ".join(range_errors)}, status_code=400,
+            {"ok": False, "error": "; ".join(range_errors)},
+            status_code=400,
         )
 
     # Update defaults
@@ -266,9 +275,14 @@ async def save_deterrent(request: Request) -> Response:
         if not isinstance(existing_defaults, dict):
             existing_defaults = {}
         # Merge individual fields so partial updates work
-        for key in ("cooldown_seconds", "device_count_range", "spray_duration_range",
-                     "inter_device_delay_range", "pre_delay_range",
-                     "group_duration_range"):
+        for key in (
+            "cooldown_seconds",
+            "device_count_range",
+            "spray_duration_range",
+            "inter_device_delay_range",
+            "pre_delay_range",
+            "group_duration_range",
+        ):
             if key in defaults_input:
                 existing_defaults[key] = defaults_input[key]
         existing_act["defaults"] = existing_defaults
@@ -368,7 +382,8 @@ async def _redis_request(
 
 
 @router.post(
-    "/test-fire", response_class=JSONResponse,
+    "/test-fire",
+    response_class=JSONResponse,
     dependencies=[Depends(rate_limit("test-fire", capacity=10, window_seconds=60))],
 )
 async def test_fire(request: Request) -> Response:
@@ -412,7 +427,8 @@ async def test_fire(request: Request) -> Response:
         )
 
     result = await _redis_request(
-        TEST_FIRE_CHANNEL, TEST_FIRE_RESULT_PREFIX,
+        TEST_FIRE_CHANNEL,
+        TEST_FIRE_RESULT_PREFIX,
         {"device_id": device_id, "duration_sec": duration},
         timeout_sec=test_fire_timeout_sec(),
     )
@@ -421,7 +437,8 @@ async def test_fire(request: Request) -> Response:
 
 
 @router.post(
-    "/test-fire-group", response_class=JSONResponse,
+    "/test-fire-group",
+    response_class=JSONResponse,
     dependencies=[Depends(rate_limit("test-fire-group", capacity=5, window_seconds=60))],
 )
 async def test_fire_group(request: Request) -> Response:
@@ -445,7 +462,8 @@ async def test_fire_group(request: Request) -> Response:
     group_name = body.get("group_name", "")
     if not isinstance(group_name, str) or not group_name.strip():
         return JSONResponse(
-            {"ok": False, "error": "group_name is required"}, status_code=400,
+            {"ok": False, "error": "group_name is required"},
+            status_code=400,
         )
 
     # Derived from the deterrent side's own constants rather than hardcoded,
@@ -453,7 +471,8 @@ async def test_fire_group(request: Request) -> Response:
     # the operator the service is down while sprinklers are still running,
     # which is exactly the state that invites a re-press.
     result = await _redis_request(
-        TEST_FIRE_GROUP_CHANNEL, TEST_FIRE_GROUP_RESULT_PREFIX,
+        TEST_FIRE_GROUP_CHANNEL,
+        TEST_FIRE_GROUP_RESULT_PREFIX,
         {"group_name": group_name.strip()},
         timeout_sec=group_test_fire_timeout_sec(),
     )
@@ -475,7 +494,8 @@ async def test_fire_group(request: Request) -> Response:
 
 
 @router.post(
-    "/force-off", response_class=JSONResponse,
+    "/force-off",
+    response_class=JSONResponse,
     dependencies=[Depends(rate_limit("force-off", capacity=5, window_seconds=60))],
 )
 async def force_off(request: Request) -> Response:
@@ -490,7 +510,9 @@ async def force_off(request: Request) -> Response:
         return gate
 
     result = await _redis_request(
-        FORCE_OFF_CHANNEL, FORCE_OFF_RESULT_PREFIX, {},
+        FORCE_OFF_CHANNEL,
+        FORCE_OFF_RESULT_PREFIX,
+        {},
         timeout_sec=30.0,
         signed=False,  # emergency bypass: no signature required.
     )
@@ -520,7 +542,9 @@ async def device_status(request: Request) -> Response:
         return gate
 
     result = await _redis_request(
-        STATUS_REQUEST_CHANNEL, STATUS_RESULT_PREFIX, {},
+        STATUS_REQUEST_CHANNEL,
+        STATUS_RESULT_PREFIX,
+        {},
     )
     status_code = 200 if result.get("ok") else 502
     return JSONResponse(result, status_code=status_code)
@@ -548,7 +572,8 @@ async def stuck_stream(request: Request) -> StreamingResponse:
 
     async def generator():
         client = aioredis.Redis(
-            host=host, port=port,
+            host=host,
+            port=port,
             password=os.environ.get("REDIS_PASSWORD", "") or None,
             decode_responses=True,
         )
@@ -560,7 +585,8 @@ async def stuck_stream(request: Request) -> StreamingResponse:
                 try:
                     while not await request.is_disconnected():
                         message = await pubsub.get_message(
-                            ignore_subscribe_messages=True, timeout=15.0,
+                            ignore_subscribe_messages=True,
+                            timeout=15.0,
                         )
                         if message is None:
                             yield ": keepalive\n\n"

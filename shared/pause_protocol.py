@@ -61,6 +61,7 @@ class PauseClient:
 
     def _make_client(self) -> Any:
         from redis_client import make_sync_client
+
         return make_sync_client(self._redis_cfg)
 
     def _build_payload(self, action: str, **extra: Any) -> str:
@@ -68,6 +69,7 @@ class PauseClient:
         payload: dict[str, Any] = {"action": action, **extra}
         try:
             from event_signing import load_key_from_env, sign_event
+
             _key = load_key_from_env()
             if _key is not None:
                 envelope = sign_event(payload, _key, COMMAND_CHANNEL)
@@ -88,7 +90,10 @@ class PauseClient:
         request_id = uuid.uuid4().hex[:12]
         client = self._make_client()
         try:
-            client.publish(COMMAND_CHANNEL, self._build_payload("pause", request_id=request_id, timeout=timeout))
+            client.publish(
+                COMMAND_CHANNEL,
+                self._build_payload("pause", request_id=request_id, timeout=timeout),
+            )
             logger.info("Pause request sent (request_id=%s, timeout=%ds)", request_id, timeout)
             return self._wait_for_state(client, "paused", request_id, wait_timeout)
         finally:
@@ -169,18 +174,17 @@ class PauseClient:
                 if not isinstance(state, dict):
                     logger.warning("Ignoring malformed detector state (not an object)")
                     state = {}
-                if (
-                    state.get("state") == target_state
-                    and state.get("request_id") == request_id
-                ):
+                if state.get("state") == target_state and state.get("request_id") == request_id:
                     logger.info(
                         "Detector confirmed state=%s (request_id=%s)",
-                        target_state, request_id,
+                        target_state,
+                        request_id,
                     )
                     return True
             time.sleep(0.5)
         logger.warning(
             "Timed out waiting for detector state=%s (request_id=%s)",
-            target_state, request_id,
+            target_state,
+            request_id,
         )
         return False

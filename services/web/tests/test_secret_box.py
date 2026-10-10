@@ -165,9 +165,11 @@ class TestEncryptInPlace:
     def test_round_trip_in_place(self, key: bytes) -> None:
         cfg = {
             "deterrent": {"tuya": {"api_key": "k", "api_secret": "s"}},
-            "notifications": {"channels": [
-                {"name": "d", "type": "discord", "webhook_url": "https://x.com/h"},
-            ]},
+            "notifications": {
+                "channels": [
+                    {"name": "d", "type": "discord", "webhook_url": "https://x.com/h"},
+                ]
+            },
         }
         secret_box.encrypt_in_place(cfg, key)
         secret_box.decrypt_in_place(cfg, key)
@@ -199,7 +201,9 @@ class TestConfigStoreIntegration:
     """Sanity: when config_store loads a YAML with encrypted fields and a
     valid key on disk, the returned dict has plaintext values."""
 
-    def test_load_decrypts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: bytes) -> None:
+    def test_load_decrypts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: bytes
+    ) -> None:
         import config_store
 
         cfg_path = tmp_path / "scarguard.yml"
@@ -212,15 +216,14 @@ class TestConfigStoreIntegration:
         # Write an encrypted YAML by hand
         encrypted = secret_box.encrypt("very-secret-password", key)
         cfg_path.write_text(
-            "deterrent:\n"
-            "  tuya:\n"
-            "    api_key: pub-id\n"
-            f"    api_secret: {encrypted}\n",
+            f"deterrent:\n  tuya:\n    api_key: pub-id\n    api_secret: {encrypted}\n",
         )
         loaded = config_store.load()
         assert loaded["deterrent"]["tuya"]["api_secret"] == "very-secret-password"
 
-    def test_save_encrypts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: bytes) -> None:
+    def test_save_encrypts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: bytes
+    ) -> None:
         import config_store
 
         cfg_path = tmp_path / "scarguard.yml"
@@ -230,14 +233,18 @@ class TestConfigStoreIntegration:
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
         monkeypatch.setattr(secret_box, "DEFAULT_KEY_PATH", str(key_path))
 
-        config_store.save({
-            "deterrent": {"tuya": {"api_key": "pub", "api_secret": "plaintext-secret"}},
-        })
+        config_store.save(
+            {
+                "deterrent": {"tuya": {"api_key": "pub", "api_secret": "plaintext-secret"}},
+            }
+        )
         on_disk = cfg_path.read_text()
         assert "plaintext-secret" not in on_disk
         assert secret_box.PREFIX in on_disk
 
-    def test_save_then_load_preserves_secret(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: bytes) -> None:
+    def test_save_then_load_preserves_secret(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: bytes
+    ) -> None:
         import config_store
 
         cfg_path = tmp_path / "scarguard.yml"
@@ -247,14 +254,18 @@ class TestConfigStoreIntegration:
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
         monkeypatch.setattr(secret_box, "DEFAULT_KEY_PATH", str(key_path))
 
-        config_store.save({
-            "deterrent": {"tuya": {"api_key": "pub-key", "api_secret": "round-trip-secret"}},
-        })
+        config_store.save(
+            {
+                "deterrent": {"tuya": {"api_key": "pub-key", "api_secret": "round-trip-secret"}},
+            }
+        )
         loaded = config_store.load()
         assert loaded["deterrent"]["tuya"]["api_secret"] == "round-trip-secret"
         assert loaded["deterrent"]["tuya"]["api_key"] == "pub-key"
 
-    def test_no_key_means_save_writes_plaintext(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_key_means_save_writes_plaintext(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Migration mode: no key on disk → save leaves plaintext."""
         import config_store
 
@@ -262,7 +273,9 @@ class TestConfigStoreIntegration:
         monkeypatch.setattr(config_store, "CONFIG_PATH", cfg_path)
         monkeypatch.setattr(secret_box, "DEFAULT_KEY_PATH", str(tmp_path / "missing-key"))
 
-        config_store.save({
-            "deterrent": {"tuya": {"api_key": "k", "api_secret": "still-plain"}},
-        })
+        config_store.save(
+            {
+                "deterrent": {"tuya": {"api_key": "k", "api_secret": "still-plain"}},
+            }
+        )
         assert "still-plain" in cfg_path.read_text()

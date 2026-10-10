@@ -120,19 +120,16 @@ def generate(frequency: str) -> dict:
         "frequency": frequency,
         "period_label": f"Last {'24 hours' if frequency == 'daily' else '7 days' if frequency == 'weekly' else '30 days'}",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-
         "detections": {
             "total": total,
             "by_class": by_class,
             "by_camera": by_camera,
             "change_pct": change_pct,
         },
-
         "visits": {
             "total": visit_count,
             "top": top_formatted,
         },
-
         "performance": {
             "status": health_status,
             "avg_cpu_pct": metrics["cpu_pct"],
@@ -141,9 +138,7 @@ def generate(frequency: str) -> dict:
             "camera_offline_events": offline,
             "camera_offline_total": offline_total,
         },
-
         "storage": storage,
-
         "training": {
             "protected_events": protected,
             "pruneable_events": pruneable,
@@ -153,7 +148,9 @@ def generate(frequency: str) -> dict:
 
     logger.info(
         "Digest generated: %s - %d events, status=%s",
-        frequency, total, health_status,
+        frequency,
+        total,
+        health_status,
     )
     return report
 
@@ -180,7 +177,9 @@ def format_plain_text(report: dict) -> str:
 
     lines.append(f"\nVisits: {v['total']}")
     for vt in v["top"]:
-        lines.append(f"  {vt['class']} on {vt['camera']} - {vt['duration']} ({vt['detections']} detections)")
+        lines.append(
+            f"  {vt['class']} on {vt['camera']} - {vt['duration']} ({vt['detections']} detections)"
+        )
 
     lines.append("\nPerformance:")
     if p["avg_cpu_pct"] is not None:
@@ -193,9 +192,13 @@ def format_plain_text(report: dict) -> str:
         lines.append(f"  Camera offline events: {p['camera_offline_total']}")
 
     lines.append(f"\nStorage: {s['total_mb']} MB total")
-    lines.append(f"  Snapshots: {s['snapshots_mb']} MB | DB: {s['database_mb']} MB | Models: {s['models_mb']} MB")
+    lines.append(
+        f"  Snapshots: {s['snapshots_mb']} MB | DB: {s['database_mb']} MB | Models: {s['models_mb']} MB"
+    )
 
-    lines.append(f"\nTraining: {t['protected_events']} labeled (protected) / {t['pruneable_events']} pruneable")
+    lines.append(
+        f"\nTraining: {t['protected_events']} labeled (protected) / {t['pruneable_events']} pruneable"
+    )
     if t["fp_rate_pct"] is not None:
         lines.append(f"  False positive rate: {t['fp_rate_pct']}%")
 
@@ -218,10 +221,10 @@ def format_discord_embed(report: dict) -> dict:
     change = f"{'+' if d['change_pct'] >= 0 else ''}{d['change_pct']}%"
 
     # Top visits
-    visit_lines = "\n".join(
-        f"{vt['class']} on {vt['camera']} - {vt['duration']}"
-        for vt in v["top"]
-    ) or "None"
+    visit_lines = (
+        "\n".join(f"{vt['class']} on {vt['camera']} - {vt['duration']}" for vt in v["top"])
+        or "None"
+    )
 
     # Performance
     perf_parts = []
@@ -251,12 +254,14 @@ def format_discord_embed(report: dict) -> dict:
     ]
 
     return {
-        "embeds": [{
-            "title": f"ScarGuard Digest - {report['period_label']}",
-            "color": color,
-            "fields": fields,
-            "footer": {"text": f"Generated {report['generated_at'][:19]}Z"},
-        }],
+        "embeds": [
+            {
+                "title": f"ScarGuard Digest - {report['period_label']}",
+                "color": color,
+                "fields": fields,
+                "footer": {"text": f"Generated {report['generated_at'][:19]}Z"},
+            }
+        ],
     }
 
 
@@ -272,32 +277,38 @@ def format_email_html(report: dict) -> str:
     status_label = {"green": "OK", "yellow": "WARNING", "red": "CRITICAL"}[p["status"]]
     change = f"{'+' if d['change_pct'] >= 0 else ''}{d['change_pct']}%"
 
-    class_rows = "".join(
-        f"<tr><td>{cls}</td><td style='text-align:right'>{cnt}</td></tr>"
-        for cls, cnt in d["by_class"].items()
-    ) or "<tr><td colspan='2'>No detections</td></tr>"
+    class_rows = (
+        "".join(
+            f"<tr><td>{cls}</td><td style='text-align:right'>{cnt}</td></tr>"
+            for cls, cnt in d["by_class"].items()
+        )
+        or "<tr><td colspan='2'>No detections</td></tr>"
+    )
 
-    visit_rows = "".join(
-        f"<tr><td>{vt['class']}</td><td>{vt['camera']}</td><td>{vt['duration']}</td></tr>"
-        for vt in v["top"]
-    ) or "<tr><td colspan='3'>No visits</td></tr>"
+    visit_rows = (
+        "".join(
+            f"<tr><td>{vt['class']}</td><td>{vt['camera']}</td><td>{vt['duration']}</td></tr>"
+            for vt in v["top"]
+        )
+        or "<tr><td colspan='3'>No visits</td></tr>"
+    )
 
     return f"""
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#e0e0e0;background:#1a1a2e;padding:20px;border-radius:8px;">
       <h2 style="margin:0 0 4px 0;">ScarGuard Digest</h2>
-      <p style="color:#888;margin:0 0 16px 0;">{report['period_label']}</p>
+      <p style="color:#888;margin:0 0 16px 0;">{report["period_label"]}</p>
 
       <div style="background:{status_color};color:#fff;padding:8px 16px;border-radius:6px;font-weight:bold;margin-bottom:16px;">
         System Health: {status_label}
       </div>
 
-      <h3 style="margin:16px 0 8px 0;">Detections: {d['total']} ({change} vs prior)</h3>
+      <h3 style="margin:16px 0 8px 0;">Detections: {d["total"]} ({change} vs prior)</h3>
       <table style="width:100%;border-collapse:collapse;">
         <tr style="border-bottom:1px solid #333;"><th style="text-align:left;padding:4px;">Class</th><th style="text-align:right;padding:4px;">Count</th></tr>
         {class_rows}
       </table>
 
-      <h3 style="margin:16px 0 8px 0;">Top Visits ({v['total']} total)</h3>
+      <h3 style="margin:16px 0 8px 0;">Top Visits ({v["total"]} total)</h3>
       <table style="width:100%;border-collapse:collapse;">
         <tr style="border-bottom:1px solid #333;"><th style="text-align:left;padding:4px;">Class</th><th style="text-align:left;padding:4px;">Camera</th><th style="text-align:left;padding:4px;">Duration</th></tr>
         {visit_rows}
@@ -305,20 +316,20 @@ def format_email_html(report: dict) -> str:
 
       <h3 style="margin:16px 0 8px 0;">Performance</h3>
       <p style="margin:4px 0;">
-        {'CPU: ' + f"{p['avg_cpu_pct']:.0f}%" if p['avg_cpu_pct'] is not None else ''}
-        {'&nbsp;|&nbsp;GPU: ' + f"{p['avg_gpu_pct']:.0f}%" if p['avg_gpu_pct'] is not None else ''}
-        {'&nbsp;|&nbsp;Temp: ' + f"{p['avg_gpu_temp']:.0f}&deg;C" if p['avg_gpu_temp'] is not None else ''}
+        {"CPU: " + f"{p['avg_cpu_pct']:.0f}%" if p["avg_cpu_pct"] is not None else ""}
+        {"&nbsp;|&nbsp;GPU: " + f"{p['avg_gpu_pct']:.0f}%" if p["avg_gpu_pct"] is not None else ""}
+        {"&nbsp;|&nbsp;Temp: " + f"{p['avg_gpu_temp']:.0f}&deg;C" if p["avg_gpu_temp"] is not None else ""}
       </p>
-      {f"<p style='color:#FFB020;'>Camera offline events: {p['camera_offline_total']}</p>" if p['camera_offline_total'] > 0 else ''}
+      {f"<p style='color:#FFB020;'>Camera offline events: {p['camera_offline_total']}</p>" if p["camera_offline_total"] > 0 else ""}
 
       <h3 style="margin:16px 0 8px 0;">Storage</h3>
-      <p style="margin:4px 0;">{s['total_mb']} MB total - Snapshots: {s['snapshots_mb']} MB | DB: {s['database_mb']} MB | Models: {s['models_mb']} MB</p>
+      <p style="margin:4px 0;">{s["total_mb"]} MB total - Snapshots: {s["snapshots_mb"]} MB | DB: {s["database_mb"]} MB | Models: {s["models_mb"]} MB</p>
 
       <h3 style="margin:16px 0 8px 0;">Training Data</h3>
-      <p style="margin:4px 0;">{t['protected_events']} labeled (protected) / {t['pruneable_events']} pruneable
-      {f" | FP rate: {t['fp_rate_pct']}%" if t['fp_rate_pct'] is not None else ''}</p>
+      <p style="margin:4px 0;">{t["protected_events"]} labeled (protected) / {t["pruneable_events"]} pruneable
+      {f" | FP rate: {t['fp_rate_pct']}%" if t["fp_rate_pct"] is not None else ""}</p>
 
       <hr style="border:none;border-top:1px solid #333;margin:16px 0;">
-      <p style="color:#666;font-size:0.8em;margin:0;">Generated {report['generated_at'][:19]}Z</p>
+      <p style="color:#666;font-size:0.8em;margin:0;">Generated {report["generated_at"][:19]}Z</p>
     </div>
     """

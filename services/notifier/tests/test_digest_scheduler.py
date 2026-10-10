@@ -9,12 +9,14 @@ from digest_scheduler import DigestScheduler
 @pytest.mark.parametrize("configured_time", [450, "07:30"])
 def test_tick_accepts_yaml_numeric_and_string_digest_times(configured_time: object) -> None:
     scheduler = DigestScheduler(MagicMock(), [], MagicMock())
-    scheduler.configure({
-        "enabled": True,
-        "frequency": "daily",
-        "time": configured_time,
-        "channels": ["email"],
-    })
+    scheduler.configure(
+        {
+            "enabled": True,
+            "frequency": "daily",
+            "time": configured_time,
+            "channels": ["email"],
+        }
+    )
     scheduler._send_digest = MagicMock(return_value=True)  # type: ignore[method-assign]
 
     class FixedDatetime(datetime):

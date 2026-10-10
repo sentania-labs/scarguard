@@ -41,9 +41,7 @@ class DigestScheduler:
         self._last_sent_date: date | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._thread = threading.Thread(
-            target=self._loop, name="digest-scheduler", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="digest-scheduler", daemon=True)
 
     def configure(self, report_cfg: dict, tz_name: str = "UTC") -> None:
         """Update schedule configuration (hot-reloadable)."""
@@ -57,7 +55,9 @@ class DigestScheduler:
         if self._enabled and self._channels:
             logger.info(
                 "Digest scheduler configured: %s at %s → %s",
-                self._frequency, self._time_str, ", ".join(self._channels),
+                self._frequency,
+                self._time_str,
+                ", ".join(self._channels),
             )
         elif self._enabled:
             logger.warning("Digest enabled but no channels configured - digest will not send")
@@ -136,9 +136,7 @@ class DigestScheduler:
             report["timestamp"] = report["generated_at"]
             report["snapshot_path"] = None
 
-            self._dispatch_fn(
-                report, self._notifiers, self._notifiers_lock, None
-            )
+            self._dispatch_fn(report, self._notifiers, self._notifiers_lock, None)
             logger.info("Digest report dispatched to: %s", ", ".join(channels))
             return True
         except Exception:

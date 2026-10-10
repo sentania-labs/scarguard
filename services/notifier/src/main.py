@@ -56,6 +56,7 @@ def _decrypt_secrets(cfg: dict) -> None:
     No-op if the secret key is absent - operator hasn't run setup yet, or
     the deployment is mid-upgrade with plaintext secrets still on disk."""
     import secret_box
+
     key = secret_box.try_load_key()
     if key is None:
         return
@@ -81,7 +82,9 @@ def setup_logging(log_level: str) -> None:
     )
 
 
-def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier]:
+def build_notifiers(
+    notif_cfg: dict, tz_name: str = "UTC"
+) -> list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier]:
     """Build the list of active notifiers from ``notifications.channels``."""
     notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier] = []
 
@@ -110,7 +113,9 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
                 seen_names.add(ch_name)
             elif ch_type == "ntfy" and ch.get("topic"):
                 notifiers.append(NtfyNotifier(ch, tz_name))
-                logger.info("Ntfy channel [%s] enabled → %s", ch_name, ch.get("server", "https://ntfy.sh"))
+                logger.info(
+                    "Ntfy channel [%s] enabled → %s", ch_name, ch.get("server", "https://ntfy.sh")
+                )
                 seen_names.add(ch_name)
             elif ch_type:
                 logger.warning("Unknown channel type %r for [%s], skipping", ch_type, ch_name)
@@ -246,7 +251,9 @@ def subscribe_loop(
         pubsub: redis_lib.client.PubSub | None = None
         try:
             redis_password = os.environ.get("REDIS_PASSWORD", "") or None
-            client = redis_lib.Redis(host=host, port=port, password=redis_password, decode_responses=True)
+            client = redis_lib.Redis(
+                host=host, port=port, password=redis_password, decode_responses=True
+            )
             pubsub = client.pubsub()
             pubsub.subscribe(CHANNEL, HEALTH_CHANNEL)
             logger.info("Subscribed to Redis channels: %s, %s", CHANNEL, HEALTH_CHANNEL)
@@ -263,7 +270,9 @@ def subscribe_loop(
                 try:
                     event = json.loads(message["data"])
                     if not isinstance(event, dict):
-                        logger.warning("Received malformed message (not a dict): %s", message["data"])
+                        logger.warning(
+                            "Received malformed message (not a dict): %s", message["data"]
+                        )
                         continue
                 except json.JSONDecodeError:
                     logger.warning("Received malformed message: %s", message["data"])
@@ -357,9 +366,7 @@ def subscribe_loop(
         except redis_lib.RedisError:
             if shutdown_event.is_set():
                 break
-            logger.exception(
-                "Redis connection lost - retrying in %ds", delay
-            )
+            logger.exception("Redis connection lost - retrying in %ds", delay)
             time.sleep(delay)
             delay = min(delay * 2, _REDIS_MAX_RECONNECT_DELAY)
         finally:
@@ -443,7 +450,9 @@ def main() -> None:
 
     _start_retry_worker(queue, notifiers, notifiers_lock, shutdown_event)
 
-    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_event, queue, base_url_ref)
+    subscribe_loop(
+        cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_event, queue, base_url_ref
+    )
 
     watcher.stop()
     digest_scheduler.stop()

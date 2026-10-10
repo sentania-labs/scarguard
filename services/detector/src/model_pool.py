@@ -21,6 +21,7 @@ def _clear_gpu_cache() -> None:
     """Release cached GPU memory after model deletion."""
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:
@@ -73,7 +74,9 @@ class ModelPool:
         path = model_path or self._default_model_path
         with self._lock:
             if path not in self._refcounts:
-                logger.warning("ModelPool: release called for untracked model %s (double-release?)", path)
+                logger.warning(
+                    "ModelPool: release called for untracked model %s (double-release?)", path
+                )
                 return
             self._refcounts[path] -= 1
             if self._refcounts[path] <= 0:

@@ -21,7 +21,13 @@ def test_parse_classes_empty_input():
 
 def test_default_classes_include_distractors():
     assert pd.DEFAULT_CLASSES == [
-        "duck", "heron", "raccoon", "person", "dog", "cat", "plant",
+        "duck",
+        "heron",
+        "raccoon",
+        "person",
+        "dog",
+        "cat",
+        "plant",
     ]
 
 

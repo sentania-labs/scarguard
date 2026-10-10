@@ -48,7 +48,12 @@ async def stats_stream(request: Request) -> StreamingResponse:
     user_id = user.get("user_id", "anon")
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+        client = aioredis.Redis(
+            host=host,
+            port=port,
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
         try:
             async with sse_connection(client, user_id):
                 yield ": connected\n\n"
@@ -60,7 +65,7 @@ async def stats_stream(request: Request) -> StreamingResponse:
                         if data:
                             yield f"event: stats\ndata: {data}\n\n"
                         else:
-                            yield "event: stats\ndata: {\"error\": \"No stats available - detector may not be running.\"}\n\n"
+                            yield 'event: stats\ndata: {"error": "No stats available - detector may not be running."}\n\n'
                     except Exception:
                         logger.debug("Failed to read stats from Redis", exc_info=True)
                         yield ": redis-error\n\n"
@@ -135,15 +140,29 @@ async def stats_export(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([
-        "timestamp", "cpu_pct", "gpu_pct", "gpu_temp",
-        "ram_used_mb", "ram_total_mb", "camera_data",
-    ])
+    writer.writerow(
+        [
+            "timestamp",
+            "cpu_pct",
+            "gpu_pct",
+            "gpu_temp",
+            "ram_used_mb",
+            "ram_total_mb",
+            "camera_data",
+        ]
+    )
     for r in rows:
-        writer.writerow([
-            r["timestamp"], r["cpu_pct"], r["gpu_pct"], r["gpu_temp"],
-            r["ram_used_mb"], r["ram_total_mb"], r["camera_data"],
-        ])
+        writer.writerow(
+            [
+                r["timestamp"],
+                r["cpu_pct"],
+                r["gpu_pct"],
+                r["gpu_temp"],
+                r["ram_used_mb"],
+                r["ram_total_mb"],
+                r["camera_data"],
+            ]
+        )
 
     buf.seek(0)
     filename = f"scarguard_metrics_{range}.{format}"

@@ -28,7 +28,8 @@ def fake_redis(monkeypatch):
         return captured.get("response", {"ok": True, "device_name": "x"})
 
     monkeypatch.setattr(
-        "routes.deterrent._redis_request", _fake_request,
+        "routes.deterrent._redis_request",
+        _fake_request,
     )
     return captured
 
@@ -97,6 +98,7 @@ class TestTestFireValidation:
 
     def test_at_max_boundary_accepted(self, client, fake_redis) -> None:
         from deterrent_safety import MAX_TEST_FIRE_SEC
+
         resp = client.post(
             "/admin/deterrent/test-fire",
             json={"device_id": "bf123", "duration_sec": MAX_TEST_FIRE_SEC},
@@ -105,6 +107,7 @@ class TestTestFireValidation:
 
     def test_just_above_max_rejected(self, client, fake_redis) -> None:
         from deterrent_safety import MAX_TEST_FIRE_SEC
+
         resp = client.post(
             "/admin/deterrent/test-fire",
             json={"device_id": "bf123", "duration_sec": MAX_TEST_FIRE_SEC + 0.001},
@@ -177,7 +180,10 @@ class TestTestFireGroupValidation:
 
     def test_forwards_stripped_group_name(self, client, fake_redis) -> None:
         fake_redis["response"] = {
-            "ok": True, "group_name": "g", "devices_fired": 2, "devices_succeeded": 2,
+            "ok": True,
+            "group_name": "g",
+            "devices_fired": 2,
+            "devices_succeeded": 2,
         }
         resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": "  g  "})
         assert resp.status_code == 200
@@ -192,7 +198,10 @@ class TestTestFireGroupValidation:
 
     def test_partial_success_is_reported_as_success(self, client, fake_redis) -> None:
         fake_redis["response"] = {
-            "ok": True, "group_name": "g", "devices_fired": 3, "devices_succeeded": 2,
+            "ok": True,
+            "group_name": "g",
+            "devices_fired": 3,
+            "devices_succeeded": 2,
         }
         resp = client.post("/admin/deterrent/test-fire-group", json={"group_name": "g"})
         assert resp.status_code == 200

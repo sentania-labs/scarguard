@@ -136,15 +136,19 @@ def _request_limits(cfg: dict[str, Any]) -> str:
 def _snippet(cfg: dict[str, Any], tls_active: bool) -> str:
     hsts_header = (
         '\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains"\n'
-        if tls_active else ""
+        if tls_active
+        else ""
     )
-    return """(scarguard) {
+    return (
+        """(scarguard) {
 \theader {
 \t\tX-Frame-Options DENY
 \t\tX-Content-Type-Options nosniff
 \t\tReferrer-Policy strict-origin-when-cross-origin
 \t\tPermissions-Policy "geolocation=(), camera=(), microphone=(), payment=()"
-""" + hsts_header + """\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+"""
+        + hsts_header
+        + """\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
 \t\tCross-Origin-Opener-Policy same-origin
 \t\tCross-Origin-Resource-Policy same-origin
 \t\t-Server
@@ -156,9 +160,12 @@ def _snippet(cfg: dict[str, Any], tls_active: bool) -> str:
 \t\tpath /.git/* /_ignition/* /aws*config.js /config.js
 \t}
 \trespond @probes 404
-""" + _request_limits(cfg) + """\treverse_proxy web:8080
+"""
+        + _request_limits(cfg)
+        + """\treverse_proxy web:8080
 }
 """
+    )
 
 
 def render_http_only(cfg: dict[str, Any] | None = None) -> str:
@@ -230,7 +237,9 @@ def caddy_validate(path: str | Path) -> bool:
     try:
         result = subprocess.run(
             [CADDY_BIN, "validate", "--config", str(path), "--adapter", "caddyfile"],
-            capture_output=True, text=True, timeout=CADDY_TIMEOUT_SECONDS,
+            capture_output=True,
+            text=True,
+            timeout=CADDY_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         log(f"caddy validate could not run: {type(exc).__name__}")
@@ -245,7 +254,9 @@ def caddy_reload(path: str | Path) -> bool:
     try:
         result = subprocess.run(
             [CADDY_BIN, "reload", "--config", str(path), "--adapter", "caddyfile"],
-            capture_output=True, text=True, timeout=CADDY_TIMEOUT_SECONDS,
+            capture_output=True,
+            text=True,
+            timeout=CADDY_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         log(f"caddy reload could not run: {type(exc).__name__}")

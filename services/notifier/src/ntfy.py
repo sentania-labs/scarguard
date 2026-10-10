@@ -85,7 +85,9 @@ class NtfyNotifier:
             resp = requests.post(url, data=message.encode(), headers=headers, timeout=10)
 
         resp.raise_for_status()
-        logger.info("Ntfy [%s] → %s/%s (%d)", self._name, self._server, self._topic, resp.status_code)
+        logger.info(
+            "Ntfy [%s] → %s/%s (%d)", self._name, self._server, self._topic, resp.status_code
+        )
 
     def _send_digest(self, report: dict) -> None:
         """Send condensed digest via ntfy."""
@@ -109,5 +111,6 @@ class NtfyNotifier:
             headers["Authorization"] = f"Bearer {self._token}"
         elif self._username and self._password:
             import base64
+
             credentials = base64.b64encode(f"{self._username}:{self._password}".encode()).decode()
             headers["Authorization"] = f"Basic {credentials}"

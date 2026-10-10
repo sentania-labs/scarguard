@@ -15,7 +15,9 @@ DB_PATH = os.environ.get("DB_PATH", "/data/scarguard.db")
 # ── Training tables ──────────────────────────────────────────────────────────
 
 
-def _add_column_if_missing(conn: sqlite3.Connection, table: str, col_name: str, col_def: str) -> None:
+def _add_column_if_missing(
+    conn: sqlite3.Connection, table: str, col_name: str, col_def: str
+) -> None:
     """Idempotent ALTER TABLE ADD COLUMN - SQLite has no IF NOT EXISTS for ALTER."""
     cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if col_name not in cols:
@@ -80,7 +82,9 @@ def ensure_training_tables() -> None:
         # Additive columns on training_uploads - let existing rows default to
         # NULL so the trainer falls back to global config.
         _add_column_if_missing(conn, "training_uploads", "detector_model", "detector_model TEXT")
-        _add_column_if_missing(conn, "training_uploads", "confidence_threshold", "confidence_threshold REAL")
+        _add_column_if_missing(
+            conn, "training_uploads", "confidence_threshold", "confidence_threshold REAL"
+        )
         _add_column_if_missing(conn, "training_uploads", "hints", "hints TEXT")
         # Human-drawn replacement annotations for a frame. JSON list of
         # {"cls": str, "bbox": [xc, yc, w, h]} where bbox is normalized.
@@ -161,9 +165,7 @@ def get_events(
 
 def get_event(event_id: int) -> sqlite3.Row | None:
     with _connect() as conn:
-        return conn.execute(
-            "SELECT * FROM detection_events WHERE id = ?", (event_id,)
-        ).fetchone()
+        return conn.execute("SELECT * FROM detection_events WHERE id = ?", (event_id,)).fetchone()
 
 
 def count_events(
@@ -197,9 +199,7 @@ def count_events(
 
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     with _connect() as conn:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM detection_events {clause}", params
-        ).fetchone()
+        row = conn.execute(f"SELECT COUNT(*) FROM detection_events {clause}", params).fetchone()
         return row[0] if row else 0
 
 
@@ -286,14 +286,17 @@ def update_feedback(
 
 
 def update_feedback_batch(
-    event_ids: list[int], feedback: str, corrected_class: str | None = None,
+    event_ids: list[int],
+    feedback: str,
+    corrected_class: str | None = None,
 ) -> bool:
     """Validate the complete selection and update it in one write transaction."""
     placeholders = ",".join("?" for _ in event_ids)
     with _connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         count = conn.execute(
-            f"SELECT COUNT(*) FROM detection_events WHERE id IN ({placeholders})", event_ids,
+            f"SELECT COUNT(*) FROM detection_events WHERE id IN ({placeholders})",
+            event_ids,
         ).fetchone()[0]
         if count != len(event_ids):
             conn.rollback()
@@ -399,12 +402,12 @@ def get_feedback_stats(
 
 # ── Export ──────────────────────────────────────────────────────────────────
 
+
 def count_protected_events() -> int:
     """Count events with feedback labels (protected from pruning)."""
     conn = _connect()
     row = conn.execute(
-        "SELECT COUNT(*) FROM detection_events"
-        " WHERE feedback IS NOT NULL"
+        "SELECT COUNT(*) FROM detection_events WHERE feedback IS NOT NULL"
     ).fetchone()
     return row[0]
 
@@ -413,8 +416,7 @@ def count_pruneable_events() -> int:
     """Count unlabeled, non-system events eligible for pruning."""
     conn = _connect()
     row = conn.execute(
-        "SELECT COUNT(*) FROM detection_events"
-        " WHERE feedback IS NULL AND camera_name != '_system'"
+        "SELECT COUNT(*) FROM detection_events WHERE feedback IS NULL AND camera_name != '_system'"
     ).fetchone()
     return row[0]
 
@@ -514,9 +516,7 @@ def count_labeled_since(since_date: str | None) -> dict:
     try:
         with _connect() as conn:
             # Total count
-            row = conn.execute(
-                f"SELECT COUNT(*) FROM detection_events {clause}", params
-            ).fetchone()
+            row = conn.execute(f"SELECT COUNT(*) FROM detection_events {clause}", params).fetchone()
             total = row[0] if row else 0
 
             # By class
@@ -541,9 +541,7 @@ def get_app_state(key: str) -> str | None:
     """Get a value from the app_state table."""
     try:
         with _connect() as conn:
-            row = conn.execute(
-                "SELECT value FROM app_state WHERE key = ?", (key,)
-            ).fetchone()
+            row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
             return row["value"] if row else None
     except Exception:
         return None
@@ -563,6 +561,7 @@ def set_app_state(key: str, value: str) -> None:
 
 
 # ── Visits ──────────────────────────────────────────────────────────────────
+
 
 def get_visits(
     limit: int = 100,
@@ -629,9 +628,7 @@ def count_visits(
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     try:
         with _connect() as conn:
-            row = conn.execute(
-                f"SELECT COUNT(*) FROM visit_sessions {clause}", params
-            ).fetchone()
+            row = conn.execute(f"SELECT COUNT(*) FROM visit_sessions {clause}", params).fetchone()
             return row[0] if row else 0
     except Exception:
         return 0
@@ -645,9 +642,7 @@ def get_metrics(
     limit: int = 5000,
 ) -> list[sqlite3.Row]:
     """Return system metrics samples from the last *range_hours* hours."""
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=range_hours)
-    ).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=range_hours)).isoformat()
     try:
         with _connect() as conn:
             # Sub-select newest rows first, then re-order ascending for charts.
@@ -734,15 +729,17 @@ def get_metrics_for_chart(
             filled.append(by_bucket[b])
             continue
         ts = datetime.fromtimestamp(b * bucket_seconds, tz=timezone.utc).isoformat()
-        filled.append({
-            "timestamp": ts,
-            "cpu_pct": None,
-            "gpu_pct": None,
-            "gpu_temp": None,
-            "ram_used_mb": None,
-            "ram_total_mb": None,
-            "camera_data": None,
-        })
+        filled.append(
+            {
+                "timestamp": ts,
+                "cpu_pct": None,
+                "gpu_pct": None,
+                "gpu_temp": None,
+                "ram_used_mb": None,
+                "ram_total_mb": None,
+                "camera_data": None,
+            }
+        )
     return filled
 
 
@@ -774,8 +771,13 @@ def create_training_upload(
             VALUES (?, ?, ?, ?, ?, ?, 'uploaded', ?)
             """,
             (
-                upload_id, filename, target_class_hint,
-                detector_model, confidence_threshold, hints, now,
+                upload_id,
+                filename,
+                target_class_hint,
+                detector_model,
+                confidence_threshold,
+                hints,
+                now,
             ),
         )
         conn.commit()
@@ -809,9 +811,7 @@ def update_training_upload_settings(
 def delete_training_events_for_upload(upload_id: str) -> int:
     """DELETE all training_events rows for an upload. Returns rows deleted."""
     with _connect() as conn:
-        cur = conn.execute(
-            "DELETE FROM training_events WHERE upload_id = ?", (upload_id,)
-        )
+        cur = conn.execute("DELETE FROM training_events WHERE upload_id = ?", (upload_id,))
         conn.commit()
         return cur.rowcount
 
@@ -849,17 +849,13 @@ def count_training_uploads(status: str | None = None) -> int:
         params.append(status)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     with _connect() as conn:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM training_uploads {clause}", params
-        ).fetchone()
+        row = conn.execute(f"SELECT COUNT(*) FROM training_uploads {clause}", params).fetchone()
         return row[0] if row else 0
 
 
 def get_training_upload(upload_id: str) -> sqlite3.Row | None:
     with _connect() as conn:
-        return conn.execute(
-            "SELECT * FROM training_uploads WHERE id = ?", (upload_id,)
-        ).fetchone()
+        return conn.execute("SELECT * FROM training_uploads WHERE id = ?", (upload_id,)).fetchone()
 
 
 def update_training_upload_status(
@@ -922,7 +918,9 @@ def insert_training_events(upload_id: str, events: list[dict]) -> int:
                     upload_id,
                     e["frame_idx"],
                     e.get("timestamp_in_video"),
-                    e["bbox"] if isinstance(e["bbox"], str) else __import__("json").dumps(e["bbox"]),
+                    e["bbox"]
+                    if isinstance(e["bbox"], str)
+                    else __import__("json").dumps(e["bbox"]),
                     e["predicted_class"],
                     e["confidence"],
                     e.get("target_class_hint"),
@@ -982,17 +980,13 @@ def count_training_events(
         params.append(detection_pass)
     clause = "WHERE " + " AND ".join(where)
     with _connect() as conn:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM training_events {clause}", params
-        ).fetchone()
+        row = conn.execute(f"SELECT COUNT(*) FROM training_events {clause}", params).fetchone()
         return row[0] if row else 0
 
 
 def get_training_event(event_id: int) -> sqlite3.Row | None:
     with _connect() as conn:
-        return conn.execute(
-            "SELECT * FROM training_events WHERE id = ?", (event_id,)
-        ).fetchone()
+        return conn.execute("SELECT * FROM training_events WHERE id = ?", (event_id,)).fetchone()
 
 
 def get_next_training_event(
@@ -1003,7 +997,10 @@ def get_next_training_event(
     detection_pass: str | None = None,
 ) -> sqlite3.Row | None:
     """Get the next event (by confidence desc, id asc) after current_id."""
-    where = ["upload_id = ?", "(confidence < (SELECT confidence FROM training_events WHERE id = ?) OR (confidence = (SELECT confidence FROM training_events WHERE id = ?) AND id > ?))"]
+    where = [
+        "upload_id = ?",
+        "(confidence < (SELECT confidence FROM training_events WHERE id = ?) OR (confidence = (SELECT confidence FROM training_events WHERE id = ?) AND id > ?))",
+    ]
     params: list[object] = [upload_id, current_id, current_id, current_id]
     if review_state:
         where.append("review_state = ?")
@@ -1032,7 +1029,10 @@ def get_prev_training_event(
     detection_pass: str | None = None,
 ) -> sqlite3.Row | None:
     """Get the previous event (by confidence desc, id asc) before current_id."""
-    where = ["upload_id = ?", "(confidence > (SELECT confidence FROM training_events WHERE id = ?) OR (confidence = (SELECT confidence FROM training_events WHERE id = ?) AND id < ?))"]
+    where = [
+        "upload_id = ?",
+        "(confidence > (SELECT confidence FROM training_events WHERE id = ?) OR (confidence = (SELECT confidence FROM training_events WHERE id = ?) AND id < ?))",
+    ]
     params: list[object] = [upload_id, current_id, current_id, current_id]
     if review_state:
         where.append("review_state = ?")
@@ -1252,17 +1252,13 @@ def count_training_jobs(status: str | None = None) -> int:
         params.append(status)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     with _connect() as conn:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM training_jobs {clause}", params
-        ).fetchone()
+        row = conn.execute(f"SELECT COUNT(*) FROM training_jobs {clause}", params).fetchone()
         return row[0] if row else 0
 
 
 def get_training_job(job_id: str) -> sqlite3.Row | None:
     with _connect() as conn:
-        return conn.execute(
-            "SELECT * FROM training_jobs WHERE id = ?", (job_id,)
-        ).fetchone()
+        return conn.execute("SELECT * FROM training_jobs WHERE id = ?", (job_id,)).fetchone()
 
 
 def get_oldest_queued_job() -> sqlite3.Row | None:

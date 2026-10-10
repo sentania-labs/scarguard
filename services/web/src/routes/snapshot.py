@@ -34,7 +34,12 @@ async def grab_snapshot(request: Request, camera_name: str) -> JSONResponse:
     request_id = uuid.uuid4().hex
     result_channel = f"scarguard:snapshot:result:{request_id}"
 
-    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+    client = aioredis.Redis(
+        host=host,
+        port=port,
+        password=os.environ.get("REDIS_PASSWORD", "") or None,
+        decode_responses=True,
+    )
     try:
         # Subscribe to result channel before publishing request
         pubsub = client.pubsub()
@@ -59,11 +64,13 @@ async def grab_snapshot(request: Request, camera_name: str) -> JSONResponse:
 
                 if result.get("ok"):
                     filename = result.get("filename", "")
-                    return JSONResponse({
-                        "ok": True,
-                        "snapshot_url": f"/snapshots/{filename}",
-                        "filename": filename,
-                    })
+                    return JSONResponse(
+                        {
+                            "ok": True,
+                            "snapshot_url": f"/snapshots/{filename}",
+                            "filename": filename,
+                        }
+                    )
                 else:
                     return JSONResponse(
                         {"ok": False, "error": result.get("error", "Unknown error")},
@@ -108,10 +115,7 @@ async def send_snapshot_to_channel(
 
     # Validate channel name against configured channels
     raw_channels = cfg.get("notifications", {}).get("channels", [])
-    valid_names = {
-        ch["name"] for ch in raw_channels
-        if isinstance(ch, dict) and ch.get("name")
-    }
+    valid_names = {ch["name"] for ch in raw_channels if isinstance(ch, dict) and ch.get("name")}
     if channel not in valid_names:
         return JSONResponse(
             {"ok": False, "error": f"Unknown channel: {channel}"},
@@ -131,7 +135,12 @@ async def send_snapshot_to_channel(
         "actions_triggered": [channel],
     }
 
-    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+    client = aioredis.Redis(
+        host=host,
+        port=port,
+        password=os.environ.get("REDIS_PASSWORD", "") or None,
+        decode_responses=True,
+    )
     try:
         await client.publish(DETECTIONS_CHANNEL, json.dumps(event))
     finally:

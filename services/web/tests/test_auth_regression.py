@@ -24,7 +24,10 @@ def _build_auth_client(monkeypatch, tmp_path, auth_cfg=None):
     toggling ``auth.enabled`` per-test).
     """
     if auth_cfg is None:
-        auth_cfg = {"system": {"auth": {"enabled": True}}, "redis": {"host": "localhost", "port": 6379}}
+        auth_cfg = {
+            "system": {"auth": {"enabled": True}},
+            "redis": {"host": "localhost", "port": 6379},
+        }
     monkeypatch.setattr("config_store.load", lambda: auth_cfg)
     monkeypatch.setattr("config_store.load_cached", lambda **_kw: auth_cfg)
     monkeypatch.setattr("config_store.save", lambda _cfg: None)
@@ -41,8 +44,10 @@ def _build_auth_client(monkeypatch, tmp_path, auth_cfg=None):
     auth_module.AUTH_DB_PATH = db_path
     auth_module.init_db(db_path)
     from routes import auth as auth_routes
+
     auth_routes.AUTH_DB_PATH = db_path
     from routes import users as users_routes
+
     users_routes.AUTH_DB_PATH = db_path
 
     os.environ["BOOTSTRAP_TOKEN_PATH"] = str(tmp_path / "bootstrap")
@@ -56,6 +61,7 @@ def _build_auth_client(monkeypatch, tmp_path, auth_cfg=None):
 
     import main
     from main import app as _app
+
     main.AUTH_DB_PATH = db_path
 
     c = TestClient(_app, raise_server_exceptions=False)
@@ -241,8 +247,10 @@ def test_sg_39_tls_rejects_boolean_false(monkeypatch, tmp_path):
     auth_module.AUTH_DB_PATH = db_path
     auth_module.init_db(db_path)
     from routes import auth as auth_routes
+
     auth_routes.AUTH_DB_PATH = db_path
     from routes import users as users_routes
+
     users_routes.AUTH_DB_PATH = db_path
 
     os.environ["BOOTSTRAP_TOKEN_PATH"] = str(tmp_path / "bootstrap")
@@ -256,6 +264,7 @@ def test_sg_39_tls_rejects_boolean_false(monkeypatch, tmp_path):
 
     import main as _main
     from main import app as _app
+
     _main.AUTH_DB_PATH = db_path
 
     c = TestClient(_app, raise_server_exceptions=False)
@@ -291,7 +300,9 @@ def test_sg_39_tls_rejects_boolean_false(monkeypatch, tmp_path):
         f"In TLS mode, auth enabled=false must be rejected; session valid, got {res3.status_code}"
     )
 
+
 # ── SG-P2: Trusted Proxies Configuration ─────────────────────────────────────
+
 
 def test_sg_p2_trusted_proxy_x_forwarded_for():
     """A request from a trusted proxy yields the client address via X-Forwarded-For; from an untrusted source, it does not."""
@@ -300,6 +311,7 @@ def test_sg_p2_trusted_proxy_x_forwarded_for():
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
     app = FastAPI()
+
     @app.get("/")
     def get_ip(request: Request):
         return {"ip": request.client.host if request.client else None}
@@ -311,9 +323,13 @@ def test_sg_p2_trusted_proxy_x_forwarded_for():
     # 1. From a trusted proxy (172.24.0.5)
     client_trusted = TestClient(app_trusted, client=("172.24.0.5", 12345))
     res_trusted = client_trusted.get("/", headers={"X-Forwarded-For": "203.0.113.1"})
-    assert res_trusted.json()["ip"] == "203.0.113.1", "Expected client IP to be extracted from X-Forwarded-For when sent by trusted proxy"
+    assert res_trusted.json()["ip"] == "203.0.113.1", (
+        "Expected client IP to be extracted from X-Forwarded-For when sent by trusted proxy"
+    )
 
     # 2. From an untrusted proxy (192.168.1.1)
     client_untrusted = TestClient(app_trusted, client=("192.168.1.1", 12345))
     res_untrusted = client_untrusted.get("/", headers={"X-Forwarded-For": "203.0.113.1"})
-    assert res_untrusted.json()["ip"] == "192.168.1.1", "Expected client IP to be the actual proxy IP when sent by untrusted proxy"
+    assert res_untrusted.json()["ip"] == "192.168.1.1", (
+        "Expected client IP to be the actual proxy IP when sent by untrusted proxy"
+    )

@@ -39,10 +39,13 @@ class DiscordNotifier:
         try:
             validate_external_url(self._webhook_url, allow_internal=False)
             self._enabled = True
-        except UnsafeURLError as exc:
+        except UnsafeURLError:
+            from url_safety import redact_url
+
             logger.error(
                 "Discord [%s] disabled - unsafe webhook URL: %s",
-                self._name, exc,
+                self._name,
+                redact_url(self._webhook_url),
             )
             self._enabled = False
 

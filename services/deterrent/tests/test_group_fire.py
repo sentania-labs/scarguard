@@ -31,7 +31,9 @@ def _device(name: str, *, enabled: bool = True) -> DeviceConfig:
 class FakeController:
     """Records every activation instead of talking to Tuya Cloud."""
 
-    def __init__(self, *, stuck_on: set[str] | None = None, fail_on: set[str] | None = None) -> None:
+    def __init__(
+        self, *, stuck_on: set[str] | None = None, fail_on: set[str] | None = None
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self._stuck_on = stuck_on or set()
         self._fail_on = fail_on or set()
@@ -45,29 +47,40 @@ class FakeController:
         event_type: str,
         should_continue: Callable[[], bool] | None = None,
     ) -> ActivationResult:
-        self.calls.append({
-            "device": device.name,
-            "duration": duration,
-            "request_id": request_id,
-            "event_type": event_type,
-        })
+        self.calls.append(
+            {
+                "device": device.name,
+                "duration": duration,
+                "request_id": request_id,
+                "event_type": event_type,
+            }
+        )
         # success and stuck are derived properties, so build the real states:
         #   ON ok + OFF ok    -> success
         #   ON ok + OFF fail  -> stuck (device may be physically still on)
         #   ON fail           -> neither; OFF was never attempted
         if device.name in self._fail_on:
             return ActivationResult(
-                on_success=False, off_success=None, error="boom",
-                on_ack_ms=None, off_attempts=0,
+                on_success=False,
+                off_success=None,
+                error="boom",
+                on_ack_ms=None,
+                off_attempts=0,
             )
         if device.name in self._stuck_on:
             return ActivationResult(
-                on_success=True, off_success=False, error=None,
-                on_ack_ms=12.0, off_attempts=3,
+                on_success=True,
+                off_success=False,
+                error=None,
+                on_ack_ms=12.0,
+                off_attempts=3,
             )
         return ActivationResult(
-            on_success=True, off_success=True, error=None,
-            on_ack_ms=12.0, off_attempts=1,
+            on_success=True,
+            off_success=True,
+            error=None,
+            on_ack_ms=12.0,
+            off_attempts=1,
         )
 
 
@@ -265,7 +278,11 @@ class TestTimingIsPreserved:
         assert merged[0][0] == "fire", f"device 0 waited before firing: {merged[:2]}"
         # Thereafter strictly alternating: sleep, fire, sleep, fire.
         assert [kind for kind, _ in merged] == [
-            "fire", "sleep", "fire", "sleep", "fire",
+            "fire",
+            "sleep",
+            "fire",
+            "sleep",
+            "fire",
         ]
         assert [v for k, v in merged if k == "sleep"] == [1.5, 1.5]
         assert execution.actions[0].delay_before_sec == 0.0
@@ -285,7 +302,8 @@ class TestTimingIsPreserved:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         devices = [_device("v1")]
         defaults = ActuationDefaults(
@@ -315,7 +333,8 @@ class TestDeadline:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
 
@@ -329,8 +348,12 @@ class TestDeadline:
         controller.activate_device = timed  # type: ignore[method-assign]
         devices = [_device(f"v{i}") for i in range(4)]
         execution = execute_plan(
-            controller, devices, self._defaults(),
-            request_id="rid", event_type="test_fire_group", label="T",
+            controller,
+            devices,
+            self._defaults(),
+            request_id="rid",
+            event_type="test_fire_group",
+            label="T",
             on_stuck=lambda d, e: None,
             deadline_sec=deadline,
         )
@@ -357,8 +380,12 @@ class TestDeadline:
         controller = FakeController()
         devices = [_device(f"v{i}") for i in range(4)]
         execution = execute_plan(
-            controller, devices, self._defaults(),
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            devices,
+            self._defaults(),
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
         )
         assert len(execution.actions) == 4
@@ -372,7 +399,8 @@ class TestDeadlineEdges:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         return clock
 
@@ -402,9 +430,14 @@ class TestDeadlineEdges:
             pre_delay_range=[0.0, 0.0],
         )
         execution = execute_plan(
-            controller, [_device(f"v{i}") for i in range(4)], defaults,
-            request_id="rid", event_type="test_fire_group", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=25.0,
+            controller,
+            [_device(f"v{i}") for i in range(4)],
+            defaults,
+            request_id="rid",
+            event_type="test_fire_group",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=25.0,
         )
         # Window 25s: device 0 fires at t=0, device 1 at t=30 after its delay,
         # which is past the window, so it never starts.
@@ -428,9 +461,14 @@ class TestDeadlineEdges:
             pre_delay_range=[100.0, 100.0],
         )
         execution = execute_plan(
-            controller, [_device("v1"), _device("v2")], defaults,
-            request_id="rid", event_type="test_fire_group", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=30.0,
+            controller,
+            [_device("v1"), _device("v2")],
+            defaults,
+            request_id="rid",
+            event_type="test_fire_group",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=30.0,
         )
         assert len(execution.actions) == 2, "pre-delay ate the firing window"
         # 100s requested, clamped to MAX_PRE_DELAY_SEC, then two 5s sprays.
@@ -488,7 +526,8 @@ class TestRotation:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         return clock
 
@@ -516,10 +555,15 @@ class TestRotation:
         clock = self._clock(monkeypatch)
         controller = self._timed(FakeController(), clock)
         execution = execute_plan(
-            controller, [_device("v1"), _device("v2")], self._defaults(),
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            [_device("v1"), _device("v2")],
+            self._defaults(),
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
-            deadline_sec=window, rotate=rotate,
+            deadline_sec=window,
+            rotate=rotate,
         )
         return controller, execution
 
@@ -558,9 +602,15 @@ class TestRotation:
             pre_delay_range=[0.0, 0.0],
         )
         execution = execute_plan(
-            controller, [_device("solo")], defaults,
-            request_id="rid", event_type="detection", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=30.0, rotate=True,
+            controller,
+            [_device("solo")],
+            defaults,
+            request_id="rid",
+            event_type="detection",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=30.0,
+            rotate=True,
         )
         gaps = [a.delay_before_sec for a in execution.actions[1:]]
         assert gaps, "did not rotate"
@@ -583,15 +633,18 @@ class TestRotation:
 class TestPickGroupWindow:
     def test_none_when_unset(self) -> None:
         from randomizer import pick_group_window
+
         assert pick_group_window(ActuationDefaults()) is None
 
     def test_none_when_zero(self) -> None:
         from randomizer import pick_group_window
+
         d = ActuationDefaults(group_duration_range=[0.0, 0.0])
         assert pick_group_window(d) is None
 
     def test_within_the_configured_range(self) -> None:
         from randomizer import pick_group_window
+
         d = ActuationDefaults(group_duration_range=[10.0, 20.0])
         for _ in range(50):
             w = pick_group_window(d)
@@ -601,6 +654,7 @@ class TestPickGroupWindow:
         """One detection must not be able to run the devices indefinitely."""
         from deterrent_safety import MAX_GROUP_ACTUATION_SEC
         from randomizer import pick_group_window
+
         d = ActuationDefaults(group_duration_range=[99999.0, 99999.0])
         assert pick_group_window(d) == MAX_GROUP_ACTUATION_SEC
 
@@ -627,7 +681,8 @@ class TestRotationCanBeStopped:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -638,10 +693,16 @@ class TestRotationCanBeStopped:
 
         controller.activate_device = timed  # type: ignore[method-assign]
         return execute_plan(
-            controller, [_device("v1"), _device("v2")], self._defaults(),
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            [_device("v1"), _device("v2")],
+            self._defaults(),
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
-            deadline_sec=300.0, rotate=True, should_continue=should_continue,
+            deadline_sec=300.0,
+            rotate=True,
+            should_continue=should_continue,
         )
 
     def test_revoked_authorisation_stops_immediately(self, monkeypatch: Any) -> None:
@@ -688,7 +749,8 @@ class TestRotationCanBeStopped:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -700,13 +762,17 @@ class TestRotationCanBeStopped:
 
         controller.activate_device = timed  # type: ignore[method-assign]
         return execute_plan(
-            controller, [_device("v1"), _device("v2")], self._defaults(),
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            [_device("v1"), _device("v2")],
+            self._defaults(),
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
-            deadline_sec=300.0, rotate=True,
+            deadline_sec=300.0,
+            rotate=True,
             should_continue=lambda: len(fired) < revoke_after,
         )
-
 
 
 class TestCycleCeiling:
@@ -736,9 +802,15 @@ class TestCycleCeiling:
 
         def run() -> None:
             result["execution"] = execute_plan(
-                FakeController(), [_device("v1")], defaults,
-                request_id="rid", event_type="detection", label="T",
-                on_stuck=lambda d, e: None, deadline_sec=999999.0, rotate=True,
+                FakeController(),
+                [_device("v1")],
+                defaults,
+                request_id="rid",
+                event_type="detection",
+                label="T",
+                on_stuck=lambda d, e: None,
+                deadline_sec=999999.0,
+                rotate=True,
             )
 
         t = threading.Thread(target=run, daemon=True)
@@ -752,6 +824,7 @@ class TestCycleCeiling:
 
     def test_ceiling_is_a_sane_value(self) -> None:
         from group_fire import MAX_ROTATION_CYCLES
+
         assert 100 <= MAX_ROTATION_CYCLES <= 2000, (
             "too low truncates real windows, too high stops bounding anything"
         )
@@ -786,9 +859,15 @@ class TestPreDelayAppliesOnce:
             pre_delay_range=[7.0, 7.0],
         )
         execute_plan(
-            controller, [_device("v1")], defaults,
-            request_id="rid", event_type="detection", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=30.0, rotate=True,
+            controller,
+            [_device("v1")],
+            defaults,
+            request_id="rid",
+            event_type="detection",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=30.0,
+            rotate=True,
         )
         merged = _collapse(trace)
         assert merged[0] == ("sleep", 7.0), f"pre-delay not slept first: {merged[:2]}"
@@ -807,15 +886,19 @@ class TestNonFiniteWindowIsRejected:
     inf + (inf - inf) * r.
     """
 
-    @pytest.mark.parametrize("rng", [
-        [float("nan"), float("nan")],
-        [float("inf"), float("inf")],
-        [float("nan"), 50.0],
-        [50.0, float("inf")],
-        [float("-inf"), float("inf")],
-    ])
+    @pytest.mark.parametrize(
+        "rng",
+        [
+            [float("nan"), float("nan")],
+            [float("inf"), float("inf")],
+            [float("nan"), 50.0],
+            [50.0, float("inf")],
+            [float("-inf"), float("inf")],
+        ],
+    )
     def test_returns_none(self, rng: list[float]) -> None:
         from randomizer import pick_group_window
+
         assert pick_group_window(ActuationDefaults(group_duration_range=rng)) is None
 
     def test_a_non_finite_window_does_not_rotate(self, monkeypatch: Any) -> None:
@@ -838,10 +921,15 @@ class TestNonFiniteWindowIsRejected:
 
         def run() -> None:
             result["execution"] = execute_plan(
-                FakeController(), [_device("v1")], defaults,
-                request_id="rid", event_type="detection", label="T",
+                FakeController(),
+                [_device("v1")],
+                defaults,
+                request_id="rid",
+                event_type="detection",
+                label="T",
                 on_stuck=lambda d, e: None,
-                deadline_sec=window, rotate=window is not None,
+                deadline_sec=window,
+                rotate=window is not None,
             )
 
         t = threading.Thread(target=run, daemon=True)
@@ -884,9 +972,15 @@ class TestEmptyPlanMidRotation:
 
         def run() -> None:
             result["execution"] = execute_plan(
-                FakeController(), [_device("v1")], defaults,
-                request_id="rid", event_type="detection", label="T",
-                on_stuck=lambda d, e: None, deadline_sec=999999.0, rotate=True,
+                FakeController(),
+                [_device("v1")],
+                defaults,
+                request_id="rid",
+                event_type="detection",
+                label="T",
+                on_stuck=lambda d, e: None,
+                deadline_sec=999999.0,
+                rotate=True,
             )
 
         t = threading.Thread(target=run, daemon=True)
@@ -911,7 +1005,8 @@ class TestForceOffStopsRotation:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -932,9 +1027,15 @@ class TestForceOffStopsRotation:
             pre_delay_range=[0.0, 0.0],
         )
         execution = execute_plan(
-            controller, [_device("v1"), _device("v2")], defaults,
-            request_id="rid", event_type="detection", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            controller,
+            [_device("v1"), _device("v2")],
+            defaults,
+            request_id="rid",
+            event_type="detection",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0,
+            rotate=True,
             should_continue=lambda: latch.generation == started,
         )
         # The cycle in flight finishes; nothing new starts.
@@ -958,8 +1059,11 @@ class TestForceOffStopsRotation:
         latch = ForceOffLatch()
         started = latch.generation
         handler = RequestHandler(
-            {}, AtomicRef(None), AtomicRef(None),
-            job_queue=_queue.Queue(), force_off_latch=latch,
+            {},
+            AtomicRef(None),
+            AtomicRef(None),
+            job_queue=_queue.Queue(),
+            force_off_latch=latch,
         )
         # No controller, so the handler bails early; the latch must already
         # have moved by then.
@@ -994,7 +1098,8 @@ class TestAbortIsSticky:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -1015,10 +1120,16 @@ class TestAbortIsSticky:
             return True
 
         execution = execute_plan(
-            controller, [_device("v1"), _device("v2")], self._defaults(),
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            [_device("v1"), _device("v2")],
+            self._defaults(),
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
-            deadline_sec=300.0, rotate=True, should_continue=flapping,
+            deadline_sec=300.0,
+            rotate=True,
+            should_continue=flapping,
         )
         assert len(execution.actions) == 0, (
             "a re-arm resumed a sequence that had already been stopped"
@@ -1037,7 +1148,8 @@ class TestAbortBeforeTheWait:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -1052,22 +1164,26 @@ class TestAbortBeforeTheWait:
         defaults = ActuationDefaults(
             device_count_range=[2, 2],
             spray_duration_range=[1.0, 1.0],
-            inter_device_delay_range=[30.0, 30.0],   # the maximum wait
+            inter_device_delay_range=[30.0, 30.0],  # the maximum wait
             pre_delay_range=[0.0, 0.0],
         )
         execution = execute_plan(
-            controller, [_device("v1"), _device("v2")], defaults,
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            [_device("v1"), _device("v2")],
+            defaults,
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
-            deadline_sec=300.0, rotate=True,
+            deadline_sec=300.0,
+            rotate=True,
             should_continue=lambda: len(fired) < 1,
         )
         # Device 1 fires (1s). Device 2's gate is consulted BEFORE its 30s
         # wait, so the sequence ends at t=1, not t=31.
         assert len(execution.actions) == 1
         assert execution.total_duration_sec == 1.0, (
-            f"sat through the inter-device wait after the stop: "
-            f"{execution.total_duration_sec}s"
+            f"sat through the inter-device wait after the stop: {execution.total_duration_sec}s"
         )
 
     def test_a_stop_at_the_firing_gate_is_also_sticky(self, monkeypatch: Any) -> None:
@@ -1081,7 +1197,8 @@ class TestAbortBeforeTheWait:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -1107,10 +1224,16 @@ class TestAbortBeforeTheWait:
             pre_delay_range=[0.0, 0.0],
         )
         execution = execute_plan(
-            controller, [_device("v1"), _device("v2")], defaults,
-            request_id="rid", event_type="detection", label="T",
+            controller,
+            [_device("v1"), _device("v2")],
+            defaults,
+            request_id="rid",
+            event_type="detection",
+            label="T",
             on_stuck=lambda d, e: None,
-            deadline_sec=300.0, rotate=True, should_continue=refuse_second,
+            deadline_sec=300.0,
+            rotate=True,
+            should_continue=refuse_second,
         )
         assert len(execution.actions) == 0, (
             "a stop at the firing gate did not stick, the sequence restarted"
@@ -1130,7 +1253,8 @@ class TestWaitsAreInterruptible:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         return clock
 
@@ -1141,18 +1265,23 @@ class TestWaitsAreInterruptible:
 
         def revoke_partway() -> bool:
             calls["n"] += 1
-            return calls["n"] <= 4          # allow ~1s of a 30s pre-delay
+            return calls["n"] <= 4  # allow ~1s of a 30s pre-delay
 
         execution = execute_plan(
-            controller, [_device("v1")],
+            controller,
+            [_device("v1")],
             ActuationDefaults(
                 device_count_range=[1, 1],
                 spray_duration_range=[5.0, 5.0],
                 inter_device_delay_range=[0.0, 0.0],
                 pre_delay_range=[30.0, 30.0],
             ),
-            request_id="rid", event_type="detection", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            request_id="rid",
+            event_type="detection",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0,
+            rotate=True,
             should_continue=revoke_partway,
         )
         assert controller.calls == [], "fired after authorisation was revoked"
@@ -1161,7 +1290,9 @@ class TestWaitsAreInterruptible:
         )
         assert execution.aborted is True
 
-    def test_a_stop_during_the_inter_device_wait_does_not_wait_it_out(self, monkeypatch: Any) -> None:
+    def test_a_stop_during_the_inter_device_wait_does_not_wait_it_out(
+        self, monkeypatch: Any
+    ) -> None:
         clock = self._clock(monkeypatch)
         controller = FakeController()
         real = controller.activate_device
@@ -1183,21 +1314,24 @@ class TestWaitsAreInterruptible:
             return not (fired_at["t"] is not None and clock["t"] >= fired_at["t"] + 1.0)
 
         execute_plan(
-            controller, [_device("v1"), _device("v2")],
+            controller,
+            [_device("v1"), _device("v2")],
             ActuationDefaults(
                 device_count_range=[2, 2],
                 spray_duration_range=[1.0, 1.0],
                 inter_device_delay_range=[30.0, 30.0],
                 pre_delay_range=[0.0, 0.0],
             ),
-            request_id="rid", event_type="detection", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=300.0, rotate=True,
+            request_id="rid",
+            event_type="detection",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=300.0,
+            rotate=True,
             should_continue=revoke_after_first_device,
         )
         assert len(controller.calls) == 1
-        assert clock["t"] < 10.0, (
-            f"sat through the rest of a 30s wait: stopped at {clock['t']}s"
-        )
+        assert clock["t"] < 10.0, f"sat through the rest of a 30s wait: stopped at {clock['t']}s"
 
 
 class TestAbortedIsReported:
@@ -1216,7 +1350,8 @@ class TestAbortedIsReported:
         clock = {"t": 0.0}
         monkeypatch.setattr("group_fire.time.monotonic", lambda: clock["t"])
         monkeypatch.setattr(
-            "group_fire.time.sleep", lambda s: clock.__setitem__("t", clock["t"] + s),
+            "group_fire.time.sleep",
+            lambda s: clock.__setitem__("t", clock["t"] + s),
         )
         controller = FakeController()
         real = controller.activate_device
@@ -1227,9 +1362,15 @@ class TestAbortedIsReported:
 
         controller.activate_device = timed  # type: ignore[method-assign]
         return execute_plan(
-            controller, [_device("v1")], self._defaults(),
-            request_id="rid", event_type="detection", label="T",
-            on_stuck=lambda d, e: None, deadline_sec=deadline, rotate=True,
+            controller,
+            [_device("v1")],
+            self._defaults(),
+            request_id="rid",
+            event_type="detection",
+            label="T",
+            on_stuck=lambda d, e: None,
+            deadline_sec=deadline,
+            rotate=True,
             should_continue=should_continue,
         )
 

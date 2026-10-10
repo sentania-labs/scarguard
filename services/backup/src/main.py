@@ -70,6 +70,7 @@ try:
     from event_signing import (
         verify_event as _EF_VE,
     )
+
     _TRIGGER_KEY = load_key_from_env()
     _DERIVE_KEY = _EF_DK
     _VERIFY_TRIGGER = _EF_VE
@@ -90,6 +91,7 @@ def _verify_trigger(payload: dict) -> bool:
         return False
     channel_key = _DERIVE_KEY(_TRIGGER_KEY, TRIGGER_CHANNEL) if _DERIVE_KEY else _TRIGGER_KEY
     return _VERIFY_TRIGGER(payload, channel_key, TRIGGER_CHANNEL, _TRIGGER_CACHE)  # type: ignore[arg-type]
+
 
 DEFAULT_INTERVAL_HOURS = 24
 DEFAULT_RETENTION_DAILY = 14
@@ -364,11 +366,14 @@ def run_backup_cycle(
                 return summary
             coalesce_slot = True
         logger.info("Backup cycle (%s) queued behind a running cycle", triggered_by)
-        _publish_status(publisher, {
-            "phase": "queued",
-            "triggered_by": triggered_by,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        _publish_status(
+            publisher,
+            {
+                "phase": "queued",
+                "triggered_by": triggered_by,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
     backup_lock.acquire()
     if coalesce_slot:
         _manual_waiting.release()
@@ -376,24 +381,31 @@ def run_backup_cycle(
         compress = _compress(cfg)
         daily, weekly = _retention(cfg)
         started = datetime.now(timezone.utc)
-        _publish_status(publisher, {
-            "phase": "started",
-            "triggered_by": triggered_by,
-            "timestamp": started.isoformat(),
-        })
+        _publish_status(
+            publisher,
+            {
+                "phase": "started",
+                "triggered_by": triggered_by,
+                "timestamp": started.isoformat(),
+            },
+        )
 
         results: list[dict[str, Any]] = []
         success = True
         for db_name, db_path in DATABASES:
             try:
-                out = backup_database(db_name, db_path, compress=compress, triggered_by=triggered_by)
+                out = backup_database(
+                    db_name, db_path, compress=compress, triggered_by=triggered_by
+                )
                 if out is not None:
-                    results.append({
-                        "db": db_name,
-                        "file": out.name,
-                        "size_bytes": out.stat().st_size,
-                        "ok": True,
-                    })
+                    results.append(
+                        {
+                            "db": db_name,
+                            "file": out.name,
+                            "size_bytes": out.stat().st_size,
+                            "ok": True,
+                        }
+                    )
                     prune_backups(db_name, daily, weekly)
             except Exception as exc:
                 logger.exception("Backup failed for %s", db_name)
@@ -462,7 +474,9 @@ def trigger_listener(
 
                 logger.info("Manual backup triggered via Redis")
                 run_backup_cycle(
-                    cfg_holder["cfg"], client, triggered_by="manual",
+                    cfg_holder["cfg"],
+                    client,
+                    triggered_by="manual",
                 )
         except redis_lib.RedisError:
             if shutdown_event.is_set():
@@ -489,7 +503,10 @@ def _make_redis(redis_cfg: dict[str, Any]) -> redis_lib.Redis:
     port = int(redis_cfg.get("port", 6379))
     password = os.environ.get("REDIS_PASSWORD", "") or None
     return redis_lib.Redis(
-        host=host, port=port, password=password, decode_responses=True,
+        host=host,
+        port=port,
+        password=password,
+        decode_responses=True,
     )
 
 

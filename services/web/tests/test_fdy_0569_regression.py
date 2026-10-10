@@ -140,7 +140,8 @@ def _backups(env: dict[str, Any]) -> list[Path]:
 
 def _leftover_tmp(env: dict[str, Any]) -> list[Path]:
     return [
-        p for p in list(env["tmp"].iterdir()) + list(env["backup_dir"].iterdir())
+        p
+        for p in list(env["tmp"].iterdir()) + list(env["backup_dir"].iterdir())
         if p.name.endswith(".tmp")
     ]
 
@@ -293,7 +294,9 @@ def test_restore_interrupted_write_keeps_last_good(env, http, monkeypatch):
 def test_restore_refused_when_pre_restore_backup_fails(env, http, monkeypatch):
     before = env["config_path"].read_bytes()
     name = _write_backup(
-        env, "scarguard_20260101T000000Z_manual.yml", yaml.safe_dump(_cfg_with()),
+        env,
+        "scarguard_20260101T000000Z_manual.yml",
+        yaml.safe_dump(_cfg_with()),
     )
     monkeypatch.setattr(env["manager"], "_create_backup", lambda reason: None)
     r = http.post(f"/admin/backups/{name}/restore")
@@ -389,8 +392,12 @@ def test_structured_save_keeps_invalid_stored_tls_instead_of_wiping_it(env, http
     assert page.status_code == 200
     assert '"tlsFallback": true' in page.text
     payload = _structured(
-        {"mode": "off", "domain": "", "cert_path": "/config/certs/cert.pem",
-         "key_path": "/config/certs/key.pem"},
+        {
+            "mode": "off",
+            "domain": "",
+            "cert_path": "/config/certs/cert.pem",
+            "key_path": "/config/certs/key.pem",
+        },
         armed=False,
     )
     payload["tls_unchanged"] = True
@@ -409,12 +416,14 @@ def test_structured_save_can_replace_invalid_tls_with_defaults(env, http):
     env["config_path"].write_text(yaml.safe_dump(_cfg_with(tls=stored_tls)))
     r = http.post(
         "/config/structured",
-        json=_structured({
-            "mode": "off",
-            "domain": "",
-            "cert_path": "/config/certs/cert.pem",
-            "key_path": "/config/certs/key.pem",
-        }),
+        json=_structured(
+            {
+                "mode": "off",
+                "domain": "",
+                "cert_path": "/config/certs/cert.pem",
+                "key_path": "/config/certs/key.pem",
+            }
+        ),
     )
     assert r.status_code == 200, r.text
     assert r.json()["tls_changed"] is True
@@ -459,12 +468,15 @@ def test_structured_save_valid_tls_still_works(env, http):
     revision = r.json()["revision"]
     r = http.post(
         "/config/structured",
-        json=_structured({
-            "mode": "manual",
-            "domain": "pond.example.com",
-            "cert_path": "/config/certs/fullchain.pem",
-            "key_path": "/config/tls/privkey.pem",
-        }, revision=revision),
+        json=_structured(
+            {
+                "mode": "manual",
+                "domain": "pond.example.com",
+                "cert_path": "/config/certs/fullchain.pem",
+                "key_path": "/config/tls/privkey.pem",
+            },
+            revision=revision,
+        ),
     )
     assert r.status_code == 200, r.text
 
@@ -532,7 +544,9 @@ def test_caddy_render_constrained_output():
     auto = cc.render({"tls": {"mode": "auto", "domain": "pond.example.com"}})
     assert "\npond.example.com {\n\timport scarguard\n}\n" in auto
     manual = cc.render(
-        {"tls": {"mode": "manual"}}, https_port="8443", file_exists=lambda _p: True,
+        {"tls": {"mode": "manual"}},
+        https_port="8443",
+        file_exists=lambda _p: True,
     )
     assert "\ttls /config/certs/cert.pem /config/certs/key.pem\n" in manual
     assert "redir https://{host}:8443{uri} permanent" in manual
@@ -556,7 +570,12 @@ def _stub_caddy(tmp_path: Path, log: Path) -> Path:
 
 
 def _run_caddy_config(
-    tmp_path: Path, action: str, cfg_text: str, *, validate_exit: int = 0, reload_exit: int = 0,
+    tmp_path: Path,
+    action: str,
+    cfg_text: str,
+    *,
+    validate_exit: int = 0,
+    reload_exit: int = 0,
 ) -> tuple[subprocess.CompletedProcess[str], Path, list[str]]:
     if REPO_ROOT is None:
         pytest.skip("repository Caddy artifacts are not included in the web runtime image")
@@ -577,7 +596,10 @@ def _run_caddy_config(
     }
     proc = subprocess.run(
         [sys.executable, str(caddy_config_py), action, str(config), str(caddyfile)],
-        capture_output=True, text=True, env=env, timeout=60,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
     )
     return proc, caddyfile, log.read_text().split("\n")[:-1]
 

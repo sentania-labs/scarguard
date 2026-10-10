@@ -46,6 +46,7 @@ ENV_VAR = "DETECTION_HMAC_KEY"
 
 # ── Replay cache ──────────────────────────────────────────────────────────────
 
+
 class _ReplayCache:
     """Bounded set of seen nonces with automatic eviction.
 
@@ -206,7 +207,8 @@ def verify_event(
                 # channel and cannot be used here.
                 logger.debug(
                     "Channel mismatch: event signed for %r, expected %r",
-                    _ch, channel,
+                    _ch,
+                    channel,
                 )
                 return False
             _ts = event.get(TIMESTAMP_FIELD)
@@ -215,7 +217,8 @@ def verify_event(
                 if age < 0 or age > MESSAGE_TTL_SECONDS:
                     logger.debug(
                         "Stale event: age=%.1fs (max %ds)",
-                        age, MESSAGE_TTL_SECONDS,
+                        age,
+                        MESSAGE_TTL_SECONDS,
                     )
                     return False
         _canonical = _canonical_payload(event)
@@ -278,7 +281,8 @@ def load_key_from_env(var_name: str = "DETECTION_HMAC_KEY") -> bytes | None:
     if len(key) < 16:
         logger.error(
             "%s decodes to %d bytes (need >= 16) - treating as absent",
-            var_name, len(key),
+            var_name,
+            len(key),
         )
         return None
     return key

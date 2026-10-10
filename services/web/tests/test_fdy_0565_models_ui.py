@@ -179,8 +179,12 @@ def role_client(monkeypatch: pytest.MonkeyPatch) -> Any:
     }
     users = {
         "admin-session": {"user_id": 1, "username": "pond-admin", "role": "admin", "disabled": 0},
-        "viewer-session": {"user_id": 2, "username": "pond-viewer", "role": "viewer",
-                           "disabled": 0},
+        "viewer-session": {
+            "user_id": 2,
+            "username": "pond-viewer",
+            "role": "viewer",
+            "disabled": 0,
+        },
     }
     monkeypatch.setattr("config_store.load", lambda: cfg)
     monkeypatch.setattr("config_store.load_cached", lambda **_kw: cfg)
@@ -217,9 +221,7 @@ def test_viewer_sees_no_controls_and_cannot_promote(role_client: Any, dirs: dict
     assert (dirs["live"] / "best.pt").read_bytes() == LEGACY
 
     role_client.cookies.set("session", "admin-session")
-    role_client.post(
-        f"/models/candidates/{candidate_id}/promote", data={"target_name": "best.pt"}
-    )
+    role_client.post(f"/models/candidates/{candidate_id}/promote", data={"target_name": "best.pt"})
     page = role_client.get("/models")
     assert "by pond-admin" in page.text
 

@@ -53,6 +53,7 @@ try:
     from event_signing import (
         verify_event as _EF_VERIFY_EVENT,
     )
+
     _CMD_KEY = load_key_from_env()
     _CMD_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _CMD_KEY else None
     _CHANNEL_FIELD = _EF_CHANNEL_FIELD
@@ -183,7 +184,9 @@ class PauseHandler:
             try:
                 self._model_pool.reload_all()
             except Exception:
-                logger.exception("Model reload failed during resume - inference will retry on next frame")
+                logger.exception(
+                    "Model reload failed during resume - inference will retry on next frame"
+                )
             self._paused_ref.set(False)
             self._publish_state("running", request_id=request_id)
             logger.info("Detector resumed - inference active")
@@ -243,7 +246,8 @@ class PauseHandler:
                 if elapsed > self._pause_timeout:
                     logger.warning(
                         "Pause timeout exceeded (%.0fs > %.0fs) - auto-resuming",
-                        elapsed, self._pause_timeout,
+                        elapsed,
+                        self._pause_timeout,
                     )
                     self._do_resume("auto-timeout", reason="timeout")
                     break

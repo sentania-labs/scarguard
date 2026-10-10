@@ -8,6 +8,7 @@
 #  Usage:  bash setup.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+umask 077
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,6 +162,7 @@ fi
 step "Setting up environment (.env)"
 
 if [[ -f ".env" ]]; then
+    chmod 0600 .env
     info ".env already exists - loading."
     set -a
     # shellcheck disable=SC1091
@@ -234,6 +236,7 @@ else
     fi
 
     cp .env.example .env
+    chmod 0600 .env
 
     # Generate a random Redis password for inter-service auth
     REDIS_PASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)

@@ -32,7 +32,11 @@ import ultralytics
 import ultralytics.nn
 from torch import nn
 
-SKIP_MODULES = ("ultralytics.nn.autobackend", "ultralytics.nn.backends", "ultralytics.nn.text_model")
+SKIP_MODULES = (
+    "ultralytics.nn.autobackend",
+    "ultralytics.nn.backends",
+    "ultralytics.nn.text_model",
+)
 HOOKS = ("__new__", "__reduce__", "__reduce_ex__", "__getattr__", "__setattr__", "__setstate__")
 # Reviewed __setstate__ overrides: each calls Module.__setstate__ and sets a default.
 BENIGN_SETSTATE = {

@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class _ActiveVisit:
     """In-progress visit session."""
+
     camera_name: str
     class_name: str
     start_time: datetime

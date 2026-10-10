@@ -35,23 +35,25 @@ PREFIX = "enc:v1:"
 
 # Structural paths (tuple of dict keys) for sensitive fields outside the
 # heterogeneous channels list. Format matches config_redact._STRUCTURAL_PATHS
-# but excludes ``cameras[].rtsp_url`` - encrypting that requires teaching
-# the detector container to decrypt at boot, which is deferred.
 SENSITIVE_FIELD_PATHS: tuple[tuple[str, ...], ...] = (
     ("deterrent", "tuya", "api_key"),
     ("deterrent", "tuya", "api_secret"),
+    ("cameras", "[]", "rtsp_url"),
+    ("training", "sources", "roboflow", "api_key"),
 )
 
 # Per-channel sensitive keys. Channels under ``notifications.channels`` are
 # heterogeneous dicts whose shape depends on ``type``; any matching key is
 # encrypted regardless of type. Mirrors config_redact._CHANNEL_SENSITIVE_KEYS.
-SENSITIVE_CHANNEL_KEYS: frozenset[str] = frozenset({
-    "webhook_url",
-    "smtp_pass",
-    "auth_token",
-    "token",
-    "password",
-})
+SENSITIVE_CHANNEL_KEYS: frozenset[str] = frozenset(
+    {
+        "webhook_url",
+        "smtp_pass",
+        "auth_token",
+        "token",
+        "password",
+    }
+)
 
 
 class SecretKeyMissing(RuntimeError):
@@ -118,7 +120,7 @@ def decrypt(value: str, key: bytes) -> str:
             f"Unencrypted sensitive value rejected (missing '{PREFIX}' prefix). "
             "Run a config save to trigger encryption, or rotate the secret key."
         )
-    token = value[len(PREFIX):]
+    token = value[len(PREFIX) :]
     try:
         return _fernet(key).decrypt(token.encode("ascii")).decode("utf-8")
     except InvalidToken as exc:
@@ -184,49 +186,55 @@ def try_load_key(path: str | None = None) -> bytes | None:
 
 # ── Walking helpers ─────────────────────────────────────────────────────────
 
-def _safe_get(cfg: Any, path: tuple[str, ...]) -> Any:
-    cur = cfg
-    for seg in path:
-        if not isinstance(cur, dict) or seg not in cur:
-            return None
-        cur = cur[seg]
-    return cur
+
+def _walk_get(cfg: Any, path: tuple[str, ...]) -> list[Any]:
+    if not path:
+        return [cfg]
+    head, *rest = path
+    if head == "[]":
+        if isinstance(cfg, list):
+            res = []
+            for item in cfg:
+                res.extend(_walk_get(item, tuple(rest)))
+            return res
+        return []
+    if isinstance(cfg, dict) and head in cfg:
+        return _walk_get(cfg[head], tuple(rest))
+    return []
 
 
-def _walk_and_apply(
-    cfg: Any,
-    path: tuple[str, ...],
-    apply_fn: Callable[[str], str],
-) -> bool:
-    """Apply *apply_fn* to the leaf at *path* in *cfg*. Returns True if applied."""
-    if not path or not isinstance(cfg, dict):
-        return False
-    head = path[0]
-    if head not in cfg:
-        return False
-    if len(path) == 1:
+def _walk_and_apply(cfg: Any, path: tuple[str, ...], apply_fn: Callable[[str], str]) -> int:
+    if not path:
+        return 0
+    head, *rest = path
+    if head == "[]":
+        if isinstance(cfg, list):
+            count = 0
+            for item in cfg:
+                count += _walk_and_apply(item, tuple(rest), apply_fn)
+            return count
+        return 0
+    if not isinstance(cfg, dict) or head not in cfg:
+        return 0
+    if not rest:
         v = cfg[head]
         if isinstance(v, str) and v:
-            cfg[head] = apply_fn(v)
-            return True
-        return False
-    return _walk_and_apply(cfg[head], path[1:], apply_fn)
+            new_v = apply_fn(v)
+            if new_v != v:
+                cfg[head] = new_v
+                return 1
+        return 0
+    return _walk_and_apply(cfg[head], tuple(rest), apply_fn)
 
 
 def encrypt_in_place(cfg: dict, key: bytes) -> int:
-    """Walk *cfg* and encrypt every plaintext sensitive field. Returns count
-    of newly-encrypted fields. Already-encrypted values are left as-is."""
     count = 0
-
     for path in SENSITIVE_FIELD_PATHS:
-        leaf = _safe_get(cfg, path)
-        if isinstance(leaf, str) and leaf and not is_encrypted(leaf):
-            if _walk_and_apply(cfg, path, lambda v: encrypt(v, key)):
-                count += 1
+        count += _walk_and_apply(cfg, path, lambda v: encrypt(v, key) if not is_encrypted(v) else v)
 
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
+    channels = _walk_get(cfg, ("notifications", "channels"))
+    if channels and isinstance(channels[0], list):
+        for channel in channels[0]:
             if not isinstance(channel, dict):
                 continue
             for k in SENSITIVE_CHANNEL_KEYS:
@@ -234,24 +242,17 @@ def encrypt_in_place(cfg: dict, key: bytes) -> int:
                 if isinstance(v, str) and v and not is_encrypted(v):
                     channel[k] = encrypt(v, key)
                     count += 1
-
     return count
 
 
 def decrypt_in_place(cfg: dict, key: bytes) -> int:
-    """Walk *cfg* and decrypt every encrypted sensitive field. Returns count
-    of newly-decrypted fields. Plaintext values are left as-is."""
     count = 0
-
     for path in SENSITIVE_FIELD_PATHS:
-        leaf = _safe_get(cfg, path)
-        if is_encrypted(leaf):
-            _walk_and_apply(cfg, path, lambda v: decrypt(v, key))
-            count += 1
+        count += _walk_and_apply(cfg, path, lambda v: decrypt(v, key) if is_encrypted(v) else v)
 
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
+    channels = _walk_get(cfg, ("notifications", "channels"))
+    if channels and isinstance(channels[0], list):
+        for channel in channels[0]:
             if not isinstance(channel, dict):
                 continue
             for k in SENSITIVE_CHANNEL_KEYS:
@@ -259,19 +260,17 @@ def decrypt_in_place(cfg: dict, key: bytes) -> int:
                 if isinstance(v, str) and is_encrypted(v):
                     channel[k] = decrypt(v, key)
                     count += 1
-
     return count
 
 
 def has_plaintext_secrets(cfg: dict) -> bool:
-    """True iff any sensitive field is plaintext (i.e. needs migration)."""
     for path in SENSITIVE_FIELD_PATHS:
-        v = _safe_get(cfg, path)
-        if isinstance(v, str) and v and not is_encrypted(v):
-            return True
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
+        for v in _walk_get(cfg, path):
+            if isinstance(v, str) and v and not is_encrypted(v):
+                return True
+    channels = _walk_get(cfg, ("notifications", "channels"))
+    if channels and isinstance(channels[0], list):
+        for channel in channels[0]:
             if not isinstance(channel, dict):
                 continue
             for k in SENSITIVE_CHANNEL_KEYS:
@@ -282,13 +281,13 @@ def has_plaintext_secrets(cfg: dict) -> bool:
 
 
 def has_encrypted_secrets(cfg: dict) -> bool:
-    """True iff any sensitive field holds an ``enc:v1:`` value."""
     for path in SENSITIVE_FIELD_PATHS:
-        if is_encrypted(_safe_get(cfg, path)):
-            return True
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
+        for v in _walk_get(cfg, path):
+            if is_encrypted(v):
+                return True
+    channels = _walk_get(cfg, ("notifications", "channels"))
+    if channels and isinstance(channels[0], list):
+        for channel in channels[0]:
             if not isinstance(channel, dict):
                 continue
             for k in SENSITIVE_CHANNEL_KEYS:

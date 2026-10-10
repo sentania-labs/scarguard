@@ -29,7 +29,9 @@ DEFAULT_CERT_PATH = f"{CERT_DIR}/cert.pem"
 DEFAULT_KEY_PATH = f"{CERT_DIR}/key.pem"
 
 _LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
-_IPV4 = re.compile(r"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}")
+_IPV4 = re.compile(
+    r"(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}"
+)
 _PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _MAX_PATH_SEGMENTS = 4
 
@@ -105,7 +107,7 @@ def validate_cert_path(value: Any, field: str = "cert_path") -> str:
     prefix = CONFIG_DIR + "/"
     if not value.startswith(prefix):
         raise TLSValueError(f"tls.{field} must be a file under {CONFIG_DIR}/ (e.g. {CERT_DIR}/)")
-    segments = value[len(prefix):].split("/")
+    segments = value[len(prefix) :].split("/")
     if len(segments) > _MAX_PATH_SEGMENTS or not all(
         _PATH_SEGMENT.fullmatch(seg) and ".." not in seg for seg in segments
     ):

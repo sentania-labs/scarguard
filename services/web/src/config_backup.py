@@ -83,9 +83,7 @@ class ConfigBackupManager:
 
     def start(self) -> None:
         """Start the background watcher thread."""
-        self._thread = threading.Thread(
-            target=self._watch_loop, name="config-backup", daemon=True
-        )
+        self._thread = threading.Thread(target=self._watch_loop, name="config-backup", daemon=True)
         self._thread.start()
         logger.info("ConfigBackupManager started (debounce=%ds)", self._debounce)
 
@@ -107,10 +105,7 @@ class ConfigBackupManager:
             except FileNotFoundError:
                 continue
 
-            if (
-                self._last_mtime_ns is not None
-                and current_mtime_ns != self._last_mtime_ns
-            ):
+            if self._last_mtime_ns is not None and current_mtime_ns != self._last_mtime_ns:
                 # Config changed - wait for debounce period to catch rapid edits
                 self._stop.wait(self._debounce)
                 if self._stop.is_set():
@@ -258,7 +253,9 @@ class ConfigBackupManager:
         if errors:
             logger.warning(
                 "Refused restore of %s: %d validation error(s): %s",
-                backup_name, len(errors), "; ".join(errors),
+                backup_name,
+                len(errors),
+                "; ".join(errors),
             )
             raise RestoreError(
                 "Backup failed config validation; the current config was kept: "
@@ -299,7 +296,8 @@ class ConfigBackupManager:
             )
         logger.info(
             "Config restored from backup %s (pre-restore backup: %s)",
-            backup_name, pre_restore,
+            backup_name,
+            pre_restore,
         )
         return pre_restore
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 # Config models - parsed from the ``deterrent`` section of scarguard.yml
 # ---------------------------------------------------------------------------
 
+
 class TuyaCredentials(BaseModel):
     api_key: str
     api_secret: str
@@ -60,11 +61,10 @@ class DeterrentGroup(BaseModel):
         return ActuationDefaults(
             device_count_range=self.device_count_range or fallback.device_count_range,
             spray_duration_range=self.spray_duration_range or fallback.spray_duration_range,
-            inter_device_delay_range=self.inter_device_delay_range or fallback.inter_device_delay_range,
+            inter_device_delay_range=self.inter_device_delay_range
+            or fallback.inter_device_delay_range,
             pre_delay_range=self.pre_delay_range or fallback.pre_delay_range,
-            group_duration_range=(
-                self.group_duration_range or fallback.group_duration_range
-            ),
+            group_duration_range=(self.group_duration_range or fallback.group_duration_range),
             cooldown_seconds=self.cooldown_seconds,
         )
 
@@ -92,6 +92,7 @@ class ActuationConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Event models - published to Redis ``scarguard:actuations``
 # ---------------------------------------------------------------------------
+
 
 class DeviceAction(BaseModel):
     device_name: str
@@ -126,7 +127,7 @@ class ActuationEvent(BaseModel):
     total_duration_sec: float
     # v0.13.3 latency instrumentation.
     trigger_delay_ms: float | None = None  # detection timestamp → dequeue
-    queue_depth: int | None = None         # queue size at dequeue moment
+    queue_depth: int | None = None  # queue size at dequeue moment
     # v1.14: trace ID for correlating actuation across logs, audit DB,
     # and stuck-event Redis channel.
     request_id: str = ""

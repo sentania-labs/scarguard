@@ -86,7 +86,8 @@ def _load_torch_safe(path: str, **kwargs: Any) -> Any:
         except Exception as exc:
             logger.warning(
                 "torch.serialization.safe_load failed for %s - %s",
-                path, exc,
+                path,
+                exc,
             )
             # fall through to the general load below
 

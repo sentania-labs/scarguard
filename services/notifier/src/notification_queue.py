@@ -46,10 +46,10 @@ _QUEUE_PATH: str = os.environ.get(
 @dataclass
 class QueueEntry:
     event: dict[str, Any]
-    notifier_type: str        # channel name (new) or class name (legacy entries)
-    attempt: int              # how many send attempts have been made so far
-    next_retry: float         # Unix timestamp: earliest time to try again
-    first_failed: float       # Unix timestamp: when this entry was first created
+    notifier_type: str  # channel name (new) or class name (legacy entries)
+    attempt: int  # how many send attempts have been made so far
+    next_retry: float  # Unix timestamp: earliest time to try again
+    first_failed: float  # Unix timestamp: when this entry was first created
 
 
 class NotificationQueue:
@@ -99,9 +99,7 @@ class NotificationQueue:
         """Write the current queue to disk.  Must be called with self._lock held."""
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
-                json.dumps([asdict(e) for e in self._entries], indent=2)
-            )
+            self._path.write_text(json.dumps([asdict(e) for e in self._entries], indent=2))
         except Exception:
             logger.exception("Failed to persist notification queue to %s", self._path)
 
@@ -179,9 +177,7 @@ class NotificationQueue:
             target = notifiers_by_type.get(entry.notifier_type)
             if target is None:
                 # Notifier was disabled in config; leave entry in queue.
-                logger.debug(
-                    "Retry deferred - %s is not currently enabled", entry.notifier_type
-                )
+                logger.debug("Retry deferred - %s is not currently enabled", entry.notifier_type)
                 continue
 
             try:

@@ -98,15 +98,19 @@ class EventProcessor:
             else:
                 actions_triggered = actions_by_class.get(det.class_name)
             matched_groups: list[str] = (
-                list(groups_by_class.get(det.class_name, []))
-                if groups_by_class is not None else []
+                list(groups_by_class.get(det.class_name, [])) if groups_by_class is not None else []
             )
             # Generate a feedback token to store in the DB, but only expose it
             # for notifications if persistence actually succeeds.
             db_feedback_token: str | None = uuid.uuid4().hex if snapshot_path is not None else None
             persisted = self._persist(
-                timestamp, det, camera_name, snapshot_path,
-                actions_triggered, frame_size, db_feedback_token,
+                timestamp,
+                det,
+                camera_name,
+                snapshot_path,
+                actions_triggered,
+                frame_size,
+                db_feedback_token,
             )
             feedback_token = db_feedback_token if persisted else None
 
@@ -120,7 +124,8 @@ class EventProcessor:
             if actions_triggered is None:
                 logger.debug(
                     "[%s] %s no matching notification rule - notifier will suppress",
-                    camera_name, det.class_name,
+                    camera_name,
+                    det.class_name,
                 )
 
             bbox_list = list(det.bbox) if det.bbox else None
@@ -256,9 +261,7 @@ class EventProcessor:
             # Migrations: add columns to existing databases
             existing = {
                 row[1]
-                for row in self._conn.execute(
-                    "PRAGMA table_info(detection_events)"
-                ).fetchall()
+                for row in self._conn.execute("PRAGMA table_info(detection_events)").fetchall()
             }
             migrations: dict[str, str] = {
                 "actions_triggered": "ALTER TABLE detection_events ADD COLUMN actions_triggered TEXT",
@@ -293,8 +296,7 @@ class EventProcessor:
                 "ON visit_sessions(camera_name, class_name)"
             )
             self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_visits_start "
-                "ON visit_sessions(start_time)"
+                "CREATE INDEX IF NOT EXISTS idx_visits_start ON visit_sessions(start_time)"
             )
             self._conn.commit()
 
@@ -325,27 +327,22 @@ class EventProcessor:
                 """
             )
             self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_metrics_timestamp "
-                "ON system_metrics(timestamp)"
+                "CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON system_metrics(timestamp)"
             )
             self._conn.commit()
 
             # Indexes on detection_events for common web UI query patterns
             self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_timestamp "
-                "ON detection_events(timestamp)"
+                "CREATE INDEX IF NOT EXISTS idx_events_timestamp ON detection_events(timestamp)"
             )
             self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_camera "
-                "ON detection_events(camera_name)"
+                "CREATE INDEX IF NOT EXISTS idx_events_camera ON detection_events(camera_name)"
             )
             self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_class "
-                "ON detection_events(class_name)"
+                "CREATE INDEX IF NOT EXISTS idx_events_class ON detection_events(class_name)"
             )
             self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_feedback "
-                "ON detection_events(feedback)"
+                "CREATE INDEX IF NOT EXISTS idx_events_feedback ON detection_events(feedback)"
             )
             self._conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_token "
@@ -375,25 +372,33 @@ class EventProcessor:
             with self._db_lock:
                 try:
                     self._insert_event(
-                        timestamp, det, camera_name, snapshot_path,
-                        actions_triggered, frame_size, feedback_token,
+                        timestamp,
+                        det,
+                        camera_name,
+                        snapshot_path,
+                        actions_triggered,
+                        frame_size,
+                        feedback_token,
                     )
                     self._conn.commit()
                     return True
                 except Exception:
                     logger.warning(
                         "DB persist attempt %d/%d failed for %s/%s",
-                        attempt, max_retries, camera_name, det.class_name,
+                        attempt,
+                        max_retries,
+                        camera_name,
+                        det.class_name,
                     )
                     try:
                         self._reset_connection_locked()
                     except Exception:
-                        logger.exception(
-                            "Failed to recover SQLite connection after write error"
-                        )
+                        logger.exception("Failed to recover SQLite connection after write error")
         logger.error(
             "All %d DB persist attempts failed for %s/%s – event lost",
-            max_retries, camera_name, det.class_name,
+            max_retries,
+            camera_name,
+            det.class_name,
         )
         return False
 

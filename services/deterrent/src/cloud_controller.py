@@ -157,7 +157,9 @@ class TuyaCloudController:
         self._safety_only = True
 
     def retain_off_route(
-        self, device_id: str, previous: TuyaCloudController,
+        self,
+        device_id: str,
+        previous: TuyaCloudController,
     ) -> None:
         """Route safety OFF for an old-credential device until acknowledged."""
         if previous is self:
@@ -223,9 +225,12 @@ class TuyaCloudController:
 
         if self._safety_only:
             return ActivationResult(
-                on_success=False, off_success=None,
+                on_success=False,
+                off_success=None,
                 error="Controller retained for safety OFF only",
-                on_ack_ms=None, off_attempts=0, cancelled=True,
+                on_ack_ms=None,
+                off_attempts=0,
+                cancelled=True,
             )
 
         duration_sec = clamp_duration(
@@ -239,8 +244,11 @@ class TuyaCloudController:
 
         try:
             return self._activate_device_inner(
-                device, duration_sec, dp_code,
-                request_id=request_id, event_type=event_type,
+                device,
+                duration_sec,
+                dp_code,
+                request_id=request_id,
+                event_type=event_type,
                 should_continue=should_continue,
             )
         finally:
@@ -264,9 +272,12 @@ class TuyaCloudController:
             except Exception as exc:
                 logger.error("Activation lease failed; refusing ON for %s: %s", device.name, exc)
                 return ActivationResult(
-                    on_success=False, off_success=None,
+                    on_success=False,
+                    off_success=None,
                     error="Independent OFF watchdog lease could not be recorded",
-                    on_ack_ms=None, off_attempts=0, cancelled=True,
+                    on_ack_ms=None,
+                    off_attempts=0,
+                    cancelled=True,
                 )
 
         # Arm the in-process OFF deadline before attempting ON. An ON request can be
@@ -288,16 +299,17 @@ class TuyaCloudController:
             if should_continue is not None and not should_continue():
                 watchdog.cancel()
                 return ActivationResult(
-                    on_success=False, off_success=None,
+                    on_success=False,
+                    off_success=None,
                     error="Activation cancelled before ON",
-                    on_ack_ms=None, off_attempts=0, cancelled=True,
+                    on_ack_ms=None,
+                    off_attempts=0,
+                    cancelled=True,
                 )
             on_deadline = time.monotonic() + CLOUD_CALL_TIMEOUT_SEC
 
             def cancelled() -> bool:
-                return self._safety_only or (
-                    should_continue is not None and not should_continue()
-                )
+                return self._safety_only or (should_continue is not None and not should_continue())
 
             def send_on() -> dict[str, Any]:
                 # Admission may have waited behind status. Never send a
@@ -311,7 +323,9 @@ class TuyaCloudController:
                     # caller and its watchdog finished long ago.
                     if cancelled() or time.monotonic() >= on_deadline:
                         self._send_off_with_retry(
-                            device, dp_code, request_id=request_id,
+                            device,
+                            dp_code,
+                            request_id=request_id,
                         )
 
             result = self._bounded_cloud_call("ON", self._lock, send_on)
@@ -321,35 +335,54 @@ class TuyaCloudController:
                 msg = f"ON failed: {result}"
                 logger.error(
                     "Device %s (%s) - %s [rid=%s type=%s]",
-                    device.name, device.device_id, msg, request_id, event_type,
+                    device.name,
+                    device.device_id,
+                    msg,
+                    request_id,
+                    event_type,
                 )
                 return ActivationResult(
-                    on_success=False, off_success=None, error=msg,
-                    on_ack_ms=on_ack_ms, off_attempts=0,
+                    on_success=False,
+                    off_success=None,
+                    error=msg,
+                    on_ack_ms=on_ack_ms,
+                    off_attempts=0,
                     cancelled=bool(result.get("cancelled")),
                 )
             logger.info(
                 "Device %s ON (dp=%s) cloud_ack=%.0fms [rid=%s type=%s]",
-                device.name, dp_code, on_ack_ms, request_id, event_type,
+                device.name,
+                dp_code,
+                on_ack_ms,
+                request_id,
+                event_type,
             )
         except Exception as exc:
             msg = f"ON exception: {exc}"
             logger.error(
                 "Device %s (%s) - %s [rid=%s type=%s]",
-                device.name, device.device_id, msg, request_id, event_type,
+                device.name,
+                device.device_id,
+                msg,
+                request_id,
+                event_type,
             )
             # Timeout/exception is ambiguous: Tuya may have applied ON before
             # the response disappeared. Always drive the independent OFF lane.
             off_success, off_error, off_attempts = self._send_off_with_retry(
-                device, dp_code, request_id=request_id,
+                device,
+                dp_code,
+                request_id=request_id,
             )
             # Keep the pre-ON watchdog armed even if this immediate OFF was
             # acknowledged. The abandoned ON call can still complete later
             # and re-energise the device after that acknowledgement.
             return ActivationResult(
-                on_success=False, off_success=off_success,
+                on_success=False,
+                off_success=off_success,
                 error=msg if off_success else f"{msg}; {off_error}",
-                on_ack_ms=None, off_attempts=off_attempts,
+                on_ack_ms=None,
+                off_attempts=off_attempts,
             )
 
         off_success = False
@@ -357,7 +390,9 @@ class TuyaCloudController:
             if not cancelled():
                 time.sleep(duration_sec)
             off_success, off_error, off_attempts = self._send_off_with_retry(
-                device, dp_code, request_id=request_id,
+                device,
+                dp_code,
+                request_id=request_id,
             )
         finally:
             if off_success:
@@ -370,8 +405,11 @@ class TuyaCloudController:
             except Exception:
                 logger.warning("Could not clear activation lease for %s", device.name)
             return ActivationResult(
-                on_success=True, off_success=True, error=None,
-                on_ack_ms=on_ack_ms, off_attempts=off_attempts,
+                on_success=True,
+                off_success=True,
+                error=None,
+                on_ack_ms=on_ack_ms,
+                off_attempts=off_attempts,
             )
 
         return ActivationResult(
@@ -406,7 +444,9 @@ class TuyaCloudController:
 
         dp_code = self._dp_code_for(device)
         ok, err, _ = self._send_off_with_retry(
-            device, dp_code, request_id=request_id,
+            device,
+            dp_code,
+            request_id=request_id,
         )
         return ok, err
 
@@ -437,7 +477,8 @@ class TuyaCloudController:
                     raise TimeoutError("OFF admission exceeded cloud-call budget")
                 try:
                     result = self._bounded_cloud_call(
-                        "OFF", None,
+                        "OFF",
+                        None,
                         lambda: self._cloud.sendcommand(device.device_id, off_cmd),
                         timeout_sec=max(0.0, deadline - time.monotonic()),
                     )
@@ -446,12 +487,16 @@ class TuyaCloudController:
                 if result.get("success"):
                     if attempt_idx == 0:
                         logger.info(
-                            "Device %s OFF [rid=%s]", device.name, request_id,
+                            "Device %s OFF [rid=%s]",
+                            device.name,
+                            request_id,
                         )
                     else:
                         logger.warning(
                             "Device %s OFF succeeded on retry %d [rid=%s]",
-                            device.name, attempts, request_id,
+                            device.name,
+                            attempts,
+                            request_id,
                         )
                     return True, None, attempts
                 last_error = f"OFF returned non-success: {result}"
@@ -459,7 +504,11 @@ class TuyaCloudController:
                 last_error = f"OFF exception: {exc}"
             logger.error(
                 "Device %s OFF attempt %d/%d failed - %s [rid=%s]",
-                device.name, attempts, total_attempts, last_error, request_id,
+                device.name,
+                attempts,
+                total_attempts,
+                last_error,
+                request_id,
             )
 
         return False, f"OFF_FAILED:{device.device_id}: {last_error}", attempts
@@ -480,14 +529,19 @@ class TuyaCloudController:
         cancelled the timer. Unconditional force-OFF backstop."""
         logger.critical(
             "WATCHDOG - device %s (%s) exceeded %.1fs - forcing OFF [rid=%s]",
-            device.name, device.device_id, MAX_ACTUATION_SEC, request_id,
+            device.name,
+            device.device_id,
+            MAX_ACTUATION_SEC,
+            request_id,
         )
         try:
             self._send_off_with_retry(device, dp_code, request_id=request_id)
         except Exception:
             logger.exception(
                 "Watchdog force-OFF raised for %s (%s) [rid=%s]",
-                device.name, device.device_id, request_id,
+                device.name,
+                device.device_id,
+                request_id,
             )
 
     def get_device_status(self, device_id: str) -> dict[str, Any] | None:
@@ -497,7 +551,9 @@ class TuyaCloudController:
         """
         try:
             result = self._bounded_cloud_call(
-                "status", self._lock, lambda: self._cloud.getstatus(device_id),
+                "status",
+                self._lock,
+                lambda: self._cloud.getstatus(device_id),
             )
             if result.get("success") and result.get("result"):
                 return {item["code"]: item["value"] for item in result["result"]}
@@ -506,7 +562,8 @@ class TuyaCloudController:
         except Exception as exc:
             logger.warning(
                 "DEVICE STATUS UNKNOWN for %s: %s; physical state cannot be verified",
-                device_id, exc,
+                device_id,
+                exc,
             )
             return None
 
@@ -534,8 +591,7 @@ class TuyaCloudController:
         # without accumulating one blocked daemon per poll until pids_limit.
         if lock is not None and not lock.acquire(timeout=budget):
             raise TimeoutError(
-                f"{operation} cloud lane remained busy for "
-                f"{CLOUD_CALL_TIMEOUT_SEC:.1f}s",
+                f"{operation} cloud lane remained busy for {CLOUD_CALL_TIMEOUT_SEC:.1f}s",
             )
 
         def invoke() -> None:
@@ -548,7 +604,9 @@ class TuyaCloudController:
                     lock.release()
 
         worker = threading.Thread(
-            target=invoke, name=f"tuya-{operation.lower()}", daemon=True,
+            target=invoke,
+            name=f"tuya-{operation.lower()}",
+            daemon=True,
         )
         try:
             worker.start()

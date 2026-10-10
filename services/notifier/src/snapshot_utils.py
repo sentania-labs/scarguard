@@ -25,12 +25,7 @@ def annotate_snapshot(
         logger.warning("Snapshot not found or unreadable: %s", path)
         return b""
 
-    if (
-        not bbox
-        or len(bbox) != 4
-        or not frame_size
-        or len(frame_size) != 2
-    ):
+    if not bbox or len(bbox) != 4 or not frame_size or len(frame_size) != 2:
         return raw
 
     try:

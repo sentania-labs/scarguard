@@ -155,8 +155,10 @@ class TestIntrospect:
         pool = MagicMock()
         pool._models = {str(pt_file.resolve()): MagicMock(_model=_fake_model({0: "from_pool"}))}
         h = self._make_handler(pool=pool)
-        with patch("model_classes_handler._load_yolo") as YOLO, \
-             patch("model_classes_handler._names_from_pt_cpu") as cpu:
+        with (
+            patch("model_classes_handler._load_yolo") as YOLO,
+            patch("model_classes_handler._names_from_pt_cpu") as cpu,
+        ):
             r = h._introspect(str(pt_file))
         assert r["ok"] is True
         assert r["classes"] == ["from_pool"]
@@ -166,8 +168,10 @@ class TestIntrospect:
 
     def test_falls_back_to_cpu_torch_for_pt(self, pt_file):
         h = self._make_handler()  # no pool
-        with patch("model_classes_handler._names_from_pt_cpu", return_value={0: "from_cpu"}), \
-             patch("model_classes_handler._load_yolo") as YOLO:
+        with (
+            patch("model_classes_handler._names_from_pt_cpu", return_value={0: "from_cpu"}),
+            patch("model_classes_handler._load_yolo") as YOLO,
+        ):
             r = h._introspect(str(pt_file))
         assert r["ok"] is True
         assert r["classes"] == ["from_cpu"]

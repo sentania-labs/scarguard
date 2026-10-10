@@ -72,6 +72,7 @@ class TestSignAndVerify:
 
     def test_handles_non_json_values_via_default_str(self) -> None:
         import datetime
+
         ts = datetime.datetime(2026, 4, 22, 12, 0, 0)
         signed = sign_event({"when": ts}, KEY_A)
         # The sig covers str(ts); verifying with the same object round-trips.

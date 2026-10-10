@@ -48,9 +48,7 @@ def _label_class_options() -> list[str]:
     from routes.training_jobs import training_classes_default
 
     cfg = config_store.load_cached()
-    training_classes = [
-        c.strip() for c in training_classes_default().split(",") if c.strip()
-    ]
+    training_classes = [c.strip() for c in training_classes_default().split(",") if c.strip()]
     detect = cfg.get("detection", {}).get("target_classes", []) or []
     return list(dict.fromkeys(training_classes + list(detect)))
 
@@ -102,10 +100,12 @@ def _validate_corrected_bboxes(raw: str) -> str | None:
             return None
         if not (0.0 <= yc - h / 2 and yc + h / 2 <= 1.0):
             return None
-        out.append({
-            "cls": cls.lower().strip(),
-            "bbox": [round(xc, 6), round(yc, 6), round(w, 6), round(h, 6)],
-        })
+        out.append(
+            {
+                "cls": cls.lower().strip(),
+                "bbox": [round(xc, 6), round(yc, 6), round(w, 6), round(h, 6)],
+            }
+        )
     return json.dumps(out)
 
 
@@ -113,8 +113,7 @@ def _list_model_filenames() -> list[str]:
     """Names (not paths) of model files in MODELS_DIR. Empty list on error."""
     try:
         return sorted(
-            f.name for f in MODELS_DIR.iterdir()
-            if f.is_file() and f.suffix in MODEL_EXTENSIONS
+            f.name for f in MODELS_DIR.iterdir() if f.is_file() and f.suffix in MODEL_EXTENSIONS
         )
     except OSError:
         return []
@@ -211,9 +210,13 @@ def _probe_duration(file_path: Path) -> float | None:
     try:
         result = subprocess.run(
             [
-                "ffprobe", "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "json",
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
                 str(file_path),
             ],
             capture_output=True,
@@ -234,7 +237,9 @@ def _error_response(request: Request, error: str, status_code: int = 400) -> Res
         request,
         "training_uploads.html",
         {
-            "uploads": [_enrich_upload(dict(u)) for u in db_module.get_training_uploads(limit=PAGE_SIZE)],
+            "uploads": [
+                _enrich_upload(dict(u)) for u in db_module.get_training_uploads(limit=PAGE_SIZE)
+            ],
             "total": db_module.count_training_uploads(),
             "page": 1,
             "total_pages": 1,
@@ -293,14 +298,20 @@ async def upload_video(request: Request) -> Response:
         file = form.get("file")
         if not isinstance(file, StarletteUploadFile):
             return JSONResponse({"error": "File required"}, status_code=422)
-        fields = {key: str(form.get(key, "")) for key in
-                  ("target_class_hint", "detector_model", "confidence_threshold", "hints")}
+        fields = {
+            key: str(form.get(key, ""))
+            for key in ("target_class_hint", "detector_model", "confidence_threshold", "hints")
+        }
         return await _save_video(request, file, **fields)
 
 
 async def _save_video(
-    request: Request, file: StarletteUploadFile, target_class_hint: str,
-    detector_model: str, confidence_threshold: str, hints: str,
+    request: Request,
+    file: StarletteUploadFile,
+    target_class_hint: str,
+    detector_model: str,
+    confidence_threshold: str,
+    hints: str,
 ) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
@@ -358,7 +369,9 @@ async def _save_video(
 
         duration = _probe_duration(tmp_path)
         if duration is None:
-            return _error_response(request, "Could not read video - file may be corrupt or unsupported codec")
+            return _error_response(
+                request, "Could not read video - file may be corrupt or unsupported codec"
+            )
         if duration > MAX_DURATION_SECONDS:
             return _error_response(
                 request,
@@ -372,7 +385,9 @@ async def _save_video(
         tmp_path = final_path  # prevent cleanup of moved file
 
         db_module.create_training_upload(
-            upload_id, filename, legacy_hint,
+            upload_id,
+            filename,
+            legacy_hint,
             detector_model=model_name,
             confidence_threshold=conf,
             hints=json.dumps(parsed_hints) if parsed_hints else None,
@@ -381,7 +396,9 @@ async def _save_video(
         return RedirectResponse(url="/admin/training/uploads", status_code=303)
 
     finally:
-        if tmp_path.exists() and tmp_path != (TRAINING_UPLOADS_DIR / upload_id / f"original{suffix}"):
+        if tmp_path.exists() and tmp_path != (
+            TRAINING_UPLOADS_DIR / upload_id / f"original{suffix}"
+        ):
             tmp_path.unlink(missing_ok=True)
 
 
@@ -504,17 +521,25 @@ async def label_page(
     if event_id:
         event = db_module.get_training_event(event_id)
     else:
-        events = db_module.get_training_events(upload_id, limit=1, review_state=rs, detection_pass=dp)
+        events = db_module.get_training_events(
+            upload_id, limit=1, review_state=rs, detection_pass=dp
+        )
         event = events[0] if events else None
 
     next_event = None
     prev_event = None
     if event:
         next_event = db_module.get_next_training_event(
-            upload_id, event["id"], review_state=rs, detection_pass=dp,
+            upload_id,
+            event["id"],
+            review_state=rs,
+            detection_pass=dp,
         )
         prev_event = db_module.get_prev_training_event(
-            upload_id, event["id"], review_state=rs, detection_pass=dp,
+            upload_id,
+            event["id"],
+            review_state=rs,
+            detection_pass=dp,
         )
 
     target_classes = _label_class_options()
@@ -574,7 +599,8 @@ async def review_event(
     dp = request.query_params.get("detection_pass", "")
 
     next_event = db_module.get_next_training_event(
-        upload_id, event_id,
+        upload_id,
+        event_id,
         review_state=rs or None,
         detection_pass=dp or None,
     )
@@ -583,7 +609,8 @@ async def review_event(
 
     if next_event:
         prev_event = db_module.get_prev_training_event(
-            upload_id, next_event["id"],
+            upload_id,
+            next_event["id"],
             review_state=rs or None,
             detection_pass=dp or None,
         )
@@ -598,9 +625,12 @@ async def review_event(
         {
             "upload": dict(db_module.get_training_upload(upload_id)),  # type: ignore[arg-type]
             "event": dict(event) if event else None,
-            "next_event": None if not next_event else (
+            "next_event": None
+            if not next_event
+            else (
                 db_module.get_next_training_event(
-                    upload_id, next_event["id"],
+                    upload_id,
+                    next_event["id"],
                     review_state=rs or None,
                     detection_pass=dp or None,
                 )
@@ -730,12 +760,14 @@ async def browse_grid(
         has_annotation = any(
             ev["corrected_bboxes"] for ev in events if ev["review_state"] == "corrected"
         )
-        tiles.append({
-            "frame_idx": frame_idx,
-            "has_detection": has_detection,
-            "has_manual": has_manual,
-            "has_annotation": has_annotation,
-        })
+        tiles.append(
+            {
+                "frame_idx": frame_idx,
+                "has_detection": has_detection,
+                "has_manual": has_manual,
+                "has_annotation": has_annotation,
+            }
+        )
 
     return templates.TemplateResponse(
         request,
@@ -879,13 +911,24 @@ async def annotate_frame(
     )
     if manual_event is not None:
         db_module.update_training_event_review(
-            int(manual_event["id"]), "corrected", None, bboxes_json,
+            int(manual_event["id"]),
+            "corrected",
+            None,
+            bboxes_json,
         )
-        logger.info("Updated manual training_event %s for upload %s frame %s",
-                    manual_event["id"], verified_id, frame_idx)
+        logger.info(
+            "Updated manual training_event %s for upload %s frame %s",
+            manual_event["id"],
+            verified_id,
+            frame_idx,
+        )
     else:
         new_id = db_module.insert_manual_training_event(verified_id, frame_idx, bboxes_json)
-        logger.info("Inserted manual training_event %s for upload %s frame %s",
-                    new_id, verified_id, frame_idx)
+        logger.info(
+            "Inserted manual training_event %s for upload %s frame %s",
+            new_id,
+            verified_id,
+            frame_idx,
+        )
 
     return JSONResponse({"ok": True})

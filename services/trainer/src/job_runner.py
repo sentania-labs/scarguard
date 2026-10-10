@@ -374,11 +374,14 @@ def _resolve_upload_model_path(name: str | None, default_path: str) -> str:
     if not name:
         return default_path
     from path_safety import validate_model_path
+
     try:
         candidate = validate_model_path(name, MODELS_DIR)
         return str(candidate)
     except ValueError:
-        logger.warning("Upload model %r invalid or not found in %s - falling back to default", name, MODELS_DIR)
+        logger.warning(
+            "Upload model %r invalid or not found in %s - falling back to default", name, MODELS_DIR
+        )
         return default_path
 
 
@@ -649,8 +652,15 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
     rf_cfg = sources.get("roboflow", {})
     rf_key = rf_cfg.get("api_key", "")
     roboflow_key_missing = False
+    rf_key_file_path = None
     if rf_key and not ctx.params.get("skip_roboflow"):
-        cmd += ["--roboflow-key", rf_key]
+        import os
+        import tempfile
+
+        fd, rf_key_file_path = tempfile.mkstemp(prefix="rf_key_")
+        os.write(fd, rf_key.encode("utf-8"))
+        os.close(fd)
+        cmd += ["--roboflow-key-file", rf_key_file_path]
     else:
         cmd.append("--skip-roboflow")
         if not ctx.params.get("skip_roboflow"):
@@ -675,12 +685,21 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
     ]
     cmd += ["--oid-workers", str(oid_cfg.get("workers", 16))]
 
-    result = _run_subprocess(ctx, cmd, phase="prepare_dataset")
-    if roboflow_key_missing and "error" not in result:
-        result["warnings"] = [
-            "Roboflow source skipped: training.sources.roboflow.api_key is not configured"
-        ]
-    return result
+    try:
+        result = _run_subprocess(ctx, cmd, phase="prepare_dataset")
+        if roboflow_key_missing and "error" not in result:
+            result["warnings"] = [
+                "Roboflow source skipped: training.sources.roboflow.api_key is not configured"
+            ]
+        return result
+    finally:
+        if rf_key_file_path:
+            import os
+
+            try:
+                os.unlink(rf_key_file_path)
+            except OSError:
+                pass
 
 
 _SECRET_ARGS = {"--roboflow-key"}
@@ -1204,6 +1223,7 @@ def _run_train(ctx: JobContext) -> dict:
             ctx.params.get("base_model", defaults.get("base_model", "yolov8n.pt")) or "yolov8n.pt"
         )
         from path_safety import validate_model_path
+
         try:
             base_model_path = validate_model_path(base_model_raw, MODELS_DIR)
             base_model = str(base_model_path)

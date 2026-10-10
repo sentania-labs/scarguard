@@ -22,7 +22,10 @@ _BUFFER_MAX = 256
 class RedisPublisher:
     def __init__(self, host: str, port: int, password: str | None = None) -> None:
         self._client = redis_lib.Redis(
-            host=host, port=port, password=password, decode_responses=True,
+            host=host,
+            port=port,
+            password=password,
+            decode_responses=True,
         )
         self._buffer: deque[tuple[float, str]] = deque(maxlen=_BUFFER_MAX)
         # v1.14: sign every published event so subscribers can authenticate.
@@ -54,6 +57,7 @@ class RedisPublisher:
             logger.debug("Published %s event to %s", event.get("class_name"), CHANNEL)
         except redis_lib.RedisError:
             import time
+
             self._buffer.append((time.monotonic(), payload))
             logger.warning(
                 "Redis publish failed - buffered (%d/%d)",
@@ -64,6 +68,7 @@ class RedisPublisher:
     def _flush_buffer(self) -> None:
         """Re-publish buffered events in FIFO order. Stop on first failure."""
         import time
+
         now = time.monotonic()
         while self._buffer:
             ts, payload = self._buffer[0]

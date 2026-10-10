@@ -119,7 +119,11 @@ def reconnect_loop(
                 try:
                     payload = json.loads(message["data"])
                     if not isinstance(payload, dict):
-                        _log.warning("Malformed message on %s (not a dict): %s", message["channel"], message["data"])
+                        _log.warning(
+                            "Malformed message on %s (not a dict): %s",
+                            message["channel"],
+                            message["data"],
+                        )
                         continue
                 except json.JSONDecodeError:
                     _log.warning("Malformed message on %s: %s", message["channel"], message["data"])

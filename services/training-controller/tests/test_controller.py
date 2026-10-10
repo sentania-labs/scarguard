@@ -257,8 +257,12 @@ def test_docker_backend_decodes_chunked_engine_response(tmp_path: Path, monkeypa
             connection.recv(65536)
             half = len(payload) // 2
             body = (
-                f"{half:x}\r\n".encode() + payload[:half] + b"\r\n"
-                + f"{len(payload) - half:x}\r\n".encode() + payload[half:] + b"\r\n"
+                f"{half:x}\r\n".encode()
+                + payload[:half]
+                + b"\r\n"
+                + f"{len(payload) - half:x}\r\n".encode()
+                + payload[half:]
+                + b"\r\n"
                 + b"0\r\n\r\n"
             )
             connection.sendall(

@@ -30,7 +30,9 @@ class ActivationLease(BaseModel):
 def lease_ttl_sec(duration_sec: float) -> float:
     """Return a finite lease covering ON admission plus the clamped duration."""
     duration = clamp_duration(
-        duration_sec, max_sec=MAX_ACTUATION_SEC, default=MAX_ACTUATION_SEC,
+        duration_sec,
+        max_sec=MAX_ACTUATION_SEC,
+        default=MAX_ACTUATION_SEC,
     )
     return min(duration + CLOUD_CALL_TIMEOUT_SEC, MAX_ACTUATION_SEC + CLOUD_CALL_TIMEOUT_SEC)
 

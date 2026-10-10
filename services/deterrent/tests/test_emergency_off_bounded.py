@@ -81,8 +81,7 @@ def test_stalled_status_poll_cannot_block_emergency_off() -> None:
 def _wait_for_workers_to_exit(name: str) -> None:
     deadline = time.monotonic() + 1
     while (
-        any(thread.name == name for thread in threading.enumerate())
-        and time.monotonic() < deadline
+        any(thread.name == name for thread in threading.enumerate()) and time.monotonic() < deadline
     ):
         time.sleep(0.01)
 
@@ -111,6 +110,7 @@ def test_stalled_on_starts_deadline_first_and_attempts_off() -> None:
 
     controller._cloud.sendcommand.side_effect = command
     started = time.monotonic()
+
     def timer(_delay: float, target: Any, args: tuple[Any, ...]) -> MagicMock:
         captured = MagicMock()
         captured.fire = lambda: target(*args)
@@ -156,15 +156,19 @@ def test_startup_and_sigterm_sweeps_run_even_when_disabled() -> None:
     shutdown = threading.Event()
     queue_put = MagicMock()
     handler = _make_shutdown_handler(
-        shutdown, queue_put, controller_ref, config_ref,
+        shutdown,
+        queue_put,
+        controller_ref,
+        config_ref,
     )
     handler(signal.SIGTERM, None)
 
     assert shutdown.is_set()
     assert queue_put.call_count == 1
     assert controller.force_off.call_count == 2
-    assert [call.kwargs["request_id"].split("-")[0]
-            for call in controller.force_off.call_args_list] == ["startup", "shutdown"]
+    assert [
+        call.kwargs["request_id"].split("-")[0] for call in controller.force_off.call_args_list
+    ] == ["startup", "shutdown"]
 
 
 def test_status_handler_surfaces_unknown_state_warning() -> None:
@@ -173,7 +177,9 @@ def test_status_handler_surfaces_unknown_state_warning() -> None:
     controller.get_device_status.return_value = None
     client = MagicMock()
     handler = RequestHandler(
-        {}, AtomicRef(ActuationConfig(devices=[device])), AtomicRef(controller),
+        {},
+        AtomicRef(ActuationConfig(devices=[device])),
+        AtomicRef(controller),
     )
 
     handler._handle_status_request(client, {"request_id": "unknown"})
@@ -225,14 +231,12 @@ def test_repeated_calls_behind_stalled_status_do_not_leak_waiter_threads() -> No
     with patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.05):
         assert controller.get_device_status("stalled") is None
         assert entered.is_set()
-        stalled_workers = sum(
-            thread.name == "tuya-status" for thread in threading.enumerate()
-        )
+        stalled_workers = sum(thread.name == "tuya-status" for thread in threading.enumerate())
         for _ in range(5):
             assert controller.get_device_status("queued") is None
-        assert sum(
-            thread.name == "tuya-status" for thread in threading.enumerate()
-        ) == stalled_workers
+        assert (
+            sum(thread.name == "tuya-status" for thread in threading.enumerate()) == stalled_workers
+        )
 
     never_release.set()
     _wait_for_workers_to_exit("tuya-status")
@@ -280,9 +284,11 @@ def test_cancellation_while_waiting_for_on_admission_prevents_on() -> None:
 
     controller._cloud.sendcommand.side_effect = command
     controller._lock.acquire()
-    worker = threading.Thread(target=controller.activate_device,
-                              args=(_device(), 0.5),
-                              kwargs={"should_continue": authorised})
+    worker = threading.Thread(
+        target=controller.activate_device,
+        args=(_device(), 0.5),
+        kwargs={"should_continue": authorised},
+    )
     try:
         worker.start()
         assert checked.wait(1)
@@ -309,8 +315,10 @@ def test_on_returning_after_watchdog_is_compensated_without_reconciliation() -> 
 
     controller._cloud.sendcommand.side_effect = command
     try:
-        with patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03), \
-             patch("cloud_controller.MAX_ACTUATION_SEC", 0.1):
+        with (
+            patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03),
+            patch("cloud_controller.MAX_ACTUATION_SEC", 0.1),
+        ):
             result = controller.activate_device(_device(), 0.5)
             assert result.off_success
             deadline = time.monotonic() + 1
@@ -331,8 +339,10 @@ def test_off_lock_admission_consumes_attempt_budget() -> None:
     lock.acquire()
     worker = threading.Thread(target=controller.force_off, args=(_device(),))
     try:
-        with patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03), \
-             patch("cloud_controller.OFF_RETRY_BACKOFF_SEC", ()):
+        with (
+            patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03),
+            patch("cloud_controller.OFF_RETRY_BACKOFF_SEC", ()),
+        ):
             worker.start()
             worker.join(0.3)
             assert not worker.is_alive(), "OFF waited indefinitely for admission"
@@ -366,14 +376,18 @@ def test_transient_initialization_recovers_without_config_change() -> None:
             recovered.set()
             shutdown.set()
 
-    with patch("cloud_controller.tinytuya.Cloud", side_effect=factory), \
-         patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03):
+    with (
+        patch("cloud_controller.tinytuya.Cloud", side_effect=factory),
+        patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03),
+    ):
         assert build_controller(config) is None
         release.set()
         _wait_for_workers_to_exit("tuya-init")
-        worker = threading.Thread(target=_controller_recovery_loop,
-                                  args=(ref, shutdown, retry),
-                                  kwargs={"retry_sec": 0.01})
+        worker = threading.Thread(
+            target=_controller_recovery_loop,
+            args=(ref, shutdown, retry),
+            kwargs={"retry_sec": 0.01},
+        )
         worker.start()
         try:
             assert recovered.wait(1)
@@ -408,9 +422,14 @@ def test_main_recovers_and_sweeps_with_reconciliation_disabled() -> None:
     import main
 
     device = _device()
-    cfg = {"deterrent": {"enabled": False, "reconcile_interval_sec": 0,
-                         "tuya": {"api_key": "test", "api_secret": "test"},
-                         "devices": [device.model_dump()]}}
+    cfg = {
+        "deterrent": {
+            "enabled": False,
+            "reconcile_interval_sec": 0,
+            "tuya": {"api_key": "test", "api_secret": "test"},
+            "devices": [device.model_dump()],
+        }
+    }
     cloud = MagicMock()
     cloud.sendcommand.return_value = {"success": True}
     release = threading.Event()
@@ -458,17 +477,21 @@ def test_main_recovers_and_sweeps_with_reconciliation_disabled() -> None:
             patch.object(main, "_metrics_publisher"),
             patch.object(main, "_force_off_sweep", side_effect=sweep) as sweeps,
             patch.object(main, "subscribe_loop", side_effect=subscribe),
-            patch.object(main, "_controller_recovery_loop",
-                         side_effect=lambda *args: real_recovery(*args, retry_sec=0.01)),
+            patch.object(
+                main,
+                "_controller_recovery_loop",
+                side_effect=lambda *args: real_recovery(*args, retry_sec=0.01),
+            ),
         ):
             battery.return_value.configure.side_effect = lambda _cfg: monitoring_ready.set()
             main.main()
             assert [call.kwargs["reason"] for call in sweeps.call_args_list] == [
-                "startup", "recovery", "shutdown",
+                "startup",
+                "recovery",
+                "shutdown",
             ]
             assert cloud.sendcommand.call_count == 2
-            assert all(not _is_on(call.args[1])
-                       for call in cloud.sendcommand.call_args_list)
+            assert all(not _is_on(call.args[1]) for call in cloud.sendcommand.call_args_list)
             battery.assert_called_once()
     finally:
         release.set()

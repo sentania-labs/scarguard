@@ -84,13 +84,18 @@ def _force_off_sweep(
         if not ok:
             logger.critical(
                 "%s OFF sweep could not verify %s (%s) is safe: %s",
-                reason.upper(), device.name, device.device_id, error,
+                reason.upper(),
+                device.name,
+                device.device_id,
+                error,
             )
 
     threads = [
         threading.Thread(
-            target=switch_off, args=(device,),
-            name=f"{reason}-off-{device.device_id}", daemon=False,
+            target=switch_off,
+            args=(device,),
+            name=f"{reason}-off-{device.device_id}",
+            daemon=False,
         )
         for device in devices
     ]
@@ -100,7 +105,9 @@ def _force_off_sweep(
         thread.join()
     logger.warning(
         "%s OFF sweep finished: %d/%d cloud acknowledgements",
-        reason.capitalize(), sum(results.values()), len(devices),
+        reason.capitalize(),
+        sum(results.values()),
+        len(devices),
     )
     return results
 
@@ -144,6 +151,7 @@ def _decrypt_secrets(cfg: dict[str, Any]) -> None:
     """Decrypt sensitive fields (Tuya credentials) in place if a key is
     available. No-op if the secret key is absent."""
     import secret_box
+
     key = secret_box.try_load_key()
     if key is None:
         return
@@ -208,6 +216,7 @@ def _controller_recovery_loop(
 # documented as thread-safe, and actuation sequences are inherently serial).
 # ---------------------------------------------------------------------------
 
+
 def _parse_event_timestamp(event: dict[str, Any]) -> float | None:
     """Return the event timestamp as unix seconds, or None if unparseable."""
     ts = event.get("timestamp")
@@ -252,7 +261,12 @@ def _fire_group(
     request_id = uuid.uuid4().hex[:16]
     logger.info(
         "Firing group [%s]: %s from %s (conf=%.2f) - up to %d device(s) [rid=%s]",
-        group.name, class_name, camera_name, confidence, len(group_devices), request_id,
+        group.name,
+        class_name,
+        camera_name,
+        confidence,
+        len(group_devices),
+        request_id,
     )
 
     # None keeps the pre-v1.17 behaviour: one pass and done. With a window the
@@ -263,7 +277,9 @@ def _fire_group(
     if window_sec is not None:
         logger.info(
             "Group [%s] will work the position for %.0fs [rid=%s]",
-            group.name, window_sec, request_id,
+            group.name,
+            window_sec,
+            request_id,
         )
 
     execution = execute_plan(
@@ -277,7 +293,11 @@ def _fire_group(
         rotate=window_sec is not None,
         should_continue=still_authorised,
         on_stuck=lambda device, error: _publish_stuck(
-            pub_holder, redis_cfg, device, request_id, error,
+            pub_holder,
+            redis_cfg,
+            device,
+            request_id,
+            error,
         ),
     )
     actions = execution.actions
@@ -303,7 +323,10 @@ def _fire_group(
     successes = execution.successes
     logger.info(
         "Group [%s] complete: %d/%d devices fired in %.1fs (trigger_delay=%s) [rid=%s]",
-        group.name, successes, len(actions), total_duration,
+        group.name,
+        successes,
+        len(actions),
+        total_duration,
         f"{trigger_delay_ms:.0f}ms" if trigger_delay_ms is not None else "n/a",
         request_id,
     )
@@ -314,9 +337,9 @@ def _fire_group(
         # who just hit emergency off would clear it and find the next heron
         # got nothing. The test-fire path already treats this case separately.
         logger.info(
-            "Group [%s] fired no devices (stopped before the first activation) "
-            "[rid=%s]",
-            group.name, request_id,
+            "Group [%s] fired no devices (stopped before the first activation) [rid=%s]",
+            group.name,
+            request_id,
         )
         return False
 
@@ -348,7 +371,9 @@ def _drain_pending_jobs(
             continue  # detection events are simply dropped on shutdown
         drained += 1
         _publish_raw(
-            pub_holder, redis_cfg, item.get("result_channel", ""),
+            pub_holder,
+            redis_cfg,
+            item.get("result_channel", ""),
             {"ok": False, "error": "Deterrent service is shutting down"},
         )
     in_flight.release()
@@ -383,7 +408,8 @@ def _run_test_fire(
     if isinstance(expires_at, (int, float)) and time.monotonic() > expires_at:
         logger.warning(
             "Test-fire for %s expired in the queue, not firing [rid=%s]",
-            device_id, request_id,
+            device_id,
+            request_id,
         )
         reply({"ok": False, "error": "Request expired while queued"})
         return
@@ -405,8 +431,9 @@ def _run_test_fire(
         and force_off_latch.generation != stamped_gen
     ):
         logger.warning(
-            "Emergency off landed while test-fire for %s was queued, not "
-            "firing [rid=%s]", device_id, request_id,
+            "Emergency off landed while test-fire for %s was queued, not firing [rid=%s]",
+            device_id,
+            request_id,
         )
         reply({"ok": False, "error": "Cancelled by emergency off"})
         return
@@ -424,11 +451,17 @@ def _run_test_fire(
 
     logger.info(
         "Test-fire: %s (%s) for %.1fs [rid=%s]",
-        device.name, device_id, duration, request_id,
+        device.name,
+        device_id,
+        duration,
+        request_id,
     )
     t0 = time.monotonic()
     result = controller.activate_device(
-        device, duration, request_id=request_id, event_type="test_fire",
+        device,
+        duration,
+        request_id=request_id,
+        event_type="test_fire",
         should_continue=still_authorised,
     )
     wall_sec = time.monotonic() - t0
@@ -438,7 +471,10 @@ def _run_test_fire(
 
     if result.stuck:
         _publish_stuck(
-            pub_holder, redis_cfg, device, request_id,
+            pub_holder,
+            redis_cfg,
+            device,
+            request_id,
             result.error or "OFF failed",
         )
 
@@ -470,16 +506,19 @@ def _run_test_fire(
     except Exception:
         logger.exception("Failed to persist test-fire [rid=%s]", request_id)
 
-    reply({
-        "ok": result.success,
-        "error": result.error,
-        "device_name": device.name,
-        "cloud_ack_ms": result.on_ack_ms,
-        "stuck": result.stuck,
-    })
+    reply(
+        {
+            "ok": result.success,
+            "error": result.error,
+            "device_name": device.name,
+            "cloud_ack_ms": result.on_ack_ms,
+            "stuck": result.stuck,
+        }
+    )
     logger.info(
         "Test-fire result: %s - %s [rid=%s]",
-        device.name, "success" if result.success else (result.error or "failed"),
+        device.name,
+        "success" if result.success else (result.error or "failed"),
         request_id,
     )
 
@@ -518,12 +557,15 @@ def _run_group_test_fire(
     if isinstance(expires_at, (int, float)) and time.monotonic() > expires_at:
         logger.warning(
             "Group test-fire for [%s] expired in the queue, not firing [rid=%s]",
-            group_name, request_id,
+            group_name,
+            request_id,
         )
-        reply({
-            "ok": False,
-            "error": "Request expired while queued behind another sequence",
-        })
+        reply(
+            {
+                "ok": False,
+                "error": "Request expired while queued behind another sequence",
+            }
+        )
         return
 
     act_cfg = act_cfg_ref.get()
@@ -546,19 +588,23 @@ def _run_group_test_fire(
 
     global_cd = act_cfg.defaults.cooldown_seconds
     if not cooldown.is_clear(global_cd):
-        reply({
-            "ok": False,
-            "error": (
-                f"Global cooldown active, {cooldown.seconds_remaining(global_cd):.0f}s remaining"
-            ),
-        })
+        reply(
+            {
+                "ok": False,
+                "error": (
+                    f"Global cooldown active, {cooldown.seconds_remaining(global_cd):.0f}s remaining"
+                ),
+            }
+        )
         return
     if not group_cooldown.is_clear(group_name, group.cooldown_seconds):
         remaining = group_cooldown.seconds_remaining(group_name, group.cooldown_seconds)
-        reply({
-            "ok": False,
-            "error": f"Group cooldown active, {remaining:.0f}s remaining",
-        })
+        reply(
+            {
+                "ok": False,
+                "error": f"Group cooldown active, {remaining:.0f}s remaining",
+            }
+        )
         return
 
     group_devices = resolve_group_devices(group, act_cfg.devices)
@@ -568,8 +614,11 @@ def _run_group_test_fire(
 
     logger.info(
         "Test-fire group [%s]: %d eligible device(s) [rid=%s]",
-        group.name, len(group_devices), request_id,
+        group.name,
+        len(group_devices),
+        request_id,
     )
+
     # The button says it runs the group's real plan, so it has to rotate when
     # the group is configured to. Otherwise the one behaviour an operator most
     # wants to see before heron season, the group working a position for a
@@ -591,20 +640,25 @@ def _run_group_test_fire(
     # not force_off_latch.generation read here.
     stamped_gen = job.get("force_off_gen")
     started_gen = (
-        stamped_gen if isinstance(stamped_gen, int)
+        stamped_gen
+        if isinstance(stamped_gen, int)
         else (force_off_latch.generation if force_off_latch is not None else 0)
     )
     group_defaults = group.effective_defaults(act_cfg.defaults)
     configured_window = pick_group_window(group_defaults)
     test_window = min(
-        configured_window or MAX_GROUP_TEST_FIRE_SEC, MAX_GROUP_TEST_FIRE_SEC,
+        configured_window or MAX_GROUP_TEST_FIRE_SEC,
+        MAX_GROUP_TEST_FIRE_SEC,
     )
     if configured_window is not None:
         logger.info(
             "Test-fire group [%s] will rotate for %.0fs (config asks %.0fs, "
             "capped at %.0fs) [rid=%s]",
-            group.name, test_window, configured_window,
-            MAX_GROUP_TEST_FIRE_SEC, request_id,
+            group.name,
+            test_window,
+            configured_window,
+            MAX_GROUP_TEST_FIRE_SEC,
+            request_id,
         )
 
     execution = execute_plan(
@@ -621,7 +675,11 @@ def _run_group_test_fire(
         # for a detection and not for the button next to it.
         should_continue=_job_still_authorised,
         on_stuck=lambda device, error: _publish_stuck(
-            pub_holder, redis_cfg, device, request_id, error,
+            pub_holder,
+            redis_cfg,
+            device,
+            request_id,
+            error,
         ),
     )
 
@@ -638,15 +696,17 @@ def _run_group_test_fire(
             if execution.aborted
             else "the firing window elapsed before any device could start"
         )
-        reply({
-            "ok": False,
-            "error": f"No device fired: {reason}",
-            "aborted": execution.aborted,
-            "group_name": group.name,
-            "devices_fired": 0,
-            "devices_succeeded": 0,
-            "devices": [],
-        })
+        reply(
+            {
+                "ok": False,
+                "error": f"No device fired: {reason}",
+                "aborted": execution.aborted,
+                "group_name": group.name,
+                "devices_fired": 0,
+                "devices_succeeded": 0,
+                "devices": [],
+            }
+        )
         return
 
     group_cooldown.record(group_name)
@@ -672,27 +732,32 @@ def _run_group_test_fire(
 
     # Partial success is not failure: report the counts and let the operator
     # judge. "ok" means at least one device did what was asked.
-    reply({
-        "ok": execution.successes > 0,
-        "group_name": group.name,
-        "devices_fired": len(execution.actions),
-        "devices_succeeded": execution.successes,
-        "total_duration_sec": round(execution.total_duration_sec, 2),
-        "devices": [
-            {
-                "device_name": a.device_name,
-                "duration_sec": a.duration_sec,
-                "success": a.success,
-                "error": a.error,
-                "stuck": a.stuck,
-            }
-            for a in execution.actions
-        ],
-    })
+    reply(
+        {
+            "ok": execution.successes > 0,
+            "group_name": group.name,
+            "devices_fired": len(execution.actions),
+            "devices_succeeded": execution.successes,
+            "total_duration_sec": round(execution.total_duration_sec, 2),
+            "devices": [
+                {
+                    "device_name": a.device_name,
+                    "duration_sec": a.duration_sec,
+                    "success": a.success,
+                    "error": a.error,
+                    "stuck": a.stuck,
+                }
+                for a in execution.actions
+            ],
+        }
+    )
     logger.info(
         "Test-fire group [%s] complete: %d/%d devices in %.1fs [rid=%s]",
-        group.name, execution.successes, len(execution.actions),
-        execution.total_duration_sec, request_id,
+        group.name,
+        execution.successes,
+        len(execution.actions),
+        execution.total_duration_sec,
+        request_id,
     )
 
 
@@ -712,7 +777,10 @@ def _publish_raw(
             port = int(redis_cfg.get("port", 6379))
             password = os.environ.get("REDIS_PASSWORD", "") or None
             client = redis_lib.Redis(
-                host=host, port=port, password=password, decode_responses=True,
+                host=host,
+                port=port,
+                password=password,
+                decode_responses=True,
             )
             holder[0] = client
         client.publish(channel, json.dumps(body))
@@ -743,13 +811,18 @@ def _publish_stuck(
             port = int(redis_cfg.get("port", 6379))
             password = os.environ.get("REDIS_PASSWORD", "") or None
             client = redis_lib.Redis(
-                host=host, port=port, password=password, decode_responses=True,
+                host=host,
+                port=port,
+                password=password,
+                decode_responses=True,
             )
             holder[0] = client
         client.publish(STUCK_CHANNEL, json.dumps(payload))
         logger.warning(
             "Published stuck event for %s (%s) [rid=%s]",
-            device.name, device.device_id, request_id,
+            device.name,
+            device.device_id,
+            request_id,
         )
     except Exception:
         logger.exception("Failed to publish stuck event for %s", device.name)
@@ -790,15 +863,22 @@ def _worker(
         if event.get("__job") == JOB_TEST_FIRE:
             try:
                 _run_test_fire(
-                    event, act_cfg_ref, controller_ref, pub_holder, redis_cfg,
+                    event,
+                    act_cfg_ref,
+                    controller_ref,
+                    pub_holder,
+                    redis_cfg,
                     force_off_latch,
                 )
             except Exception:
                 logger.exception(
-                    "Test-fire raised [rid=%s]", event.get("request_id", ""),
+                    "Test-fire raised [rid=%s]",
+                    event.get("request_id", ""),
                 )
                 _publish_raw(
-                    pub_holder, redis_cfg, event.get("result_channel", ""),
+                    pub_holder,
+                    redis_cfg,
+                    event.get("result_channel", ""),
                     {"ok": False, "error": "Test-fire failed, see deterrent logs"},
                 )
             finally:
@@ -812,16 +892,25 @@ def _worker(
             # symptom would be a 502 on the admin page blaming the wrong thing.
             try:
                 _run_group_test_fire(
-                    event, act_cfg_ref, controller_ref, armed_ref,
-                    cooldown, group_cooldown, pub_holder, redis_cfg,
+                    event,
+                    act_cfg_ref,
+                    controller_ref,
+                    armed_ref,
+                    cooldown,
+                    group_cooldown,
+                    pub_holder,
+                    redis_cfg,
                     force_off_latch,
                 )
             except Exception:
                 logger.exception(
-                    "Group test-fire raised [rid=%s]", event.get("request_id", ""),
+                    "Group test-fire raised [rid=%s]",
+                    event.get("request_id", ""),
                 )
                 _publish_raw(
-                    pub_holder, redis_cfg, event.get("result_channel", ""),
+                    pub_holder,
+                    redis_cfg,
+                    event.get("result_channel", ""),
                     {"ok": False, "error": "Group test-fire failed, see deterrent logs"},
                 )
             finally:
@@ -891,11 +980,13 @@ def _worker(
             # Per-group cooldown gate.
             if not group_cooldown.is_clear(group_name, group.cooldown_seconds):
                 remaining = group_cooldown.seconds_remaining(
-                    group_name, group.cooldown_seconds,
+                    group_name,
+                    group.cooldown_seconds,
                 )
                 logger.info(
                     "Group [%s] cooldown active (%.0fs remaining) - skipping group",
-                    group_name, remaining,
+                    group_name,
+                    remaining,
                 )
                 continue
 
@@ -929,9 +1020,14 @@ def _worker(
                 return True
 
             fired = _fire_group(
-                group, act_cfg, controller, event,
-                trigger_delay_ms, queue_depth,
-                pub_holder, redis_cfg,
+                group,
+                act_cfg,
+                controller,
+                event,
+                trigger_delay_ms,
+                queue_depth,
+                pub_holder,
+                redis_cfg,
                 still_authorised=_still_authorised,
             )
             if fired:
@@ -992,7 +1088,8 @@ def _reconcile_loop(
             if switched_on is None:
                 logger.warning(
                     "DEVICE STATUS UNKNOWN for %s (%s); cannot verify it is OFF",
-                    device.name, device.device_id,
+                    device.name,
+                    device.device_id,
                 )
                 continue
             if switched_on is not True:
@@ -1001,12 +1098,17 @@ def _reconcile_loop(
             request_id = f"reconcile-{uuid.uuid4().hex[:12]}"
             logger.critical(
                 "RECONCILE - device %s (%s) reports ON with no activation - forcing OFF [rid=%s]",
-                device.name, device.device_id, request_id,
+                device.name,
+                device.device_id,
+                request_id,
             )
             ok, err = controller.force_off(device, request_id=request_id)
             if not ok:
                 _publish_stuck(
-                    pub_holder, redis_cfg, device, request_id,
+                    pub_holder,
+                    redis_cfg,
+                    device,
+                    request_id,
                     err or "reconcile force_off failed",
                 )
 
@@ -1038,16 +1140,23 @@ def _metrics_publisher(
                 port = int(redis_cfg.get("port", 6379))
                 password = os.environ.get("REDIS_PASSWORD", "") or None
                 client = redis_lib.Redis(
-                    host=host, port=port, password=password,
+                    host=host,
+                    port=port,
+                    password=password,
                     decode_responses=True,
                 )
                 holder[0] = client
-            client.publish(METRICS_CHANNEL, json.dumps({
-                "service": "deterrent",
-                "metric": "queue_drops_total",
-                "value": current,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }))
+            client.publish(
+                METRICS_CHANNEL,
+                json.dumps(
+                    {
+                        "service": "deterrent",
+                        "metric": "queue_drops_total",
+                        "value": current,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ),
+            )
         except Exception:
             logger.exception("Failed to publish drop metric")
             holder[0] = None
@@ -1076,6 +1185,7 @@ def _publish_actuation(
 # ---------------------------------------------------------------------------
 # Subscribe loop - mirrors the notifier pattern
 # ---------------------------------------------------------------------------
+
 
 def subscribe_loop(
     redis_cfg: dict[str, Any],
@@ -1113,7 +1223,10 @@ def subscribe_loop(
         try:
             redis_password = os.environ.get("REDIS_PASSWORD", "") or None
             client = redis_lib.Redis(
-                host=host, port=port, password=redis_password, decode_responses=True,
+                host=host,
+                port=port,
+                password=redis_password,
+                decode_responses=True,
             )
             pubsub = client.pubsub()
             pubsub.subscribe(CHANNEL)
@@ -1136,7 +1249,9 @@ def subscribe_loop(
                 try:
                     event = json.loads(message["data"])
                     if not isinstance(event, dict):
-                        logger.warning("Received malformed message (not a dict): %s", message["data"])
+                        logger.warning(
+                            "Received malformed message (not a dict): %s", message["data"]
+                        )
                         continue
                 except json.JSONDecodeError:
                     logger.warning("Malformed message: %s", message["data"])
@@ -1186,7 +1301,10 @@ def subscribe_loop(
                             _drop_counter,
                         )
                 except Exception:
-                    logger.exception("Error processing message on %s", message["channel"] if "channel" in message else "?")
+                    logger.exception(
+                        "Error processing message on %s",
+                        message["channel"] if "channel" in message else "?",
+                    )
 
         except redis_lib.RedisError:
             if shutdown_event.is_set():
@@ -1213,6 +1331,7 @@ def subscribe_loop(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     cfg = load_config()
@@ -1259,7 +1378,8 @@ def main() -> None:
         enabled_count = sum(1 for d in act_cfg.devices if d.enabled)
         logger.info(
             "Actuation enabled - %d device(s) registered, cooldown %ds",
-            enabled_count, act_cfg.defaults.cooldown_seconds,
+            enabled_count,
+            act_cfg.defaults.cooldown_seconds,
         )
 
     # Battery monitor
@@ -1281,7 +1401,10 @@ def main() -> None:
     shutdown_event = threading.Event()
     shutdown_sweep_completed = threading.Event()
     shutdown_handler = _make_shutdown_handler(
-        shutdown_event, event_queue.put_nowait, controller_ref, act_cfg_ref,
+        shutdown_event,
+        event_queue.put_nowait,
+        controller_ref,
+        act_cfg_ref,
         shutdown_sweep_completed,
     )
     signal.signal(signal.SIGTERM, shutdown_handler)
@@ -1308,7 +1431,9 @@ def main() -> None:
             if new_controller is not None and old_controller is None:
                 # Recover startup safety before accepting any new ON work.
                 _force_off_sweep(
-                    AtomicRef(new_controller), AtomicRef(new_act), reason="recovery",
+                    AtomicRef(new_controller),
+                    AtomicRef(new_act),
+                    reason="recovery",
                 )
             controller_ref.set(new_controller)
             logger.info("Tuya Cloud controller rebuild attempted")
@@ -1338,12 +1463,15 @@ def main() -> None:
             safe = False
             if active_controller is not None:
                 safe, error = active_controller.force_off(
-                    device, request_id=f"config-remove-{uuid.uuid4().hex[:12]}",
+                    device,
+                    request_id=f"config-remove-{uuid.uuid4().hex[:12]}",
                 )
                 if not safe:
                     logger.critical(
                         "Removed device %s (%s) remains safety-tracked: %s",
-                        device.name, device.device_id, error,
+                        device.name,
+                        device.device_id,
+                        error,
                     )
             if not safe:
                 new_act.devices.append(device.model_copy(update={"enabled": False}))
@@ -1391,7 +1519,8 @@ def main() -> None:
     recovery_thread = threading.Thread(
         target=_controller_recovery_loop,
         args=(controller_ref, shutdown_event, retry_controller),
-        name="deterrent-controller-recovery", daemon=True,
+        name="deterrent-controller-recovery",
+        daemon=True,
     )
     recovery_thread.start()
 
@@ -1412,8 +1541,15 @@ def main() -> None:
         name="deterrent-worker",
         daemon=True,
         args=(
-            event_queue, act_cfg_ref, controller_ref, armed_ref,
-            cooldown, group_cooldown, redis_cfg, in_flight, shutdown_event,
+            event_queue,
+            act_cfg_ref,
+            controller_ref,
+            armed_ref,
+            cooldown,
+            group_cooldown,
+            redis_cfg,
+            in_flight,
+            shutdown_event,
             force_off_latch,
         ),
     )
@@ -1423,8 +1559,11 @@ def main() -> None:
     # Group test-fires are handed to the worker queue rather than run on the
     # handler thread, which must stay free to answer emergency force-off.
     req_handler = RequestHandler(
-        redis_cfg, act_cfg_ref, controller_ref,
-        job_queue=event_queue, in_flight=in_flight,
+        redis_cfg,
+        act_cfg_ref,
+        controller_ref,
+        job_queue=event_queue,
+        in_flight=in_flight,
         force_off_latch=force_off_latch,
     )
     req_handler.start()
@@ -1436,8 +1575,11 @@ def main() -> None:
         name="deterrent-reconcile",
         daemon=True,
         args=(
-            controller_ref, act_cfg_ref, shutdown_event,
-            redis_cfg, reconcile_pub_holder,
+            controller_ref,
+            act_cfg_ref,
+            shutdown_event,
+            redis_cfg,
+            reconcile_pub_holder,
         ),
     )
     reconcile_thread.start()

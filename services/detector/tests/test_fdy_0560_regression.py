@@ -32,9 +32,11 @@ def test_regression_stalled_and_exception(monkeypatch):
     camera_cfg = {"name": "test_cam", "rtsp_url": "fake"}
 
     call_count = 0
+
     class StubStream:
         def __init__(self, *args, **kwargs):
             pass
+
         def read(self):
             nonlocal call_count
             call_count += 1
@@ -44,8 +46,10 @@ def test_regression_stalled_and_exception(monkeypatch):
                 # A failed read records stalled frame progress without crashing.
                 stop_event.set()
                 return False, None
+
         def grab(self):
             return True
+
         def release(self):
             pass
 
@@ -64,9 +68,23 @@ def test_regression_stalled_and_exception(monkeypatch):
     conf_ref = AtomicRef(0.25)
 
     args = [
-        camera_cfg, detector, set(), MagicMock(), {}, frame_skip_ref, armed_ref,
-        paused_ref, zones_ref, rules_ref, det_rules_ref, conf_ref,
-        stop_event, None, None, health_tracker, None
+        camera_cfg,
+        detector,
+        set(),
+        MagicMock(),
+        {},
+        frame_skip_ref,
+        armed_ref,
+        paused_ref,
+        zones_ref,
+        rules_ref,
+        det_rules_ref,
+        conf_ref,
+        stop_event,
+        None,
+        None,
+        health_tracker,
+        None,
     ]
 
     monkeypatch.setattr(stop_event, "wait", lambda _timeout: stop_event.is_set())
@@ -238,6 +256,7 @@ def test_detection_health_isolates_failed_camera():
         },
     )
 
+
 def test_frame_skip_zero(monkeypatch):
     stop_event = threading.Event()
     health_tracker = MagicMock()
@@ -246,12 +265,15 @@ def test_frame_skip_zero(monkeypatch):
     class StubStream:
         def __init__(self, *args, **kwargs):
             pass
+
         def read(self):
             stop_event.set()
             return False, None
+
         def grab(self):
             stop_event.set()
             return False
+
         def release(self):
             pass
 
@@ -270,9 +292,23 @@ def test_frame_skip_zero(monkeypatch):
     conf_ref = AtomicRef(0.25)
 
     args = [
-        camera_cfg, detector, set(), MagicMock(), {}, frame_skip_ref, armed_ref,
-        paused_ref, zones_ref, rules_ref, det_rules_ref, conf_ref,
-        stop_event, None, None, health_tracker, None
+        camera_cfg,
+        detector,
+        set(),
+        MagicMock(),
+        {},
+        frame_skip_ref,
+        armed_ref,
+        paused_ref,
+        zones_ref,
+        rules_ref,
+        det_rules_ref,
+        conf_ref,
+        stop_event,
+        None,
+        None,
+        health_tracker,
+        None,
     ]
 
     # Should not raise ZeroDivisionError

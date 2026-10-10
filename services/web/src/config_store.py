@@ -48,8 +48,10 @@ def _migrate_in_place(cfg: dict) -> None:
             migrated += 1
     if migrated:
         logger.info(
-            "Migrated %d camera(s) from action_rules → notification_rules", migrated,
+            "Migrated %d camera(s) from action_rules → notification_rules",
+            migrated,
         )
+
 
 _lock = threading.Lock()
 _cache_cfg: dict | None = None
@@ -201,7 +203,8 @@ def save(cfg: dict, *, require_encryption: bool = False) -> None:
             logger.info("Encrypted %d sensitive field(s) before save", encrypted)
     with _lock:
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(CONFIG_PATH.parent), suffix=".tmp",
+            dir=str(CONFIG_PATH.parent),
+            suffix=".tmp",
         )
         try:
             with os.fdopen(fd, "w") as f:

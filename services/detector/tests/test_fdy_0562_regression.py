@@ -119,10 +119,7 @@ class TestCrossChannelRejection:
 
         # Signed for detections → should fail on deterrent channel.
         fire_key = derive_channel_key(KEY, "scarguard:deterrent:test-fire")
-        assert (
-            verify_event(signed, fire_key, channel="scarguard:deterrent:test-fire")
-            is False
-        )
+        assert verify_event(signed, fire_key, channel="scarguard:deterrent:test-fire") is False
 
     def test_deterrent_cannot_be_replayed_as_eval(self) -> None:
         from event_signing import derive_channel_key, sign_event, verify_event
@@ -133,10 +130,7 @@ class TestCrossChannelRejection:
 
         # Signed for deterrent → should fail on eval channel.
         eval_key = derive_channel_key(KEY, "scarguard:eval:request")
-        assert (
-            verify_event(signed, eval_key, channel="scarguard:eval:request")
-            is False
-        )
+        assert verify_event(signed, eval_key, channel="scarguard:eval:request") is False
 
 
 class TestReplayCache:
@@ -191,6 +185,7 @@ class TestPauseResumeCommandSigning:
 
         # Import the real PauseHandler
         import sys
+
         sys.path.insert(0, "services/detector/src")
         from pause_handler import _verify_command
 
@@ -201,6 +196,7 @@ class TestPauseResumeCommandSigning:
 
     def test_verify_rejects_cross_channel_pause(self) -> None:
         import sys
+
         sys.path.insert(0, "shared")
         from event_signing import derive_channel_key, sign_event, verify_event
 
@@ -209,9 +205,10 @@ class TestPauseResumeCommandSigning:
         backup_key = derive_channel_key(KEY, "scarguard:backup:trigger")
         signed = sign_event(payload, backup_key, "scarguard:backup:trigger")
 
-        assert verify_event(
-            signed, backup_key, channel="scarguard:detector:command", cache=None
-        ) is False
+        assert (
+            verify_event(signed, backup_key, channel="scarguard:detector:command", cache=None)
+            is False
+        )
 
 
 class TestEvalRequestSigning:
@@ -285,10 +282,17 @@ class TestChannelDerivedKeyIsolation:
 
         # Each service has its own replay cache instance, so they all accept.
         det_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
-        assert verify_event(signed, det_key, channel="scarguard:detections", cache=det_cache) is True
+        assert (
+            verify_event(signed, det_key, channel="scarguard:detections", cache=det_cache) is True
+        )
 
         notifier_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
-        assert verify_event(signed, det_key, channel="scarguard:detections", cache=notifier_cache) is True
+        assert (
+            verify_event(signed, det_key, channel="scarguard:detections", cache=notifier_cache)
+            is True
+        )
 
         # But the same cache rejects the replay.
-        assert verify_event(signed, det_key, channel="scarguard:detections", cache=det_cache) is False
+        assert (
+            verify_event(signed, det_key, channel="scarguard:detections", cache=det_cache) is False
+        )

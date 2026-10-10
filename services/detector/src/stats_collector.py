@@ -323,8 +323,11 @@ class StatsCollector(threading.Thread):
         # GPU memory - try nvidia-smi first (available on JetPack 6), else skip
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.used,memory.total",
-                 "--format=csv,noheader,nounits"],
+                [
+                    "nvidia-smi",
+                    "--query-gpu=memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -376,10 +379,10 @@ class StatsCollector(threading.Thread):
 
         stats: dict = {"gpu_available": True}
         fields: list[tuple[str, str, Callable[[str], float | int]]] = [
-            ("gpu_usage_pct",    parts[0], lambda v: round(float(v), 1)),
-            ("gpu_mem_used_mb",  parts[1], lambda v: int(float(v))),
+            ("gpu_usage_pct", parts[0], lambda v: round(float(v), 1)),
+            ("gpu_mem_used_mb", parts[1], lambda v: int(float(v))),
             ("gpu_mem_total_mb", parts[2], lambda v: int(float(v))),
-            ("gpu_temp_c",       parts[3], lambda v: round(float(v), 1)),
+            ("gpu_temp_c", parts[3], lambda v: round(float(v), 1)),
         ]
         for key, raw, parser in fields:
             val = raw.strip().strip("[]")

@@ -32,9 +32,7 @@ class RetentionCleaner:
         self._db_path = db_path
         self.retention_days = retention_days
         self._stop = threading.Event()
-        self._thread = threading.Thread(
-            target=self._loop, name="retention-cleanup", daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, name="retention-cleanup", daemon=True)
 
     def start(self) -> None:
         self._thread.start()
@@ -80,7 +78,9 @@ class RetentionCleaner:
                     except OSError:
                         logger.warning("Could not delete snapshot %s", f, exc_info=True)
         except OSError:
-            logger.warning("Could not iterate snapshot directory %s", self._snapshot_dir, exc_info=True)
+            logger.warning(
+                "Could not iterate snapshot directory %s", self._snapshot_dir, exc_info=True
+            )
             return
 
         if deleted:

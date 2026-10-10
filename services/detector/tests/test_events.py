@@ -54,20 +54,21 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
             state["fail_count"] -= 1
             raise sqlite3.OperationalError("simulated insert failure")
         original_insert(
-            timestamp, det_arg, camera_name, snapshot_path,
-            actions_triggered, frame_size, feedback_token,
+            timestamp,
+            det_arg,
+            camera_name,
+            snapshot_path,
+            actions_triggered,
+            frame_size,
+            feedback_token,
         )
 
     monkeypatch.setattr(processor, "_insert_event", flaky_insert)
 
     # First call fails twice, succeeds on third attempt → succeeds.
-    assert processor._persist(
-        datetime.now(timezone.utc), det, "cam-a", None, None
-    ) is True
+    assert processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None) is True
     # Second call succeeds immediately.
-    assert processor._persist(
-        datetime.now(timezone.utc), det, "cam-a", None, None
-    ) is True
+    assert processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None) is True
     processor.close()
 
     # Both calls eventually committed.
@@ -101,6 +102,7 @@ def test_persist_swallows_reset_connection_errors(monkeypatch, tmp_path):
 # ------------------------------------------------------------------
 # Action rule filtering tests
 # ------------------------------------------------------------------
+
 
 def _make_processor(tmp_path: Path) -> EventProcessor:
     return EventProcessor(

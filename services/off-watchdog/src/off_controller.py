@@ -23,7 +23,9 @@ class OffOnlyCloudController:
     def __init__(self, api_key: str, api_secret: str, api_region: str = "us") -> None:
         self._cloud = self._bounded(
             lambda: tinytuya.Cloud(
-                apiRegion=api_region, apiKey=api_key, apiSecret=api_secret,
+                apiRegion=api_region,
+                apiKey=api_key,
+                apiSecret=api_secret,
             ),
             _INIT_LOCK,
         )

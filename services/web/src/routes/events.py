@@ -85,7 +85,15 @@ async def events_page(
     dfrom = date_from or None
     dto = date_to or None
     fb = feedback or None
-    rows = db.get_events(limit=PAGE_SIZE, offset=offset, camera=cam, class_name=cls, date_from=dfrom, date_to=dto, feedback=fb)
+    rows = db.get_events(
+        limit=PAGE_SIZE,
+        offset=offset,
+        camera=cam,
+        class_name=cls,
+        date_from=dfrom,
+        date_to=dto,
+        feedback=fb,
+    )
     total = db.count_events(camera=cam, class_name=cls, date_from=dfrom, date_to=dto, feedback=fb)
     events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
@@ -119,9 +127,12 @@ async def event_rows(
     """HTMX partial - just the table body rows."""
     offset = (page - 1) * PAGE_SIZE
     rows = db.get_events(
-        limit=PAGE_SIZE, offset=offset,
-        camera=camera or None, class_name=class_name or None,
-        date_from=date_from or None, date_to=date_to or None,
+        limit=PAGE_SIZE,
+        offset=offset,
+        camera=camera or None,
+        class_name=class_name or None,
+        date_from=date_from or None,
+        date_to=date_to or None,
     )
     events = _apply_display_timestamp([dict(r) for r in rows])
     return templates.TemplateResponse(
@@ -164,7 +175,9 @@ def _validate_feedback(request: Request, feedback: str, corrected_class: str) ->
 async def submit_batch_feedback(request: Request, payload: BatchFeedback) -> dict[str, int]:
     corr = _validate_feedback(request, payload.feedback, payload.corrected_class)
     if not db.update_feedback_batch(payload.event_ids, payload.feedback, corr):
-        raise HTTPException(409, "An event is no longer available. Refresh and select again; nothing was changed.")
+        raise HTTPException(
+            409, "An event is no longer available. Refresh and select again; nothing was changed."
+        )
     return {"updated": len(payload.event_ids)}
 
 
@@ -186,11 +199,17 @@ async def submit_feedback(
     if feedback == "wrong_class" and corrected_bbox.strip():
         try:
             parsed = json.loads(corrected_bbox)
-            frame = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
+            frame = (
+                json.loads(row["frame_size"])
+                if isinstance(row["frame_size"], str)
+                else row["frame_size"]
+            )
             if (
-                not isinstance(parsed, list) or len(parsed) != 4
+                not isinstance(parsed, list)
+                or len(parsed) != 4
                 or any(type(c) not in (int, float) or not math.isfinite(c) for c in parsed)
-                or not frame or len(frame) != 2
+                or not frame
+                or len(frame) != 2
                 or not (0 <= parsed[0] < parsed[2] <= frame[0])
                 or not (0 <= parsed[1] < parsed[3] <= frame[1])
             ):
@@ -204,7 +223,8 @@ async def submit_feedback(
     if row is None:
         raise HTTPException(404, "Event not found")
     return templates.TemplateResponse(
-        request, "partials/event_rows.html",
+        request,
+        "partials/event_rows.html",
         {"events": _apply_display_timestamp([dict(row)]), "target_classes": _get_target_classes()},
     )
 
@@ -220,7 +240,12 @@ async def event_stream(request: Request):
     user_id = user.get("user_id", "anon")
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+        client = aioredis.Redis(
+            host=host,
+            port=port,
+            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            decode_responses=True,
+        )
         try:
             async with sse_connection(client, user_id):
                 pubsub = client.pubsub()
@@ -229,7 +254,8 @@ async def event_stream(request: Request):
                 try:
                     while not await request.is_disconnected():
                         message = await pubsub.get_message(
-                            ignore_subscribe_messages=True, timeout=15.0,
+                            ignore_subscribe_messages=True,
+                            timeout=15.0,
                         )
                         if message is None:
                             yield ": keepalive\n\n"
@@ -268,9 +294,9 @@ def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
             )
         snap_html = (
             f'<a href="/snapshots/{fname}" target="_blank" class="snapshot-link"'
-            f'{data_attrs}>'
+            f"{data_attrs}>"
             f'<img src="/snapshots/{fname}" width="80" loading="lazy">'
-            f'</a>'
+            f"</a>"
         )
     conf = event.get("confidence", 0)
     display_ts = _to_local(event.get("timestamp", ""), tz_name)
@@ -285,9 +311,9 @@ def _render_event_row(event: dict, tz_name: str = "UTC") -> str:
     return (
         f'<tr id="event-live" class="event-unreviewed">'
         f"<td>{display_ts}</td>"
-        f'<td>{_html.escape(event.get("class_name", "").replace("_", " ").title())}</td>'
+        f"<td>{_html.escape(event.get('class_name', '').replace('_', ' ').title())}</td>"
         f"<td>{conf:.0%}</td>"
-        f'<td>{_html.escape(event.get("camera_name", ""))}</td>'
+        f"<td>{_html.escape(event.get('camera_name', ''))}</td>"
         f'<td class="actions-cell">{actions_html}</td>'
         f"<td>{snap_html}</td>"
         f'<td class="feedback-cell">{feedback_html}</td>'
@@ -310,8 +336,12 @@ async def visits_page(
     dfrom = date_from or None
     dto = date_to or None
     rows = db.get_visits(
-        limit=PAGE_SIZE, offset=offset, camera=cam,
-        class_name=cls, date_from=dfrom, date_to=dto,
+        limit=PAGE_SIZE,
+        offset=offset,
+        camera=cam,
+        class_name=cls,
+        date_from=dfrom,
+        date_to=dto,
     )
     total = db.count_visits(camera=cam, class_name=cls, date_from=dfrom, date_to=dto)
     tz = _tz_name()

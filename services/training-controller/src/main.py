@@ -52,9 +52,7 @@ _LOG_LEVELS = {
 }
 
 
-def _configured_log_level(
-    config_path: Path | None = None, *, default: int = logging.INFO
-) -> int:
+def _configured_log_level(config_path: Path | None = None, *, default: int = logging.INFO) -> int:
     """Read ``system.log_level`` from the deployment's shared config."""
     path = config_path or CONFIG_PATH
     try:
@@ -410,7 +408,9 @@ class _BoundedHTTPServer(HTTPServer):
 
     def server_activate(self) -> None:  # noqa: D102
         try:
-            self.socket.setsockopt(socket_mod.SOL_SOCKET, 5, self.request_queue_size)  # SO_BACKLOG=5
+            self.socket.setsockopt(
+                socket_mod.SOL_SOCKET, 5, self.request_queue_size
+            )  # SO_BACKLOG=5
         except OSError:
             pass  # socket option not supported on this platform
         super().server_activate()

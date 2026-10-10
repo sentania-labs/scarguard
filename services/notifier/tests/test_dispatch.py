@@ -222,11 +222,7 @@ class TestDispatchRouting:
     def test_build_notifiers_discord_channel_no_webhook_url(self):
         from main import build_notifiers
 
-        cfg = {
-            "channels": [
-                {"name": "alerts", "type": "discord", "webhook_url": ""}
-            ]
-        }
+        cfg = {"channels": [{"name": "alerts", "type": "discord", "webhook_url": ""}]}
         notifiers = build_notifiers(cfg)
         assert notifiers == []
 
@@ -288,6 +284,7 @@ class TestNtfyNotifier:
 
     def test_basic_auth_in_headers(self):
         import base64
+
         notifier = self._make(username="user", password="pass")
         with patch("ntfy.requests.post") as mock_post:
             mock_post.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
@@ -304,6 +301,7 @@ class TestNtfyNotifier:
 
     def test_raises_on_request_error(self):
         import requests as req_lib
+
         notifier = self._make()
         with patch("ntfy.requests.post", side_effect=req_lib.ConnectionError("timeout")):
             with pytest.raises(req_lib.ConnectionError):
@@ -326,17 +324,14 @@ class TestNtfyNotifier:
         notifiers = build_notifiers(cfg)
         assert len(notifiers) == 1
         from ntfy import NtfyNotifier
+
         assert isinstance(notifiers[0], NtfyNotifier)
         assert notifiers[0].name == "phone"
 
     def test_build_notifiers_ntfy_no_topic(self):
         from main import build_notifiers
 
-        cfg = {
-            "channels": [
-                {"name": "phone", "type": "ntfy", "enabled": True, "topic": ""}
-            ]
-        }
+        cfg = {"channels": [{"name": "phone", "type": "ntfy", "enabled": True, "topic": ""}]}
         notifiers = build_notifiers(cfg)
         assert len(notifiers) == 0
 

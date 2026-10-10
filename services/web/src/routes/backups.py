@@ -64,16 +64,20 @@ def _list_backups() -> list[dict[str, Any]]:
             except OSError:
                 continue
             from datetime import datetime, timezone
-            out.append({
-                "db": db_dir.name,
-                "filename": f.name,
-                "rel_path": f"{db_dir.name}/{f.name}",
-                "size_bytes": stat.st_size,
-                "size_human": _human_size(stat.st_size),
-                "mtime_iso": datetime.fromtimestamp(
-                    stat.st_mtime, tz=timezone.utc,
-                ).isoformat(),
-            })
+
+            out.append(
+                {
+                    "db": db_dir.name,
+                    "filename": f.name,
+                    "rel_path": f"{db_dir.name}/{f.name}",
+                    "size_bytes": stat.st_size,
+                    "size_human": _human_size(stat.st_size),
+                    "mtime_iso": datetime.fromtimestamp(
+                        stat.st_mtime,
+                        tz=timezone.utc,
+                    ).isoformat(),
+                }
+            )
     out.sort(key=lambda e: e["mtime_iso"], reverse=True)
     return out
 
@@ -152,7 +156,8 @@ def _redis_params() -> dict[str, Any]:
 
 
 @router.post(
-    "/trigger", response_class=JSONResponse,
+    "/trigger",
+    response_class=JSONResponse,
     dependencies=[Depends(rate_limit("backup-trigger", capacity=10, window_seconds=300))],
 )
 async def trigger_backup(request: Request) -> Response:
@@ -179,8 +184,7 @@ async def trigger_backup(request: Request) -> Response:
     except Exception:
         log.exception("Failed to publish backup trigger")
         return JSONResponse(
-            {"ok": False, "error": "Backup trigger publish failed",
-             "request_id": request_id},
+            {"ok": False, "error": "Backup trigger publish failed", "request_id": request_id},
             status_code=502,
         )
     finally:
@@ -192,18 +196,22 @@ async def trigger_backup(request: Request) -> Response:
             request_id,
         )
         return JSONResponse(
-            {"ok": False,
-             "error": "No backup sidecar listening - check the backup service is running",
-             "request_id": request_id},
+            {
+                "ok": False,
+                "error": "No backup sidecar listening - check the backup service is running",
+                "request_id": request_id,
+            },
             status_code=503,
         )
 
-    return JSONResponse({
-        "ok": True,
-        "request_id": request_id,
-        "subscribers": subscribers,
-        "note": "Backup started. Refresh in a few seconds to see the new file.",
-    })
+    return JSONResponse(
+        {
+            "ok": True,
+            "request_id": request_id,
+            "subscribers": subscribers,
+            "note": "Backup started. Refresh in a few seconds to see the new file.",
+        }
+    )
 
 
 @router.get("/status", response_class=JSONResponse)
@@ -237,7 +245,9 @@ async def latest_status(request: Request) -> Response:
 
 @router.get("/download/{db}/{filename}")
 async def download_backup(
-    request: Request, db: str, filename: str,
+    request: Request,
+    db: str,
+    filename: str,
 ) -> Response:
     """Stream a backup file to the admin browser.
 
@@ -269,10 +279,7 @@ async def download_backup(
         resolved.name,
         getattr(request.state, "user", {}).get("username", "<unknown>"),
     )
-    media_type = (
-        "application/gzip" if resolved.name.endswith(".gz")
-        else "application/octet-stream"
-    )
+    media_type = "application/gzip" if resolved.name.endswith(".gz") else "application/octet-stream"
     return FileResponse(
         path=str(resolved),
         media_type=media_type,
@@ -282,7 +289,9 @@ async def download_backup(
 
 @router.post("/download/{db}/{filename}")
 async def download_backup_post(
-    request: Request, db: str, filename: str,
+    request: Request,
+    db: str,
+    filename: str,
 ) -> Response:
     """Download a backup file with password re-authentication.
 
@@ -316,6 +325,7 @@ async def download_backup_post(
 
         # Look up the current user's stored hash and verify.
         import auth as auth_module
+
         user_id: int = int(user.get("user_id", 0))
         auth_db = auth_module.get_db()
         try:
@@ -324,7 +334,8 @@ async def download_backup_post(
             auth_db.close()
 
         if db_user is None or not auth_module.verify_password(
-            password, db_user["password_hash"],
+            password,
+            db_user["password_hash"],
         ):
             client_ip = request.client.host if request.client else None
             audit.record_request(
@@ -334,7 +345,8 @@ async def download_backup_post(
             )
             log.warning(
                 "Auth backup re-auth failed: %s/%s by %s from %s",
-                db, filename,
+                db,
+                filename,
                 user.get("username", "<unknown>"),
                 client_ip,
             )
@@ -356,10 +368,7 @@ async def download_backup_post(
         resolved.name,
         user.get("username", "<unknown>"),
     )
-    media_type = (
-        "application/gzip" if resolved.name.endswith(".gz")
-        else "application/octet-stream"
-    )
+    media_type = "application/gzip" if resolved.name.endswith(".gz") else "application/octet-stream"
     return FileResponse(
         path=str(resolved),
         media_type=media_type,
@@ -383,7 +392,8 @@ async def backup_status_stream(request: Request) -> Response:
 
     async def generator():
         client = aioredis.Redis(
-            host=host, port=port,
+            host=host,
+            port=port,
             password=os.environ.get("REDIS_PASSWORD", "") or None,
             decode_responses=True,
         )
@@ -395,7 +405,8 @@ async def backup_status_stream(request: Request) -> Response:
                 try:
                     while not await request.is_disconnected():
                         message = await pubsub.get_message(
-                            ignore_subscribe_messages=True, timeout=15.0,
+                            ignore_subscribe_messages=True,
+                            timeout=15.0,
                         )
                         if message is None:
                             yield ": keepalive\n\n"

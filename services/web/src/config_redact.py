@@ -35,13 +35,15 @@ _STRUCTURAL_PATHS: tuple[tuple[str, ...], ...] = (
 # webhook, ntfy, etc).  Any key matching one of these in a channel dict is
 # masked, regardless of channel type.  Keep this in sync with the channel
 # builders in services/web/src/static/config.js and the notifier modules.
-_CHANNEL_SENSITIVE_KEYS: frozenset[str] = frozenset({
-    "webhook_url",   # discord channels
-    "smtp_pass",     # email channels
-    "auth_token",    # webhook channels (bearer token)
-    "token",         # ntfy channels (bearer)
-    "password",      # ntfy channels (basic auth)
-})
+_CHANNEL_SENSITIVE_KEYS: frozenset[str] = frozenset(
+    {
+        "webhook_url",  # discord channels
+        "smtp_pass",  # email channels
+        "auth_token",  # webhook channels (bearer token)
+        "token",  # ntfy channels (bearer)
+        "password",  # ntfy channels (basic auth)
+    }
+)
 
 # Substring match for custom HTTP header names that probably carry an auth
 # credential.  Used by the ``headers`` dict walker below so non-sensitive

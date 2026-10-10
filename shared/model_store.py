@@ -90,10 +90,14 @@ _SECRET_KEY_TOKENS = ("password", "secret", "token", "api_key")
 _NUMPY_MULTIARRAY = ("numpy.core.multiarray", "numpy._core.multiarray")
 _CALL_TARGETS = {
     ("collections", "OrderedDict"),
-    ("builtins", "set"), ("__builtin__", "set"),
-    ("builtins", "frozenset"), ("__builtin__", "frozenset"),
-    ("builtins", "bytes"), ("__builtin__", "bytes"),
-    ("_codecs", "encode"), ("codecs", "encode"),
+    ("builtins", "set"),
+    ("__builtin__", "set"),
+    ("builtins", "frozenset"),
+    ("__builtin__", "frozenset"),
+    ("builtins", "bytes"),
+    ("__builtin__", "bytes"),
+    ("_codecs", "encode"),
+    ("codecs", "encode"),
     ("torch", "Size"),
     ("torch", "device"),
     ("torch._utils", "_rebuild_tensor_v2"),
@@ -106,7 +110,8 @@ _CALL_TARGETS = {
     ("argparse", "Namespace"),
     ("pathlib", "PosixPath"),
     ("pathlib", "WindowsPath"),
-    ("builtins", "getattr"), ("__builtin__", "getattr"),
+    ("builtins", "getattr"),
+    ("__builtin__", "getattr"),
 }
 _REFERENCES = {("numpy", "ndarray")}
 # The only getattr torch.save emits for these models: Segment/Pose/OBB keep
@@ -114,9 +119,16 @@ _REFERENCES = {("numpy", "ndarray")}
 _LAYER_ATTRS = {("ultralytics.nn.modules.head", "Detect", "forward", "detect")}
 # torch.HalfStorage ... and their element sizes, for persistent-id checks.
 _STORAGE_ITEMSIZE = {
-    "DoubleStorage": 8, "FloatStorage": 4, "HalfStorage": 2, "BFloat16Storage": 2,
-    "LongStorage": 8, "IntStorage": 4, "ShortStorage": 2, "CharStorage": 1,
-    "ByteStorage": 1, "BoolStorage": 1,
+    "DoubleStorage": 8,
+    "FloatStorage": 4,
+    "HalfStorage": 2,
+    "BFloat16Storage": 2,
+    "LongStorage": 8,
+    "IntStorage": 4,
+    "ShortStorage": 2,
+    "CharStorage": 1,
+    "ByteStorage": 1,
+    "BoolStorage": 1,
 }
 # torch.float16 ... as values only.
 _TORCH_DTYPE_RE = re.compile(r"^(?:u?int(?:8|16|32|64)|float(?:16|32|64)|bfloat16|bool|half)$")
@@ -132,12 +144,21 @@ _YAML_DENIED_NAMES = {"TorchVision"}
 _ARGS_KEYS = {"train_args", "args"}
 _URL_RE = re.compile(r":/|^(?:ul|gs|s3)//", re.IGNORECASE)
 _SAFE_ACTIVATIONS = {
-    "nn.SiLU()", "nn.ReLU()", "nn.LeakyReLU(0.1)", "nn.Hardswish()",
-    "torch.nn.SiLU()", "torch.nn.ReLU()",
+    "nn.SiLU()",
+    "nn.ReLU()",
+    "nn.LeakyReLU(0.1)",
+    "nn.Hardswish()",
+    "torch.nn.SiLU()",
+    "torch.nn.ReLU()",
 }
 _STRING_OPS = {
-    "SHORT_BINUNICODE", "BINUNICODE", "BINUNICODE8", "UNICODE",
-    "SHORT_BINSTRING", "BINSTRING", "STRING",
+    "SHORT_BINUNICODE",
+    "BINUNICODE",
+    "BINUNICODE8",
+    "UNICODE",
+    "SHORT_BINSTRING",
+    "BINSTRING",
+    "STRING",
 }
 _MEMO_PUT_OPS = {"PUT", "BINPUT", "LONG_BINPUT"}
 _PROMOTE_TMP_SUFFIX = ".promote.tmp"
@@ -285,8 +306,18 @@ _GETATTR = {_Global("builtins", "getattr"), _Global("__builtin__", "getattr")}
 _STATE_DICT_KINDS = {"layer", "namespace", "odict"}
 _CONTAINER_KINDS = {"dict", "odict", "list", "set"}
 _PRIM_OPS = {
-    "NONE", "NEWTRUE", "NEWFALSE", "INT", "BININT", "BININT1", "BININT2", "LONG", "LONG1",
-    "LONG4", "FLOAT", "BINFLOAT",
+    "NONE",
+    "NEWTRUE",
+    "NEWFALSE",
+    "INT",
+    "BININT",
+    "BININT1",
+    "BININT2",
+    "LONG",
+    "LONG1",
+    "LONG4",
+    "FLOAT",
+    "BINFLOAT",
 }
 _BYTES_OPS = {"BINBYTES", "SHORT_BINBYTES", "BINBYTES8"}
 _LITERALS: dict[str, object] = {"NONE": None, "NEWTRUE": True, "NEWFALSE": False}
@@ -478,8 +509,11 @@ class _PickleAudit:
             return _Box("value")
         if key[1] == "scalar":
             dtype, raw = (items + (None, None))[:2]
-            if len(items) == 2 and isinstance(dtype, _Box) and dtype.kind == "dtype" and (
-                isinstance(raw, _Box) and raw.kind == "bytes"
+            if (
+                len(items) == 2
+                and isinstance(dtype, _Box)
+                and dtype.kind == "dtype"
+                and (isinstance(raw, _Box) and raw.kind == "bytes")
             ):
                 self.seal(dtype)
                 return _Box("value")
@@ -1245,9 +1279,10 @@ class ModelStore:
         for record in records:
             if record.get("action") not in _INSTALL_ACTIONS:
                 continue
-            if str(record["action"]).endswith("_started") and (
-                record.get("target_name"), record.get("at")
-            ) in failed:
+            if (
+                str(record["action"]).endswith("_started")
+                and (record.get("target_name"), record.get("at")) in failed
+            ):
                 continue
             key = (str(record.get("target_name")), str(record.get("result_sha256")))
             action = _INSTALL_ACTIONS[str(record["action"])]
@@ -1310,7 +1345,9 @@ class ModelStore:
         except FileNotFoundError:
             return None
         if not stat.S_ISREG(info.st_mode):
-            raise ModelStoreError(f"Live model {name} is not a regular file; refusing to replace it")
+            raise ModelStoreError(
+                f"Live model {name} is not a regular file; refusing to replace it"
+            )
         return target
 
     def _snapshot_live(self, name: str, target: Path, reason: str) -> dict[str, Any]:
@@ -1525,12 +1562,12 @@ class ModelStore:
                         {**record, "action": "discard_failed", "reason": str(exc)[:500]}
                     )
                 raise ModelStoreError(
-                    f"Discard was recorded but candidate {candidate_id} could not be removed: "
-                    f"{exc}"
+                    f"Discard was recorded but candidate {candidate_id} could not be removed: {exc}"
                 ) from exc
             try:
                 _fsync_dir(self.candidates_dir)
             except OSError:
-                logger.warning("fsync of %s failed after discarding %s", self.candidates_dir,
-                               candidate_id)
+                logger.warning(
+                    "fsync of %s failed after discarding %s", self.candidates_dir, candidate_id
+                )
             return record

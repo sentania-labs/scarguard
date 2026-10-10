@@ -55,9 +55,7 @@ async def sse_connection(
             f"Too many SSE streams for user {user_id} ({user_count}/{MAX_PER_USER})"
         )
     if global_count >= MAX_GLOBAL:
-        raise SSETooManyStreams(
-            f"Too many global SSE streams ({global_count}/{MAX_GLOBAL})"
-        )
+        raise SSETooManyStreams(f"Too many global SSE streams ({global_count}/{MAX_GLOBAL})")
 
     try:
         pipe = redis_client.pipeline()

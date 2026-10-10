@@ -54,10 +54,8 @@ class MetricsStore:
                          ram_used_mb, ram_total_mb, camera_data)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (timestamp, cpu_pct, gpu_pct, gpu_temp,
-                     ram_used, ram_total, camera_data),
+                    (timestamp, cpu_pct, gpu_pct, gpu_temp, ram_used, ram_total, camera_data),
                 )
                 self._conn.commit()
             except Exception:
                 logger.warning("Failed to store metrics sample", exc_info=True)
-
