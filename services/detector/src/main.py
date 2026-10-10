@@ -17,7 +17,6 @@ import logging
 import os
 import signal
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -32,13 +31,11 @@ from config_watcher import ConfigWatcher
 from detector import YOLODetector
 from evaluator import EvaluationRunner
 from events import EventProcessor
-from healthcheck import start_heartbeat
 from metrics_store import MetricsStore
 from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
 from pause_handler import PauseHandler
 from publisher import RedisPublisher
-from scheduler import ArmScheduler
 from snapshot_grabber import SnapshotGrabber
 from stats_collector import StatsCollector
 from stream import RTSPStream
@@ -66,9 +63,20 @@ class CameraState:
     detector: YOLODetector
 
 
+def _validate_frame_skip(value: object) -> int:
+    """Return a valid frame-skip value or reject unsafe configuration."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError("detection.frame_skip must be an integer of at least 1")
+    return value
+
+
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if not isinstance(cfg, dict):
+        raise ValueError("Detector config must be a mapping")
+    _validate_frame_skip(cfg.get("detection", {}).get("frame_skip", 2))
+    return cfg
 
 
 def setup_logging(log_level: str) -> None:
@@ -87,7 +95,10 @@ def _match_notification_rules(class_name: str, rules: list[dict]) -> list[str] |
     signalling that notifications should be suppressed for this class.
     """
     for rule in rules:
-        rule_class = rule.get("class_name", "*")
+        rule_class = rule.get("class_name")
+        if not rule_class:
+            logger.warning("Invalid legacy rule without class_name found; rule disabled.")
+            continue
         if rule_class == "*" or rule_class == class_name:
             return list(rule.get("channels", []))
     return None
@@ -104,7 +115,10 @@ def _match_deterrent_rules(class_name: str, rules: list[dict]) -> list[str]:
     design.
     """
     for rule in rules:
-        rule_class = rule.get("class_name", "*")
+        rule_class = rule.get("class_name")
+        if not rule_class:
+            logger.warning("Invalid legacy rule without class_name found; rule disabled.")
+            continue
         if rule_class == "*" or rule_class == class_name:
             return list(rule.get("groups", []))
     return []
@@ -335,7 +349,81 @@ def _publish_detections(
             )
 
 
+
 def run_camera(
+    camera_cfg: dict,
+    detector: YOLODetector,
+    target_classes: set[str] | None,
+    event_processor: EventProcessor,
+    redis_cfg: dict,
+    frame_skip_ref: AtomicRef[int],
+    armed_ref: AtomicRef[bool],
+    paused_ref: AtomicRef[bool],
+    exclusion_zones_ref: AtomicRef[list[dict]],
+    action_rules_ref: AtomicRef[list[dict]],
+    deterrent_rules_ref: AtomicRef[list[dict]],
+    confidence_ref: AtomicRef[float | None],
+    stop_event: threading.Event,
+    camera_stats: dict[str, dict] | None = None,
+    camera_stats_lock: threading.Lock | None = None,
+    health_tracker: CameraHealthTracker | None = None,
+    visit_tracker: VisitTracker | None = None,
+) -> None:
+    """Run one camera worker, restarting bounded unexpected failures."""
+    name = camera_cfg["name"]
+
+    restart_count = 0
+    while not stop_event.is_set():
+        start_t = time.monotonic()
+        try:
+            _camera_worker(
+                camera_cfg=camera_cfg,
+                detector=detector,
+                target_classes=target_classes,
+                event_processor=event_processor,
+                redis_cfg=redis_cfg,
+                frame_skip_ref=frame_skip_ref,
+                armed_ref=armed_ref,
+                paused_ref=paused_ref,
+                exclusion_zones_ref=exclusion_zones_ref,
+                action_rules_ref=action_rules_ref,
+                deterrent_rules_ref=deterrent_rules_ref,
+                confidence_ref=confidence_ref,
+                stop_event=stop_event,
+                camera_stats=camera_stats,
+                camera_stats_lock=camera_stats_lock,
+                health_tracker=health_tracker,
+                visit_tracker=visit_tracker,
+            )
+            break
+        except Exception as exc:
+            if stop_event.is_set():
+                break
+
+            if time.monotonic() - start_t > 60:
+                restart_count = 0
+
+            restart_count += 1
+            logger.exception(
+                "[%s] Camera worker crashed: %s. Restarting (%d/5)",
+                name,
+                exc,
+                restart_count,
+            )
+
+            if health_tracker is not None:
+                health_tracker.record_failure(name)
+
+            if restart_count >= 5:
+                logger.error("[%s] Camera worker failed 5 times, giving up.", name)
+                if health_tracker is not None:
+                    health_tracker.record_terminal_failure(name)
+                break
+
+            stop_event.wait(5.0)
+
+
+def _camera_worker(
     camera_cfg: dict,
     detector: YOLODetector,
     target_classes: set[str] | None,
@@ -386,7 +474,8 @@ def run_camera(
 
     while not stop_event.is_set():
         frame_count += 1
-        if frame_count % frame_skip_ref.get() != 0:
+        skip_val = max(1, frame_skip_ref.get())
+        if frame_count % skip_val != 0:
             # Advance stream without decoding - saves CPU/GPU on skipped frames
             if not stream.grab():
                 if health_tracker is not None:
@@ -405,7 +494,6 @@ def run_camera(
             continue
 
         # Touch health marker so Docker health check knows we're alive
-        Path("/tmp/healthy").touch(exist_ok=True)
 
         if health_tracker is not None:
             health_tracker.record_frame(name)
@@ -476,12 +564,24 @@ def run_camera(
     logger.info("[%s] Camera thread stopped", name)
 
 
+def _detection_is_healthy(
+    active_cameras: dict[str, CameraState],
+    camera_status: dict[str, dict],
+) -> bool:
+    """Return whether at least one camera worker can make frame progress."""
+    for name, state in active_cameras.items():
+        if not state.thread.is_alive():
+            continue
+        status = camera_status.get(name)
+        if status is not None and status.get("state") == "online":
+            return True
+    return False
+
+
 def main() -> None:
     cfg = load_config()
     setup_logging(cfg.get("system", {}).get("log_level", "info"))
     logger.info("ScarGuard detector starting")
-    start_heartbeat()
-    Path("/tmp/healthy").touch(exist_ok=True)
 
     # ---- Enabled cameras ------------------------------------------------------
     cameras: list[dict] = [c for c in cfg.get("cameras", []) if c.get("enabled", True)]
@@ -496,7 +596,9 @@ def main() -> None:
     # Mutable references so hot-reload can update these without restarting threads.
     armed_ref: AtomicRef[bool] = AtomicRef(sys_cfg.get("armed", True))
     paused_ref: AtomicRef[bool] = AtomicRef(False)
-    frame_skip_ref: AtomicRef[int] = AtomicRef(det_cfg.get("frame_skip", 2))
+    frame_skip_ref: AtomicRef[int] = AtomicRef(
+        _validate_frame_skip(det_cfg.get("frame_skip", 2))
+    )
 
     # ---- Model pool ------------------------------------------------------------
     model_pool = ModelPool(
@@ -535,49 +637,6 @@ def main() -> None:
 
     # ---- Arm/disarm scheduler --------------------------------------------------
     _config_write_lock = threading.Lock()
-
-    def _write_armed_to_config(armed: bool) -> None:
-        """Persist a scheduler-triggered arm/disarm change to scarguard.yml.
-
-        Uses an explicit lock to prevent concurrent YAML read-modify-write from
-        the scheduler thread racing against other in-process config mutations.
-        Atomic write via tempfile + os.replace to prevent partial writes.
-        """
-        with _config_write_lock:
-            try:
-                with open(CONFIG_PATH) as f:
-                    file_cfg = yaml.safe_load(f) or {}
-                file_cfg.setdefault("system", {})["armed"] = armed
-                dir_name = os.path.dirname(CONFIG_PATH) or "."
-                fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".yml.tmp")
-                try:
-                    with os.fdopen(fd, "w") as f:
-                        yaml.dump(file_cfg, f, default_flow_style=False, sort_keys=False)
-                    os.replace(tmp_path, CONFIG_PATH)
-                except BaseException:
-                    os.unlink(tmp_path)
-                    raise
-            except Exception:
-                logger.exception("Failed to write armed=%s to config file", armed)
-
-    def _on_scheduler_transition(armed: bool) -> None:
-        _write_armed_to_config(armed)
-        event_processor.log_system_event("armed" if armed else "disarmed")
-
-    def _make_redis():  # type: ignore[return]
-        import redis
-
-        _pw = os.environ.get("REDIS_PASSWORD", "") or None
-        return redis.Redis(
-            host=redis_cfg.get("host", "redis"),
-            port=int(redis_cfg.get("port", 6379)),
-            password=_pw,
-            decode_responses=True,
-        )
-
-    scheduler = ArmScheduler(armed_ref, _on_scheduler_transition, get_redis=_make_redis)
-    scheduler.configure(sys_cfg.get("schedule", {}), sys_cfg.get("timezone", "UTC"))
-    scheduler.start()
 
     # ---- Metrics store -----------------------------------------------------------
     metrics_store = MetricsStore(db_path=DB_PATH)
@@ -778,6 +837,11 @@ def main() -> None:
         nonlocal known_channels, known_groups
         new_sys = new_cfg.get("system", {})
         new_det = new_cfg.get("detection", {})
+        try:
+            new_frame_skip = _validate_frame_skip(new_det.get("frame_skip", 2))
+        except ValueError as exc:
+            logger.error("Config reload rejected: %s", exc)
+            return
         new_cameras_list: list[dict] = [
             c for c in new_cfg.get("cameras", []) if c.get("enabled", True)
         ]
@@ -820,7 +884,6 @@ def main() -> None:
             event_processor.cooldown_seconds = new_cooldown
             changes.append(f"cooldown_seconds={new_cooldown}")
 
-        new_frame_skip = new_det.get("frame_skip", 2)
         if new_frame_skip != frame_skip_ref.get():
             frame_skip_ref.set(new_frame_skip)
             changes.append(f"frame_skip={new_frame_skip}")
@@ -887,9 +950,7 @@ def main() -> None:
             changes.append(f"camera removed: {name}")
 
         # schedule config
-        new_schedule = new_sys.get("schedule", {})
-        new_tz = new_sys.get("timezone", "UTC")
-        scheduler.configure(new_schedule, new_tz)
+        # We no longer configure the scheduler here, it's owned by the web service.
 
         if changes:
             logger.info("Config reloaded - changes: %s", ", ".join(changes))
@@ -900,10 +961,15 @@ def main() -> None:
     watcher.start()
 
     # ---- Wait for shutdown -----------------------------------------------------
-    global_stop.wait()
+
+    while not global_stop.wait(10.0):
+        status = health_tracker.get_all_status()
+        if _detection_is_healthy(active_cameras, status):
+            Path("/tmp/healthy").touch(exist_ok=True)
+        else:
+            logger.error("No camera workers are making frame progress. Failing healthcheck.")
 
     watcher.stop()
-    scheduler.stop()
     pause_handler.stop()
     eval_runner.stop()
     for name in list(active_cameras.keys()):

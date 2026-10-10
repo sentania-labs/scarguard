@@ -411,6 +411,9 @@ def test_structured_save_valid_tls_still_works(env, http):
     # The redacted camera URL placeholder kept the stored secret.
     assert on_disk["cameras"][0]["rtsp_url"] == "rtsp://localhost/test"
 
+    # A later save carries the revision the previous response returned, as
+    # the config form does (FDY-0566 optimistic concurrency).
+    revision = r.json()["revision"]
     r = http.post(
         "/config/structured",
         json=_structured({
@@ -418,7 +421,7 @@ def test_structured_save_valid_tls_still_works(env, http):
             "domain": "pond.example.com",
             "cert_path": "/config/certs/fullchain.pem",
             "key_path": "/config/tls/privkey.pem",
-        }),
+        }, revision=revision),
     )
     assert r.status_code == 200, r.text
 

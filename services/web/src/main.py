@@ -34,6 +34,8 @@ from routes import (
 )
 from routes import auth as auth_routes
 from routes import users as users_routes
+from scheduler import ArmScheduler
+from upload_limits import RequestLimitMiddleware
 
 app = FastAPI(title="ScarGuard")
 
@@ -56,9 +58,11 @@ app.mount("/model-files", StaticFiles(directory=MODELS_DIR), name="model-files")
 
 # ── Startup ────────────────────────────────────────────────────────────────────
 
+arm_scheduler: ArmScheduler | None = None
+
 @app.on_event("startup")
 async def _startup() -> None:
-    global backup_manager
+    global backup_manager, arm_scheduler
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _ensure_secret_key()
@@ -67,6 +71,8 @@ async def _startup() -> None:
     _ensure_training_tables()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+    arm_scheduler = ArmScheduler()
+    arm_scheduler.start()
 
 
 def _ensure_training_tables() -> None:
@@ -229,7 +235,6 @@ def _is_tls(request: Request) -> bool:
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
-@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
@@ -423,36 +428,17 @@ async def csrf_middleware(request: Request, call_next):
                 )
             return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
 
-        # Require token via header or form field, and verify it matches cookie.
-        # Token can come from X-CSRF-Token header (htmx/fetch) or
-        # _csrf_token form field (plain HTML forms).
-        #
-        # IMPORTANT: We must NOT call request.form() here - doing so in
-        # BaseHTTPMiddleware consumes the body stream, preventing downstream
-        # route handlers from reading Form() fields.  Instead, parse the raw
-        # body bytes (which Starlette caches without breaking form parsing).
+        # Multipart callers must send the header before we parse any files.
+        # Only small URL-encoded HTML forms may use a hidden field; the
+        # outer request limiter bounds this read even without Content-Length.
         submitted_token: str | None = request.headers.get("x-csrf-token")
         if submitted_token is None:
-            content_type = request.headers.get("content-type", "")
-            body = await request.body()
-            if "application/x-www-form-urlencoded" in content_type:
-                params = parse_qs(body.decode())
+            content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if content_type == "application/x-www-form-urlencoded":
+                body = await request.body()
+                params = parse_qs(body.decode(errors="replace"))
                 raw = params.get("_csrf_token", [None])[0]
                 submitted_token = raw if isinstance(raw, str) else None
-            elif "multipart/form-data" in content_type:
-                # Extract _csrf_token from multipart body without calling
-                # request.form().  The token field is always a short text
-                # value placed by the hidden input, so a byte search works.
-                marker = b'name="_csrf_token"\r\n\r\n'
-                idx = body.find(marker)
-                if idx != -1:
-                    start = idx + len(marker)
-                    end = body.find(b"\r\n", start)
-                    try:
-                        raw = body[start:end].decode() if end != -1 else None
-                    except UnicodeDecodeError:
-                        raw = None
-                    submitted_token = raw if isinstance(raw, str) else None
 
         if submitted_token is None or not hmac.compare_digest(submitted_token, submitted_cookie):
             if _wants_html(request):
@@ -478,6 +464,12 @@ async def csrf_middleware(request: Request, call_next):
         )
 
     return response
+
+
+# Starlette executes the most recently added middleware first:
+# authentication -> byte limits/early upload role gate -> CSRF -> routes.
+app.add_middleware(RequestLimitMiddleware)
+app.middleware("http")(auth_middleware)
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────

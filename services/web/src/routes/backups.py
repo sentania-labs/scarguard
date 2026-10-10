@@ -25,6 +25,7 @@ from typing import Any
 import audit
 import config_store
 import redis.asyncio as aioredis
+from event_signing import derive_channel_key, load_key_from_env, sign_event
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -163,11 +164,18 @@ async def trigger_backup(request: Request) -> Response:
     request_id = uuid.uuid4().hex[:12]
     log.info("Backup manually triggered [rid=%s]", request_id)
 
+    # Sign the backup trigger so the sidecar can verify it.
+    sign_key = load_key_from_env()
+    trigger_payload = {"request_id": request_id}
+    if sign_key is not None:
+        channel_key = derive_channel_key(sign_key, TRIGGER_CHANNEL)
+        publish_data = json.dumps(sign_event(trigger_payload, channel_key, TRIGGER_CHANNEL))
+    else:
+        publish_data = json.dumps(trigger_payload)
+
     client = aioredis.Redis(**_redis_params())
     try:
-        subscribers = await client.publish(
-            TRIGGER_CHANNEL, json.dumps({"request_id": request_id}),
-        )
+        subscribers = await client.publish(TRIGGER_CHANNEL, publish_data)
     except Exception:
         log.exception("Failed to publish backup trigger")
         return JSONResponse(

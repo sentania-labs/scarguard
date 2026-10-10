@@ -46,6 +46,7 @@ class AuthConfig(BaseModel):
     lockout_duration_minutes: int = 15
     require_api_auth: bool = False
     nonadmin_rearm_minutes: int = 30
+    rearm_at: str | None = None
 
     @field_validator("nonadmin_rearm_minutes")
     @classmethod
@@ -155,7 +156,14 @@ CONFIG_API_UNSUPPORTED = (
 )
 
 
+class UploadLimitsConfig(BaseModel):
+    model_mb: int = Field(default=500, ge=1, le=16384)
+    dataset_mb: int = Field(default=500, ge=1, le=16384)
+
+
 class SystemConfig(BaseModel):
+    revision: int = 0
+    uploads: UploadLimitsConfig = Field(default_factory=UploadLimitsConfig)
     armed: bool = True
     log_level: str = "info"
     timezone: str = "UTC"
@@ -252,14 +260,14 @@ class ExclusionZoneConfig(BaseModel):
 class NotificationRuleConfig(BaseModel):
     """Maps a detected class (or "*" wildcard) to notification channel names."""
 
-    class_name: str = "*"
+    class_name: str = Field(min_length=1)
     channels: list[str] = []
 
 
 class DeterrentRuleConfig(BaseModel):
     """Maps a detected class (or "*" wildcard) to deterrent group names."""
 
-    class_name: str = "*"
+    class_name: str = Field(min_length=1)
     groups: list[str] = []
 
 
@@ -307,6 +315,13 @@ class DetectionConfig(BaseModel):
     target_classes: list[str] = []
     cooldown_seconds: int = 30
     frame_skip: int = 2
+
+    @field_validator("frame_skip")
+    @classmethod
+    def frame_skip_min(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("frame_skip must be at least 1")
+        return v
 
     @field_validator("confidence_threshold")
     @classmethod

@@ -1,5 +1,14 @@
 # ScarGuard: Current Status
 
+FDY-0568 adds authentication before upload reads, header CSRF for multipart
+browser flows, streamed request/file limits, and matching generated Caddy
+limits. Config UI exposes separate model and dataset/video limits (500 MiB
+defaults). Quoted integer limits in raw YAML are also honored by the proxy.
+Regression tests exercise real ASGI handlers and proxy generation,
+including a 500 MiB synthetic video with bounded Python allocations. Video
+probing and database writes are mocked in that size test; it does not validate
+codec support or inference. No production/device validation was performed.
+
 ## What's Working (Validated)
 
 - **Detection pipeline:** Detector service loads YOLO model, pulls RTSP frames, runs inference, logs to SQLite, publishes to Redis. Running with basic COCO `bird` class model.
@@ -43,7 +52,7 @@
 - **HTML email notifications:** Detection alert emails now use HTML with inline-embedded snapshot images (Content-ID). Plaintext fallback for clients that don't render HTML.
 - **One-click notification feedback:** Each detection event generates a one-time feedback token (UUID4). Email, Discord, and ntfy notifications include feedback links/buttons. Standalone confirmation page (no login required, 7-day token expiry).
 - **Config UI normal/expert modes:** Toggle switch hides advanced fields (stats intervals, backup settings, TLS, auth, schedule, per-camera model overrides, exclusion zones, action rules). `readForm()` preserves all values regardless of visibility.
-- **Docker health checks:** `/health` HTTP endpoint on web service; `/tmp/healthy` touch file for detector and notifier. Compose healthcheck blocks with `start_period` and retry intervals.
+- **Docker health checks:** `/health` HTTP endpoint on web service; `/tmp/healthy` touch file for detector and notifier. Detector health requires at least one live camera worker with progressing frames, so an exhausted worker or all-stalled feeds become unhealthy without taking healthy cameras down. Compose healthcheck blocks with `start_period` and retry intervals.
 - **SSE keepalive:** Event and feed SSE streams emit `: keepalive` comments every 15 seconds to prevent proxy/browser timeouts.
 - **Atomic config writes:** `config_store.save()` uses `tempfile.mkstemp` + `os.replace` to prevent partial writes on crash.
 - **SQLite indexes:** Indexes on `detection_events` for `timestamp`, `camera_name`, `class_name`, and `feedback` columns.
@@ -113,9 +122,19 @@
   `config/caddy_config.py`, runs `caddy validate` and swaps the file atomically
   before reloading, keeping the running config and a `Caddyfile.last-good` on any
   failure. `system.config_api.enabled` no longer routes writes to the 501 config-api
-  scaffold: Caddy ignores it and web refuses to set it. Regression tests:
+  scaffold: Caddy ignores it and web refuses to set it. The FDY-0568 upload
+  request-body caps are rendered by the same generator, so the upload-limit
+  regression test now drives `caddy_config.py generate`. Regression tests:
   `services/web/tests/test_fdy_0569_regression.py`. Not yet exercised against a
   real `caddy` binary or a running stack (tests use a stub `caddy`; CI builds the image).
+
+- **Independent deterrent OFF watchdog (FDY-0556).** Every activation is
+  preceded by a signed, finite Redis lease. A separate OFF-only container
+  sweeps configured devices OFF at startup and after lease expiry, so a killed
+  deterrent process cannot leave an activation unbounded while the host and
+  Tuya Cloud remain reachable. It cannot send ON. Host, power, network, Redis,
+  or cloud failure still relies on device firmware auto-off, which Scott has
+  not verified.
 
 - **Database restore and backup retention (FDY-0600).** `scripts/restore-from-backup.sh`
   no longer depends on a `sqlite3` CLI the backup image never had; it runs

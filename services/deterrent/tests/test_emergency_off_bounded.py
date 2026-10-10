@@ -449,6 +449,7 @@ def test_main_recovers_and_sweeps_with_reconciliation_disabled() -> None:
             patch("cloud_controller.tinytuya.Cloud", side_effect=factory),
             patch("cloud_controller.CLOUD_CALL_TIMEOUT_SEC", 0.03),
             patch.object(main, "load_config", return_value=cfg),
+            patch.object(main, "load_key_from_env", return_value=bytes(range(32))),
             patch.object(main, "start_heartbeat"),
             patch.object(main.actuation_db, "init_db"),
             patch.object(main, "ConfigWatcher"),

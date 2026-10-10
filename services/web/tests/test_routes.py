@@ -28,13 +28,13 @@ class TestDashboard:
 
     def test_disarm_calls_set_armed(self, client, monkeypatch):
         calls = []
-        monkeypatch.setattr("config_store.set_armed", lambda v: calls.append(v))
+        monkeypatch.setattr("config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed")))
         client.post("/disarm")
         assert calls == [False]
 
     def test_arm_calls_set_armed(self, client, monkeypatch):
         calls = []
-        monkeypatch.setattr("config_store.set_armed", lambda v: calls.append(v))
+        monkeypatch.setattr("config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed")))
         client.post("/arm")
         assert calls == [True]
 
@@ -91,6 +91,17 @@ class TestConfig:
         resp = client.post("/config", data={"raw_yaml": "- just\n- a\n- list\n"})
         assert resp.status_code == 200
         assert "Error" in resp.text or "error" in resp.text.lower()
+
+    def test_structured_save_rejects_zero_frame_skip(self, client, monkeypatch):
+        saved = []
+        monkeypatch.setattr("config_store.save", lambda cfg: saved.append(cfg))
+        resp = client.post(
+            "/config/structured",
+            json={"detection": {"frame_skip": 0}},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["ok"] is False
+        assert saved == []
 
     def test_page_populates_form_with_config_values(self, client, monkeypatch):
         """Form fields must reflect values from the config file, not defaults."""

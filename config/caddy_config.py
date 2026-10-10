@@ -13,8 +13,10 @@ reference document only. config/caddy-entrypoint.sh calls it twice:
   on disk never drift apart. Exit status 1 means "kept the current config".
 
 Every value interpolated into the Caddyfile is checked by shared/tls_safety.py
-(the same rules the web service applies on save). ``system.config_api.enabled``
-is ignored: the config-api service is an unauthenticated 501 scaffold, so all
+(the same rules the web service applies on save). ``system.uploads`` sets the
+per-path request body limits (FDY-0568) and is clamped to the range the web
+UI accepts before it is interpolated. ``system.config_api.enabled`` is
+ignored: the config-api service is an unauthenticated 501 scaffold, so all
 traffic, including settings writes, goes to web.
 
 Caddy's ``caddyfile`` linter expects tab indentation - keep the tabs.
@@ -23,6 +25,7 @@ Caddy's ``caddyfile`` linter expects tab indentation - keep the tabs.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -73,7 +76,64 @@ def https_port_suffix(raw: str | None) -> str:
     return "" if port == "443" else f":{int(port)}"
 
 
-def _snippet(tls_active: bool) -> str:
+DEFAULT_UPLOAD_MB = 500
+MAX_UPLOAD_MB = 16384
+# The multipart envelope allowance the web service adds on top of a file limit.
+ORDINARY_REQUEST_BYTES = 1024 * 1024
+_UPLOAD_MB_PATTERN = re.compile(r"[+-]?[0-9](?:_?[0-9])*(?:\.0+)?")
+
+
+def upload_limit_mb(uploads: Any, key: str) -> int:
+    """The configured ``system.uploads.<key>`` in MiB, or the default.
+
+    Mirrors the web service's ``UploadLimitsConfig`` leniently: raw YAML may
+    quote the integer, and the value must sit in 1..16384. Anything else falls
+    back to the default so no unchecked value reaches the Caddyfile.
+    """
+    if not isinstance(uploads, dict):
+        return DEFAULT_UPLOAD_MB
+    value = uploads.get(key, DEFAULT_UPLOAD_MB)
+    if isinstance(value, str):
+        value = value.strip()
+        if not _UPLOAD_MB_PATTERN.fullmatch(value):
+            return DEFAULT_UPLOAD_MB
+        try:
+            value = int(value.split(".", 1)[0])
+        except ValueError:
+            return DEFAULT_UPLOAD_MB
+    if isinstance(value, bool) or not isinstance(value, int):
+        return DEFAULT_UPLOAD_MB
+    if not 1 <= value <= MAX_UPLOAD_MB:
+        return DEFAULT_UPLOAD_MB
+    return value
+
+
+def upload_limit_bytes(uploads: Any, key: str) -> int:
+    """File limit plus the 1 MiB multipart envelope allowance."""
+    return (upload_limit_mb(uploads, key) + 1) * 1024 * 1024
+
+
+def _request_limits(cfg: dict[str, Any]) -> str:
+    system = cfg.get("system")
+    uploads = system.get("uploads") if isinstance(system, dict) else None
+    model_bytes = upload_limit_bytes(uploads, "model_mb")
+    dataset_bytes = upload_limit_bytes(uploads, "dataset_mb")
+    return f"""\t@model_upload path /models /models/
+\trequest_body @model_upload {{
+\t\tmax_size {model_bytes}
+\t}}
+\t@dataset_upload path /admin/training/uploads /admin/training/uploads/
+\trequest_body @dataset_upload {{
+\t\tmax_size {dataset_bytes}
+\t}}
+\t@ordinary_request not path /models /models/ /admin/training/uploads /admin/training/uploads/
+\trequest_body @ordinary_request {{
+\t\tmax_size {ORDINARY_REQUEST_BYTES}
+\t}}
+"""
+
+
+def _snippet(cfg: dict[str, Any], tls_active: bool) -> str:
     hsts_header = (
         '\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains"\n'
         if tls_active else ""
@@ -96,14 +156,18 @@ def _snippet(tls_active: bool) -> str:
 \t\tpath /.git/* /_ignition/* /aws*config.js /config.js
 \t}
 \trespond @probes 404
-\treverse_proxy web:8080
+""" + _request_limits(cfg) + """\treverse_proxy web:8080
 }
 """
 
 
-def render_http_only() -> str:
-    """The safe fallback: plain HTTP on :80, everything proxied to web."""
-    return f"""{_snippet(False)}
+def render_http_only(cfg: dict[str, Any] | None = None) -> str:
+    """The safe fallback: plain HTTP on :80, everything proxied to web.
+
+    Only the clamped upload limits are taken from *cfg*, so this body is
+    well-formed whatever the rest of the document contains.
+    """
+    return f"""{_snippet(cfg or {}, False)}
 :80 {{
 \timport scarguard
 }}
@@ -134,7 +198,7 @@ def render(
 
     mode = tls["mode"]
     if mode == "auto":
-        return f"""{_snippet(True)}
+        return f"""{_snippet(cfg, True)}
 {tls["domain"]} {{
 \timport scarguard
 }}
@@ -148,7 +212,7 @@ def render(
         if missing:
             raise RenderError(f"tls.mode=manual but missing: {', '.join(missing)}")
         suffix = https_port_suffix(https_port)
-        return f"""{_snippet(True)}
+        return f"""{_snippet(cfg, True)}
 :443 {{
 \ttls {tls["cert_path"]} {tls["key_path"]}
 \timport scarguard
@@ -158,7 +222,7 @@ def render(
 \tredir https://{{host}}{suffix}{{uri}} permanent
 }}
 """
-    return render_http_only()
+    return render_http_only(cfg)
 
 
 def caddy_validate(path: str | Path) -> bool:
@@ -217,15 +281,21 @@ def generate(config_path: str, caddyfile_path: str) -> int:
     """Write the startup Caddyfile. Always leaves a usable file; returns 0."""
     caddyfile = Path(caddyfile_path)
     try:
-        body = render(load_config(config_path), os.environ.get("HTTPS_PORT"))
+        cfg = load_config(config_path)
+    except RenderError as exc:
+        log(f"Cannot read config ({exc}) - starting HTTP-only so the UI stays reachable")
+        cfg = {}
+    fallback = render_http_only(cfg)
+    try:
+        body = render(cfg, os.environ.get("HTTPS_PORT"))
     except RenderError as exc:
         log(f"Refusing tls settings ({exc}) - starting HTTP-only so the UI stays reachable")
-        body = render_http_only()
+        body = fallback
     candidate = _write_candidate(caddyfile, body)
-    if body != render_http_only() and not caddy_validate(candidate):
+    if body != fallback and not caddy_validate(candidate):
         log("Generated Caddyfile failed validation - starting HTTP-only")
         _discard(candidate)
-        candidate = _write_candidate(caddyfile, render_http_only())
+        candidate = _write_candidate(caddyfile, fallback)
     os.replace(candidate, caddyfile)
     log("Generated Caddyfile")
     return 0

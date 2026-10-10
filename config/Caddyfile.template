@@ -43,6 +43,19 @@
 		path /.git/* /_ignition/* /aws*config.js /config.js
 	}
 	respond @probes 404
+	# Defaults; the active generator reads system.uploads from scarguard.yml.
+	@model_upload path /models /models/
+	request_body @model_upload {
+		max_size 525336576
+	}
+	@dataset_upload path /admin/training/uploads /admin/training/uploads/
+	request_body @dataset_upload {
+		max_size 525336576
+	}
+	@ordinary_request not path /models /models/ /admin/training/uploads /admin/training/uploads/
+	request_body @ordinary_request {
+		max_size 1048576
+	}
 	reverse_proxy web:8080
 }
 

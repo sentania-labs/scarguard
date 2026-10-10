@@ -543,6 +543,11 @@ function readForm() {
 
   return {
     system: {
+      revision: parseInt(document.getElementById("sys-revision").value, 10) || 0,
+      uploads: {
+        model_mb: Number(document.getElementById("upload-model-mb").value),
+        dataset_mb: Number(document.getElementById("upload-dataset-mb").value),
+      },
       armed: document.getElementById("sys-armed").checked,
       log_level: document.getElementById("sys-log-level").value,
       timezone: document.getElementById("sys-timezone").value.trim(),
@@ -748,6 +753,11 @@ async function saveConfig() {
         : "Config saved. Changes take effect within ~10 seconds.";
       const warnings = Array.isArray(result.warnings) ? result.warnings : [];
       _showBanner(warnings.length ? "warn" : "ok", base, warnings);
+      // Update the hidden revision so subsequent saves don't get 409.
+      if (result.revision != null) {
+        var revEl = document.getElementById("sys-revision");
+        if (revEl) revEl.value = String(result.revision);
+      }
       // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
       // (redacted - secrets are never in the default response).
       try {

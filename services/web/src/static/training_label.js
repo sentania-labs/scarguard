@@ -297,7 +297,7 @@
            + "&detection_pass=" + encodeURIComponent(detail.dataset.filterDetectionPass || "");
     var url = "/admin/training/uploads/" + uploadId + "/events/" + eventId + "/review" + qs;
 
-    fetch(url, { method: "POST", body: fd, credentials: "same-origin" })
+    fetch(url, { method: "POST", body: fd, headers: {"X-CSRF-Token": getCsrfToken()}, credentials: "same-origin" })
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.text();

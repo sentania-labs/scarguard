@@ -13,12 +13,14 @@ import uuid
 from pathlib import Path
 
 import db as db_module
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
 from route_auth import current_role, require_admin, require_viewer
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.responses import Response
+from upload_limits import file_limit, upload_form
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +32,9 @@ MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov"}
 MODEL_EXTENSIONS = {".pt", ".engine", ".onnx"}
 MAX_DURATION_SECONDS = 60
-_DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
-UPLOAD_CHUNK_SIZE = int(os.environ.get("TRAINING_UPLOAD_CHUNK_SIZE", str(_DEFAULT_CHUNK_SIZE)))
-MAX_UPLOAD_BYTES: int | None = (
-    int(os.environ["TRAINING_UPLOAD_MAX_BYTES"])
-    if "TRAINING_UPLOAD_MAX_BYTES" in os.environ
-    else 500 * 1024 * 1024  # 500 MB default
-)
+UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
+
+
 PAGE_SIZE = 25
 
 
@@ -287,18 +285,28 @@ async def uploads_list_page(
     response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("training-upload", capacity=10, window_seconds=3600))],
 )
-async def upload_video(
-    request: Request,
-    file: UploadFile = File(...),
-    target_class_hint: str = Form(""),
-    detector_model: str = Form(""),
-    confidence_threshold: str = Form(""),
-    hints: str = Form(""),
+async def upload_video(request: Request) -> Response:
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
+    async with upload_form(request, "/admin/training/uploads") as form:
+        file = form.get("file")
+        if not isinstance(file, StarletteUploadFile):
+            return JSONResponse({"error": "File required"}, status_code=422)
+        fields = {key: str(form.get(key, "")) for key in
+                  ("target_class_hint", "detector_model", "confidence_threshold", "hints")}
+        return await _save_video(request, file, **fields)
+
+
+async def _save_video(
+    request: Request, file: StarletteUploadFile, target_class_hint: str,
+    detector_model: str, confidence_threshold: str, hints: str,
 ) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
 
+    max_upload_bytes = file_limit("/admin/training/uploads")
     filename = file.filename or "upload"
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_VIDEO_EXTENSIONS:
@@ -341,10 +349,10 @@ async def upload_video(
                 if not chunk:
                     break
                 bytes_written += len(chunk)
-                if MAX_UPLOAD_BYTES is not None and bytes_written > MAX_UPLOAD_BYTES:
+                if bytes_written > max_upload_bytes:
                     return _error_response(
                         request,
-                        f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+                        f"File too large (max {max_upload_bytes // (1024 * 1024)} MB)",
                     )
                 f.write(chunk)
 

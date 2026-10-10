@@ -9,12 +9,14 @@ from typing import Any
 
 import config_store
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
 from route_auth import require_admin, require_viewer
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.responses import Response
+from upload_limits import file_limit, upload_form
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +25,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/models"))
 ALLOWED_EXTENSIONS = {".pt", ".engine", ".onnx"}
-_DEFAULT_CHUNK_SIZE = 4 * 1024 * 1024
-UPLOAD_CHUNK_SIZE = int(os.environ.get("MODEL_UPLOAD_CHUNK_SIZE", str(_DEFAULT_CHUNK_SIZE)))
-if UPLOAD_CHUNK_SIZE <= 0:
-    raise ValueError(
-        f"MODEL_UPLOAD_CHUNK_SIZE must be a positive integer (got {UPLOAD_CHUNK_SIZE}); "
-        f"default is {_DEFAULT_CHUNK_SIZE} bytes"
-    )
-MAX_UPLOAD_BYTES = int(os.environ["MODEL_UPLOAD_MAX_BYTES"]) if "MODEL_UPLOAD_MAX_BYTES" in os.environ else None
+UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
+
 
 _CLASSES_REQUEST_CHANNEL = "scarguard:model.classes.request"
 _CLASSES_RESPONSE_PREFIX = "scarguard:model.classes.response:"
@@ -71,11 +67,22 @@ async def models_page(request: Request, uploaded: str = "") -> Response:
     "", response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("model-upload", capacity=10, window_seconds=3600))],
 )
-async def upload_model(request: Request, file: UploadFile = File(...)) -> Response:
-    """Upload a new model file. Admin only - writes to shared /models volume."""
+async def upload_model(request: Request) -> Response:
     gate = require_admin(request)
     if not isinstance(gate, dict):
         return gate
+    async with upload_form(request, "/models") as form:
+        file = form.get("file")
+        if not isinstance(file, StarletteUploadFile):
+            return JSONResponse({"error": "File required"}, status_code=422)
+        return await _save_model(request, file)
+
+
+async def _save_model(request: Request, file: StarletteUploadFile) -> Response:
+    gate = require_admin(request)
+    if not isinstance(gate, dict):
+        return gate
+    max_upload_bytes = file_limit("/models")
     filename = file.filename or ""
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
@@ -108,11 +115,11 @@ async def upload_model(request: Request, file: UploadFile = File(...)) -> Respon
                 if not chunk:
                     break
                 bytes_written += len(chunk)
-                if MAX_UPLOAD_BYTES is not None and bytes_written > MAX_UPLOAD_BYTES:
+                if bytes_written > max_upload_bytes:
                     temp_file.close()
                     temp_file_path.unlink(missing_ok=True)
                     files = _list_files()
-                    max_size_mb = round(MAX_UPLOAD_BYTES / 1_048_576, 1)
+                    max_size_mb = round(max_upload_bytes / 1_048_576, 1)
                     return templates.TemplateResponse(
                         request,
                         "models.html",

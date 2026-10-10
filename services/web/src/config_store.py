@@ -163,6 +163,11 @@ def save(cfg: dict, *, require_encryption: bool = False) -> None:
     """
     global _cache_cfg, _cache_mtime_ns, _cache_loaded_at
     import tempfile
+
+    # Increment optimistic revision
+    if isinstance(cfg.get("system"), dict):
+        cfg["system"]["revision"] = cfg["system"].get("revision", 0) + 1
+
     # Migrate first so legacy keys become new keys (preserves their data);
     # THEN strip any still-present stale keys (raw YAML edits only).
     _migrate_in_place(cfg)
