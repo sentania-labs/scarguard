@@ -14,7 +14,7 @@ from typing import Optional
 import redis as redis_lib
 import yaml
 from atomic_ref import AtomicRef
-from channel_dispatcher import ChannelDispatcher
+from channel_dispatcher import ChannelDispatcher, delivery_settings
 from config_watcher import ConfigWatcher
 from digest_scheduler import DigestScheduler
 from discord import DiscordNotifier
@@ -133,7 +133,7 @@ def dispatch(
     With a *dispatcher* (the live notifier path) the event is handed to each
     channel's own bounded queue and this call returns at once; a slow or
     stalled channel can therefore never hold up another channel or the
-    caller. Without one (digest reports, direct callers) sends run inline:
+    caller. Without one (direct callers and tests) sends run inline:
     if a notifier raises, the event is enqueued for retry when a queue is
     provided, otherwise the error is logged and the next notifier is still
     attempted.
@@ -397,14 +397,18 @@ def main() -> None:
         )
     # One bounded queue and delivery thread per channel; each also retries its
     # own channel's queued entries, so a stalled relay only ever stalls itself.
-    dispatcher = ChannelDispatcher(queue)
+    queue_size, send_deadline = delivery_settings(cfg.get("notifications", {}))
+    dispatcher = ChannelDispatcher(queue, max_pending=queue_size, send_deadline=send_deadline)
     dispatcher.sync(notifiers)
 
     # ---- Digest scheduler --------------------------------------------------------
+    # Digests go through the same per-channel queues as live alerts, so a
+    # stalled channel cannot hold up the others and failures reach the retry queue.
     digest_scheduler = DigestScheduler(
         dispatch_fn=dispatch,
         notifiers=notifiers,
         notifiers_lock=notifiers_lock,
+        dispatcher=dispatcher,
     )
     report_cfg = cfg.get("system", {}).get("summary_report", {})
     digest_scheduler.configure(report_cfg, tz_name)
@@ -434,6 +438,7 @@ def main() -> None:
         with notifiers_lock:
             notifiers.clear()
             notifiers.extend(new_notifiers)
+        dispatcher.configure(*delivery_settings(new_cfg.get("notifications", {})))
         dispatcher.sync(new_notifiers)
         if new_notifiers:
             logger.info(

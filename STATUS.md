@@ -179,14 +179,19 @@ codec support or inference. No production/device validation was performed.
   default) after which the event goes to the retry queue and the channel is
   marked stalled until the attempt ends, a full queue (50 default) spills to the
   retry queue rather than dropping, and each channel retries only its own
-  entries. The retry file is written atomically (temp file, fsync, rename) and
-  shutdown persists waiting and in-flight events so a restart delivers them.
+  entries. Both bounds are `scarguard.yml` settings (`notifications.delivery`),
+  editable on the config page's Notifications tab and applied on reload.
+  Scheduled digests use the same per-channel queues and retry queue. The retry file is written atomically (temp file, fsync, rename) and
+  shutdown persists waiting and in-flight events (including a failure whose
+  outcome is still being recorded when the grace ends) so a restart delivers them.
   Every outcome is logged with the channel name and a running counter. Email and
-  Discord senders and their configuration are unchanged. See CONFIG_REFERENCE.md
+  Discord senders and their channel configuration are unchanged. See CONFIG_REFERENCE.md
   "Notification delivery queues". Regression test:
   `services/notifier/tests/test_fdy_0572_regression.py` (stalled and delayed
   local SMTP relays, local Discord fixture, the real subscribe loop, interrupted
-  saves, restart from the file). Not exercised against a production relay or
+  saves, restart from the file, start-up and reload through the real `main()`,
+  scheduled digests) and `services/web/tests/test_fdy_0572_delivery_config.py`
+  (config page, save and form). Not exercised against a production relay or
   Discord, nor with the container's SIGTERM path end to end; a stalled attempt
   still holds its thread until the sender's socket timeouts fire.
 

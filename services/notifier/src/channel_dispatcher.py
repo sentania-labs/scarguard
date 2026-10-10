@@ -30,19 +30,18 @@ running counter, and exposed through :meth:`ChannelDispatcher.snapshot`):
   event to the retry queue immediately, waits a bounded grace for in-flight
   attempts and persists those too, so a restart delivers them.
 
-Operational tunables (environment, with defaults; nothing in
-``scarguard.yml`` changes): ``NOTIFIER_CHANNEL_QUEUE_SIZE`` and
-``NOTIFIER_SEND_DEADLINE`` (seconds).
+Tunables live in ``scarguard.yml`` under ``notifications.delivery``
+(``queue_size``, ``send_deadline_seconds``), edited on the config page's
+Notifications tab and applied on every config reload; see
+:func:`delivery_settings`.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import queue
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -51,27 +50,40 @@ from notification_queue import WORKER_INTERVAL, NotificationQueue, QueueEntry
 logger = logging.getLogger(__name__)
 
 
-def _env_positive(name: str, default: float, cast: Callable[[str], Any]) -> Any:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        value = cast(raw)
-    except ValueError:
-        logger.warning("%s=%r is not a number - using default %s", name, raw, default)
-        return default
-    if value <= 0:
-        logger.warning("%s=%r must be positive - using default %s", name, raw, default)
-        return default
-    return value
-
-
 # Undelivered events a channel may hold before further ones spill to the retry queue.
-DEFAULT_QUEUE_SIZE: int = _env_positive("NOTIFIER_CHANNEL_QUEUE_SIZE", 50, int)
+DEFAULT_QUEUE_SIZE = 50
+QUEUE_SIZE_RANGE = (1, 1000)
 # Longest a single delivery attempt may run before it counts as failed (seconds).
-DEFAULT_SEND_DEADLINE: float = _env_positive("NOTIFIER_SEND_DEADLINE", 60.0, float)
+DEFAULT_SEND_DEADLINE = 60
+SEND_DEADLINE_RANGE = (5, 600)
 # Time allowed at shutdown for in-flight attempts to finish before they are persisted.
 STOP_GRACE: float = 5.0
+
+
+def _bounded_int(delivery: dict, key: str, default: int, bounds: tuple[int, int]) -> int:
+    raw = delivery.get(key, default)
+    low, high = bounds
+    if isinstance(raw, bool) or not isinstance(raw, int) or not low <= raw <= high:
+        logger.warning(
+            "notifications.delivery.%s=%r is not a whole number between %d and %d - using %d",
+            key, raw, low, high, default,
+        )
+        return default
+    return raw
+
+
+def delivery_settings(notif_cfg: Any) -> tuple[int, float]:
+    """``(queue_size, send_deadline)`` from the ``notifications`` config section.
+
+    The web config model enforces the same ranges on save; a hand-edited
+    out-of-range or non-numeric value falls back to the default (logged).
+    """
+    delivery = notif_cfg.get("delivery") if isinstance(notif_cfg, dict) else None
+    if not isinstance(delivery, dict):
+        delivery = {}
+    queue_size = _bounded_int(delivery, "queue_size", DEFAULT_QUEUE_SIZE, QUEUE_SIZE_RANGE)
+    deadline = _bounded_int(delivery, "send_deadline_seconds", DEFAULT_SEND_DEADLINE, SEND_DEADLINE_RANGE)
+    return queue_size, float(deadline)
 
 
 @dataclass
@@ -95,7 +107,8 @@ class _Attempt:
     completes (success removes a retry entry it may have been given;
     failure queues one unless it already has one) or a waiter gives up on it
     via :meth:`ensure_retry`, which queues the event for retry so nothing is
-    lost if the attempt never returns before the process ends.
+    lost if the attempt never returns before the process ends. ``done`` is
+    set only after the completed attempt's outcome has been recorded.
     """
 
     def __init__(self, worker: ChannelWorker, event: dict[str, Any], entry: QueueEntry | None) -> None:
@@ -118,13 +131,18 @@ class _Attempt:
         except Exception as exc:  # any sender failure means retry
             self.error = exc
         elapsed = time.monotonic() - self.started
+        # Settle under the lock and only then mark the attempt done: until the
+        # outcome is recorded, ensure_retry() (shutdown's persist_inflight)
+        # either queues the event itself or waits for the settlement, so a
+        # failure finishing during the stop grace is never lost on exit.
         with self.lock:
-            self.done = True
-            late_entry = self.retry_entry
-        try:
-            self.worker._settle(self, late_entry, elapsed)
-        except Exception:
-            logger.exception("[%s] failed to record delivery outcome", self.worker.name)
+            try:
+                self.worker._settle(self, self.retry_entry, elapsed)
+            except Exception:
+                logger.exception("[%s] failed to record delivery outcome", self.worker.name)
+            finally:
+                self.done = True
+        self.worker._release(self)
 
     def ensure_retry(self, reason: str) -> bool:
         """Queue the event for retry unless the attempt finished or already has an entry."""
@@ -206,6 +224,13 @@ class ChannelWorker:
 
     def join(self, timeout: float) -> None:
         self._thread.join(max(0.0, timeout))
+
+    def configure(self, max_pending: int, send_deadline: float) -> None:
+        """Apply new bounds (config reload). Events already queued stay queued;
+        a smaller queue only refuses new events until it drains below the bound."""
+        with self._pending.mutex:
+            self._pending.maxsize = max_pending
+        self._deadline = send_deadline
 
     def submit(self, event: dict[str, Any]) -> str:
         """Hand *event* to the channel without blocking.
@@ -342,10 +367,13 @@ class ChannelWorker:
                 self.name, count, self.retry_queue.depth,
             )
 
-    def _settle(self, attempt: _Attempt, late_entry: QueueEntry | None, elapsed: float) -> None:
-        """Record the outcome of a completed attempt (called on the attempt's thread)."""
+    def _release(self, attempt: _Attempt) -> None:
+        """Forget a settled attempt so the channel is no longer stalled by it."""
         if attempt is self._current:
             self._current = None
+
+    def _settle(self, attempt: _Attempt, late_entry: QueueEntry | None, elapsed: float) -> None:
+        """Record the outcome of a completed attempt (attempt's thread, ``attempt.lock`` held)."""
         if attempt.error is None:
             self._bump("delivered")
             if late_entry is not None:
@@ -416,6 +444,21 @@ class ChannelDispatcher:
         self._workers[name] = worker
         worker.start()
         return worker
+
+    def configure(self, max_pending: int, send_deadline: float) -> None:
+        """Apply ``notifications.delivery`` bounds to every channel, current and future."""
+        with self._lock:
+            changed = (max_pending, send_deadline) != (self._max_pending, self._send_deadline)
+            self._max_pending = max_pending
+            self._send_deadline = send_deadline
+            workers = list(self._workers.values())
+        for worker in workers:
+            worker.configure(max_pending, send_deadline)
+        if changed:
+            logger.info(
+                "Notification delivery bounds: queue_size=%d per channel, send deadline %.0fs",
+                max_pending, send_deadline,
+            )
 
     def sync(self, notifiers: list) -> None:
         """Match workers to *notifiers*: start new channels, swap senders, retire removed ones.

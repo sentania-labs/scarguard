@@ -18,6 +18,7 @@ from config_model import (
     ActuationConfig,
     CameraConfig,
     DetectionConfig,
+    NotificationDeliveryConfig,
     NotificationsConfig,
     StructuredConfigPayload,
     SystemConfig,
@@ -84,6 +85,18 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
             )
             return model_cls()
 
+    def _notifications_section(data: Any) -> NotificationsConfig:
+        # A bad hand-edited delivery bound must not discard the channels the
+        # page's destination-security table reports on: fall back on
+        # ``delivery`` alone.
+        if isinstance(data, dict) and "delivery" in data:
+            try:
+                NotificationDeliveryConfig.model_validate(data["delivery"])
+            except Exception as exc:
+                log.warning("Config section notifications.delivery failed validation, using defaults: %s", exc)
+                data = {k: v for k, v in data.items() if k != "delivery"}
+        return _section(NotificationsConfig, data)
+
     if not isinstance(raw_cfg, dict):
         return StructuredConfigPayload()
 
@@ -106,7 +119,7 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         system=_section(SystemConfig, raw_cfg.get("system", {})),
         cameras=cameras,
         detection=_section(DetectionConfig, raw_cfg.get("detection", {})),
-        notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
+        notifications=_notifications_section(raw_cfg.get("notifications", {})),
         tls=_section(TLSConfig, raw_cfg.get("tls", {})),
         deterrent=_section(ActuationConfig, raw_cfg.get("deterrent", {})),
         training=_section(TrainingConfig, raw_cfg.get("training", {})),
@@ -548,6 +561,21 @@ async def save_structured_config(request: Request) -> Response:
     if dest_errors:
         return _destination_error_response(dest_errors, uuid.uuid4().hex[:8])
     existing["notifications"]["channels"] = merged_channels
+    # Delivery bounds: written only when the form sent them, so a client
+    # without the fields (cached page, API caller) keeps the stored values.
+    # A partial delivery object only changes the fields it carries.
+    if "delivery" in payload.notifications.model_fields_set:
+        stored_delivery = existing["notifications"].get("delivery")
+        merged_delivery = {
+            **(stored_delivery if isinstance(stored_delivery, dict) else {}),
+            **payload.notifications.delivery.model_dump(exclude_unset=True),
+        }
+        try:
+            delivery = NotificationDeliveryConfig.model_validate(merged_delivery)
+        except ValidationError:
+            # The stored value is itself invalid (hand-edited): use what was sent.
+            delivery = payload.notifications.delivery
+        existing["notifications"]["delivery"] = delivery.model_dump()
 
     # TLS - detect changes so we can tell the UI that Caddy will reload.
     def _normalize_tls(raw: dict) -> dict:

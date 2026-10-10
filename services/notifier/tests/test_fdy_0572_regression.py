@@ -13,6 +13,14 @@ On the tree before this change ``channel_dispatcher`` does not exist and
 ``dispatch`` sends inline on the caller's thread, so the module fails to
 import and every case fails.
 
+Correction (review findings): the delivery bounds come from
+``notifications.delivery`` in ``scarguard.yml`` (the config UI writes them)
+and are applied at start-up and on reload by the real ``main.main()``;
+a failed send whose outcome is still being recorded when shutdown's grace
+ends is preserved rather than lost; scheduled digests go through the same
+per-channel queues. On the tree before the correction ``delivery_settings``
+does not exist, so the module fails to import and every case fails.
+
 Placeholder credentials are assembled at runtime from parts so that no
 credential-shaped literal appears in the source.
 """
@@ -30,9 +38,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import main as notifier_main
 import notification_queue
 import pytest
-from channel_dispatcher import ChannelDispatcher
+import yaml
+from channel_dispatcher import ChannelDispatcher, delivery_settings
 from conftest import SAMPLE_EVENT, CertSet, FakeNet, HTTPFixture, SMTPFixture, make_certs
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
@@ -667,3 +677,226 @@ class TestHealthyFlows:
         assert sorted(e["event"]["seq"] for e in read_queue_file(path)) == [0, 1, 2, 7]
         unstall(stalled_smtp, dispatcher)
         assert wait_until(lambda: not worker.stalled, 5)
+
+
+# ── Correction: bounds from scarguard.yml, settlement at shutdown, digests ──
+
+
+DIGEST_REPORT = {
+    "_digest": True,
+    "frequency": "daily",
+    "period_label": "Last 24 hours",
+    "generated_at": "2026-10-10T06:00:00+00:00",
+    "detections": {"total": 3, "change_pct": 0, "by_class": {"great_blue_heron": 3}},
+    "visits": {"total": 1, "top": []},
+    "performance": {"status": "green", "avg_cpu_pct": None, "avg_gpu_pct": None,
+                    "avg_gpu_temp": None, "camera_offline_total": 0},
+    "storage": {"total_mb": 1, "snapshots_mb": 1, "database_mb": 0, "models_mb": 0},
+    "training": {"protected_events": 0, "pruneable_events": 0, "fp_rate_pct": None},
+}
+
+
+class MainHarness:
+    """Runs the real ``main.main()`` against a config file in *tmp_path*.
+
+    Only process-level edges are replaced: the heartbeat file, signal
+    handlers, the retry-file location, the config watcher's polling thread
+    (its callback is captured so a reload can be triggered directly) and
+    the Redis subscriber, which runs *scenario* with the live dispatcher and
+    returns, after which ``main()`` performs its normal shutdown.
+    """
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cfg: dict[str, Any]) -> None:
+        self.config_path = tmp_path / "scarguard.yml"
+        self.config_path.write_text(yaml.safe_dump(cfg))
+        self.queue, self.queue_path = make_queue(tmp_path)
+        self.on_change: Callable[[dict], None] | None = None
+        self.dispatcher: ChannelDispatcher | None = None
+        self.scheduler: Any = None
+        harness = self
+
+        class CapturingWatcher:
+            def __init__(self, path: str, on_change: Callable[[dict], None], *a: Any, **kw: Any) -> None:
+                harness.on_change = on_change
+
+            def start(self) -> None:
+                pass
+
+            def stop(self) -> None:
+                pass
+
+        class CapturingScheduler(notifier_main.DigestScheduler):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                harness.scheduler = self
+
+        monkeypatch.setattr(notifier_main, "CONFIG_PATH", str(self.config_path))
+        monkeypatch.setattr(notifier_main, "start_heartbeat", lambda *a, **kw: None)
+        monkeypatch.setattr(notifier_main.signal, "signal", lambda *a, **kw: None)
+        monkeypatch.setattr(notifier_main, "NotificationQueue", lambda: self.queue)
+        monkeypatch.setattr(notifier_main, "ConfigWatcher", CapturingWatcher)
+        monkeypatch.setattr(notifier_main, "DigestScheduler", CapturingScheduler)
+
+    def run(self, monkeypatch: pytest.MonkeyPatch, scenario: Callable[[ChannelDispatcher], None]) -> None:
+        def fake_subscribe_loop(*args: Any, dispatcher: ChannelDispatcher | None = None, **kw: Any) -> None:
+            assert dispatcher is not None, "main() must hand the subscriber its dispatcher"
+            self.dispatcher = dispatcher
+            scenario(dispatcher)
+
+        monkeypatch.setattr(notifier_main, "subscribe_loop", fake_subscribe_loop)
+        notifier_main.main()
+
+
+class TestDeliveryBoundsFromConfig:
+    def test_bounds_follow_scarguard_yml_at_start_and_reload(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, stalled_smtp: StalledServer,
+    ) -> None:
+        # No second configuration path: the retired environment variables are ignored.
+        monkeypatch.setenv("NOTIFIER_CHANNEL_QUEUE_SIZE", "999")
+        monkeypatch.setenv("NOTIFIER_SEND_DEADLINE", "1")
+        cfg = {"notifications": {
+            "channels": [email_channel()],
+            "delivery": {"queue_size": 3, "send_deadline_seconds": 45},
+        }}
+        harness = MainHarness(monkeypatch, tmp_path, cfg)
+        seen: dict[str, Any] = {}
+
+        def scenario(dispatcher: ChannelDispatcher) -> None:
+            worker = dispatcher.worker("email")
+            assert worker is not None
+            seen["start"] = (worker._pending.maxsize, worker._deadline)
+
+            # Operator saves new bounds on the config page -> config reload.
+            assert harness.on_change is not None
+            harness.on_change({"notifications": {
+                "channels": [email_channel()],
+                "delivery": {"queue_size": 1, "send_deadline_seconds": 30},
+            }})
+            assert dispatcher.worker("email") is worker
+            seen["reload"] = (worker._pending.maxsize, worker._deadline)
+
+            # The configured bound governs: one send hangs on the relay, one
+            # event waits, the third spills to the retry queue.
+            lock = threading.Lock()
+            for n in range(3):
+                dispatch(_event(n), [worker.notifier], lock, harness.queue, dispatcher)
+            assert wait_until(lambda: len(stalled_smtp.connections) == 1 and worker.depth == 1, 3)
+            seen["snapshot"] = dispatcher.snapshot()["email"]
+            stalled_smtp.close()
+
+        harness.run(monkeypatch, scenario)
+        assert seen["start"] == (3, 45.0)
+        assert seen["reload"] == (1, 30.0)
+        assert seen["snapshot"]["overflowed"] == 1
+        assert seen["snapshot"]["pending"] == 1
+
+    def test_invalid_values_fall_back_to_defaults(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.WARNING)
+        assert delivery_settings({}) == (50, 60.0)
+        assert delivery_settings({"delivery": None}) == (50, 60.0)
+        assert delivery_settings({"delivery": {"queue_size": 0, "send_deadline_seconds": "fast"}}) == (50, 60.0)
+        assert delivery_settings({"delivery": {"queue_size": True, "send_deadline_seconds": 601}}) == (50, 60.0)
+        assert delivery_settings({"delivery": {"queue_size": 1000, "send_deadline_seconds": 5}}) == (1000, 5.0)
+        assert "notifications.delivery.queue_size" in caplog.text
+        assert "notifications.delivery.send_deadline_seconds" in caplog.text
+
+
+class TestSettlementAtShutdown:
+    def test_failure_being_recorded_when_grace_ends_is_preserved(
+        self, tmp_path: Path, stalled_smtp: StalledServer,
+    ) -> None:
+        email = EmailNotifier(email_channel())
+        queue, path = make_queue(tmp_path)
+        dispatcher = ChannelDispatcher(queue, send_deadline=30, retry_interval=60, stop_grace=0.3)
+        dispatcher.sync([email])
+        dispatch(_event(1), [email], threading.Lock(), queue, dispatcher)
+        assert wait_until(lambda: len(stalled_smtp.connections) == 1, 3)
+        worker = dispatcher.worker("email")
+        assert worker is not None
+
+        # Hold the attempt between "send failed" and "outcome recorded" -
+        # the window in which shutdown used to treat the attempt as finished.
+        entered = threading.Event()
+        release = threading.Event()
+        real_settle = worker._settle
+
+        def slow_settle(*args: Any) -> None:
+            entered.set()
+            release.wait(5)
+            real_settle(*args)
+
+        worker._settle = slow_settle  # type: ignore[method-assign]
+        stalled_smtp.close()          # the hanging SMTP send now fails
+        assert entered.wait(5)
+
+        at_return: dict[str, Any] = {}
+
+        def stop() -> None:
+            dispatcher.stop()
+            at_return["depth"] = queue.depth
+            at_return["file"] = read_queue_file(path) if path.exists() else []
+
+        stopper = threading.Thread(target=stop)
+        stopper.start()
+        time.sleep(1.0)               # well past the 0.3 s grace
+        release.set()
+        stopper.join(5)
+        assert not stopper.is_alive()
+        # When stop() returns (and the process may exit) the event is on disk.
+        assert at_return["depth"] == 1
+        assert [e["event"]["seq"] for e in at_return["file"]] == [1]
+        # Recorded once, by the settlement, not duplicated by the shutdown path.
+        assert worker.snapshot()["failed"] == 1
+        assert worker.snapshot()["persisted"] == 0
+        assert queue.depth == 1
+
+
+class TestScheduledDigest:
+    def test_digest_goes_through_channel_queues_and_retry(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        stalled_smtp: StalledServer, discord_server: HTTPFixture,
+    ) -> None:
+        import digest
+
+        monkeypatch.setattr(digest, "generate", lambda frequency: dict(DIGEST_REPORT))
+        cfg = {
+            "system": {"summary_report": {
+                "enabled": True, "frequency": "daily", "time": "07:00",
+                "channels": ["email", "discord"],
+            }},
+            "notifications": {"channels": [email_channel(), discord_channel()]},
+        }
+        harness = MainHarness(monkeypatch, tmp_path, cfg)
+        seen: dict[str, Any] = {}
+
+        def scenario(dispatcher: ChannelDispatcher) -> None:
+            scheduler = harness.scheduler
+            assert scheduler is not None
+            result: list[bool] = []
+            sender = threading.Thread(
+                target=lambda: result.append(scheduler._send_digest("daily", ["email", "discord"])),
+                daemon=True,
+            )
+            started = time.monotonic()
+            sender.start()
+            sender.join(3)
+            seen["elapsed"] = time.monotonic() - started
+            seen["result"] = list(result)
+            # Discord delivers while the email relay is still hanging.
+            seen["discord"] = wait_until(lambda: len(discord_server.requests) == 1, 3)
+            seen["email_connections"] = len(stalled_smtp.connections)
+            # The relay goes away: the email digest fails and lands on the retry queue.
+            stalled_smtp.close()
+            seen["retry"] = wait_until(lambda: harness.queue.depth_by_type().get("email") == 1, 5)
+            seen["snapshot"] = dispatcher.snapshot()
+
+        harness.run(monkeypatch, scenario)
+        assert seen["result"] == [True]
+        assert seen["elapsed"] < 2.0, "the digest must not wait on the stalled SMTP relay"
+        assert seen["discord"] is True
+        assert seen["email_connections"] == 1
+        assert seen["retry"] is True
+        assert seen["snapshot"]["discord"]["delivered"] == 1
+        assert seen["snapshot"]["email"]["failed"] == 1
+        stored = read_queue_file(harness.queue_path)
+        assert [(e["notifier_type"], e["event"].get("_digest")) for e in stored] == [("email", True)]
