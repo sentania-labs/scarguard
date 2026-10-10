@@ -82,7 +82,7 @@ codec support or inference. No production/device validation was performed.
 - **Docker Compose stack:** All seven services (redis, caddy, detector, web, notifier, deterrent, log-streamer) start and communicate correctly.
 - **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required).
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
-- **Notifier resilience:** Internet interruptions handled with per-notifier retry queue and exponential backoff.
+- **Notifier resilience:** Each channel is delivered by its own bounded queue and thread with a per-attempt deadline, so a hanging SMTP relay cannot block Discord or the Redis subscriber; failures, timeouts and overflow go to the disk-backed retry queue (atomic writes, exponential backoff, reloaded on restart).
 - **Detection exclusion zones:** Per-camera normalized polygon zones drawn in the config editor canvas; detections inside are excluded.
 - **Notification rules:** Per-camera, per-class channel routing. First-match-wins rules are stored in YAML and editable in the config GUI.
 - **Enhanced event log:** Filter by camera, class, date range. `actions_triggered` column shows which channels were notified.
@@ -168,6 +168,27 @@ codec support or inference. No production/device validation was performed.
   includes every service's tests. The full web suite passed twice consecutively.
 
 ## Recently Fixed (unreleased)
+
+- **Slow notification channels no longer block the others (FDY-0572; SG-33).**
+  Notifications used to be sent inline on the Redis subscriber thread, one
+  channel after another, and one retry thread served every channel, so an SMTP
+  relay that accepted the connection and then hung held Discord, ntfy, webhooks
+  and the subscriber for the whole socket timeout. Each enabled channel now has
+  its own bounded queue and delivery thread (`channel_dispatcher.py`): the
+  subscriber never waits on a sender, a delivery attempt has a finite deadline (60 s
+  default) after which the event goes to the retry queue and the channel is
+  marked stalled until the attempt ends, a full queue (50 default) spills to the
+  retry queue rather than dropping, and each channel retries only its own
+  entries. The retry file is written atomically (temp file, fsync, rename) and
+  shutdown persists waiting and in-flight events so a restart delivers them.
+  Every outcome is logged with the channel name and a running counter. Email and
+  Discord senders and their configuration are unchanged. See CONFIG_REFERENCE.md
+  "Notification delivery queues". Regression test:
+  `services/notifier/tests/test_fdy_0572_regression.py` (stalled and delayed
+  local SMTP relays, local Discord fixture, the real subscribe loop, interrupted
+  saves, restart from the file). Not exercised against a production relay or
+  Discord, nor with the container's SIGTERM path end to end; a stalled attempt
+  still holds its thread until the sender's socket timeouts fire.
 
 - **Notification destinations, SMTP TLS and attachments (FDY-0571; SG-19, SG-20,
   SG-28).** Webhook, ntfy, Discord and SMTP destinations are checked on save and

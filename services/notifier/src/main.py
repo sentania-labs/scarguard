@@ -14,12 +14,13 @@ from typing import Optional
 import redis as redis_lib
 import yaml
 from atomic_ref import AtomicRef
+from channel_dispatcher import ChannelDispatcher
 from config_watcher import ConfigWatcher
 from digest_scheduler import DigestScheduler
 from discord import DiscordNotifier
 from email_notifier import EmailNotifier
 from healthcheck import start_heartbeat
-from notification_queue import WORKER_INTERVAL, NotificationQueue
+from notification_queue import NotificationQueue
 from ntfy import NtfyNotifier
 from webhook import WebhookNotifier
 
@@ -125,12 +126,17 @@ def dispatch(
     notifiers: list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier],
     notifiers_lock: Optional[threading.Lock] = None,
     queue: Optional[NotificationQueue] = None,
+    dispatcher: Optional[ChannelDispatcher] = None,
 ) -> None:
     """Send an event to all active notifiers.
 
-    If a notifier raises (e.g. network error), the event is enqueued for retry
-    when a queue is provided.  Without a queue the error is logged and the next
-    notifier is still attempted.
+    With a *dispatcher* (the live notifier path) the event is handed to each
+    channel's own bounded queue and this call returns at once; a slow or
+    stalled channel can therefore never hold up another channel or the
+    caller. Without one (digest reports, direct callers) sends run inline:
+    if a notifier raises, the event is enqueued for retry when a queue is
+    provided, otherwise the error is logged and the next notifier is still
+    attempted.
     """
     if notifiers_lock is not None:
         with notifiers_lock:
@@ -162,6 +168,9 @@ def dispatch(
             )
 
     for notifier in current:
+        if dispatcher is not None:
+            dispatcher.submit(notifier, event)
+            continue
         try:
             notifier.send(event)
         except Exception:
@@ -176,29 +185,6 @@ def dispatch(
                 logger.exception("Unhandled error in %s (no retry queue)", type(notifier).__name__)
 
 
-def _start_retry_worker(
-    queue: NotificationQueue,
-    notifiers: list,
-    notifiers_lock: threading.Lock,
-    shutdown_event: threading.Event,
-) -> threading.Thread:
-    """Start the background thread that processes due retry queue entries."""
-
-    def _worker() -> None:
-        logger.info("Notification retry worker started (interval: %ds)", WORKER_INTERVAL)
-        while not shutdown_event.is_set():
-            try:
-                queue.process_due(notifiers, notifiers_lock)
-            except Exception:
-                logger.exception("Unexpected error in notification retry worker")
-            shutdown_event.wait(WORKER_INTERVAL)
-        logger.info("Notification retry worker stopped")
-
-    t = threading.Thread(target=_worker, name="notif-retry-worker", daemon=True)
-    t.start()
-    return t
-
-
 def subscribe_loop(
     redis_cfg: dict,
     notifiers: list,
@@ -206,8 +192,13 @@ def subscribe_loop(
     shutdown_event: threading.Event,
     queue: NotificationQueue,
     _base_url_ref: AtomicRef[str] | None = None,
+    dispatcher: ChannelDispatcher | None = None,
 ) -> None:
     """Connect to Redis and listen for events, reconnecting on failure.
+
+    Events are handed to *dispatcher* (per-channel bounded queues) when one
+    is given, so this loop never waits on a sender; without one they are
+    dispatched inline.
 
     v1.15 verifies the HMAC signature on detection events before
     dispatching a notification. Unlike the deterrent, a missing or invalid
@@ -215,6 +206,12 @@ def subscribe_loop(
     but we still log loudly - spoofed events would otherwise leak camera
     snapshots to the attacker's own webhook destinations.
     """
+
+    def _deliver(ev: dict) -> None:
+        if dispatcher is None:
+            dispatch(ev, notifiers, notifiers_lock, queue)
+        else:
+            dispatch(ev, notifiers, notifiers_lock, queue, dispatcher)
     from event_signing import (
         _ReplayCache,
         derive_channel_key,
@@ -314,7 +311,7 @@ def subscribe_loop(
                                 event.get("camera_name"),
                                 event.get("offline_seconds"),
                             )
-                            dispatch(alert_event, notifiers, notifiers_lock, queue)
+                            _deliver(alert_event)
                         elif alert_type == "camera_recovered":
                             alert_event = {
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -331,7 +328,7 @@ def subscribe_loop(
                                 event.get("camera_name"),
                                 event.get("offline_seconds"),
                             )
-                            dispatch(alert_event, notifiers, notifiers_lock, queue)
+                            _deliver(alert_event)
                         else:
                             logger.warning(
                                 "Unknown health alert type %r - dropping",
@@ -350,7 +347,7 @@ def subscribe_loop(
                         event.get("camera_name"),
                         event.get("confidence", 0.0),
                     )
-                    dispatch(event, notifiers, notifiers_lock, queue)
+                    _deliver(event)
                 except Exception:
                     logger.exception("Error processing message on %s", message["channel"])
 
@@ -393,7 +390,15 @@ def main() -> None:
 
     queue = NotificationQueue()
     if queue.depth:
-        logger.info("Resuming with %d notification(s) pending in retry queue", queue.depth)
+        logger.info(
+            "Resuming with %d notification(s) pending in retry queue: %s",
+            queue.depth,
+            ", ".join(f"{name}={n}" for name, n in sorted(queue.depth_by_type().items())),
+        )
+    # One bounded queue and delivery thread per channel; each also retries its
+    # own channel's queued entries, so a stalled relay only ever stalls itself.
+    dispatcher = ChannelDispatcher(queue)
+    dispatcher.sync(notifiers)
 
     # ---- Digest scheduler --------------------------------------------------------
     digest_scheduler = DigestScheduler(
@@ -414,6 +419,9 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
+    # Persist pending deliveries the moment shutdown is requested - the
+    # subscriber may still be blocked in pubsub.listen() when SIGTERM lands.
+    dispatcher.stop_on(shutdown_event)
 
     def _on_config_change(new_cfg: dict) -> None:
         # Decrypt sensitive fields before any consumer sees the dict.
@@ -426,6 +434,7 @@ def main() -> None:
         with notifiers_lock:
             notifiers.clear()
             notifiers.extend(new_notifiers)
+        dispatcher.sync(new_notifiers)
         if new_notifiers:
             logger.info(
                 "Config reloaded - notifiers: %s",
@@ -441,12 +450,14 @@ def main() -> None:
     watcher = ConfigWatcher(CONFIG_PATH, _on_config_change)
     watcher.start()
 
-    _start_retry_worker(queue, notifiers, notifiers_lock, shutdown_event)
-
-    subscribe_loop(cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_event, queue, base_url_ref)
+    subscribe_loop(
+        cfg.get("redis", {}), notifiers, notifiers_lock, shutdown_event, queue, base_url_ref,
+        dispatcher=dispatcher,
+    )
 
     watcher.stop()
     digest_scheduler.stop()
+    dispatcher.stop()
     logger.info("Notifier stopped cleanly")
 
 

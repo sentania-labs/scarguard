@@ -260,6 +260,67 @@ hostname that resolves to a refused address is only caught at send time
 destination-security table shows each channel's saved settings and static
 problems.
 
+### Notification delivery queues (FDY-0572)
+
+Each enabled channel in `notifications.channels` is delivered by its own
+bounded queue and thread (`services/notifier/src/channel_dispatcher.py`).
+The Redis subscriber never waits on a sender or the network - it hands each
+event to the channel queues (and, when a queue is full, writes it to the
+local retry file) - so an SMTP relay that accepts the connection and then
+hangs delays that email channel alone: Discord, ntfy and webhook channels,
+and the subscriber itself, keep going. Within a channel, a live alert is
+delivered before the channel continues through its retry backlog. Nothing
+in `scarguard.yml` or the channel cards changes; the Discord and email
+senders and their settings are the ones validated before.
+
+| Bound | Default | Behaviour when reached |
+|---|---|---|
+| Live queue per channel | 50 events (`NOTIFIER_CHANNEL_QUEUE_SIZE`) | The event is written to the disk retry queue instead of being dropped (logged as `delivery queue full`, counter `overflowed`). |
+| Delivery attempt deadline | 60 s (`NOTIFIER_SEND_DEADLINE`, seconds) | The event is queued for retry (`timed_out`) and the channel is *stalled* until that attempt ends on its own (the senders' socket timeouts guarantee it does). While stalled, further events for the channel go to the retry queue without a send (`deferred`), so connections never pile up on a hanging relay. If the late attempt still succeeds its retry entry is cancelled; a duplicate alert is possible only if the retry already fired. |
+| Retry queue (`notification_queue.json` on the `scarguard-notifier` volume) | 500 entries, 24 h | Unchanged: oldest entry dropped when full (logged), entries older than 24 h discarded; backoff 30 s doubling to a 10-minute cap. Each channel's thread retries only its own entries, so one channel's retries never wait on another's. |
+
+Both environment variables are read by the notifier container at start
+(set them under the notifier service's `environment:` in a compose
+override); they are operational tunables, not `scarguard.yml` settings, and
+are not shown in the UI.
+
+**Retry file**: every save writes `notification_queue.json.tmp` next to the
+queue file, fsyncs it and renames it into place, so a crash, `docker stop`
+timeout or power loss during a save leaves the previous complete queue, not
+a truncated file that would have discarded every pending retry on the next
+start. A leftover `.tmp` is ignored and removed at start.
+
+**Shutdown and restart**: on SIGTERM the dispatcher immediately writes every
+waiting event to the retry queue (one file write per channel), waits up to
+5 s for sends already in progress and writes those too (an event that then
+completes late cancels its own entry); this fits inside Compose's default
+10 s stop grace. On the next start the file is loaded (`Resuming with N
+notification(s) pending in retry queue: email=N`) and each channel's thread
+delivers its entries once they are due. A channel removed from the config
+has its waiting events persisted the same way; they wait in the retry queue
+until a channel of that name is enabled again or they expire. An event for
+a channel that has no delivery worker (removed by a reload that raced the
+event) is written to the retry queue as well, never sent with the old
+settings.
+
+**Observability**: every outcome is logged with the channel name and the
+running counter (`[email] delivery attempt exceeded 60s deadline - event
+queued for retry`, `[email] channel stalled ...`, `[email] persisted N
+pending notification(s) ...`, `Notification dispatcher stopped - retry
+queue depth N: email={...}`); the per-channel counters are `submitted`,
+`delivered`, `failed`, `timed_out`, `deferred`, `overflowed`, `retried`,
+`persisted`. There is no UI for them yet.
+
+**Limitations**: a send cannot be interrupted, so a stalled attempt holds
+its thread until the sender's own socket timeouts fire (15 s per SMTP
+command, 10 s per HTTP alert request, 15 s for digest requests) - the
+deadline bounds when the event is handed to retry, not when the socket
+closes. Digest reports
+(`system.summary_report`) are still sent inline on the digest scheduler's
+own thread, which never touches the subscriber. Verified with local fixture
+relays (`services/notifier/tests/test_fdy_0572_regression.py`), not against
+a production SMTP server or Discord.
+
 ## Detection Logic
 
 1. Pull frames from each RTSP stream (OpenCV `VideoCapture`)
@@ -696,3 +757,5 @@ aggregate disk use from concurrent authorized uploads.
 If saving a snapshot frame to disk or recording an event to the SQLite database fails, the detection event is still published to Redis to ensure safety alerts are not silently suppressed. However, the event will not contain a `feedback_token` and its `snapshot_path` will be null, and downstream notification templates will omit those components. Feedback tokens are only issued for fully persisted events.
 
 During Redis connectivity outages, detection events and health alerts are buffered locally. Buffered detection events are dropped if they remain un-published for more than 60 seconds (a stale-event window) to avoid flooding the downstream channels with outdated motion alerts once connectivity is restored. Health alerts, however, are kept pending indefinitely until publication succeeds, ensuring no offline transitions are lost.
+
+On the notifier side each channel is delivered by its own bounded queue with a per-attempt deadline, and failed, timed-out or overflowed events go to the disk-backed retry queue, which is written atomically and reloaded on restart. See "Notification delivery queues (FDY-0572)" above for the bounds and what each outcome looks like in the logs.
