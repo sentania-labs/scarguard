@@ -233,27 +233,23 @@ class ModelClassesHandler(threading.Thread):
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
+import safe_load  # noqa: F401, E402 - enforces safe globals globally
+from path_safety import validate_model_path  # noqa: E402
+
+
 def _safe_model_path(model_path: str) -> Path | None:
     """Validate *model_path* and return it as a resolved Path, or None.
 
     Rejects: empty/traversal strings, paths outside ``MODELS_DIR``, paths
     with unsupported suffixes, and non-existent files.
     """
-    if not model_path or not isinstance(model_path, str):
-        return None
     try:
-        candidate = Path(model_path).resolve()
-    except (OSError, ValueError):
-        return None
-    try:
-        candidate.relative_to(_MODELS_ROOT)
+        candidate = validate_model_path(model_path, _MODELS_ROOT)
+        if candidate.suffix.lower() not in _ALLOWED_SUFFIXES:
+            return None
+        return candidate
     except ValueError:
         return None
-    if candidate.suffix.lower() not in _ALLOWED_SUFFIXES:
-        return None
-    if not candidate.is_file():
-        return None
-    return candidate
 
 
 def _peek_pool_names(pool: Any | None, abs_path: str) -> Any | None:

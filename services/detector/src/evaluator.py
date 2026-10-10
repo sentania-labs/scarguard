@@ -151,8 +151,22 @@ class EvaluationRunner:
             )
             return
 
-        model_a_path = request.get("model_a", "")
-        model_b_path = request.get("model_b", "")
+        model_a_raw = request.get("model_a", "")
+        model_b_raw = request.get("model_b", "")
+
+        import os
+
+        import safe_load  # noqa: F401
+        from path_safety import validate_model_path
+
+        models_dir = os.environ.get("MODELS_DIR", "/models")
+        try:
+            model_a_path = str(validate_model_path(model_a_raw, models_dir))
+            model_b_path = str(validate_model_path(model_b_raw, models_dir))
+        except ValueError as exc:
+            self._publish_error(client, f"Invalid model path: {exc}")
+            return
+
         date_from = request.get("date_from")
         date_to = request.get("date_to")
 

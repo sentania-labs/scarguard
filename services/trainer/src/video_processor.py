@@ -126,6 +126,7 @@ def extract_and_infer(
     if confidence >= *confidence_threshold*, else ``'low'``.
     """
     import cv2
+    import safe_load  # noqa: F401
     from ultralytics import YOLO
 
     frames_dir.mkdir(parents=True, exist_ok=True)
