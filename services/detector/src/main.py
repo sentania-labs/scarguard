@@ -17,7 +17,6 @@ import logging
 import os
 import signal
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -37,7 +36,6 @@ from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
 from pause_handler import PauseHandler
 from publisher import RedisPublisher
-from scheduler import ArmScheduler
 from snapshot_grabber import SnapshotGrabber
 from stats_collector import StatsCollector
 from stream import RTSPStream
@@ -97,7 +95,10 @@ def _match_notification_rules(class_name: str, rules: list[dict]) -> list[str] |
     signalling that notifications should be suppressed for this class.
     """
     for rule in rules:
-        rule_class = rule.get("class_name", "*")
+        rule_class = rule.get("class_name")
+        if not rule_class:
+            logger.warning("Invalid legacy rule without class_name found; rule disabled.")
+            continue
         if rule_class == "*" or rule_class == class_name:
             return list(rule.get("channels", []))
     return None
@@ -114,7 +115,10 @@ def _match_deterrent_rules(class_name: str, rules: list[dict]) -> list[str]:
     design.
     """
     for rule in rules:
-        rule_class = rule.get("class_name", "*")
+        rule_class = rule.get("class_name")
+        if not rule_class:
+            logger.warning("Invalid legacy rule without class_name found; rule disabled.")
+            continue
         if rule_class == "*" or rule_class == class_name:
             return list(rule.get("groups", []))
     return []
@@ -634,49 +638,6 @@ def main() -> None:
     # ---- Arm/disarm scheduler --------------------------------------------------
     _config_write_lock = threading.Lock()
 
-    def _write_armed_to_config(armed: bool) -> None:
-        """Persist a scheduler-triggered arm/disarm change to scarguard.yml.
-
-        Uses an explicit lock to prevent concurrent YAML read-modify-write from
-        the scheduler thread racing against other in-process config mutations.
-        Atomic write via tempfile + os.replace to prevent partial writes.
-        """
-        with _config_write_lock:
-            try:
-                with open(CONFIG_PATH) as f:
-                    file_cfg = yaml.safe_load(f) or {}
-                file_cfg.setdefault("system", {})["armed"] = armed
-                dir_name = os.path.dirname(CONFIG_PATH) or "."
-                fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".yml.tmp")
-                try:
-                    with os.fdopen(fd, "w") as f:
-                        yaml.dump(file_cfg, f, default_flow_style=False, sort_keys=False)
-                    os.replace(tmp_path, CONFIG_PATH)
-                except BaseException:
-                    os.unlink(tmp_path)
-                    raise
-            except Exception:
-                logger.exception("Failed to write armed=%s to config file", armed)
-
-    def _on_scheduler_transition(armed: bool) -> None:
-        _write_armed_to_config(armed)
-        event_processor.log_system_event("armed" if armed else "disarmed")
-
-    def _make_redis():
-        import redis
-
-        _pw = os.environ.get("REDIS_PASSWORD", "") or None
-        return redis.Redis(
-            host=redis_cfg.get("host", "redis"),
-            port=int(redis_cfg.get("port", 6379)),
-            password=_pw,
-            decode_responses=True,
-        )
-
-    scheduler = ArmScheduler(armed_ref, _on_scheduler_transition, get_redis=_make_redis)
-    scheduler.configure(sys_cfg.get("schedule", {}), sys_cfg.get("timezone", "UTC"))
-    scheduler.start()
-
     # ---- Metrics store -----------------------------------------------------------
     metrics_store = MetricsStore(db_path=DB_PATH)
 
@@ -989,9 +950,7 @@ def main() -> None:
             changes.append(f"camera removed: {name}")
 
         # schedule config
-        new_schedule = new_sys.get("schedule", {})
-        new_tz = new_sys.get("timezone", "UTC")
-        scheduler.configure(new_schedule, new_tz)
+        # We no longer configure the scheduler here, it's owned by the web service.
 
         if changes:
             logger.info("Config reloaded - changes: %s", ", ".join(changes))
@@ -1011,7 +970,6 @@ def main() -> None:
             logger.error("No camera workers are making frame progress. Failing healthcheck.")
 
     watcher.stop()
-    scheduler.stop()
     pause_handler.stop()
     eval_runner.stop()
     for name in list(active_cameras.keys()):

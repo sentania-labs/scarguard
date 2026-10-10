@@ -38,6 +38,7 @@ class AuthConfig(BaseModel):
     lockout_duration_minutes: int = 15
     require_api_auth: bool = False
     nonadmin_rearm_minutes: int = 30
+    rearm_at: str | None = None
 
     @field_validator("nonadmin_rearm_minutes")
     @classmethod
@@ -144,6 +145,7 @@ class UploadLimitsConfig(BaseModel):
 
 
 class SystemConfig(BaseModel):
+    revision: int = 0
     uploads: UploadLimitsConfig = Field(default_factory=UploadLimitsConfig)
     armed: bool = True
     log_level: str = "info"
@@ -241,14 +243,14 @@ class ExclusionZoneConfig(BaseModel):
 class NotificationRuleConfig(BaseModel):
     """Maps a detected class (or "*" wildcard) to notification channel names."""
 
-    class_name: str = "*"
+    class_name: str = Field(min_length=1)
     channels: list[str] = []
 
 
 class DeterrentRuleConfig(BaseModel):
     """Maps a detected class (or "*" wildcard) to deterrent group names."""
 
-    class_name: str = "*"
+    class_name: str = Field(min_length=1)
     groups: list[str] = []
 
 

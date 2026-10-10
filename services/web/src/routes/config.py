@@ -385,6 +385,13 @@ async def save_structured_config(request: Request) -> Response:
 
     existing = config_store.load()
 
+    existing_revision = existing.get("system", {}).get("revision", 0)
+    if payload.system.revision != existing_revision:
+        return JSONResponse(
+            {"ok": False, "error": "Config was modified by another user. Reload to see latest changes."},
+            status_code=409,
+        )
+
     # Merge system settings so omitted structured-form fields are preserved.
     # The nested schedule dict is handled specially: merge it too so partial
     # schedule edits don't wipe unset fields.
@@ -525,11 +532,13 @@ async def save_structured_config(request: Request) -> Response:
             "orphan_warnings": len(warnings),
         },
     )
+    new_revision = existing.get("system", {}).get("revision", 0)
     return JSONResponse(
         {
             "ok": True,
             "tls_changed": tls_changed,
             "warnings": warnings,
+            "revision": new_revision,
         }
     )
 
