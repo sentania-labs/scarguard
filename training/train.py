@@ -13,6 +13,7 @@ The script validates the dataset structure before training starts.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -169,6 +170,24 @@ def _count_per_class(data_yaml: Path, class_names: list[str]) -> dict[int, int]:
     return class_counts
 
 
+def _publish_weights(src: Path, output_path: Path) -> None:
+    """Write *output_path* atomically so an interrupted copy never leaves a partial file."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
+    try:
+        shutil.copyfile(str(src), str(temp))
+        with open(temp, "rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temp, output_path)
+        directory = os.open(output_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def main() -> None:
     args = _parse_args()
     data_yaml = Path(args.data).resolve()
@@ -252,8 +271,7 @@ def main() -> None:
     output_path = Path(args.output).resolve()
     best_weights = Path(model.trainer.best)  # type: ignore[union-attr]
     if best_weights.exists():
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(best_weights), str(output_path))
+        _publish_weights(best_weights, output_path)
         print(f"\nBest weights saved to: {output_path}")
     else:
         print("\nWARNING: Best weights file not found", file=sys.stderr)
@@ -271,8 +289,8 @@ def main() -> None:
         print(f"  Recall:        {rd.get('metrics/recall(B)', 'N/A')}")
 
     print(f"\nModel saved to: {output_path}")
-    print("To use this model, copy it to your models directory and update")
-    print("detection.model_path in scarguard.yml (or select it in the web UI).")
+    print("Inside ScarGuard the trainer publishes this file as a model candidate;")
+    print("an admin promotes it on the Models page. The live model is not changed.")
 
 
 if __name__ == "__main__":

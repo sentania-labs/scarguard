@@ -519,12 +519,23 @@ class TestModels:
         assert resp.status_code == 200
         assert "Unsupported" in resp.text
 
-    def test_upload_pt_file(self, client, tmp_path):
-        content = b"fake model weights"
+    def test_upload_pt_file(self, client, tmp_path, monkeypatch):
+        import io
+        import pickle
+        import zipfile
+
+        from routes import models as models_mod
+
+        monkeypatch.setattr(models_mod, "MODEL_STORE_DIR", tmp_path / "store")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("test/data.pkl", pickle.dumps({"model": {}}, 2))
         resp = client.post(
             "/models",
-            files={"file": ("test.pt", content, "application/octet-stream")},
+            files={"file": ("test.pt", buf.getvalue(), "application/octet-stream")},
             follow_redirects=True,
         )
         assert resp.status_code == 200
         assert "test.pt" in resp.text
+        assert "Uploaded as a candidate" in resp.text
+        assert not (models_mod.MODELS_DIR / "test.pt").exists()

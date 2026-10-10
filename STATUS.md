@@ -1,5 +1,65 @@
 # ScarGuard: Current Status
 
+FDY-0565 (SG-07) separates candidates from live models. Training jobs and
+Models-page uploads publish validated candidates under `/data/model_store`
+(unique id per candidate, fsynced, atomically renamed into place, SHA256 plus
+source/config provenance). Neither path writes `/models`; the trainer now
+mounts it read-only. An admin promotes a candidate onto a file name on the
+Models page. The file it replaces is first copied to a rollback slot, and every
+promotion, rollback and discard is recorded in `history.jsonl` and the audit
+log. `.pt` validation parses the checkpoint pickle and does not load it. It
+follows the pickle stack and accepts only what `torch.save` writes for
+Ultralytics models:
+- layer classes from a generated list (`shared/checkpoint_classes.py`,
+  regenerated with `scripts/gen_checkpoint_classes.py`);
+- a short list of call targets, each with an argument check;
+- the single `Detect.forward` `getattr`;
+- storages whose declared size matches their zip record, and tensor views
+  that fit inside their storage.
+
+Before any archive member is inflated, the end-of-central-directory record is
+checked (at most 16384 members, central directory at most 8 MiB) and the
+declared uncompressed total may not exceed 1 GiB or eight times the file size
+(4 MiB floor); torch.save stores members uncompressed, so real checkpoints
+expand to about their own size. The pickle is read with a length bound, so a
+member whose declared size lies small costs no more than it declares. A
+discard appends its ledger record before any file is removed and removes the
+manifest last, so a discard whose ledger write fails leaves the candidate
+untouched and one whose removal fails leaves it listed with a
+`discard_failed` record. A restored file's provenance names the rollback copy
+it was restored from (`rollback_id`, shown as "rollback of copy") and the
+snapshot of the file it replaced (`replaced_rollback_id`).
+
+It also refuses to let a container change after it has been used. The checks
+also cover data Ultralytics interprets later:
+- a model's `yaml` (its `activation` is passed to `eval` and its layer names are
+  looked up when a promoted file is used as a training base model) must use
+  known layers and activations;
+- training arguments must not contain URLs, because `data` is passed to
+  `check_file`, which downloads.
+
+Seven rounds of independent review found validator bypasses, and each one is
+now a regression payload. The validator reduces risk; it does not prove a checkpoint
+safe, because the detector still loads promoted files with full `torch.load`
+(FDY-0564). `.onnx` and `.engine` files get
+structural checks only. Live files that do not match a recorded promotion,
+including the current production model (#205), are shown as provenance
+`unresolved`. Tests use CPU fixtures and a stand-in `train.py`. In an
+ephemeral x86 CPU environment (torch 2.4.0, ultralytics 8.4.56), these passed
+validation: a freshly built `DetectionModel` checkpoint rewritten by
+Ultralytics' `strip_optimizer`, and the published `yolov8n`, `yolov8n-seg`,
+`yolo11n`, `yolo11n-seg`, `yolo11n-obb`, `yolo11n-pose`, `yolov10n` and
+`rtdetr-l`, `yolov5nu` and `yolov8s-worldv2` checkpoints. Classification
+checkpoints (`yolo11n-cls`, which pickles torchvision transforms) are rejected.
+Checkpoints from other Ultralytics versions or architectures may also be
+rejected until the allowlist is extended.
+That test skips where torch is absent. Checkpoints produced on the Jetson
+trainer image have not been checked. The trainer still has write access to
+`/data`, so it could alter the store's manifests or ledger. Promotion re-hashes
+and re-validates the candidate bytes, but the ledger's provenance claims are
+only as trustworthy as that container. No GPU training, device validation or
+production promotion was performed.
+
 FDY-0568 adds authentication before upload reads, header CSRF for multipart
 browser flows, streamed request/file limits, and matching generated Caddy
 limits. Config UI exposes separate model and dataset/video limits (500 MiB
@@ -16,7 +76,7 @@ codec support or inference. No production/device validation was performed.
 - **Discord notifications:** Webhook dispatch with snapshot image: tested and confirmed.
 - **Webhook notifications:** Generic HTTP/HTTPS webhook channel (POST or PUT, optional Bearer auth).
 - **Named notification channels:** Multi-instance per type (`notifications.channels`), each with a unique name. Legacy flat `discord`/`email` keys were removed in v0.13.2 and are stripped from `scarguard.yml` on the next save.
-- **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload: functional.
+- **Web UI:** Dashboard, event log, config editor (form + raw YAML), model upload (as a candidate; admin promotion/rollback on the Models page): functional.
 - **CI/CD:** GitHub Actions workflows build and push images to GHCR. `ubuntu-latest` runs x86 builds, the compose smoke test, lint, type checks, and pytest; `ubuntu-24.04-arm` runs the L4T trainer jobs. `build-detector` and `release-detector` use the Orin for real GPU smoke tests and inference benchmarks. No job uses the lab ARC pool. The retired x86 self-hosted runners are not selected, and weekly cleanup prunes only the Orin without pruning volumes. Main pushes warm the build cache without repeating PR validation.
 - **x86 detector:** CUDA+CPU detector image (`scarguard-detector-x86`) runs on any x86 Linux with or without NVIDIA GPU. CPU fallback via PyTorch.
 - **Docker Compose stack:** All seven services (redis, caddy, detector, web, notifier, deterrent, log-streamer) start and communicate correctly.

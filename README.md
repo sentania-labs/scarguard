@@ -598,9 +598,9 @@ auto-resumes a job.
 
 Run `python train.py --help` for the full CLI reference and recommended hyperparameters.
 
-**Step 5, Upload the trained model**
+**Step 5, Promote the trained model**
 
-In the web UI, go to **Admin → Models** and upload the `.pt` file produced by training. It will appear in the model list.
+Training jobs run in ScarGuard publish their weights as a **candidate** on **Admin → Models**; a `.pt` trained elsewhere can be uploaded there and becomes a candidate too. Candidates never replace anything in `/models` by themselves. Click **Promote** on a candidate and choose the file name it should be installed as. If that file already exists, its current bytes are kept as a rollback copy first, and **Restore** puts them back.
 
 **Step 6, Evaluate before promoting**
 
@@ -623,7 +623,11 @@ ScarGuard supports three model formats:
 
 **Uploading a model:**
 
-Go to **Admin → Models**. Drag and drop or browse for your model file. The file is stored in the `models/` volume and immediately available for selection.
+Go to **Admin → Models** and choose your model file. The upload is validated and stored as a candidate under `/data/model_store`, not in `/models`. Uploading a file with the same name as the live model therefore does not touch the live model. `.pt` files must be PyTorch zip checkpoints whose pickle references only allowlisted Ultralytics/PyTorch globals, with at most 16384 members and no more than 1 GiB (or eight times the file size) of declared uncompressed data; `.onnx` and `.engine` files get structural checks only.
+
+**Promoting and rolling back (admin only):**
+
+Each candidate shows its source (training job or uploader), SHA256 and validation result. **Promote** re-checks the SHA256, copies the previous file of the target name into a rollback slot, then atomically replaces the target. **Restore** on a rollback copy reverses a promotion; it keeps a copy of the file it replaces too. Every promotion, rollback and discard is written to `/data/model_store/history.jsonl` and to the audit log; a discard is recorded before its files are removed. A restored file shows `rollback of copy <id>`, naming the copy it was restored from. Live files with no recorded promotion show provenance `unresolved`. Promoting onto the name the detector is already using takes effect the next time the detector reloads the model, for example on a restart.
 
 **Inspecting a model's class list (v0.13.4+):**
 
