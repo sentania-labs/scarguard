@@ -190,10 +190,18 @@ from your own false-positive captures.
 
 ## Model Promotion
 
-Training produces a `.pt` file. To use it:
+Training produces a `.pt` file. Inside ScarGuard, a training job writes it to a job-unique
+staging path and publishes it as a validated candidate (SHA256, job id, redacted training
+config digest, dataset `data.yaml` and base-model digests). A killed or failed job never
+publishes anything, and the trainer has `/models` mounted read-only. To use it:
 
-1. Upload the `.pt` file via the web UI Models page, or copy it into the `scarguard-models` Docker volume
+1. On the web UI Models page, **Promote** the candidate (or upload a `.pt` trained elsewhere, which becomes a candidate). Any file it replaces is kept as a rollback copy.
 2. Update `detection.model_path` in `scarguard.yml` to point to the new model, or select it via the web UI Config page
-3. The detector service will hot-reload the new model without a restart
+3. The detector service will hot-reload the new model without a restart (promoting onto the already-active file name takes effect on the next detector reload)
 
 **Model promotion is always manual**, the system never automatically deploys a trained model.
+
+Candidate validation accepts `.pt` files whose pickle uses only the layer classes in
+`shared/checkpoint_classes.py`. After changing the pinned torch or Ultralytics version, regenerate
+that list with `scripts/gen_checkpoint_classes.py` (instructions in the script) and review the diff.
+Otherwise new layer types are rejected as candidates.

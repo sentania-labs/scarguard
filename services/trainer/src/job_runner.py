@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import sqlite3
 import stat
@@ -27,6 +28,14 @@ from pathlib import Path
 from typing import Any
 
 from detector_controller import DetectorControllerClient
+from model_store import (
+    ModelStore,
+    ModelStoreError,
+    config_digest,
+    redact_config,
+    safe_model_name,
+    sha256_file,
+)
 from pause_protocol import HEARTBEAT_INTERVAL, HEARTBEAT_KEY, HEARTBEAT_TTL
 from redis_client import make_sync_client
 from training_safety import ORIN_DEFAULT_WORKERS, validate_orin_workers, validate_resume_checkpoint
@@ -1157,8 +1166,16 @@ def _run_train(ctx: JobContext) -> dict:
     if not data_yaml.exists():
         return {"error": f"Dataset not found at {data_yaml} - run prepare_dataset first"}
 
-    output_name = Path(str(ctx.params.get("output_name", "trained.pt"))).name
-    output_path = Path(MODELS_DIR) / output_name
+    try:
+        output_name = safe_model_name(
+            Path(str(ctx.params.get("output_name") or "trained.pt")).name, ".pt"
+        )
+    except ValueError as exc:
+        return {"error": f"Invalid output name: {exc}", "log_path": str(ctx.log_path)}
+    # SG-07: training never writes MODELS_DIR. Weights land in a job-unique
+    # staging path and are published as a candidate an admin must promote.
+    staging_dir = WORKSPACE_DIR / "candidates" / ctx.job_id
+    output_path = staging_dir / output_name
 
     try:
         workers = validate_orin_workers(
@@ -1230,10 +1247,15 @@ def _run_train(ctx: JobContext) -> dict:
     if ctx.params.get("force"):
         cmd.append("--force")
 
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir)
+    staging_dir.mkdir(parents=True)
+
     ctx.publish_progress("isolating", 0, "Stopping detector process for exclusive GPU access")
     try:
         controller_state = ctx.acquire_detector()
     except RuntimeError as exc:
+        shutil.rmtree(staging_dir, ignore_errors=True)
         return {"error": str(exc), "log_path": str(ctx.log_path)}
 
     try:
@@ -1278,7 +1300,17 @@ def _run_train(ctx: JobContext) -> dict:
         ctx.persist_execution(admission)
         result = _run_subprocess(ctx, cmd, phase="train", preflight=preflight, admission=admission)
         if "error" not in result:
-            result["model_path"] = str(output_path)
+            result.update(
+                _publish_training_candidate(
+                    ctx,
+                    output_path,
+                    output_name,
+                    data_yaml=data_yaml,
+                    base_model=base_model,
+                    resume_from=resume_from,
+                    execution=result.get("execution"),
+                )
+            )
         if resume_from:
             result["resume_from"] = str(resume_from)
             result["run_dir"] = str(resume_from.parent.parent)
@@ -1291,6 +1323,9 @@ def _run_train(ctx: JobContext) -> dict:
                 result["execution"]["checkpoint_path"] = str(checkpoint)
         return result
     finally:
+        # Staged weights are either published (copied) or abandoned; resumable
+        # state lives in the runs/ checkpoints, never here.
+        shutil.rmtree(staging_dir, ignore_errors=True)
         try:
             restored = ctx.release_detector()
             ctx.append_log(
@@ -1302,6 +1337,59 @@ def _run_train(ctx: JobContext) -> dict:
             # The controller owns durable recovery and will retry after the
             # trainer heartbeat expires. Preserve the training diagnostic.
             logger.exception("Detector release failed; controller recovery remains armed")
+
+
+def _publish_training_candidate(
+    ctx: JobContext,
+    weights: Path,
+    output_name: str,
+    *,
+    data_yaml: Path,
+    base_model: str | None,
+    resume_from: Path | None,
+    execution: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Publish finished weights as a validated candidate; never touches MODELS_DIR."""
+    if weights.is_symlink() or not weights.is_file():
+        return {"error": "Training finished without writing model weights; no candidate created"}
+
+    def _digest(path: str | Path | None) -> str | None:
+        try:
+            return sha256_file(Path(path)) if path else None
+        except OSError:
+            return None
+
+    provenance = {
+        "job_id": ctx.job_id,
+        "job_type": ctx.job_type,
+        "params": redact_config(ctx.params),
+        "training_config": redact_config(ctx.training_config()),
+        "training_config_sha256": config_digest(ctx.training_config()),
+        "dataset_yaml": str(data_yaml),
+        "dataset_yaml_sha256": _digest(data_yaml),
+        "base_model": base_model,
+        "base_model_sha256": _digest(base_model),
+        "resume_from": str(resume_from) if resume_from else None,
+        "resume_from_sha256": _digest(resume_from),
+        "command": (execution or {}).get("command"),
+        "versions": (execution or {}).get("versions") or _version_identity(),
+    }
+    try:
+        manifest = ModelStore.from_env(MODELS_DIR).publish_file(
+            weights, source="training", requested_name=output_name, provenance=provenance
+        )
+    except (ModelStoreError, OSError) as exc:
+        ctx.append_log(f"Candidate publication failed: {exc}")
+        return {"error": f"Candidate publication failed: {exc}"}
+    ctx.append_log(
+        f"Published candidate {manifest['id']} ({output_name}, sha256 {manifest['sha256']}); "
+        "the live model is unchanged until an admin promotes it on the Models page"
+    )
+    return {
+        "candidate_id": manifest["id"],
+        "candidate_sha256": manifest["sha256"],
+        "candidate_name": output_name,
+    }
 
 
 # ── prepare_and_train ────────────────────────────────────────────────────────

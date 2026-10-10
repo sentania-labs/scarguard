@@ -102,6 +102,9 @@
       if (detailEl) {
         if (effective.error || data.error) {
           detailEl.textContent = "Error: " + (view.final_exception || effective.error || data.error);
+        } else if (effective.candidate_id) {
+          detailEl.textContent = "Candidate " + (effective.candidate_name || effective.candidate_id) +
+            " created - promote it on the Models page";
         } else if (effective.model_path) {
           detailEl.textContent = "Model saved to " + effective.model_path;
         } else {

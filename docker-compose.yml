@@ -216,6 +216,7 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
+      MODEL_STORE_DIR: /data/model_store  # candidates, rollback copies, promotion ledger
       TRAINING_WORKSPACE_DIR: /data/training_workspace
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
@@ -230,7 +231,7 @@ services:
       start_period: 15s
     volumes:
       - scarguard-config:/config        # rw - config editor writes scarguard.yml
-      - scarguard-models:/models        # rw - model upload endpoint writes here
+      - scarguard-models:/models        # rw - only admin promotion/rollback writes here
       - scarguard-data:/data            # rw - reads SQLite + serves snapshots + writes auth.db
     depends_on:
       redis:
@@ -619,12 +620,13 @@ services:
     user: "0:0"
     volumes:
       - scarguard-config:/config:ro
-      - scarguard-models:/models
+      - scarguard-models:/models:ro     # ro - training publishes candidates, never live models
       - scarguard-data:/data
     environment:
       - CONFIG_PATH=/config/scarguard.yml
       - DB_PATH=/data/scarguard.db
       - MODELS_DIR=/models
+      - MODEL_STORE_DIR=/data/model_store
       - TRAINING_UPLOADS_DIR=/data/training_uploads
       - TRAINING_WORKSPACE_DIR=/data/training_workspace
       - TRAINING_CONTROLLER_URL=http://training-controller:8090

@@ -4,7 +4,10 @@
 <h1>Models</h1>
 
 {% if uploaded %}
-<div class="alert alert-ok">Uploaded: <code>{{ uploaded }}</code></div>
+<div class="alert alert-ok">Uploaded as a candidate: <code>{{ uploaded }}</code>. The live model is unchanged until an admin promotes it below.</div>
+{% endif %}
+{% if notice %}
+<div class="alert alert-ok">{{ notice }}</div>
 {% endif %}
 {% if error %}
 <div class="alert alert-err">{{ error }}</div>
@@ -12,7 +15,9 @@
 
 <section class="card">
   <h2>Upload Model</h2>
-  <p class="hint">Accepted: <code>.pt</code>, <code>.engine</code>, <code>.onnx</code></p>
+  <p class="hint">Accepted: <code>.pt</code>, <code>.engine</code>, <code>.onnx</code>.
+    Uploads and training jobs create validated candidates; nothing in <code>/models</code>
+    changes until a candidate is promoted.</p>
   <form method="post" action="/models" enctype="multipart/form-data">
     <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
     <input type="file" name="file" accept=".pt,.engine,.onnx" required>
@@ -28,6 +33,7 @@
       <tr>
         <th>File</th>
         <th>Size</th>
+        <th>Provenance</th>
         <th>Classes</th>
         <th>Download</th>
       </tr>
@@ -35,8 +41,17 @@
     <tbody>
     {% for f in files %}
     <tr class="model-row" data-name="{{ f.name }}">
-      <td><code>{{ f.name }}</code></td>
+      <td><code>{{ f.name }}</code>{% if f.active %} <span class="tag">active</span>{% endif %}</td>
       <td>{{ f.size_mb }} MB</td>
+      <td class="model-provenance" data-status="{{ f.provenance.status }}">
+        {% if f.provenance.status == "recorded" %}
+          {{ f.provenance.action }}{% if f.provenance.candidate_id %} of candidate <code>{{ f.provenance.candidate_id[:12] }}</code> ({{ f.provenance.source }}){% endif %}
+          by {{ f.provenance.actor }} at {{ f.provenance.at }}
+        {% else %}
+          <span class="muted">unresolved</span>
+        {% endif %}
+        {% if f.sha256 %}<br><small class="muted">sha256 {{ f.sha256[:16] }}…</small>{% endif %}
+      </td>
       <td>
         <button type="button" class="btn-show-classes" data-name="{{ f.name }}">
           Show classes
@@ -45,7 +60,7 @@
       <td><a href="/model-files/{{ f.name }}">↓</a></td>
     </tr>
     <tr class="model-classes-row" data-name="{{ f.name }}" style="display:none;">
-      <td colspan="4">
+      <td colspan="5">
         <div class="model-classes-panel" data-name="{{ f.name }}">
           <span class="muted">Loading…</span>
         </div>
@@ -56,6 +71,99 @@
   </table>
   {% else %}
   <p class="muted">No model files found in <code>/models</code>.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="model-candidates">
+  <h2>Candidates</h2>
+  <p class="hint">Promoting copies the verified candidate onto the chosen file name in
+    <code>/models</code>. If that name already exists, the current file is kept as a rollback
+    copy first. Promoting onto the active model's name takes effect when the detector restarts.</p>
+  {% if candidates %}
+  <table id="candidates-table">
+    <thead>
+      <tr><th>Candidate</th><th>Source</th><th>SHA256</th><th>Validation</th><th>Created</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+    </thead>
+    <tbody>
+    {% for c in candidates %}
+    <tr class="candidate-row" data-id="{{ c.id }}">
+      <td><code>{{ c.requested_name }}</code><br><small class="muted">{{ c.id }}</small></td>
+      <td>
+        {{ c.source }}
+        {% if c.provenance.job_id %}<br><small>job <a href="/admin/training/jobs">{{ c.provenance.job_id[:12] }}</a></small>{% endif %}
+        {% if c.provenance.uploaded_by %}<br><small>by {{ c.provenance.uploaded_by }}</small>{% endif %}
+        {% if c.provenance.training_config_sha256 %}<br><small class="muted">config {{ c.provenance.training_config_sha256[:12] }}…</small>{% endif %}
+      </td>
+      <td><small><code>{{ c.sha256[:16] }}…</code></small></td>
+      <td>{{ c.validation.format }}{% if c.validation.note %}<br><small class="muted">{{ c.validation.note }}</small>{% endif %}</td>
+      <td><small>{{ c.created_at }}</small></td>
+      {% if is_admin %}
+      <td>
+        <form method="post" action="/models/candidates/{{ c.id }}/promote" class="candidate-promote">
+          <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+          <input type="text" name="target_name" value="{{ c.requested_name }}" required
+                 pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,127}" aria-label="Promote as file name">
+          <button type="submit">Promote</button>
+        </form>
+        <form method="post" action="/models/candidates/{{ c.id }}/discard" class="candidate-discard">
+          <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+          <button type="submit" class="btn-secondary">Discard</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No candidates. Upload a model or run a training job.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="model-rollbacks">
+  <h2>Rollback Copies</h2>
+  {% if rollbacks %}
+  <table id="rollbacks-table">
+    <thead>
+      <tr><th>File</th><th>SHA256</th><th>Provenance</th><th>Saved</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr>
+    </thead>
+    <tbody>
+    {% for r in rollbacks %}
+    <tr class="rollback-row" data-id="{{ r.id }}">
+      <td><code>{{ r.target_name }}</code><br><small class="muted">{{ r.reason }}</small></td>
+      <td><small><code>{{ r.sha256[:16] }}…</code></small></td>
+      <td>{% if r.provenance.status == "recorded" %}{{ r.provenance.action }}{% if r.provenance.candidate_id %} of <code>{{ r.provenance.candidate_id[:12] }}</code>{% endif %}{% else %}<span class="muted">unresolved</span>{% endif %}</td>
+      <td><small>{{ r.created_at }}</small></td>
+      {% if is_admin %}
+      <td>
+        <form method="post" action="/models/rollback/{{ r.id }}" class="rollback-restore">
+          <input type="hidden" name="_csrf_token" value="{{ request.state.csrf_token }}">
+          <button type="submit">Restore</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No rollback copies yet. One is kept each time a promotion replaces a file.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="model-history">
+  <h2>Promotion History</h2>
+  {% if history %}
+  <ul class="model-history">
+    {% for h in history %}
+    <li><small>{{ h.at }}</small> - <strong>{{ h.action }}</strong>
+      {% if h.target_name %}<code>{{ h.target_name }}</code>{% endif %}
+      {% if h.candidate_id %} candidate <code>{{ h.candidate_id[:12] }}</code>{% endif %}
+      by {{ h.actor }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No promotions recorded. Models already in <code>/models</code> have unresolved provenance.</p>
   {% endif %}
 </section>
 
@@ -70,6 +178,8 @@
 .model-class-cloud { display:flex; flex-wrap:wrap; gap:0.35rem; }
 .model-class-cloud .tag { font-family: var(--mono, monospace); font-size: 0.8rem; }
 .model-classes-panel { padding: 0.5rem 0; }
+.candidate-promote, .candidate-discard, .rollback-restore { display:inline-block; margin:0.15rem 0; }
+.model-history { margin:0; padding-left:1.2rem; }
 </style>
 
 {% endblock %}

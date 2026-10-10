@@ -58,6 +58,8 @@ class FakeRedis:
 
 class FakeContext:
     def __init__(self, workspace: Path, params: dict | None = None) -> None:
+        self.job_id = "b" * 32
+        self.job_type = "train"
         self.params = params or {}
         self.log_path = workspace / "logs" / "job.log"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +113,19 @@ def abundant_snapshot(_ctx):
     }
 
 
+def _write_checkpoint(path: Path) -> None:
+    """A minimal PyTorch zip-format checkpoint holding only plain containers."""
+    import pickle
+    import zipfile
+    from collections import OrderedDict
+
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("trained/data.pkl", pickle.dumps({"model": OrderedDict(w=[1.0])}, 2))
+        archive.writestr("trained/version", "3\n")
+
+
 def test_exact_fresh_command_and_default_workers(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MODEL_STORE_DIR", str(tmp_path / "store"))
     workspace = tmp_path / "workspace"
     data_yaml = workspace / "merged_dataset" / "data.yaml"
     data_yaml.parent.mkdir(parents=True)
@@ -130,6 +144,7 @@ def test_exact_fresh_command_and_default_workers(tmp_path: Path, monkeypatch) ->
 
     def fake_run(_ctx, cmd, phase, *, preflight=None, admission=None):
         captured.update(cmd=cmd, phase=phase, preflight=preflight, admission=admission)
+        _write_checkpoint(Path(cmd[cmd.index("--output") + 1]))
         return {"phase": phase, "execution": {}}
 
     monkeypatch.setattr(job_runner, "_run_subprocess", fake_run)
@@ -144,7 +159,7 @@ def test_exact_fresh_command_and_default_workers(tmp_path: Path, monkeypatch) ->
         "--base-model",
         str(models / "yolov8n.pt"),
         "--output",
-        str(models / "trained.pt"),
+        str(workspace / "candidates" / ctx.job_id / "trained.pt"),
         "--project",
         str(workspace / "runs"),
         "--epochs",
@@ -160,7 +175,9 @@ def test_exact_fresh_command_and_default_workers(tmp_path: Path, monkeypatch) ->
         "--workers",
         "4",
     ]
-    assert result["model_path"] == str(models / "trained.pt")
+    assert "error" not in result
+    assert len(result["candidate_id"]) == 32
+    assert not (models / "trained.pt").exists()
     assert ctx.release_count == 1
     assert captured["admission"]["admitted"] is True
     assert captured["admission"]["detector_lease"] == {"stopped_by_controller": True}

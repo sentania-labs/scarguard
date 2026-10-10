@@ -11,6 +11,16 @@ FDY-0556 adds the approved independent OFF-only watchdog: authenticated finite
 activation leases, conservative startup OFF, and crash recovery in a separate
 resource-constrained container. Hardware firmware auto-off verification remains
 an operational follow-up, not a software capability.
+
+FDY-0565 (SG-07) makes training and uploads produce candidates that an admin
+promotes explicitly, with rollback copies and a history ledger. Still open:
+candidate and rollback retention or pruning, which is manual Discard only
+today; on-device validation of real Ultralytics checkpoints against the pickle
+allowlist; and resolving the production model's provenance (#205), which the
+Models page shows as `unresolved`. A review found a pre-existing FDY-0564 issue:
+`shared/safe_load.py` replaces Ultralytics' `attempt_download_asset`, which
+`torch_safe_load` calls even for local files. So `YOLO("<local>.pt")` raises
+wherever `safe_load` is imported. This needs separate verification and a fix.
 ---
 
 ## v1.17.1: event review and focused fixes

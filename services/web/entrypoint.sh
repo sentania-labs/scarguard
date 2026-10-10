@@ -15,6 +15,10 @@ if [ "$(id -u)" = "0" ]; then
         # On subsequent starts, just fix top-level dirs (fast)
         chown scarguard:scarguard /data /config /models 2>/dev/null || true
     fi
+    # Model candidate store (FDY-0565): shared with the trainer, which publishes
+    # candidates; web owns promotion, rollback copies and the history ledger.
+    mkdir -p /data/model_store
+    chown -R scarguard:scarguard /data/model_store 2>/dev/null || true
     exec gosu scarguard "$@"
 fi
 exec "$@"

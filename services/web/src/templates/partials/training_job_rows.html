@@ -29,6 +29,10 @@
           <span class="muted">({{ u.detections }} det.)</span>
           {% if not loop.last %}<br>{% endif %}
         {% endfor %}
+      {% elif v.candidate_id %}
+        <span class="muted">Candidate: {{ v.candidate_name }}</span>
+        <a href="/models#model-candidates" class="btn btn-small">Review &amp; promote</a>
+        {% if v.resume_from %}<br><span class="muted">Resumed {{ v.resume_from }}</span>{% endif %}
       {% elif v.model_path %}
         <span class="muted">Model: {{ v.model_path | replace('/models/', '') }}</span>
         {% if v.resume_from %}<br><span class="muted">Resumed {{ v.resume_from }}</span>{% endif %}

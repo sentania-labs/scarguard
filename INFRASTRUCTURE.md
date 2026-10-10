@@ -218,12 +218,18 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
 | `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent, off-watchdog) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
-| `scarguard-data` | detector, web, notifier, deterrent, off-watchdog, trainer | rw (detector, web, deterrent, trainer), ro (notifier, off-watchdog) | SQLite DBs, snapshots, training workspace, durable logs, and the config decryption key |
-| `scarguard-models` | detector, web, notifier | rw (web: model upload), ro (detector, notifier: storage size for digests) | YOLO model files (`.pt`, `.engine`) |
+| `scarguard-data` | detector, web, notifier, deterrent, off-watchdog, trainer | rw (detector, web, deterrent, trainer), ro (notifier, off-watchdog) | SQLite DBs, snapshots, training workspace, durable logs, the config decryption key, and the model candidate store (`/data/model_store`: candidates, rollback copies, `history.jsonl`) |
+| `scarguard-models` | detector, web, notifier, trainer | rw (web: admin promotion/rollback only), ro (detector; notifier for digest storage size; trainer for base models) | Live YOLO model files (`.pt`, `.engine`, `.onnx`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
 | `scarguard-redis-data` | redis | rw | Redis persistence |
 | `training-controller-state` | training-controller | rw | Detector lease ownership and crash-recovery state |
+
+Model candidates (FDY-0565): the trainer mounts `scarguard-models` read-only and publishes
+weights to `/data/model_store/candidates`. Only the web service's admin promotion and
+rollback routes write `/models`. Both services share `/data`, so the store's ledger and
+manifests are no more trustworthy than the trainer container. Promotion re-hashes and
+re-validates the candidate bytes regardless. Rollback copies are kept until removed by hand.
 
 Docker access is mediated as follows (never mounted into web or trainer):
 
