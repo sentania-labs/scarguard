@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -42,13 +43,11 @@ class WebhookNotifier:
         try:
             validate_external_url(self._url, allow_internal=allow_internal)
             self._enabled = True
-        except UnsafeURLError:
-            from url_safety import redact_url
-
+        except UnsafeURLError as exc:
+            # Only the host: the path, query and userinfo may carry a token.
             logger.error(
-                "Webhook [%s] disabled - unsafe URL %r",
-                self._name,
-                redact_url(self._url),
+                "Webhook [%s] disabled - unsafe URL host %r: %s",
+                self._name, urlparse(self._url).hostname, exc,
             )
             self._enabled = False
 
@@ -87,10 +86,7 @@ class WebhookNotifier:
         resp.raise_for_status()
         logger.info(
             "Webhook [%s] %s %s → %d",
-            self._name,
-            self._method,
-            self._url,
-            resp.status_code,
+            self._name, self._method, urlparse(self._url).hostname, resp.status_code,
         )
 
     def _send_digest(self, report: dict) -> None:
@@ -113,11 +109,8 @@ class WebhookNotifier:
             "training": report.get("training"),
         }
         resp = requests.request(
-            self._method,
-            self._url,
-            json=payload,
-            headers=self._headers,
-            timeout=15,
+            self._method, self._url, json=payload,
+            headers=self._headers, timeout=15,
         )
         resp.raise_for_status()
         logger.info("Webhook [%s] digest sent → %d", self._name, resp.status_code)

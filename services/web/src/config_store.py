@@ -48,10 +48,8 @@ def _migrate_in_place(cfg: dict) -> None:
             migrated += 1
     if migrated:
         logger.info(
-            "Migrated %d camera(s) from action_rules → notification_rules",
-            migrated,
+            "Migrated %d camera(s) from action_rules → notification_rules", migrated,
         )
-
 
 _lock = threading.Lock()
 _cache_cfg: dict | None = None
@@ -203,8 +201,7 @@ def save(cfg: dict, *, require_encryption: bool = False) -> None:
             logger.info("Encrypted %d sensitive field(s) before save", encrypted)
     with _lock:
         fd, tmp_path = tempfile.mkstemp(
-            dir=str(CONFIG_PATH.parent),
-            suffix=".tmp",
+            dir=str(CONFIG_PATH.parent), suffix=".tmp",
         )
         try:
             with os.fdopen(fd, "w") as f:
@@ -224,6 +221,59 @@ def save(cfg: dict, *, require_encryption: bool = False) -> None:
         except FileNotFoundError:
             _cache_mtime_ns = None
         _cache_loaded_at = time.monotonic()
+
+
+# Outcome of the last :func:`migrate_plaintext_secrets` run (``None`` = not run).
+secret_migration_state: str | None = None
+
+
+def migrate_plaintext_secrets() -> str:
+    """Encrypt plaintext sensitive fields on disk when the existing key allows.
+
+    Returns (and records in :data:`secret_migration_state`) one of:
+
+    * ``"clean"`` - nothing to migrate;
+    * ``"migrated"`` - plaintext fields were re-saved encrypted;
+    * ``"pending_key"`` - plaintext fields remain because no key is available;
+    * ``"undecryptable"`` - stored ``enc:v1:`` values do not decrypt with the
+      key on disk, so the file is left untouched rather than mixing keys.
+
+    The unresolved states never rewrite the file; they are logged and retried
+    on the next start or the next config save.
+    """
+    global secret_migration_state
+    try:
+        with CONFIG_PATH.open() as f:
+            raw = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    key = secret_box.try_load_key()
+    plaintext = secret_box.has_plaintext_secrets(raw)
+    state = "clean"
+    try:
+        require_encrypted_secrets(raw, key)
+    except SecretEncryptionError:
+        state = "pending_key" if key is None and plaintext else "undecryptable"
+    else:
+        if plaintext:
+            save(load())
+            state = "migrated"
+    if state == "migrated":
+        logger.info("Encrypted plaintext sensitive config fields at rest")
+    elif state == "pending_key":
+        logger.warning(
+            "Sensitive config fields remain plaintext: the secret key is unavailable "
+            "(migration pending)",
+        )
+    elif state == "undecryptable":
+        logger.error(
+            "Stored encrypted config fields do not decrypt with the current secret key; "
+            "leaving scarguard.yml unchanged",
+        )
+    secret_migration_state = state
+    return state
 
 
 def set_armed(armed: bool) -> None:

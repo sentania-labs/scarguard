@@ -47,7 +47,6 @@ try:
     from event_signing import (
         verify_event as _EF_VE,
     )
-
     _EVAL_KEY = load_key_from_env()
     _DERIVE_EVAL_KEY = _EF_DK
     _VERIFY_EVAL = _EF_VE
@@ -173,10 +172,7 @@ class EvaluationRunner:
 
         logger.info(
             "Evaluation request: model_a=%s model_b=%s date_from=%s date_to=%s",
-            model_a_path,
-            model_b_path,
-            date_from,
-            date_to,
+            model_a_path, model_b_path, date_from, date_to,
         )
 
         # Load ground truth from DB
@@ -196,11 +192,7 @@ class EvaluationRunner:
         # Run model B
         logger.info("Running model B: %s on %d snapshots", model_b_path, len(ground_truth))
         preds_b = self._run_model(
-            client,
-            model_b_path,
-            ground_truth,
-            len(ground_truth),
-            "Model B",
+            client, model_b_path, ground_truth, len(ground_truth), "Model B",
         )
         if preds_b is None:
             return
@@ -265,11 +257,7 @@ class EvaluationRunner:
         for r in rows:
             row = dict(r)
             row["bbox"] = json.loads(row["bbox"]) if isinstance(row["bbox"], str) else row["bbox"]
-            row["frame_size"] = (
-                json.loads(row["frame_size"])
-                if isinstance(row["frame_size"], str)
-                else row["frame_size"]
-            )
+            row["frame_size"] = json.loads(row["frame_size"]) if isinstance(row["frame_size"], str) else row["frame_size"]
             # Use corrected class for wrong_class feedback
             if row.get("feedback") == "wrong_class" and row.get("corrected_class"):
                 row["effective_class"] = row["corrected_class"]
@@ -283,9 +271,7 @@ class EvaluationRunner:
                 row["resolved_path"] = str(snap_path)
                 result.append(row)
             else:
-                logger.debug(
-                    "Skipping event %d - snapshot not found: %s", row["id"], row["snapshot_path"]
-                )
+                logger.debug("Skipping event %d - snapshot not found: %s", row["id"], row["snapshot_path"])
 
         return result
 
@@ -323,10 +309,7 @@ class EvaluationRunner:
                 return None
 
             self._set_progress(
-                client,
-                f"running {model_label}",
-                progress_offset + i,
-                total,
+                client, f"running {model_label}", progress_offset + i, total,
             )
 
             frame = cv2.imread(gt["resolved_path"])
@@ -356,20 +339,17 @@ class EvaluationRunner:
             for result in results:
                 for box in result.boxes:  # type: ignore
                     class_name: str = result.names[int(box.cls)]
-                    dets.append(
-                        {
-                            "class_name": class_name,
-                            "confidence": float(box.conf),
-                            "bbox": [int(v) for v in box.xyxy[0]],
-                        }
-                    )
+                    dets.append({
+                        "class_name": class_name,
+                        "confidence": float(box.conf),
+                        "bbox": [int(v) for v in box.xyxy[0]],
+                    })
             all_predictions.append(dets)
 
         # Explicitly delete model and free GPU memory
         del model
         try:
             import torch
-
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except ImportError:
@@ -461,25 +441,19 @@ class EvaluationRunner:
                 break
             gt = ground_truth[i]
             snap_filename = Path(gt["resolved_path"]).name
-            samples.append(
-                {
-                    "snapshot_filename": snap_filename,
-                    "ground_truth": {
-                        "class_name": gt["effective_class"],
-                        "bbox": gt["bbox"],
-                    },
-                    "predictions_a": preds_a[i] if i < len(preds_a) else [],
-                    "predictions_b": preds_b[i] if i < len(preds_b) else [],
-                }
-            )
+            samples.append({
+                "snapshot_filename": snap_filename,
+                "ground_truth": {
+                    "class_name": gt["effective_class"],
+                    "bbox": gt["bbox"],
+                },
+                "predictions_a": preds_a[i] if i < len(preds_a) else [],
+                "predictions_b": preds_b[i] if i < len(preds_b) else [],
+            })
         return samples
 
     def _set_progress(
-        self,
-        client: redis.Redis,
-        status: str,
-        current: int,
-        total: int,
+        self, client: redis.Redis, status: str, current: int, total: int,
     ) -> None:
         progress = {
             "status": status,

@@ -168,21 +168,14 @@ def extract_and_infer(
                 y_center = (xyxy[1] + xyxy[3]) / 2
                 width = xyxy[2] - xyxy[0]
                 height = xyxy[3] - xyxy[1]
-                raw_detections.append(
-                    RawDetection(
-                        frame_idx=frame_idx,
-                        timestamp_in_video=round(timestamp, 3),
-                        bbox=[
-                            round(x_center, 6),
-                            round(y_center, 6),
-                            round(width, 6),
-                            round(height, 6),
-                        ],
-                        predicted_class=class_name,
-                        confidence=round(conf, 4),
-                        detection_pass="normal" if conf >= confidence_threshold else "low",
-                    )
-                )
+                raw_detections.append(RawDetection(
+                    frame_idx=frame_idx,
+                    timestamp_in_video=round(timestamp, 3),
+                    bbox=[round(x_center, 6), round(y_center, 6), round(width, 6), round(height, 6)],
+                    predicted_class=class_name,
+                    confidence=round(conf, 4),
+                    detection_pass="normal" if conf >= confidence_threshold else "low",
+                ))
 
         frame_idx += 1
         if progress_callback and frame_idx % 50 == 0:
@@ -193,7 +186,6 @@ def extract_and_infer(
     del model
     try:
         import torch
-
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:

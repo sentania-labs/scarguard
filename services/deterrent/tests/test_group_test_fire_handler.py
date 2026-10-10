@@ -58,29 +58,17 @@ class FakeController:
         self._fail_on = fail_on or set()
 
     def activate_device(
-        self,
-        device: DeviceConfig,
-        duration: float,
-        *,
-        request_id: str,
-        event_type: str,
+        self, device: DeviceConfig, duration: float, *, request_id: str, event_type: str,
         should_continue: Callable[[], bool] | None = None,
     ) -> ActivationResult:
         self.calls.append(device.name)
         if device.name in self._fail_on:
             return ActivationResult(
-                on_success=False,
-                off_success=None,
-                error="boom",
-                on_ack_ms=None,
-                off_attempts=0,
+                on_success=False, off_success=None, error="boom",
+                on_ack_ms=None, off_attempts=0,
             )
         return ActivationResult(
-            on_success=True,
-            off_success=True,
-            error=None,
-            on_ack_ms=5.0,
-            off_attempts=1,
+            on_success=True, off_success=True, error=None, on_ack_ms=5.0, off_attempts=1,
         )
 
 
@@ -118,24 +106,18 @@ def _no_external_io(monkeypatch: pytest.MonkeyPatch) -> None:
     import main as deterrent_main
 
     monkeypatch.setattr(
-        deterrent_main.actuation_db,
-        "insert_event",
-        lambda event: None,
+        deterrent_main.actuation_db, "insert_event", lambda event: None,
     )
     monkeypatch.setattr(
-        deterrent_main,
-        "_publish_actuation",
-        lambda holder, cfg, event: None,
+        deterrent_main, "_publish_actuation", lambda holder, cfg, event: None,
     )
     monkeypatch.setattr(
-        deterrent_main,
-        "_publish_stuck",
+        deterrent_main, "_publish_stuck",
         lambda holder, cfg, device, rid, err: None,
     )
 
 
 # ── Handler half: enqueue only, never fire ───────────────────────────────────
-
 
 class TestHandlerEnqueues:
     def _handler(self, q: queue.Queue[Any] | None) -> tuple[RequestHandler, FakeRedis]:
@@ -155,10 +137,7 @@ class TestHandlerEnqueues:
         controller = FakeController()
         q: queue.Queue[Any] = queue.Queue()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            job_queue=q,
+            {}, AtomicRef(_group_cfg()), AtomicRef(controller), job_queue=q,
         )
         redis = FakeRedis()
         handler._handle_test_fire_group(redis, {"request_id": "r1", "group_name": "g"})
@@ -171,11 +150,8 @@ class TestHandlerEnqueues:
         q: queue.Queue[Any] = queue.Queue()
         guard = InFlightGuard()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(FakeController()),
-            job_queue=q,
-            in_flight=guard,
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=q, in_flight=guard,
         )
         redis = FakeRedis()
         # Worker has not dequeued anything yet.
@@ -199,11 +175,8 @@ class TestHandlerEnqueues:
         q.put_nowait({"filler": True})
         guard = InFlightGuard()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(FakeController()),
-            job_queue=q,
-            in_flight=guard,
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
+            job_queue=q, in_flight=guard,
         )
         redis = FakeRedis()
         done = threading.Event()
@@ -255,8 +228,8 @@ class TestHandlerEnqueues:
         assert redis.reply_for("r1")["ok"] is False
 
 
-# ── Worker half: the gates that keep hardware still ──────────────────────────
 
+# ── Worker half: the gates that keep hardware still ──────────────────────────
 
 def _run_job(
     cfg: ActuationConfig,
@@ -381,9 +354,8 @@ class TestWorkerFires:
         assert cd.is_clear(300)
         assert gc.is_clear("g", 300)
 
-        _run_job(
-            _group_cfg(device_count_range=[2, 2]), FakeController(), cooldown=cd, group_cooldown=gc
-        )
+        _run_job(_group_cfg(device_count_range=[2, 2]), FakeController(),
+                 cooldown=cd, group_cooldown=gc)
 
         assert not cd.is_clear(300)
         assert not gc.is_clear("g", 300)
@@ -414,14 +386,12 @@ class TestWorkerResilience:
         guard.claim()
         cfg = _group_cfg(device_count_range=[2, 2])
 
-        q.put(
-            {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
-                "request_id": "r1",
-                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
-            }
-        )
+        q.put({
+            "__job": JOB_TEST_FIRE_GROUP,
+            "group_name": "g",
+            "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+        })
         q.put(None)  # poison pill so the worker exits after the job
 
         errors: list[BaseException] = []
@@ -429,30 +399,21 @@ class TestWorkerResilience:
         def run() -> None:
             try:
                 deterrent_main._worker(
-                    q,
-                    AtomicRef(cfg),
-                    AtomicRef(Exploding()),
-                    AtomicRef(True),
-                    CooldownTracker(),
-                    GroupCooldownTracker(),
-                    {},
-                    guard,
+                    q, AtomicRef(cfg), AtomicRef(Exploding()), AtomicRef(True),
+                    CooldownTracker(), GroupCooldownTracker(), {}, guard,
                 )
             except BaseException as exc:  # noqa: BLE001 - the point of the test
                 errors.append(exc)
 
         # The worker builds its own Redis client lazily; feed it ours.
         import unittest.mock as mock
-
-        with mock.patch.object(
-            deterrent_main,
-            "_publish_raw",
-            lambda h, c, ch, body: redis.publish(ch, json.dumps(body)),
-        ):
+        with mock.patch.object(deterrent_main, "_publish_raw",
+                               lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
             t = _threading.Thread(target=run, daemon=True)
             t.start()
             t.join(timeout=10)
             assert not t.is_alive(), "worker hung"
+
 
         assert errors == [], f"worker died: {errors}"
         assert redis.reply_for("r1")["ok"] is False
@@ -516,46 +477,27 @@ class TestProductionCallSite:
                 observed.append(guard.claimed)
                 gate.set()
                 return ActivationResult(
-                    on_success=True,
-                    off_success=True,
-                    error=None,
-                    on_ack_ms=1.0,
-                    off_attempts=1,
+                    on_success=True, off_success=True, error=None,
+                    on_ack_ms=1.0, off_attempts=1,
                 )
 
         q: _queue.Queue[Any] = _queue.Queue()
         guard = InFlightGuard()
         guard.claim()
-        q.put(
-            {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
-                "request_id": "r1",
-                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
-            }
-        )
+        q.put({
+            "__job": JOB_TEST_FIRE_GROUP, "group_name": "g", "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
+        })
         q.put(None)
         redis = FakeRedis()
         import unittest.mock as mock
-
-        with mock.patch.object(
-            deterrent_main,
-            "_publish_raw",
-            lambda h, c, ch, body: redis.publish(ch, json.dumps(body)),
-        ):
-            t = _threading.Thread(
-                target=lambda: deterrent_main._worker(
-                    q,
-                    AtomicRef(_group_cfg(device_count_range=[1, 1])),
-                    AtomicRef(Slow()),
-                    AtomicRef(True),
-                    CooldownTracker(),
-                    GroupCooldownTracker(),
-                    {},
-                    guard,
-                ),
-                daemon=True,
-            )
+        with mock.patch.object(deterrent_main, "_publish_raw",
+                               lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
+            t = _threading.Thread(target=lambda: deterrent_main._worker(
+                q, AtomicRef(_group_cfg(device_count_range=[1, 1])),
+                AtomicRef(Slow()), AtomicRef(True),
+                CooldownTracker(), GroupCooldownTracker(), {}, guard,
+            ), daemon=True)
             t.start()
             t.join(timeout=10)
             # Assert inside the patch: a thread that outlives the join escapes
@@ -572,12 +514,9 @@ class TestProductionCallSite:
         from group_fire import PlanExecution
 
         monkeypatch.setattr(
-            deterrent_main,
-            "execute_plan",
+            deterrent_main, "execute_plan",
             lambda *a, **kw: PlanExecution(
-                actions=[],
-                pre_delay_sec=0.0,
-                total_duration_sec=0.0,
+                actions=[], pre_delay_sec=0.0, total_duration_sec=0.0,
             ),
         )
         cd = CooldownTracker()
@@ -651,31 +590,17 @@ class TestShutdown:
         guard.claim()
         redis = FakeRedis()
         q.put(None)  # pill first
-        q.put(
-            {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
-                "request_id": "r9",
-                "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r9",
-            }
-        )
+        q.put({
+            "__job": JOB_TEST_FIRE_GROUP, "group_name": "g", "request_id": "r9",
+            "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r9",
+        })
 
         import unittest.mock as mock
-
-        with mock.patch.object(
-            deterrent_main,
-            "_publish_raw",
-            lambda h, c, ch, body: redis.publish(ch, json.dumps(body)),
-        ):
+        with mock.patch.object(deterrent_main, "_publish_raw",
+                               lambda h, c, ch, body: redis.publish(ch, json.dumps(body))):
             deterrent_main._worker(
-                q,
-                AtomicRef(_group_cfg()),
-                AtomicRef(FakeController()),
-                AtomicRef(True),
-                CooldownTracker(),
-                GroupCooldownTracker(),
-                {},
-                guard,
+                q, AtomicRef(_group_cfg()), AtomicRef(FakeController()), AtomicRef(True),
+                CooldownTracker(), GroupCooldownTracker(), {}, guard,
             )
 
         reply = redis.reply_for("r9")
@@ -703,19 +628,13 @@ class TestQueuedJobExpiry:
 
         _run_group_test_fire(
             {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
                 "expires_at": _time.monotonic() - 1.0,
             },
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            AtomicRef(True),
-            CooldownTracker(),
-            GroupCooldownTracker(),
-            holder,
-            {},
+            AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), holder, {},
         )
 
         assert controller.calls == [], "fired after the caller gave up"
@@ -733,19 +652,14 @@ class TestQueuedJobExpiry:
 
         _run_group_test_fire(
             {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
                 "expires_at": _time.monotonic() + 300.0,
             },
             AtomicRef(_group_cfg(device_count_range=[2, 2])),
-            AtomicRef(controller),
-            AtomicRef(True),
-            CooldownTracker(),
-            GroupCooldownTracker(),
-            holder,
-            {},
+            AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), holder, {},
         )
 
         assert sorted(controller.calls) == ["v1", "v2"]
@@ -759,18 +673,12 @@ class TestQueuedJobExpiry:
 
         _run_group_test_fire(
             {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
             },
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            AtomicRef(True),
-            CooldownTracker(),
-            GroupCooldownTracker(),
-            holder,
-            {},
+            AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), holder, {},
         )
 
         assert controller.calls, "a job with no expiry was treated as expired"
@@ -781,14 +689,10 @@ class TestQueuedJobExpiry:
 
         q: _queue.Queue[Any] = _queue.Queue()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(FakeController()),
-            job_queue=q,
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()), job_queue=q,
         )
         handler._handle_test_fire_group(
-            FakeRedis(),
-            {"request_id": "r1", "group_name": "g"},
+            FakeRedis(), {"request_id": "r1", "group_name": "g"},
         )
         job = q.get_nowait()
         assert job["expires_at"] > _time.monotonic()
@@ -870,25 +774,16 @@ class TestZeroDeviceSequenceDoesNotBurnCooldown:
         from group_fire import PlanExecution
 
         monkeypatch.setattr(
-            deterrent_main,
-            "execute_plan",
+            deterrent_main, "execute_plan",
             lambda *a, **kw: PlanExecution(
-                actions=[],
-                pre_delay_sec=0.0,
-                total_duration_sec=0.0,
+                actions=[], pre_delay_sec=0.0, total_duration_sec=0.0,
             ),
         )
         cfg = _group_cfg()
         group = cfg.groups[0]
         fired = deterrent_main._fire_group(
-            group,
-            cfg,
-            FakeController(),
-            {"camera_name": "c", "class_name": "heron"},
-            None,
-            0,
-            [FakeRedis()],
-            {},
+            group, cfg, FakeController(), {"camera_name": "c", "class_name": "heron"},
+            None, 0, [FakeRedis()], {},
         )
         assert fired is False, "a zero-device sequence reported as fired"
         assert group_fire is not None
@@ -899,14 +794,8 @@ class TestZeroDeviceSequenceDoesNotBurnCooldown:
         cfg = _group_cfg(device_count_range=[1, 1])
         group = cfg.groups[0]
         fired = deterrent_main._fire_group(
-            group,
-            cfg,
-            FakeController(),
-            {"camera_name": "c", "class_name": "heron"},
-            None,
-            0,
-            [FakeRedis()],
-            {},
+            group, cfg, FakeController(), {"camera_name": "c", "class_name": "heron"},
+            None, 0, [FakeRedis()], {},
         )
         assert fired is True
 
@@ -954,7 +843,6 @@ class TestSingleDeviceTestFireOnTheWorker:
     @staticmethod
     def _reply(redis: FakeRedis, rid: str) -> dict[str, Any]:
         from request_handler import TEST_FIRE_RESULT_PREFIX
-
         for ch, body in redis.published:
             if ch == f"{TEST_FIRE_RESULT_PREFIX}{rid}":
                 return body
@@ -995,16 +883,11 @@ class TestSingleDeviceTestFireOnTheWorker:
         redis = FakeRedis()
         _run_test_fire(
             {
-                "__job": JOB_TEST_FIRE,
-                "device_id": "id-v1",
-                "duration_sec": 3.0,
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
             },
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            [redis],
-            {},
+            AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {},
         )
         assert controller.calls == ["v1"]
         assert self._reply(redis, "r1")["ok"] is True
@@ -1019,17 +902,12 @@ class TestSingleDeviceTestFireOnTheWorker:
         redis = FakeRedis()
         _run_test_fire(
             {
-                "__job": JOB_TEST_FIRE,
-                "device_id": "id-v1",
-                "duration_sec": 3.0,
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
                 "expires_at": _time.monotonic() - 1.0,
             },
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            [redis],
-            {},
+            AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {},
         )
         assert controller.calls == []
         assert "expired" in self._reply(redis, "r1")["error"].lower()
@@ -1050,16 +928,11 @@ class TestSingleDeviceTestFireOnTheWorker:
         redis = FakeRedis()
         _run_test_fire(
             {
-                "__job": JOB_TEST_FIRE,
-                "device_id": "id-v1",
-                "duration_sec": 3.0,
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
             },
-            AtomicRef(cfg),
-            AtomicRef(controller),
-            [redis],
-            {},
+            AtomicRef(cfg), AtomicRef(controller), [redis], {},
         )
         assert controller.calls == ["v1"]
 
@@ -1077,12 +950,9 @@ class TestZeroDeviceReasonIsAccurate:
         from group_fire import PlanExecution
 
         monkeypatch.setattr(
-            deterrent_main,
-            "execute_plan",
+            deterrent_main, "execute_plan",
             lambda *a, **kw: PlanExecution(
-                actions=[],
-                pre_delay_sec=0.0,
-                total_duration_sec=0.0,
+                actions=[], pre_delay_sec=0.0, total_duration_sec=0.0,
                 aborted=aborted,
             ),
         )
@@ -1128,9 +998,7 @@ class TestForceOffDuringTheQueuedWindow:
         q: queue.Queue[Any] = queue.Queue()
         redis = FakeRedis()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(FakeController()),
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
             job_queue=q,
             in_flight=InFlightGuard(),
             force_off_latch=latch,
@@ -1146,16 +1014,13 @@ class TestForceOffDuringTheQueuedWindow:
         q: queue.Queue[Any] = queue.Queue()
         redis = FakeRedis()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(FakeController()),
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
             job_queue=q,
             in_flight=InFlightGuard(),
             force_off_latch=latch,
         )
         handler._handle_test_fire_group(
-            redis,
-            {"request_id": "r1", "group_name": "g1"},
+            redis, {"request_id": "r1", "group_name": "g1"},
         )
         assert q.get_nowait()["force_off_gen"] == 1
 
@@ -1171,9 +1036,7 @@ class TestForceOffDuringTheQueuedWindow:
         controller = FakeController()
         redis = FakeRedis()
         job = {
-            "__job": JOB_TEST_FIRE,
-            "device_id": "id-v1",
-            "duration_sec": 3.0,
+            "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
             "request_id": "r1",
             "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
             "force_off_gen": latch.generation,
@@ -1181,22 +1044,13 @@ class TestForceOffDuringTheQueuedWindow:
         latch.bump()  # emergency off, while the job waits behind a detection
 
         _run_test_fire(
-            job,
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            [redis],
-            {},
+            job, AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {},
             latch,
         )
         assert controller.calls == [], "turned a device back on after force-off"
-        assert (
-            "emergency off"
-            in self._reply(
-                redis,
-                "r1",
-                TEST_FIRE_RESULT_PREFIX,
-            )["error"].lower()
-        )
+        assert "emergency off" in self._reply(
+            redis, "r1", TEST_FIRE_RESULT_PREFIX,
+        )["error"].lower()
 
     def test_group_job_refuses_after_a_queued_force_off(self) -> None:
         """The group path had the same hole, one level down.
@@ -1212,8 +1066,7 @@ class TestForceOffDuringTheQueuedWindow:
         controller = FakeController()
         redis = FakeRedis()
         job = {
-            "__job": JOB_TEST_FIRE_GROUP,
-            "group_name": "g",
+            "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
             "request_id": "r1",
             "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
             "force_off_gen": latch.generation,
@@ -1221,15 +1074,8 @@ class TestForceOffDuringTheQueuedWindow:
         latch.bump()  # emergency off, while the job waits behind a detection
 
         _run_group_test_fire(
-            job,
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            AtomicRef(True),
-            CooldownTracker(),
-            GroupCooldownTracker(),
-            [redis],
-            {},
-            latch,
+            job, AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), [redis], {}, latch,
         )
         assert controller.calls == [], "fired a group after force-off"
 
@@ -1243,20 +1089,13 @@ class TestForceOffDuringTheQueuedWindow:
         redis = FakeRedis()
         _run_group_test_fire(
             {
-                "__job": JOB_TEST_FIRE_GROUP,
-                "group_name": "g",
+                "__job": JOB_TEST_FIRE_GROUP, "group_name": "g",
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_GROUP_RESULT_PREFIX}r1",
                 "force_off_gen": latch.generation,
             },
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            AtomicRef(True),
-            CooldownTracker(),
-            GroupCooldownTracker(),
-            [redis],
-            {},
-            latch,
+            AtomicRef(_group_cfg()), AtomicRef(controller), AtomicRef(True),
+            CooldownTracker(), GroupCooldownTracker(), [redis], {}, latch,
         )
         assert controller.calls, "an old force-off blocked an unrelated job"
 
@@ -1274,18 +1113,12 @@ class TestForceOffDuringTheQueuedWindow:
         redis = FakeRedis()
         _run_test_fire(
             {
-                "__job": JOB_TEST_FIRE,
-                "device_id": "id-v1",
-                "duration_sec": 3.0,
+                "__job": JOB_TEST_FIRE, "device_id": "id-v1", "duration_sec": 3.0,
                 "request_id": "r1",
                 "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
                 "force_off_gen": latch.generation,
             },
-            AtomicRef(_group_cfg()),
-            AtomicRef(controller),
-            [redis],
-            {},
-            latch,
+            AtomicRef(_group_cfg()), AtomicRef(controller), [redis], {}, latch,
         )
         assert controller.calls == ["v1"]
 
@@ -1305,9 +1138,7 @@ class TestQueueExpiryMatchesTheCallerWait:
         latch_q: queue.Queue[Any] = queue.Queue()
         redis = FakeRedis()
         handler = RequestHandler(
-            {},
-            AtomicRef(_group_cfg()),
-            AtomicRef(FakeController()),
+            {}, AtomicRef(_group_cfg()), AtomicRef(FakeController()),
             job_queue=latch_q,
             in_flight=InFlightGuard(),
         )
@@ -1331,14 +1162,11 @@ class TestShutdownDrainsBothControlJobs:
 
         redis = FakeRedis()
         q: queue.Queue[Any] = queue.Queue()
-        q.put(
-            {
-                "__job": JOB_TEST_FIRE,
-                "device_id": "id-v1",
-                "request_id": "r1",
-                "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
-            }
-        )
+        q.put({
+            "__job": JOB_TEST_FIRE, "device_id": "id-v1",
+            "request_id": "r1",
+            "result_channel": f"{TEST_FIRE_RESULT_PREFIX}r1",
+        })
         _drain_pending_jobs(q, InFlightGuard(), [redis], {})
 
         bodies = [b for ch, b in redis.published if ch.endswith("r1")]

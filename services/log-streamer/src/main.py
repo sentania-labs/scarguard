@@ -26,6 +26,7 @@ from typing import Callable, Literal
 
 import docker
 import redis as redislib
+from log_redact import redact_text
 from pydantic import BaseModel, ConfigDict, Field
 
 logging.basicConfig(
@@ -223,7 +224,8 @@ def _parse_log_chunk(chunk: bytes | str, container_id: str) -> list[ParsedLogLin
         if not separator:
             timestamp = ""
             payload = raw_line
-        clean = _strip_ansi(payload).rstrip("\r")
+        # Redact before the line is published, buffered or used as an identity.
+        clean = redact_text(_strip_ansi(payload).rstrip("\r"))
         if not clean:
             continue
         parsed.append(

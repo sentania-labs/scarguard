@@ -10,6 +10,7 @@ import threading
 import time
 from typing import Any
 
+import log_redact
 import redis
 import secret_box
 import yaml
@@ -32,10 +33,8 @@ HEALTH_PATH = pathlib.Path("/tmp/healthy")
 POLL_INTERVAL_SEC = 1.0
 
 DEFAULT_DP_CODES = {
-    "sprinkler": "switch_1",
-    "light": "switch_led",
-    "sound": "switch",
-    "plug": "switch_1",
+    "sprinkler": "switch_1", "light": "switch_led",
+    "sound": "switch", "plug": "switch_1",
 }
 
 
@@ -47,9 +46,7 @@ class WatchdogDevice(BaseModel):
     dp_code: str | None = None
 
 
-def load_runtime() -> tuple[
-    dict[str, WatchdogDevice], OffOnlyCloudController | None, dict[str, Any]
-]:
+def load_runtime() -> tuple[dict[str, WatchdogDevice], OffOnlyCloudController | None, dict[str, Any]]:
     """Load the single ScarGuard config and its encrypted Tuya fields."""
     with open(CONFIG_PATH) as handle:
         cfg = yaml.safe_load(handle) or {}
@@ -65,9 +62,7 @@ def load_runtime() -> tuple[
     controller = None
     if isinstance(creds, dict) and creds.get("api_key") and creds.get("api_secret"):
         controller = OffOnlyCloudController(
-            creds["api_key"],
-            creds["api_secret"],
-            creds.get("api_region", "us"),
+            creds["api_key"], creds["api_secret"], creds.get("api_region", "us"),
         )
     return devices, controller, cfg.get("redis", {})
 
@@ -77,8 +72,7 @@ def dp_code(device: WatchdogDevice) -> str:
 
 
 def startup_off_sweep(
-    devices: dict[str, WatchdogDevice],
-    controller: OffOnlyCloudController,
+    devices: dict[str, WatchdogDevice], controller: OffOnlyCloudController,
 ) -> bool:
     """Conservatively OFF every configured device before accepting health."""
     safe = True
@@ -120,8 +114,7 @@ def process_expired_leases(
             continue
         remaining_span = lease.expires_at - lease.issued_at
         monotonic_deadline = observations.setdefault(
-            lease.nonce,
-            current_monotonic + remaining_span,
+            lease.nonce, current_monotonic + remaining_span,
         )
         deadline_exists = bool(
             client.exists(RedisActivationLeases.deadline_key(lease.device_id)),
@@ -155,6 +148,7 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
+    log_redact.install()
     signing_key = load_key_from_env(LEASE_KEY_ENV)
     if signing_key is None:
         raise RuntimeError("OFF watchdog signing key is required")
@@ -162,12 +156,9 @@ def main() -> None:
     if controller is None:
         raise RuntimeError("Tuya credentials are required for OFF watchdog")
     client = redis.Redis(
-        host=redis_cfg.get("host", "redis"),
-        port=int(redis_cfg.get("port", 6379)),
+        host=redis_cfg.get("host", "redis"), port=int(redis_cfg.get("port", 6379)),
         password=os.environ.get("REDIS_PASSWORD", "") or None,
-        decode_responses=True,
-        socket_connect_timeout=2,
-        socket_timeout=2,
+        decode_responses=True, socket_connect_timeout=2, socket_timeout=2,
     )
     shutdown = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
@@ -175,7 +166,9 @@ def main() -> None:
     startup_safe = startup_off_sweep(devices, controller)
     config_mtime = pathlib.Path(CONFIG_PATH).stat().st_mtime_ns
     observed_deadlines: dict[str, float] = {}
-    retired_routes: list[tuple[dict[str, WatchdogDevice], OffOnlyCloudController, float]] = []
+    retired_routes: list[
+        tuple[dict[str, WatchdogDevice], OffOnlyCloudController, float]
+    ] = []
     while not shutdown.is_set():
         try:
             if not startup_safe:
@@ -208,19 +201,15 @@ def main() -> None:
                         "Watchdog config reload failed; retaining last safe config",
                     )
             _, leases_safe = process_expired_leases(
-                client,
-                devices,
-                controller,
-                signing_key,
+                client, devices, controller, signing_key,
                 observed_deadlines=observed_deadlines,
             )
-            retained: list[tuple[dict[str, WatchdogDevice], OffOnlyCloudController, float]] = []
+            retained: list[
+                tuple[dict[str, WatchdogDevice], OffOnlyCloudController, float]
+            ] = []
             for old_devices, old_controller, retire_at in retired_routes:
                 _, old_safe = process_expired_leases(
-                    client,
-                    old_devices,
-                    old_controller,
-                    signing_key,
+                    client, old_devices, old_controller, signing_key,
                     observed_deadlines=observed_deadlines,
                 )
                 leases_safe = leases_safe and old_safe

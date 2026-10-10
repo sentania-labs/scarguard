@@ -8,6 +8,7 @@ import threading
 
 import cv2
 import numpy as np
+from log_redact import redact_text
 
 
 def _ensure_ffmpeg_socket_timeout(
@@ -90,10 +91,9 @@ class RTSPStream:
             logger.info("[%s] Connected to RTSP stream", self.name)
             return True
 
-        import re
-
-        safe_url = re.sub(r"://[^@]+@", r"://***@", self.rtsp_url)
-        logger.warning("[%s] Failed to open RTSP stream: %s", self.name, safe_url)
+        logger.warning(
+            "[%s] Failed to open RTSP stream: %s", self.name, redact_text(self.rtsp_url),
+        )
         return False
 
     def _reconnect(self) -> bool:
@@ -104,9 +104,7 @@ class RTSPStream:
             wait_sec = self.LONG_BACKOFF_SEC
             logger.warning(
                 "[%s] Stream offline for %d attempts - backing off to %.0f min between retries",
-                self.name,
-                self._consecutive_failures,
-                wait_sec / 60.0,
+                self.name, self._consecutive_failures, wait_sec / 60.0,
             )
         else:
             wait_sec = self._current_delay

@@ -36,12 +36,7 @@ class FakeRedis:
         return int(self.values.pop(key, None) is not None)
 
     def eval(
-        self,
-        script: str,
-        count: int,
-        key: str,
-        deadline: str,
-        expected: str,
+        self, script: str, count: int, key: str, deadline: str, expected: str,
     ) -> int:
         if self.values.get(key) != expected:
             return 0
@@ -69,20 +64,16 @@ def test_real_controller_records_finite_lease_before_on(monkeypatch: Any) -> Non
     signing_key = bytes(range(32))
     fake_cloud = FakeCloud(store, signing_key)
     monkeypatch.setattr(
-        cloud_controller.TuyaCloudController,
-        "_bounded_factory",
+        cloud_controller.TuyaCloudController, "_bounded_factory",
         staticmethod(lambda factory: fake_cloud),
     )
     monkeypatch.setattr(cloud_controller.time, "sleep", lambda _: None)
     controller = TuyaCloudController(
-        chr(120),
-        chr(121),
+        chr(120), chr(121),
         activation_leases=RedisActivationLeases(store, signing_key),
     )
     device = DeviceConfig(
-        name="pond",
-        device_id="pond-device",
-        type="sprinkler",
+        name="pond", device_id="pond-device", type="sprinkler",
     )
 
     result = controller.activate_device(device, 0.5)
@@ -101,13 +92,11 @@ def test_real_controller_refuses_on_when_lease_store_fails(monkeypatch: Any) -> 
     signing_key = bytes(range(32))
     fake_cloud = FakeCloud(store, signing_key)
     monkeypatch.setattr(
-        cloud_controller.TuyaCloudController,
-        "_bounded_factory",
+        cloud_controller.TuyaCloudController, "_bounded_factory",
         staticmethod(lambda factory: fake_cloud),
     )
     controller = TuyaCloudController(
-        chr(120),
-        chr(121),
+        chr(120), chr(121),
         activation_leases=RedisActivationLeases(store, signing_key),
     )
     device = DeviceConfig(name="pond", device_id="pond-device", type="sprinkler")

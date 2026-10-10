@@ -127,7 +127,6 @@ def _get_schedule_info(cfg: dict) -> dict:
         try:
             from astral import LocationInfo
             from astral.sun import sun as astral_sun
-
             loc = LocationInfo(latitude=float(lat), longitude=float(lon))  # type: ignore[arg-type]
             s = astral_sun(loc.observer, date=d, tzinfo=timezone.utc)
             result: datetime = s[kind]
@@ -208,7 +207,9 @@ async def dashboard(request: Request):
     latest_dict = None
     if latest:
         latest_dict = dict(latest)
-        latest_dict["display_timestamp"] = _to_local(latest_dict.get("timestamp", ""), tz_name)
+        latest_dict["display_timestamp"] = _to_local(
+            latest_dict.get("timestamp", ""), tz_name
+        )
     rearm_at = await _get_rearm_at(cfg)
     camera_health = await _get_camera_health(cfg)
 
@@ -266,8 +267,7 @@ async def arm_status(request: Request):
 
 
 @router.post(
-    "/arm",
-    response_class=HTMLResponse,
+    "/arm", response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("arm-toggle", capacity=30, window_seconds=60))],
 )
 async def arm(request: Request) -> Response:
@@ -290,8 +290,7 @@ async def arm(request: Request) -> Response:
 
 
 @router.post(
-    "/disarm",
-    response_class=HTMLResponse,
+    "/disarm", response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("arm-toggle", capacity=30, window_seconds=60))],
 )
 async def disarm(request: Request) -> Response:
@@ -450,9 +449,7 @@ async def _deterrent_partial(request: Request) -> HTMLResponse:
     can_toggle = role in ("user", "admin")
     ctx = _deterrent_context(cfg, can_toggle=can_toggle)
     return templates.TemplateResponse(
-        request,
-        "partials/deterrent_status.html",
-        {"deterrent": ctx},
+        request, "partials/deterrent_status.html", {"deterrent": ctx},
     )
 
 
@@ -463,8 +460,7 @@ async def deterrent_status(request: Request) -> Response:
 
 
 @router.post(
-    "/deterrent-enable",
-    response_class=HTMLResponse,
+    "/deterrent-enable", response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("deterrent-toggle", capacity=30, window_seconds=60))],
 )
 async def deterrent_enable(request: Request) -> Response:
@@ -478,8 +474,7 @@ async def deterrent_enable(request: Request) -> Response:
 
 
 @router.post(
-    "/deterrent-disable",
-    response_class=HTMLResponse,
+    "/deterrent-disable", response_class=HTMLResponse,
     dependencies=[Depends(rate_limit("deterrent-toggle", capacity=30, window_seconds=60))],
 )
 async def deterrent_disable(request: Request) -> Response:

@@ -11,7 +11,6 @@ Covers:
 - filesystem failure injection in the full event path.
 - SQLite failure injection in the full event path.
 """
-
 import json
 import sqlite3
 import threading
@@ -31,7 +30,6 @@ from events import EventProcessor
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
 
 def _make_processor(
     tmp_path: Path,
@@ -57,7 +55,6 @@ def _count_rows(db_path: str) -> int:
 # ------------------------------------------------------------------
 # AC1: Snapshot imwrite failure does not create misleading feedback
 # ------------------------------------------------------------------
-
 
 def test_imwrite_false_still_returns_none_snapshot(tmp_path, monkeypatch):
     """When cv2.imwrite returns False, _save_snapshot returns None."""
@@ -164,7 +161,9 @@ def test_persist_retries_then_succeeds(tmp_path, monkeypatch):
 
     monkeypatch.setattr(processor, "_insert_event", flaky_insert)
 
-    result = processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    result = processor._persist(
+        datetime.now(timezone.utc), det, "cam-a", None, None
+    )
     assert result is True
 
 
@@ -181,11 +180,11 @@ def test_persist_returns_false_after_all_retries(tmp_path, monkeypatch):
     def always_fail(*args, **kwargs):
         raise sqlite3.OperationalError("persistent failure")
 
-    monkeypatch.setattr(
-        processor, "_insert_event", always_fail_insert := MagicMock(side_effect=always_fail)
-    )
+    monkeypatch.setattr(processor, "_insert_event", always_fail_insert := MagicMock(side_effect=always_fail))
 
-    result = processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    result = processor._persist(
+        datetime.now(timezone.utc), det, "cam-a", None, None
+    )
     assert result is False
     # Should have tried max 3 times (default).
     assert always_fail_insert.call_count == 3
@@ -204,7 +203,9 @@ def test_no_feedback_token_when_snapshot_fails(tmp_path, monkeypatch):
 
     with patch("cv2.imwrite", MagicMock(return_value=False)):
         det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
-        events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+        events_list = processor.process(
+            [det], "cam-a", _dummy_frame(), actions_by_class=None
+        )
 
     assert len(events_list) == 1
     # The event is still published (it passes through), but feedback_token is None.
@@ -223,7 +224,9 @@ def test_no_feedback_token_when_db_persistence_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(processor, "_insert_event", always_fail_insert)
 
     det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
-    events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
 
     assert len(events_list) == 1
     # feedback_token must be None because DB persist failed.
@@ -245,7 +248,9 @@ def test_full_event_path_snapshot_write_failure(tmp_path, monkeypatch):
 
     with patch("cv2.imwrite", imwrite_fail):
         det = Detection(class_name="heron", confidence=0.9, bbox=(10, 10, 50, 50))
-        events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+        events_list = processor.process(
+            [det], "cam-a", _dummy_frame(), actions_by_class=None
+        )
 
     assert len(events_list) == 1
     event = events_list[0]
@@ -262,13 +267,14 @@ def test_full_event_path_db_failure(tmp_path, monkeypatch):
     processor = _make_processor(tmp_path, cooldown_seconds=0)
 
     monkeypatch.setattr(
-        processor,
-        "_insert_event",
+        processor, "_insert_event",
         MagicMock(side_effect=sqlite3.OperationalError("DB always fails")),
     )
 
     det = Detection(class_name="heron", confidence=0.9, bbox=(10, 10, 50, 50))
-    events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
 
     assert len(events_list) == 1
     assert events_list[0]["feedback_token"] is None
@@ -283,7 +289,9 @@ def test_full_event_path_success(tmp_path):
     processor = _make_processor(tmp_path, cooldown_seconds=0)
 
     det = Detection(class_name="heron", confidence=0.9, bbox=(10, 10, 50, 50))
-    events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
 
     assert len(events_list) == 1
     assert events_list[0]["feedback_token"] is not None
@@ -344,7 +352,9 @@ def test_multiple_detections_in_single_frame(tmp_path):
         Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4)),
         Detection(class_name="duck", confidence=0.8, bbox=(50, 60, 70, 80)),
     ]
-    events_list = processor.process(detections, "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        detections, "cam-a", _dummy_frame(), actions_by_class=None
+    )
 
     assert len(events_list) == 2
     class_names = {ev["class_name"] for ev in events_list}
@@ -362,13 +372,14 @@ def test_event_published_on_db_failure(tmp_path, monkeypatch):
     processor = _make_processor(tmp_path, cooldown_seconds=0)
 
     monkeypatch.setattr(
-        processor,
-        "_insert_event",
+        processor, "_insert_event",
         MagicMock(side_effect=sqlite3.OperationalError("DB fails")),
     )
 
     det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
-    events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
 
     # Event is returned → publisher can send it to Redis.
     assert len(events_list) == 1
@@ -389,13 +400,14 @@ def test_health_alert_pending_on_persistence_failure(monkeypatch, tmp_path):
     processor = _make_processor(tmp_path, cooldown_seconds=0)
 
     monkeypatch.setattr(
-        processor,
-        "_insert_event",
+        processor, "_insert_event",
         MagicMock(side_effect=sqlite3.OperationalError("DB always fails")),
     )
 
     det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
-    events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
 
     # The detection event is returned → publisher sends it → notifier fires.
     assert len(events_list) == 1
@@ -519,12 +531,13 @@ def test_snapshot_grabber_returns_ok_false_on_imwrite_failure(tmp_path, monkeypa
     assert result_payload["ok"] is False
     assert "imwrite" in result_payload["error"].lower()
 
-
 def test_feedback_token_saved_in_db(tmp_path):
     """The generated feedback_token is saved in the database."""
     processor = _make_processor(tmp_path, cooldown_seconds=0)
     det = Detection(class_name="heron", confidence=0.9, bbox=(10, 10, 50, 50))
-    events_list = processor.process([det], "cam-a", _dummy_frame(), actions_by_class=None)
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
     assert len(events_list) == 1
     token = events_list[0]["feedback_token"]
     assert token is not None
@@ -534,7 +547,6 @@ def test_feedback_token_saved_in_db(tmp_path):
         row = conn.execute("SELECT * FROM detection_events").fetchone()
 
     assert row["feedback_token"] == token
-
 
 def test_stale_events_dropped_from_buffer(monkeypatch):
     """Events older than 60 seconds in the buffer are dropped during flush."""
@@ -561,7 +573,6 @@ def test_stale_events_dropped_from_buffer(monkeypatch):
     # Buffer should be empty
     assert len(publisher._buffer) == 0
 
-
 def test_health_alerts_buffered_on_publish_failure(monkeypatch):
     """Health alerts stay pending until publication succeeds."""
     import threading
@@ -582,7 +593,7 @@ def test_health_alerts_buffered_on_publish_failure(monkeypatch):
         camera_stats={},
         camera_stats_lock=threading.Lock(),
         stop_event=threading.Event(),
-        health_tracker=mock_health,
+        health_tracker=mock_health
     )
 
     monkeypatch.setattr("redis.Redis", lambda **kwargs: mock_client)

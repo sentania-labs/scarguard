@@ -119,7 +119,9 @@ class ArmScheduler:
     def start(self) -> None:
         self._stop_event.clear()
         self._last_tick = datetime.now(timezone.utc)
-        self._thread = threading.Thread(target=self._run, name="arm-scheduler", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="arm-scheduler", daemon=True
+        )
         self._thread.start()
         logger.info("Arm scheduler started")
 
@@ -194,7 +196,9 @@ class ArmScheduler:
             # does not keep firing once it has expired.
             r.delete("scarguard:rearm_at")
             if not self._schedule_allows_rearm():
-                logger.info("Auto-rearm suppressed: schedule currently dictates disarmed")
+                logger.info(
+                    "Auto-rearm suppressed: schedule currently dictates disarmed"
+                )
                 return
             logger.info("Non-admin auto-rearm triggered")
             self._armed_ref.set(True)

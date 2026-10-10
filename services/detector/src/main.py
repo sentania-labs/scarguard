@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import log_redact
+import secret_box
 import yaml
 from atomic_ref import AtomicRef
 from camera_health import CameraHealthTracker
@@ -70,16 +72,6 @@ def _validate_frame_skip(value: object) -> int:
     return value
 
 
-def _decrypt_secrets(cfg: dict) -> None:
-    import secret_box
-
-    key = secret_box.try_load_key()
-    if key:
-        secret_box.decrypt_in_place(cfg, key)
-    elif secret_box.has_encrypted_secrets(cfg):
-        logger.error("Failed to decrypt detector secrets - wrong key on disk?")
-
-
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f)
@@ -90,12 +82,29 @@ def load_config() -> dict:
     return cfg
 
 
+def _decrypt_secrets(cfg: dict) -> None:
+    """Decrypt sensitive fields (camera RTSP URLs) in place when the key is present.
+
+    Without the key, plaintext passes through (migration pending) and an
+    ``enc:v1:`` value stays as-is, so the stream fails to open rather than
+    the detector crashing.
+    """
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except secret_box.SecretKeyMissing:
+        logger.error("Failed to decrypt detector secrets - wrong key on disk?")
+
+
 def setup_logging(log_level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
+    log_redact.install()
 
 
 def _match_notification_rules(class_name: str, rules: list[dict]) -> list[str] | None:
@@ -253,7 +262,10 @@ def _in_include_zone(
 
     If no include zones are defined, returns True (no inclusion constraint).
     """
-    include_zones = [z for z in zones if z.get("zone_type") == "include" and z.get("enabled", True)]
+    include_zones = [
+        z for z in zones
+        if z.get("zone_type") == "include" and z.get("enabled", True)
+    ]
     if not include_zones or frame_w == 0 or frame_h == 0:
         return True
     cx_f = cx / frame_w
@@ -299,7 +311,9 @@ def _evaluate_notification_rules(
         return actions_by_class
     for det in detections:
         if det.class_name not in actions_by_class:
-            actions_by_class[det.class_name] = _match_notification_rules(det.class_name, rules)
+            actions_by_class[det.class_name] = _match_notification_rules(
+                det.class_name, rules
+            )
     return actions_by_class
 
 
@@ -313,7 +327,9 @@ def _evaluate_deterrent_rules(
         return groups_by_class
     for det in detections:
         if det.class_name not in groups_by_class:
-            groups_by_class[det.class_name] = _match_deterrent_rules(det.class_name, rules)
+            groups_by_class[det.class_name] = _match_deterrent_rules(
+                det.class_name, rules
+            )
     return groups_by_class
 
 
@@ -338,9 +354,7 @@ def _publish_detections(
 ) -> None:
     """Run cooldown dedup, publish events to Redis, and record visits."""
     events = event_processor.process(
-        detections,
-        camera_name,
-        frame,
+        detections, camera_name, frame,
         actions_by_class=actions_by_class if actions_by_class else None,
         groups_by_class=groups_by_class if groups_by_class else None,
     )
@@ -353,6 +367,7 @@ def _publish_detections(
                 class_name=event["class_name"],
                 timestamp=datetime.fromisoformat(event["timestamp"]),
             )
+
 
 
 def run_camera(
@@ -547,30 +562,20 @@ def _camera_worker(
         # cooldown slot for its class on this camera.
         frame_h, frame_w = frame.shape[:2]
         detections = _apply_exclusion_zones(
-            detections,
-            exclusion_zones_ref.get(),
-            frame_w,
-            frame_h,
-            name,
+            detections, exclusion_zones_ref.get(), frame_w, frame_h, name,
         )
         if not detections:
             continue
 
         actions_by_class = _evaluate_notification_rules(
-            detections,
-            action_rules_ref.get(),
+            detections, action_rules_ref.get(),
         )
         groups_by_class = _evaluate_deterrent_rules(
-            detections,
-            deterrent_rules_ref.get(),
+            detections, deterrent_rules_ref.get(),
         )
         _publish_detections(
-            detections,
-            name,
-            frame,
-            event_processor,
-            publisher,
-            visit_tracker,
+            detections, name, frame,
+            event_processor, publisher, visit_tracker,
             actions_by_class,
             groups_by_class,
         )
@@ -611,7 +616,9 @@ def main() -> None:
     # Mutable references so hot-reload can update these without restarting threads.
     armed_ref: AtomicRef[bool] = AtomicRef(sys_cfg.get("armed", True))
     paused_ref: AtomicRef[bool] = AtomicRef(False)
-    frame_skip_ref: AtomicRef[int] = AtomicRef(_validate_frame_skip(det_cfg.get("frame_skip", 2)))
+    frame_skip_ref: AtomicRef[int] = AtomicRef(
+        _validate_frame_skip(det_cfg.get("frame_skip", 2))
+    )
 
     # ---- Model pool ------------------------------------------------------------
     model_pool = ModelPool(
@@ -803,7 +810,9 @@ def main() -> None:
             except Exception:
                 logger.exception("Visit flush error")
 
-    visit_flush_thread = threading.Thread(target=_visit_flush_loop, name="visit-flush", daemon=True)
+    visit_flush_thread = threading.Thread(
+        target=_visit_flush_loop, name="visit-flush", daemon=True
+    )
     visit_flush_thread.start()
 
     # ---- Pause handler (training pipeline GPU handoff) --------------------------
@@ -845,8 +854,8 @@ def main() -> None:
 
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:
-        _decrypt_secrets(new_cfg)
         nonlocal known_channels, known_groups
+        _decrypt_secrets(new_cfg)
         new_sys = new_cfg.get("system", {})
         new_det = new_cfg.get("detection", {})
         try:

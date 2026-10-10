@@ -28,9 +28,10 @@ class YOLODetector:
         import safe_load  # noqa: F401
         from path_safety import validate_model_path
 
-        self.model_path = str(
-            validate_model_path(model_path, os.environ.get("MODELS_DIR", "/models"))
-        )
+        self.model_path = str(validate_model_path(
+            model_path,
+            os.environ.get("MODELS_DIR", "/models")
+        ))
         self.confidence_threshold = confidence_threshold
         self.target_classes = set(target_classes)
         self._model: Any = None
@@ -125,3 +126,4 @@ class YOLODetector:
                 detections.append(Detection(class_name, confidence, (x1, y1, x2, y2)))
 
         return detections
+

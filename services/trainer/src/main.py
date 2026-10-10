@@ -20,7 +20,9 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+import log_redact
 import redis
+import secret_box
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -34,21 +36,28 @@ JOB_NOTIFY_CHANNEL = "scarguard:training:job:notify"
 POLL_INTERVAL = 30
 
 
-def _decrypt_secrets(cfg: dict) -> None:
-    import secret_box
-
-    key = secret_box.try_load_key()
-    if key:
-        secret_box.decrypt_in_place(cfg, key)
-    elif secret_box.has_encrypted_secrets(cfg):
-        logger.error("Failed to decrypt trainer secrets - wrong key on disk?")
-
-
 def _load_config() -> dict:
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f) or {}
-    _decrypt_secrets(cfg)
+    if isinstance(cfg, dict):
+        _decrypt_secrets(cfg)
     return cfg
+
+
+def _decrypt_secrets(cfg: dict) -> None:
+    """Decrypt sensitive fields (the Roboflow key) in place when the key is present.
+
+    Without the key, plaintext passes through (migration pending) and an
+    ``enc:v1:`` value stays as-is, so the job fails visibly instead of
+    sending ciphertext to Roboflow.
+    """
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except secret_box.SecretKeyMissing:
+        logger.error("Failed to decrypt trainer secrets - wrong key on disk?")
 
 
 def _connect_db() -> sqlite3.Connection:
@@ -196,6 +205,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
+    log_redact.install()
     logger.info("ScarGuard trainer starting")
 
     Path("/tmp/healthy").touch(exist_ok=True)

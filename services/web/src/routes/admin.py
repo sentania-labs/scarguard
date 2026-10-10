@@ -12,6 +12,7 @@ from config_redact import redact_yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from log_redact import redact_text
 from route_auth import has_admin_access, require_admin, require_viewer
 from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
@@ -103,7 +104,9 @@ async def logs_stream(
                     )
                 else:
                     for raw_entry in reversed(lines):
-                        line = _buffer_text(raw_entry)
+                        # Buffers written before source redaction may still
+                        # hold credentials; mask them on replay too.
+                        line = redact_text(_buffer_text(raw_entry))
                         safe = line.replace("\n", "  ")
                         yield f"data: {safe}\n\n"
 
@@ -121,7 +124,7 @@ async def logs_stream(
                             continue
                         if message["type"] != "message":
                             continue
-                        safe = str(message["data"]).replace("\n", "  ")
+                        safe = redact_text(str(message["data"])).replace("\n", "  ")
                         yield f"data: {safe}\n\n"
                 finally:
                     await pubsub.unsubscribe(channel)

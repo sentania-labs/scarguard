@@ -19,24 +19,9 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
-
-
-def redact_url(url: str) -> str:
-    try:
-        parsed = urlparse(url)
-        if parsed.password or parsed.username:
-            netloc = f"{parsed.username or ''}:***@{parsed.hostname}"
-            if parsed.port:
-                netloc += f":{parsed.port}"
-            return urlunparse(parsed._replace(netloc=netloc))
-        return url
-    except Exception:
-        import re
-
-        return re.sub(r"://[^@]+@", r"://***@", url)
 
 
 class UnsafeURLError(ValueError):
@@ -62,8 +47,8 @@ def _is_blocked_address(addr: str) -> bool:
         return True
     # Cloud metadata endpoints (belt-and-suspenders on top of is_link_local).
     blocked_literals = {
-        "169.254.169.254",  # AWS / Azure / GCP IMDS
-        "fd00:ec2::254",  # EC2 IMDSv2 over IPv6
+        "169.254.169.254",   # AWS / Azure / GCP IMDS
+        "fd00:ec2::254",     # EC2 IMDSv2 over IPv6
         "fe80::a9fe:a9fe",
     }
     if str(ip) in blocked_literals:
@@ -143,7 +128,7 @@ def validate_external_url(url: str, *, allow_internal: bool = False) -> None:
         if _ip_is_internal(ip):
             if not allow_internal or not _is_rfc1918_private(ip):
                 raise UnsafeURLError(
-                    f"URL {redact_url(url)!r} resolves to internal address {addr}",
+                    f"URL host {host!r} resolves to internal address {addr}",
                 )
 
 
@@ -167,5 +152,9 @@ def _is_rfc1918_private(
     mode. Excludes loopback/link-local (which ``is_private`` considers
     private) and multicast/reserved/unspecified."""
     return ip.is_private and not (
-        ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved
+        ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_unspecified
+        or ip.is_reserved
     )
