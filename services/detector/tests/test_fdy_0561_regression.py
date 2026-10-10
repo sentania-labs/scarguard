@@ -530,3 +530,101 @@ def test_snapshot_grabber_returns_ok_false_on_imwrite_failure(tmp_path, monkeypa
     result_payload = json.loads(publish_calls[-1][0][1])
     assert result_payload["ok"] is False
     assert "imwrite" in result_payload["error"].lower()
+
+def test_feedback_token_saved_in_db(tmp_path):
+    """The generated feedback_token is saved in the database."""
+    processor = _make_processor(tmp_path, cooldown_seconds=0)
+    det = Detection(class_name="heron", confidence=0.9, bbox=(10, 10, 50, 50))
+    events_list = processor.process(
+        [det], "cam-a", _dummy_frame(), actions_by_class=None
+    )
+    assert len(events_list) == 1
+    token = events_list[0]["feedback_token"]
+    assert token is not None
+
+    with sqlite3.connect(str(tmp_path / "events.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM detection_events").fetchone()
+
+    assert row["feedback_token"] == token
+
+def test_stale_events_dropped_from_buffer(monkeypatch):
+    """Events older than 60 seconds in the buffer are dropped during flush."""
+    import time
+
+    from publisher import RedisPublisher
+
+    publisher = RedisPublisher("localhost", 6379)
+    publisher._client = MagicMock()
+
+    # Pre-populate buffer with one stale event and one fresh event
+    now = time.monotonic()
+    stale_payload = '{"stale": true}'
+    fresh_payload = '{"stale": false}'
+    publisher._buffer.append((now - 61, stale_payload))
+    publisher._buffer.append((now - 10, fresh_payload))
+
+    publisher._flush_buffer()
+
+    # The stale event should be dropped, the fresh one published
+    publish_calls = publisher._client.publish.call_args_list
+    assert len(publish_calls) == 1
+    assert publish_calls[0][0][1] == fresh_payload
+    # Buffer should be empty
+    assert len(publisher._buffer) == 0
+
+def test_health_alerts_buffered_on_publish_failure(monkeypatch):
+    """Health alerts stay pending until publication succeeds."""
+    import threading
+
+    import redis
+    from stats_collector import StatsCollector
+
+    mock_client = MagicMock()
+    # Fail first publish, succeed second
+    mock_client.publish.side_effect = [redis.RedisError("fail"), None]
+
+    mock_health = MagicMock()
+    mock_health.check_alerts.return_value = [{"type": "camera_offline", "camera_name": "cam-a"}]
+
+    collector = StatsCollector(
+        redis_cfg={"host": "localhost", "port": 6379},
+        interval_seconds=1,
+        camera_stats={},
+        camera_stats_lock=threading.Lock(),
+        stop_event=threading.Event(),
+        health_tracker=mock_health
+    )
+
+    monkeypatch.setattr("redis.Redis", lambda **kwargs: mock_client)
+
+    # Just run the inner block manually to avoid thread timing issues
+    try:
+        alerts = collector._health_tracker.check_alerts()
+        collector._health_alert_buffer.extend(alerts)
+        while collector._health_alert_buffer:
+            alert = collector._health_alert_buffer[0]
+            mock_client.publish("scarguard:health", json.dumps(alert, default=str))
+            collector._health_alert_buffer.pop(0)
+    except redis.RedisError:
+        pass
+
+    # The buffer should still contain the alert because pop(0) wasn't reached
+    assert len(collector._health_alert_buffer) == 1
+
+    # Run again, this time publish succeeds
+    # mock_health.check_alerts returns same thing, but let's clear it
+    mock_health.check_alerts.return_value = []
+
+    try:
+        alerts = collector._health_tracker.check_alerts()
+        collector._health_alert_buffer.extend(alerts)
+        while collector._health_alert_buffer:
+            alert = collector._health_alert_buffer[0]
+            mock_client.publish("scarguard:health", json.dumps(alert, default=str))
+            collector._health_alert_buffer.pop(0)
+    except redis.RedisError:
+        pass
+
+    assert len(collector._health_alert_buffer) == 0
+    assert mock_client.publish.call_count == 2

@@ -101,16 +101,14 @@ class EventProcessor:
                 list(groups_by_class.get(det.class_name, []))
                 if groups_by_class is not None else []
             )
-            # Generate a feedback token only when both snapshot and DB
-            # persistence succeed.  A ``None`` snapshot_path means the
-            # file write failed; the token would then point to nothing.
-            feedback_token: str | None = None
+            # Generate a feedback token to store in the DB, but only expose it
+            # for notifications if persistence actually succeeds.
+            db_feedback_token: str | None = uuid.uuid4().hex if snapshot_path is not None else None
             persisted = self._persist(
                 timestamp, det, camera_name, snapshot_path,
-                actions_triggered, frame_size, feedback_token,
+                actions_triggered, frame_size, db_feedback_token,
             )
-            if snapshot_path is not None and persisted:
-                feedback_token = uuid.uuid4().hex
+            feedback_token = db_feedback_token if persisted else None
 
             logger.info(
                 "[%s] %s detected (conf=%.2f)",
