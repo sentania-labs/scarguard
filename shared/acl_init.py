@@ -160,7 +160,6 @@ _SERVICE_ACL: list[tuple[str, list[str], list[str], list[str]]] = [
         "web",
         [
             "SUBSCRIBE",
-            "PUBLISH",
             "GET",
             "INCR",
             "PSETEX",
@@ -172,7 +171,6 @@ _SERVICE_ACL: list[tuple[str, list[str], list[str], list[str]]] = [
             "scarguard:rl:*",
             "scarguard:logs:*",
             "scarguard:backup:status",
-            "scarguard:backup:trigger",
         ],
         [
             "scarguard:detections",          # SUBSCRIBE for SSE stream
