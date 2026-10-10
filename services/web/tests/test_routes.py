@@ -28,13 +28,13 @@ class TestDashboard:
 
     def test_disarm_calls_set_armed(self, client, monkeypatch):
         calls = []
-        monkeypatch.setattr("config_store.set_armed", lambda v: calls.append(v))
+        monkeypatch.setattr("config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed")))
         client.post("/disarm")
         assert calls == [False]
 
     def test_arm_calls_set_armed(self, client, monkeypatch):
         calls = []
-        monkeypatch.setattr("config_store.set_armed", lambda v: calls.append(v))
+        monkeypatch.setattr("config_store.save", lambda cfg: calls.append(cfg.get("system", {}).get("armed")))
         client.post("/arm")
         assert calls == [True]
 

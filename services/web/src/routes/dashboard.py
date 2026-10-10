@@ -47,17 +47,7 @@ def _redis_client(cfg: dict) -> Any:
 
 
 async def _get_rearm_at(cfg: dict) -> str | None:
-    r = _redis_client(cfg)
-    if r is None:
-        return None
-    try:
-        val: str | None = await r.get(_REARM_KEY)
-        return val
-    except Exception:
-        log.warning("Failed to read rearm_at from Redis")
-        return None
-    finally:
-        await r.close()
+    return cfg.get("system", {}).get("auth", {}).get("rearm_at")
 
 
 async def _get_camera_health(cfg: dict) -> dict:
@@ -81,27 +71,16 @@ async def _get_camera_health(cfg: dict) -> dict:
 
 
 async def _set_rearm_at(cfg: dict, ts: str) -> None:
-    r = _redis_client(cfg)
-    if r is None:
-        return
-    try:
-        await r.set(_REARM_KEY, ts)
-    except Exception:
-        log.warning("Failed to set rearm_at in Redis")
-    finally:
-        await r.close()
+    auth_cfg = cfg.setdefault("system", {}).setdefault("auth", {})
+    auth_cfg["rearm_at"] = ts
+    config_store.save(cfg)
 
 
 async def _clear_rearm_at(cfg: dict) -> None:
-    r = _redis_client(cfg)
-    if r is None:
-        return
-    try:
-        await r.delete(_REARM_KEY)
-    except Exception:
-        log.warning("Failed to clear rearm_at in Redis")
-    finally:
-        await r.close()
+    auth_cfg = cfg.setdefault("system", {}).setdefault("auth", {})
+    if "rearm_at" in auth_cfg:
+        del auth_cfg["rearm_at"]
+        config_store.save(cfg)
 
 
 def _parse_time(s: str) -> dt_time | None:
@@ -302,8 +281,11 @@ async def arm(request: Request) -> Response:
             armed=config_store.load().get("system", {}).get("armed", True),
         )
     cfg = config_store.load()
-    config_store.set_armed(True)
-    await _clear_rearm_at(cfg)
+    cfg.setdefault("system", {})["armed"] = True
+    auth_cfg = cfg.setdefault("system", {}).setdefault("auth", {})
+    if "rearm_at" in auth_cfg:
+        del auth_cfg["rearm_at"]
+    config_store.save(cfg)
     return await _arm_badge(request, armed=True)
 
 
@@ -321,19 +303,26 @@ async def disarm(request: Request) -> Response:
             request,
             armed=config_store.load().get("system", {}).get("armed", True),
         )
+
     cfg = config_store.load()
-    config_store.set_armed(False)
+    cfg.setdefault("system", {})["armed"] = False
+    auth_cfg = cfg.setdefault("system", {}).setdefault("auth", {})
+
     rearm_at: str | None = None
     if role == "admin":
-        await _clear_rearm_at(cfg)
+        if "rearm_at" in auth_cfg:
+            del auth_cfg["rearm_at"]
     else:
-        rearm_minutes = (
-            cfg.get("system", {}).get("auth", {}).get("nonadmin_rearm_minutes", 30)
-        )
+        rearm_minutes = auth_cfg.get("nonadmin_rearm_minutes", 30)
         if isinstance(rearm_minutes, int) and rearm_minutes > 0:
             rearm_time = datetime.now(timezone.utc) + timedelta(minutes=rearm_minutes)
             rearm_at = rearm_time.isoformat()
-            await _set_rearm_at(cfg, rearm_at)
+            auth_cfg["rearm_at"] = rearm_at
+        else:
+            if "rearm_at" in auth_cfg:
+                del auth_cfg["rearm_at"]
+
+    config_store.save(cfg)
     return await _arm_badge(request, armed=False, rearm_at=rearm_at)
 
 
@@ -344,7 +333,12 @@ async def cancel_rearm(request: Request):
     armed = cfg.get("system", {}).get("armed", True)
     if not _is_admin(request):
         return await _arm_badge(request, armed=armed)
-    await _clear_rearm_at(cfg)
+
+    auth_cfg = cfg.setdefault("system", {}).setdefault("auth", {})
+    if "rearm_at" in auth_cfg:
+        del auth_cfg["rearm_at"]
+        config_store.save(cfg)
+
     return await _arm_badge(request, armed=armed)
 
 

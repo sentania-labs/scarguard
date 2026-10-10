@@ -543,6 +543,7 @@ function readForm() {
 
   return {
     system: {
+      revision: parseInt(document.getElementById("sys-revision").value, 10) || 0,
       uploads: {
         model_mb: Number(document.getElementById("upload-model-mb").value),
         dataset_mb: Number(document.getElementById("upload-dataset-mb").value),
