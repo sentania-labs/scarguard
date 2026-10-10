@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 
+import audit
 import config_store
 import redis.asyncio as aioredis
 from config_redact import redact_yaml
@@ -191,10 +192,21 @@ async def backup_restore(request: Request, name: str) -> Response:
         return JSONResponse({"error": "Backup manager not initialized"}, status_code=500)
     if not name.startswith("scarguard_") or not name.endswith(".yml"):
         return JSONResponse({"error": "Invalid backup name"}, status_code=400)
-    ok = backup_manager.restore(name)
-    if not ok:
-        return JSONResponse({"error": "Restore failed"}, status_code=500)
-    return JSONResponse({"ok": True, "message": f"Restored from {name}"})
+    from config_backup import RestoreError
+
+    try:
+        pre_restore = backup_manager.restore(name)
+    except RestoreError as exc:
+        return JSONResponse({"ok": False, "error": exc.message}, status_code=exc.status_code)
+    audit.record_request(
+        request,
+        action="config.restore",
+        resource="scarguard.yml",
+        details={"backup": name, "pre_restore_backup": pre_restore},
+    )
+    return JSONResponse(
+        {"ok": True, "message": f"Restored from {name}", "pre_restore_backup": pre_restore},
+    )
 
 
 @router.post("/backups/create")

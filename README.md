@@ -302,6 +302,8 @@ tls:
 
 Caddy picks up the change within a few seconds. Port 443 must be reachable from the internet for the ACME challenge.
 
+For automatic mode the domain must be a public DNS hostname (no IP address, wildcard, port or spaces); certificate paths must be files under `/config/` (normally `/config/certs/`). Other values are refused on save. Caddy validates every new config before reloading and keeps the running one if validation or the reload fails (check `docker compose logs caddy`).
+
 #### Mode 3: Manual (your own certificates)
 
 Use certificates from an internal CA or another provider. Place `cert.pem` and `key.pem` in the config volume's `certs/` directory:

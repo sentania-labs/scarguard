@@ -4,8 +4,16 @@ import math
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import tls_safety
 from deterrent_safety import MAX_ACTUATION_SEC, MAX_GROUP_ACTUATION_SEC
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 class ScheduleConfig(BaseModel):
@@ -129,14 +137,23 @@ class SummaryReportConfig(BaseModel):
 
 
 class ConfigApiConfig(BaseModel):
-    """Feature flag for the optional config-API service split.
+    """Reserved flag for a future config-API service split.
 
-    When ``enabled`` is True the ``config-api`` compose profile should be
-    active and Caddy routes config-write POSTs to the dedicated service
-    instead of the web monolith.  Default is False (web handles everything).
+    The ``config-api`` service is an unauthenticated scaffold whose write
+    routes all return 501, so routing settings writes to it would break every
+    save. Web is the configuration owner: the Caddy entrypoint ignores this
+    flag, and web refuses any write that sets it to true (see
+    ``CONFIG_API_UNSUPPORTED``). The key stays in the model so configs that
+    already carry ``enabled: false`` keep loading.
     """
 
     enabled: bool = False
+
+
+CONFIG_API_UNSUPPORTED = (
+    "system.config_api.enabled: the config-api service is an unimplemented "
+    "scaffold; web remains the configuration owner, so this must stay false"
+)
 
 
 class UploadLimitsConfig(BaseModel):
@@ -319,12 +336,43 @@ class NotificationsConfig(BaseModel):
 
 
 class TLSConfig(BaseModel):
-    """TLS settings for the Caddy reverse proxy."""
+    """TLS settings for the Caddy reverse proxy.
+
+    Every value is interpolated into the generated Caddyfile, so the rules
+    live in ``shared/tls_safety.py`` and the Caddy entrypoint applies the same
+    checks again before it renders or reloads anything.
+    """
 
     mode: Literal["off", "auto", "manual"] = "off"
     domain: str = ""
-    cert_path: str = "/config/certs/cert.pem"
-    key_path: str = "/config/certs/key.pem"
+    cert_path: str = tls_safety.DEFAULT_CERT_PATH
+    key_path: str = tls_safety.DEFAULT_KEY_PATH
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def normalize_mode(cls, v: object) -> object:
+        # Same normalisation as tls_safety.validate_tls (the Caddy side):
+        # YAML 1.1 reads an unquoted `mode: off` as false, and case is free.
+        if v is False or v is None:
+            return "off"
+        return v.strip().lower() if isinstance(v, str) else v
+
+    @field_validator("cert_path", "key_path")
+    @classmethod
+    def strict_cert_path(cls, v: str, info: ValidationInfo) -> str:
+        return tls_safety.validate_cert_path(v, info.field_name or "cert_path")
+
+    @model_validator(mode="after")
+    def strict_domain(self) -> "TLSConfig":
+        # Auto mode puts the domain in the Caddyfile and asks Let's Encrypt
+        # for it, so only a public FQDN will do; otherwise it only builds
+        # feedback links and a LAN host/IP[:port] is fine.
+        self.domain = tls_safety.validate_domain(
+            self.domain, for_certificate=self.mode == "auto",
+        )
+        if self.mode == "auto" and not self.domain:
+            raise ValueError("tls.domain is required when tls.mode is auto")
+        return self
 
 
 class TrainingRoboflowConfig(BaseModel):
@@ -590,5 +638,58 @@ class StructuredConfigPayload(BaseModel):
     detection: DetectionConfig = DetectionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     tls: TLSConfig = TLSConfig()
+    # Set by the browser only when an invalid on-disk TLS section was rendered
+    # as defaults and none of the TLS controls have subsequently been edited.
+    # This is transport metadata, not part of scarguard.yml.
+    tls_unchanged: bool = False
     deterrent: ActuationConfig = ActuationConfig()
     training: TrainingConfig = TrainingConfig()
+
+
+def _error_location(loc: tuple[Any, ...]) -> str:
+    return ".".join(str(part) for part in loc) or "config"
+
+
+def validate_full_config(cfg: Any) -> list[str]:
+    """Check a whole scarguard.yml document before it replaces the live one.
+
+    Used by the restore and raw-YAML paths, which write a complete document
+    rather than the structured form's merge. Applies the same schema the form
+    uses to every section the schema knows (other top-level keys such as
+    ``redis`` pass through), plus the deterrent range checks that are kept off
+    the load path. Returns field locations and rule messages only - never the
+    offending values, which may be secrets.
+    """
+    if not isinstance(cfg, dict):
+        return ["config: root must be a mapping (YAML dictionary)"]
+    known = StructuredConfigPayload.model_fields
+    # An empty YAML section (`deterrent:`) loads as None and means "defaults".
+    sections = {k: v for k, v in cfg.items() if k in known and v is not None}
+    errors: list[str] = []
+    try:
+        # Restore and raw-YAML callers persist the original mapping, so do not
+        # allow Pydantic coercion to make an invalid source document appear
+        # valid (for example, ``system.armed: "false"`` becoming ``False``).
+        StructuredConfigPayload.model_validate(sections, strict=True)
+    except ValidationError as exc:
+        for err in exc.errors(include_input=False, include_url=False):
+            errors.append(f"{_error_location(tuple(err['loc']))}: {err['msg']}")
+
+    system = cfg.get("system")
+    config_api = system.get("config_api") if isinstance(system, dict) else None
+    if isinstance(config_api, dict) and config_api.get("enabled") is True:
+        errors.append(CONFIG_API_UNSUPPORTED)
+
+    deterrent = cfg.get("deterrent")
+    if isinstance(deterrent, dict):
+        defaults = deterrent.get("defaults")
+        if isinstance(defaults, dict):
+            errors.extend(f"deterrent.defaults.{e}" for e in check_actuation_ranges(defaults))
+        groups = deterrent.get("groups")
+        if isinstance(groups, list):
+            for i, group in enumerate(groups):
+                if isinstance(group, dict):
+                    errors.extend(
+                        f"deterrent.groups.{i}.{e}" for e in check_actuation_ranges(group)
+                    )
+    return errors

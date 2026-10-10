@@ -16,6 +16,8 @@ RUN apk add --no-cache python3 py3-yaml \
     && chown -R 999:999 /etc/caddy /data
 
 COPY --chown=999:999 config/caddy-entrypoint.sh /entrypoint.sh
+# Caddyfile renderer/validator and the tls value rules it shares with web.
+COPY --chown=999:999 config/caddy_config.py shared/tls_safety.py /usr/local/lib/scarguard/
 RUN chmod +x /entrypoint.sh
 
 USER 999:999

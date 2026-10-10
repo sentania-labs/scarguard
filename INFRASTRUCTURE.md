@@ -1,8 +1,10 @@
 # ScarGuard: Infrastructure
 
-The active `config/caddy-entrypoint.sh` generator now reads
-`system.uploads.model_mb` and `system.uploads.dataset_mb` and applies Caddy
-`request_body max_size` caps, including 1 MiB multipart envelope allowance.
+The active Caddyfile generator (`config/caddy_config.py`, run by
+`config/caddy-entrypoint.sh`) reads `system.uploads.model_mb` and
+`system.uploads.dataset_mb` and applies Caddy `request_body max_size` caps,
+including 1 MiB multipart envelope allowance; out-of-range or non-numeric
+values fall back to the 500 MiB default, also in the HTTP-only fallback config.
 Other paths have a 1 MiB request cap. The reference template mirrors defaults;
 changing only the template has no runtime effect. Application counters enforce
 actual received bytes independently of Content-Length. Large uploads need
@@ -27,8 +29,9 @@ scarguard/
 ├── .env.example
 ├── config/
 │   ├── scarguard.example.yml
-│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy-entrypoint.sh
-│   └── caddy-entrypoint.sh          # Reads tls/* from scarguard.yml, generates Caddyfile at runtime
+│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy_config.py
+│   ├── caddy_config.py              # Validates tls/* (shared/tls_safety.py), renders the Caddyfile, `caddy validate` before atomic reload
+│   └── caddy-entrypoint.sh          # Generates the Caddyfile at start, polls scarguard.yml and calls caddy_config.py reload
 ├── services/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
 │   │   ├── Dockerfile               # Jetson/L4T (ARM64)
@@ -143,7 +146,7 @@ scarguard/
 │   │   │   └── actuation_models.py  # Pydantic actuation event schema
 │   │   └── tests/
 │   ├── caddy/                       # Reverse proxy (TLS termination)
-│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
+│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh, caddy_config.py and shared/tls_safety.py
 │   ├── log-streamer/                # Sidecar - tails Docker logs, publishes to Redis
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt

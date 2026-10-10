@@ -125,7 +125,42 @@ def load_cached(ttl_seconds: float = 1.0) -> dict:
         return copy.deepcopy(cfg)
 
 
-def save(cfg: dict) -> None:
+class SecretEncryptionError(RuntimeError):
+    """Sensitive fields cannot be stored encrypted under the current key."""
+
+
+def require_encrypted_secrets(cfg: dict, key: bytes | None) -> None:
+    """Refuse a document whose secrets would not be usable or protected.
+
+    Encrypted values must decrypt with the key on disk (a backup taken under
+    a rotated key would otherwise replace working credentials with ones no
+    service can read), and plaintext values need a key to be encrypted with.
+    """
+    if key is None:
+        if secret_box.has_plaintext_secrets(cfg) or secret_box.has_encrypted_secrets(cfg):
+            raise SecretEncryptionError(
+                "the secret key is unavailable, so sensitive fields cannot be "
+                "encrypted or verified",
+            )
+        return
+    try:
+        secret_box.decrypt_in_place(copy.deepcopy(cfg), key)
+    except (secret_box.SecretKeyMissing, ValueError) as exc:
+        raise SecretEncryptionError(
+            "encrypted fields do not decrypt with the current secret key",
+        ) from exc
+
+
+def save(cfg: dict, *, require_encryption: bool = False) -> None:
+    """Atomically replace scarguard.yml with *cfg*.
+
+    The document is written to a temporary file in the same directory,
+    flushed to disk and renamed over the live file, so an interrupted write
+    leaves the previous config in place. With *require_encryption* the save
+    is refused (nothing is written) unless every sensitive field can be
+    stored encrypted under the existing key - the restore path uses this
+    instead of the migration-era plaintext fallback.
+    """
     global _cache_cfg, _cache_mtime_ns, _cache_loaded_at
     import tempfile
 
@@ -158,6 +193,8 @@ def save(cfg: dict) -> None:
     # write plaintext (migration mode), and a one-shot startup migration in
     # main.py will re-save once the key is generated.
     sk = secret_box.try_load_key()
+    if require_encryption:
+        require_encrypted_secrets(cfg, sk)
     if sk is not None:
         encrypted = secret_box.encrypt_in_place(cfg, sk)
         if encrypted:
@@ -169,9 +206,14 @@ def save(cfg: dict) -> None:
         try:
             with os.fdopen(fd, "w") as f:
                 yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, str(CONFIG_PATH))
         except BaseException:
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
             raise
         _cache_cfg = copy.deepcopy(cfg)
         try:

@@ -42,9 +42,9 @@ system:
 
 tls:
   mode: "off"                  # "off", "auto" (Let's Encrypt), or "manual" (own certs)
-  domain: ""                   # required for auto mode
-  cert_path: /config/certs/cert.pem   # for manual mode
-  key_path: /config/certs/key.pem     # for manual mode
+  domain: ""                   # required for auto mode (public FQDN only); manual/off also accept a LAN host or IPv4, optionally :port
+  cert_path: /config/certs/cert.pem   # for manual mode; a file under /config/ (letters, digits, . _ - and /)
+  key_path: /config/certs/key.pem     # for manual mode; a file under /config/ (letters, digits, . _ - and /)
 
 cameras:
   - name: pond-north
@@ -120,6 +120,51 @@ redis:
   host: redis
   port: 6379
 ```
+
+### Validation before a config replaces the live one (FDY-0569)
+
+- **TLS values** are interpolated into the generated Caddyfile, so they are
+  allowlisted by `shared/tls_safety.py`. With `mode: auto`, `tls.domain` is
+  required and must be a fully qualified DNS hostname (at least two labels,
+  letters/digits/hyphens only, no IP, wildcard or port); in `manual`/`off` it
+  only builds feedback links, so a LAN hostname or IPv4 address with an
+  optional `:port` is also accepted. `cert_path`/`key_path` must be files
+  under `/config/` (the only directory Caddy mounts) named with letters,
+  digits, `.`, `_`, `-` and `/`, no `..`. Whitespace, newlines, braces and
+  quotes are refused everywhere. The structured form, the raw-YAML editor and
+  config restore refuse anything else, and the Caddy entrypoint applies the
+  same rules again to hand edits. If a stored `tls` section fails these rules
+  (for example an older config with `mode: auto` and an IP), the form shows
+  defaults and an unrelated save keeps the stored section unchanged and
+  returns a warning, rather than silently switching HTTPS off.
+- **Raw-YAML saves and backup restores** validate the whole document against
+  the same schema as the structured form (plus the deterrent range limits)
+  before writing. Errors name the field and rule, never the value.
+- **Restore** (`/admin/backups/<name>/restore`) additionally requires that every
+  sensitive field can be stored encrypted under the existing `/data/secret_key`:
+  plaintext secrets in the backup are encrypted with it, and the restore is
+  refused if the key is missing or the backup's `enc:v1:` values were made
+  with a different key. The current config is saved as a uniquely named
+  `scarguard_<timestamp>_pre-restore.yml` backup first (the restore is refused
+  if that fails), then the new file is written to a temporary file, fsynced
+  and renamed over `scarguard.yml`, so an interrupted write keeps the old one.
+  The restored file is re-serialized from the parsed YAML (comments in the
+  backup are not kept). A structured save that lands in the moment between
+  the pre-restore backup and the write is overwritten by the restore.
+- **Caddy reload**: when `scarguard.yml` changes, `config/caddy_config.py`
+  renders the new Caddyfile, runs `caddy validate` on it, swaps it in
+  atomically (keeping `/etc/caddy/Caddyfile.last-good`) and reloads. Invalid
+  values, a malformed `scarguard.yml`, a failed validation or a failed reload
+  all keep the running config. At container start the same failures fall back
+  to HTTP-only on :80 so the UI stays reachable to fix them. The rendered
+  file always carries the `system.uploads` request-body caps (see
+  [Upload limits and CSRF](#upload-limits-and-csrf-fdy-0568)); the fallback
+  keeps the configured values when they are in range and uses 500 MiB otherwise.
+- **`system.config_api.enabled`** is not supported. The `config-api` service
+  is an unauthenticated scaffold whose write routes return 501, so routing
+  settings writes to it would break every save. Caddy ignores the flag (and
+  logs that it did), and web refuses saves and restores that set it to `true`;
+  a value already on disk does not block structured-form saves.
 
 ## Detection Logic
 

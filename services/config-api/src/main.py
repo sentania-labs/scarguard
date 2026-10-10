@@ -5,8 +5,10 @@ This is the optional config-write service, active only when the
 endpoints that mutate scarguard.yml or trigger side-effects (backups,
 test notifications).
 
-v1.15 scaffold: all routes return 501 Not Implemented.  The actual
-handler logic will be migrated from the web service in a follow-up PR.
+v1.15 scaffold: all routes return 501 Not Implemented and none of them
+authenticate.  Nothing routes traffic here: the Caddy entrypoint ignores
+``system.config_api.enabled`` and web refuses saves that set it, so web stays
+the configuration owner until an authorized implementation replaces this.
 """
 
 from __future__ import annotations

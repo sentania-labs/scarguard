@@ -1,6 +1,7 @@
 """FDY-0568: exercise the live ASGI stack, handlers, and proxy generator."""
 
 import asyncio
+import os
 import secrets
 import subprocess
 import sys
@@ -240,9 +241,11 @@ def test_config_ui_and_proxy_generator(
     if REPO_ROOT is None:
         pytest.skip("repository proxy and UI artifacts are not included in the web service image")
 
-    # Generate the actual artifact from the entrypoint's production heredoc.
+    # Generate the actual artifact with the generator the entrypoint runs
+    # (config/caddy_config.py, FDY-0569); the script must still call it.
     script = (REPO_ROOT / "config/caddy-entrypoint.sh").read_text()
-    source = script.split("<<'PYEOF'\n", 1)[1].split("\nPYEOF", 1)[0]
+    assert '"$CADDY_CONFIG_PY" generate' in script
+    generator = REPO_ROOT / "config/caddy_config.py"
     config = tmp_path / "config.yml"
     limits = {"model_mb": model_mb, "dataset_mb": dataset_mb}
     raw_limits = {
@@ -257,7 +260,14 @@ def test_config_ui_and_proxy_generator(
     config.write_text(yaml.safe_dump({"system": {"uploads": raw_limits}}))
     validated = UploadLimitsConfig.model_validate(raw_limits)
     target = tmp_path / "Caddyfile"
-    subprocess.run([sys.executable, "-", str(config), str(target)], input=source, text=True, check=True)
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(REPO_ROOT / "shared"), os.environ.get("PYTHONPATH", "")]),
+    }
+    subprocess.run(
+        [sys.executable, str(generator), "generate", str(config), str(target)],
+        env=env, text=True, check=True, timeout=60,
+    )
     result = target.read_text()
     assert f"max_size {(validated.model_mb + 1) * MIB}" in result
     assert f"max_size {(validated.dataset_mb + 1) * MIB}" in result

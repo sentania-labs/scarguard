@@ -169,6 +169,28 @@ codec support or inference. No production/device validation was performed.
 
 ## Recently Fixed (unreleased)
 
+- **Config restore, TLS values and the config-api switch (FDY-0569; SG-17, SG-24,
+  SG-30).** Config backup restore now parses the backup, validates it against the
+  full config schema, encrypts plaintext secrets with the existing key (refusing
+  when the key is missing or the backup was encrypted with another key), saves a
+  pre-restore backup and writes atomically; a refused or interrupted restore leaves
+  the live config unchanged. Backup names carry microseconds and are created
+  exclusively, so backups made in the same second no longer overwrite each other.
+  The raw-YAML editor validates the whole document before saving. `tls.domain` and
+  the certificate paths are allowlisted (`shared/tls_safety.py`) on every web write
+  path and again in the Caddy entrypoint, which now renders through
+  `config/caddy_config.py`, runs `caddy validate` and swaps the file atomically
+  before reloading, keeping the running config and a `Caddyfile.last-good` on any
+  failure. `system.config_api.enabled` no longer routes writes to the 501 config-api
+  scaffold: Caddy ignores it and web refuses to set it. The FDY-0568 upload
+  request-body caps are rendered by the same generator, so the upload-limit
+  regression test now drives `caddy_config.py generate`. Full-document writes
+  reject coerced known-schema values such as quoted booleans, and the structured
+  form distinguishes untouched fallback TLS values from an operator's explicit
+  reset to defaults. Regression tests:
+  `services/web/tests/test_fdy_0569_regression.py`. Not yet exercised against a
+  real `caddy` binary or a running stack (tests use a stub `caddy`; CI builds the image).
+
 - **Independent deterrent OFF watchdog (FDY-0556).** Every activation is
   preceded by a signed, finite Redis lease. A separate OFF-only container
   sweeps configured devices OFF at startup and after lease expiry, so a killed

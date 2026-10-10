@@ -10,8 +10,7 @@
 #   auto    - Let's Encrypt via domain name
 #   manual  - User-provided cert/key files
 #
-# Requires: caddy, python3 (Alpine base includes both in the Caddy image
-# when python3 is added; see docker-compose.yml).
+# Requires: caddy, python3 + py3-yaml (added in services/caddy/Dockerfile).
 
 set -e
 
@@ -19,188 +18,23 @@ CONFIG_PATH="${CONFIG_PATH:-/config/scarguard.yml}"
 CADDYFILE="/etc/caddy/Caddyfile"
 
 # ── Generate Caddyfile from scarguard.yml ──────────────────────────────────
+#
+# NOTE: the Caddyfile is rendered by config/caddy_config.py (copied into the
+# image next to shared/tls_safety.py) - config/Caddyfile.template is a
+# reference document only and is NOT read at runtime.  caddy_config.py
+# validates every tls value before it reaches the Caddyfile, runs
+# `caddy validate` on the result, and on reload keeps the current config
+# (and a CADDYFILE.last-good copy) whenever the new one is refused.
+
+CADDY_CONFIG_PY="${CADDY_CONFIG_PY:-/usr/local/lib/scarguard/caddy_config.py}"
 
 generate_caddyfile() {
-    python3 - "$CONFIG_PATH" "$CADDYFILE" <<'PYEOF'
-import os, sys, yaml, pathlib, re
-
-config_path = sys.argv[1]
-caddyfile_path = sys.argv[2]
-
-cfg = {}
-tls_cfg = {}
-try:
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f) or {}
-    if not isinstance(cfg, dict):
-        cfg = {}
-    tls_cfg = cfg.get("tls", {})
-
-except Exception as e:
-    print(f"[caddy-entrypoint] Warning: cannot read {config_path}: {e}", file=sys.stderr)
-
-mode = str(tls_cfg.get("mode", "off")).lower()
-domain = str(tls_cfg.get("domain", "")).strip()
-cert_path = str(tls_cfg.get("cert_path", "/config/certs/cert.pem"))
-key_path = str(tls_cfg.get("key_path", "/config/certs/key.pem"))
-https_port = os.environ.get("HTTPS_PORT", "443").strip()
-
-# Common snippet: security headers + probe-path deny + reverse proxy.
-#
-# NOTE: this is the *active* Caddy config - config/Caddyfile.template is
-# a reference document only and is NOT read at runtime.  Keep any config
-# changes here, not there (an earlier attempt in v0.12.8 edited the
-# template and had no effect in production).
-#
-# NOTE: Caddy's `caddy fmt` linter expects tab indentation. Edit with care -
-# replacing tabs with spaces will resurrect the "Caddyfile input is not
-# formatted" warning v0.12.10 cleared (the v0.12.8 fmt fix was applied to
-# Caddyfile.template by mistake and never reached the active config).
-tls_active = mode in ("auto", "manual")
-hsts_header = (
-    '\t\tStrict-Transport-Security "max-age=31536000; includeSubDomains"\n'
-    if tls_active else ""
-)
-
-# v1.15: optional config-api service split.  When system.config_api.enabled
-# is true in scarguard.yml, Caddy routes the 8 config-write POST paths to
-# the config-api container instead of web.  When disabled (default), the
-# snippet contains only the standard reverse_proxy to web:8080.
-sys_cfg = cfg.get("system", {})
-if not isinstance(sys_cfg, dict):
-    sys_cfg = {}
-config_api_cfg = sys_cfg.get("config_api", {})
-if not isinstance(config_api_cfg, dict):
-    config_api_cfg = {}
-config_api_enabled = config_api_cfg.get("enabled", False) is True
-
-if config_api_enabled:
-    config_api_block = """
-\t# Config-API split: route config-write POSTs to the dedicated service.
-\t@config_writes {
-\t\tmethod POST
-\t\tpath /config/structured /config /config/tls/upload-cert /config/test-notification /admin/deterrent /admin/backups/create /admin/db-backups/trigger
-\t}
-\t@config_restore {
-\t\tmethod POST
-\t\tpath_regexp restore ^/admin/backups/[^/]+/restore$
-\t}
-\treverse_proxy @config_writes config-api:8081
-\treverse_proxy @config_restore config-api:8081
-"""
-    print("[caddy-entrypoint] Config-API split enabled - routing write POSTs to config-api:8081", file=sys.stderr)
-else:
-    config_api_block = ""
-
-# Match the application defaults and its 1 MiB multipart envelope allowance.
-# Invalid values fall back conservatively; the UI validates 1..16384 MiB.
-uploads_cfg = sys_cfg.get("uploads") or {}
-if not isinstance(uploads_cfg, dict):
-    uploads_cfg = {}
-def upload_bytes(key):
-    value = uploads_cfg.get(key, 500)
-    # Raw YAML may quote integer settings; the application's Pydantic
-    # model accepts those strings too. Never truncate fractional limits.
-    if isinstance(value, str):
-        value = value.strip()
-        if re.fullmatch(r"[+-]?[0-9](?:_?[0-9])*(?:\.0+)?", value):
-            try:
-                value = int(value.split(".", 1)[0])
-            except ValueError:
-                value = 500
-        else:
-            value = 500
-    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 16384:
-        value = 500
-    return (value + 1) * 1024 * 1024
-
-request_limits = f"""
-\t@model_upload path /models /models/
-\trequest_body @model_upload {{
-\t\tmax_size {upload_bytes("model_mb")}
-\t}}
-\t@dataset_upload path /admin/training/uploads /admin/training/uploads/
-\trequest_body @dataset_upload {{
-\t\tmax_size {upload_bytes("dataset_mb")}
-\t}}
-\t@ordinary_request not path /models /models/ /admin/training/uploads /admin/training/uploads/
-\trequest_body @ordinary_request {{
-\t\tmax_size 1048576
-\t}}
-"""
-
-snippet = """(scarguard) {
-\theader {
-\t\tX-Frame-Options DENY
-\t\tX-Content-Type-Options nosniff
-\t\tReferrer-Policy strict-origin-when-cross-origin
-\t\tPermissions-Policy "geolocation=(), camera=(), microphone=(), payment=()"
-""" + hsts_header + """\t\tContent-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
-\t\tCross-Origin-Opener-Policy same-origin
-\t\tCross-Origin-Resource-Policy same-origin
-\t\t-Server
-\t}
-\t# Drop common bot-probe paths at the edge so they never reach FastAPI.
-\t# 404 (not 403) is intentional - quieter, looks like the path doesn't
-\t# exist so scanners are less likely to follow up with more probes.
-\t@probes {
-\t\tpath /.git/* /_ignition/* /aws*config.js /config.js
-\t}
-\trespond @probes 404
-""" + request_limits + config_api_block + """\treverse_proxy web:8080
-}
-"""
-
-if mode == "auto" and domain:
-    body = f"""{snippet}
-{domain} {{
-\timport scarguard
-}}
-"""
-elif mode == "manual":
-    # Verify cert/key exist; fall back to HTTP if missing.
-    cert_ok = pathlib.Path(cert_path).exists()
-    key_ok = pathlib.Path(key_path).exists()
-    if cert_ok and key_ok:
-        body = f"""{snippet}
-:443 {{
-\ttls {cert_path} {key_path}
-\timport scarguard
-}}
-
-:80 {{
-\tredir https://{{host}}{f":{https_port}" if https_port != "443" else ""}{{uri}} permanent
-}}
-"""
-    else:
-        missing = []
-        if not cert_ok:
-            missing.append(f"cert ({cert_path})")
-        if not key_ok:
-            missing.append(f"key ({key_path})")
-        print(f"[caddy-entrypoint] TLS mode=manual but missing: {', '.join(missing)} - falling back to HTTP", file=sys.stderr)
-        body = f"""{snippet}
-:80 {{
-\timport scarguard
-}}
-"""
-else:
-    if mode not in ("off", ""):
-        print(f"[caddy-entrypoint] Unknown tls.mode '{mode}' - defaulting to HTTP", file=sys.stderr)
-    body = f"""{snippet}
-:80 {{
-\timport scarguard
-}}
-"""
-
-pathlib.Path(caddyfile_path).write_text(body)
-print(f"[caddy-entrypoint] Generated Caddyfile (mode={mode})", file=sys.stderr)
-PYEOF
+    python3 "$CADDY_CONFIG_PY" generate "$CONFIG_PATH" "$CADDYFILE"
 }
 
 # ── Config watcher (background) ───────────────────────────────────────────
-# Polls scarguard.yml mtime every 5 seconds. On change, regenerates the
-# Caddyfile and sends SIGHUP to Caddy for a graceful reload.
+# Polls scarguard.yml mtime every 5 seconds. On change, validates and
+# applies the new Caddyfile through Caddy's admin API (graceful reload).
 
 watch_config() {
     LAST_MTIME=""
@@ -216,11 +50,12 @@ watch_config() {
         fi
 
         if [ "$CURRENT_MTIME" != "$LAST_MTIME" ] && [ -n "$CURRENT_MTIME" ]; then
-            echo "[caddy-entrypoint] Config changed - regenerating Caddyfile and reloading Caddy" >&2
-            generate_caddyfile
-            # Caddy reloads config from the Caddyfile via its admin API.
-            caddy reload --config "$CADDYFILE" --adapter caddyfile 2>&1 || \
-                echo "[caddy-entrypoint] WARNING: Caddy reload failed - check Caddyfile syntax" >&2
+            echo "[caddy-entrypoint] Config changed - validating new Caddyfile before reload" >&2
+            # Renders, runs `caddy validate`, swaps the file atomically and
+            # reloads via the admin API; non-zero means the current config
+            # was kept.
+            python3 "$CADDY_CONFIG_PY" reload "$CONFIG_PATH" "$CADDYFILE" || \
+                echo "[caddy-entrypoint] WARNING: new config refused - Caddy keeps its current config" >&2
             LAST_MTIME="$CURRENT_MTIME"
         fi
     done

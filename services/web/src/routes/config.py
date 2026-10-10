@@ -14,6 +14,7 @@ import db
 import redis.asyncio as aioredis
 import yaml
 from config_model import (
+    CONFIG_API_UNSUPPORTED,
     ActuationConfig,
     CameraConfig,
     DetectionConfig,
@@ -22,6 +23,7 @@ from config_model import (
     SystemConfig,
     TLSConfig,
     TrainingConfig,
+    validate_full_config,
 )
 from config_redact import (
     _CHANNEL_SENSITIVE_KEYS,
@@ -183,6 +185,12 @@ async def config_page(request: Request) -> Response:
 
     raw_cfg = config_store.load()
     is_admin = has_admin_access(request)
+    raw_tls = raw_cfg.get("tls", {}) if isinstance(raw_cfg, dict) else {}
+    try:
+        TLSConfig.model_validate(raw_tls)
+        tls_fallback = False
+    except ValidationError:
+        tls_fallback = True
 
     # Parse from the unredacted dict so structural validation (e.g.
     # `CameraConfig.rtsp_url` requiring an rtsp:// scheme) succeeds.  The
@@ -216,6 +224,7 @@ async def config_page(request: Request) -> Response:
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
             "read_only": not is_admin,
+            "tls_fallback": tls_fallback,
         },
     )
 
@@ -383,6 +392,16 @@ async def save_structured_config(request: Request) -> Response:
             status_code=400,
         )
 
+    # Web owns configuration writes. The config-api service is a 501
+    # scaffold, so a save that switched routing to it would break every
+    # later save; refuse it rather than persist it. A value already on disk
+    # is left alone - the Caddy entrypoint ignores it.
+    if payload.system.config_api.enabled:
+        return JSONResponse(
+            {"ok": False, "error": CONFIG_API_UNSUPPORTED},
+            status_code=422,
+        )
+
     existing = config_store.load()
 
     existing_revision = existing.get("system", {}).get("revision", 0)
@@ -478,10 +497,29 @@ async def save_structured_config(request: Request) -> Response:
             "key_path": raw.get("key_path", "/config/certs/key.pem"),
         }
 
-    tls_changed = _normalize_tls(existing.get("tls", {})) != _normalize_tls(
-        payload.tls.model_dump()
-    )
-    existing["tls"] = payload.tls.model_dump()
+    tls_warning: str | None = None
+    existing_tls = existing.get("tls", {})
+    if not isinstance(existing_tls, dict):
+        existing_tls = {}
+    try:
+        TLSConfig.model_validate(existing_tls)
+        existing_tls_valid = True
+    except ValidationError:
+        existing_tls_valid = False
+    if not existing_tls_valid and payload.tls_unchanged:
+        # The form rendered defaults because the on-disk tls section no
+        # longer passes validation (_parse_cfg fallback). Saving those
+        # defaults would silently switch HTTPS off on an unrelated save, so
+        # keep the stored section; Caddy refuses it until it is fixed.
+        log.warning("Keeping stored tls section that fails validation; fix it in the TLS form")
+        tls_warning = (
+            "The stored TLS settings are invalid and were left unchanged; Caddy will "
+            "not apply them. Set them again in the TLS section or the raw YAML editor."
+        )
+        tls_changed = False
+    else:
+        tls_changed = _normalize_tls(existing_tls) != _normalize_tls(payload.tls.model_dump())
+        existing["tls"] = payload.tls.model_dump()
 
     # Merge deterrent: the config page only sends ``enabled``; the full
     # device list and credentials live on the dedicated /admin/deterrent page.
@@ -522,6 +560,8 @@ async def save_structured_config(request: Request) -> Response:
 
     config_store.save(existing)
     warnings = _find_orphan_references(existing)
+    if tls_warning:
+        warnings.append(tls_warning)
     audit.record_request(
         request,
         action="config.save",
@@ -606,6 +646,14 @@ def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
 _MAX_RAW_YAML_BYTES = 1_000_000  # 1 MB ceiling on raw-YAML uploads
 
 
+class _RawConfigInvalid(ValueError):
+    """Raw YAML that parsed but failed validate_full_config."""
+
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
 @router.post(
     "",
     response_class=HTMLResponse,
@@ -656,6 +704,12 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             raw_cfg = yaml.safe_load(raw_yaml)
             if not isinstance(raw_cfg, dict):
                 raise ValueError("Config must be a YAML mapping")
+            # Check the whole document against the schema before it can
+            # replace the working config (TLS values reach the Caddyfile).
+            # Messages name fields and rules, never values.
+            validation_errors = validate_full_config(raw_cfg)
+            if validation_errors:
+                raise _RawConfigInvalid(validation_errors)
             config_store.save(raw_cfg)
             saved = True
             raw_yaml = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
@@ -666,6 +720,11 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
                 resource="scarguard.yml",
                 details={"form": "raw_yaml", "orphan_warnings": len(warnings)},
             )
+        except _RawConfigInvalid as exc:
+            log.warning("raw YAML config save refused: %s", "; ".join(exc.errors))
+            error = "Config not saved - fix these fields first: " + "; ".join(exc.errors)
+        except yaml.YAMLError:
+            error = "Config not saved - the YAML could not be parsed"
         except Exception:
             # Same scrubbing pattern as save_structured_config - don't surface raw
             # exception text in the rendered template. Admin-only endpoint, but

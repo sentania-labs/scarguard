@@ -508,7 +508,10 @@ the v1.14 migration window.
 15. **Web-write-config split into a dedicated `config-api` service.**
     Extract config-write paths from the web service. Mitigates "FastAPI
     compromise = full-system compromise." Largest architectural change
-    in the release.
+    in the release. Status (FDY-0569): only an unauthenticated 501
+    scaffold exists, so `system.config_api.enabled` is ignored by Caddy
+    and refused by web; enabling it again needs an independently
+    authorized implementation with authentication.
 16. **Tamper-evident actuation audit chain.** Signed hash-chain per
     actuation record. v1.14 has `request_id` + standard audit table;
     this adds cryptographic tamper evidence.
