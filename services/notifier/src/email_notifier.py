@@ -1,7 +1,28 @@
-"""Email dispatcher via SMTP (STARTTLS on port 587, or plain/SSL on others)."""
+"""Email dispatcher via SMTP.
+
+Transport security:
+
+* port 465 - implicit TLS (``SMTP_SSL``);
+* any other port (587, 25, 2525, ...) - STARTTLS is required. A server that
+  does not offer it is refused before any credentials are sent, unless the
+  channel sets ``smtp_insecure_plaintext: true`` - an explicit opt-in for an
+  intentional plaintext relay, which then skips STARTTLS entirely (the
+  pre-v1.18 behaviour on non-587 ports).
+
+TLS always verifies the certificate chain and hostname against the system
+trust store plus certifi, plus ``smtp_ca_file`` when set (for a LAN relay
+with a private CA). The relay host is validated like every other
+destination (``url_safety``): resolved once at send time, every address
+checked, and the connection pinned to those addresses. LAN relays need
+``allow_internal: true``; loopback, metadata and Docker bridge addresses are
+always refused.
+"""
 
 import logging
+import os
 import smtplib
+import socket
+import ssl
 from datetime import datetime
 from email import encoders
 from email.mime.base import MIMEBase
@@ -10,6 +31,7 @@ from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from snapshot_utils import annotate_snapshot
+from url_safety import Destination, channel_destination_errors, connect_pinned, resolve_host
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +141,53 @@ def _build_html_body(
 </html>"""
 
 
+class SMTPTransportError(smtplib.SMTPException):
+    """The relay cannot be reached with the transport security the channel requires."""
+
+
+class _PinnedSMTP(smtplib.SMTP):
+    """SMTP client that connects only to validated addresses.
+
+    ``_host`` is the configured hostname, so STARTTLS sends it as SNI and
+    verifies the certificate against it.
+    """
+
+    def __init__(self, dest: Destination, *, timeout: float) -> None:
+        self._dest = dest
+        super().__init__(timeout=timeout)
+        self._host = dest.host
+
+    def _get_socket(self, host: str, port: int, timeout: float) -> socket.socket:
+        return connect_pinned(self._dest, timeout)
+
+
+class _PinnedSMTPSSL(smtplib.SMTP_SSL):
+    """Implicit-TLS SMTP client that connects only to validated addresses."""
+
+    def __init__(self, dest: Destination, *, timeout: float, context: ssl.SSLContext) -> None:
+        self._dest = dest
+        super().__init__(timeout=timeout, context=context)
+        self._host = dest.host
+
+    def _get_socket(self, host: str, port: int, timeout: float) -> socket.socket:
+        sock = connect_pinned(self._dest, timeout)
+        return self.context.wrap_socket(sock, server_hostname=self._host)
+
+
+def _tls_context(ca_file: str) -> ssl.SSLContext:
+    """Verifying client context: system store + certifi (+ *ca_file*)."""
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+
+        ctx.load_verify_locations(cafile=certifi.where())
+    except (ImportError, OSError):
+        pass
+    if ca_file:
+        ctx.load_verify_locations(cafile=ca_file)
+    return ctx
+
+
 class EmailNotifier:
     def __init__(self, cfg: dict, tz_name: str = "UTC") -> None:
         self._name: str = cfg.get("name", "email")
@@ -129,12 +198,30 @@ class EmailNotifier:
         self._to_addresses: list[str] = cfg.get("to_addresses", [])
         self._include_snapshot: bool = cfg.get("include_snapshot", True)
         self._tz_name: str = tz_name
+        self._allow_internal: bool = cfg.get("allow_internal") is True
+        self._insecure_plaintext: bool = cfg.get("smtp_insecure_plaintext") is True
+        self._ca_file: str = cfg.get("smtp_ca_file") or ""
+        errors = channel_destination_errors({**cfg, "type": "email", "name": self._name})
+        if self._ca_file and not errors and not os.path.isfile(self._ca_file):
+            errors.append(f"smtp_ca_file {self._ca_file} does not exist")
+        for err in errors:
+            logger.error("Email [%s] disabled - %s", self._name, err)
+        self._enabled = not errors
+        if self._enabled and self._insecure_plaintext and self._smtp_port != 465:
+            logger.warning(
+                "Email [%s] smtp_insecure_plaintext is set - mail and SMTP "
+                "credentials are sent without TLS",
+                self._name,
+            )
 
     @property
     def name(self) -> str:
         return self._name
 
     def send(self, event: dict) -> None:
+        if not self._enabled:
+            logger.warning("Email [%s] suppressed - channel disabled at construction", self._name)
+            return
         if not self._to_addresses:
             logger.warning("Email notifier: no to_addresses configured, skipping")
             return
@@ -209,26 +296,27 @@ class EmailNotifier:
         logger.info("Email notification sent to %s", self._to_addresses)
 
     def _send_message(self, msg: MIMEMultipart) -> None:
-        # Port 587 → STARTTLS. Any other port (e.g. 465) → plain connection
-        # and let the caller configure SSL via a wrapper if needed.
-        if self._smtp_port == 587:
-            with smtplib.SMTP(self._smtp_host, self._smtp_port, timeout=15) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                if self._smtp_user and self._smtp_pass:
-                    server.login(self._smtp_user, self._smtp_pass)
-                server.sendmail(self._smtp_user, self._to_addresses, msg.as_string())
-        elif self._smtp_port == 465:
-            with smtplib.SMTP_SSL(self._smtp_host, self._smtp_port, timeout=15) as server:
-                if self._smtp_user and self._smtp_pass:
-                    server.login(self._smtp_user, self._smtp_pass)
-                server.sendmail(self._smtp_user, self._to_addresses, msg.as_string())
+        dest = resolve_host(self._smtp_host, self._smtp_port, allow_internal=self._allow_internal)
+        server: smtplib.SMTP
+        if self._smtp_port == 465:
+            server = _PinnedSMTPSSL(dest, timeout=15, context=_tls_context(self._ca_file))
         else:
-            with smtplib.SMTP(self._smtp_host, self._smtp_port, timeout=15) as server:
-                if self._smtp_user and self._smtp_pass:
-                    server.login(self._smtp_user, self._smtp_pass)
-                server.sendmail(self._smtp_user, self._to_addresses, msg.as_string())
+            server = _PinnedSMTP(dest, timeout=15)
+        with server:
+            server.connect(self._smtp_host, self._smtp_port)
+            if self._smtp_port != 465 and not self._insecure_plaintext:
+                server.ehlo()
+                if not server.has_extn("starttls"):
+                    raise SMTPTransportError(
+                        f"SMTP relay {self._smtp_host!r} does not offer STARTTLS; "
+                        "refusing to send credentials or mail in plaintext "
+                        "(set smtp_insecure_plaintext: true to allow it)",
+                    )
+                server.starttls(context=_tls_context(self._ca_file))
+                server.ehlo()
+            if self._smtp_user and self._smtp_pass:
+                server.login(self._smtp_user, self._smtp_pass)
+            server.sendmail(self._smtp_user, self._to_addresses, msg.as_string())
 
     def _send_digest(self, report: dict) -> None:
         """Send a digest report as an HTML email."""

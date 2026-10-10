@@ -154,3 +154,40 @@ class TestDiscordWebhookHappy:
             validate_external_url(
                 "https://discord.com/api/webhooks/123456789/abcdef",
             )
+
+
+class TestFDY0571Policy:
+    @pytest.mark.parametrize("host", [
+        "fec0::1",                     # deprecated site-local
+        "\uff11\uff12\uff17.0.0.1",   # fullwidth 127.0.0.1
+        "0x7f.1",
+        "127.1",
+        "::ffff:7f00:1",
+        "localhost.",
+        "sub.localhost",
+        "host.docker.internal",
+    ])
+    def test_static_host_denied_even_with_allow_internal(self, host: str) -> None:
+        from url_safety import check_host_static
+
+        with pytest.raises(UnsafeURLError):
+            check_host_static(host, allow_internal=True)
+
+    @pytest.mark.parametrize("ip", ["10.1.2.3", "172.20.0.1", "192.168.0.5", "100.64.1.1", "fd12::1"])
+    def test_lan_ranges_need_opt_in(self, ip: str) -> None:
+        from url_safety import check_address
+
+        with pytest.raises(UnsafeURLError, match="allow_internal"):
+            check_address(ip)
+        check_address(ip, allow_internal=True)
+
+    def test_resolution_happens_once_and_returns_validated_addresses(self) -> None:
+        import socket
+
+        from url_safety import resolve_url
+
+        with patch("url_safety.socket.getaddrinfo") as gai:
+            gai.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443))]
+            dest = resolve_url("https://example.com/hook")
+        assert gai.call_count == 1
+        assert (dest.host, dest.port, dest.addresses) == ("example.com", 443, ("1.1.1.1",))

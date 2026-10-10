@@ -14,6 +14,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from url_safety import channel_destination_errors
 
 
 class ScheduleConfig(BaseModel):
@@ -334,6 +335,44 @@ class DetectionConfig(BaseModel):
 class NotificationsConfig(BaseModel):
     channels: list[dict] = []
 
+    def destination_problems(self) -> dict[str, list[str]]:
+        """Problems per enabled channel, as the notifier will judge them.
+
+        Read by the config template; never raises, so a stored config the
+        notifier would refuse still renders and names the channel.
+        """
+        problems: dict[str, list[str]] = {}
+        for ch in self.channels:
+            if isinstance(ch, dict) and ch.get("enabled", True) is not False:
+                errors = channel_destination_errors(ch)
+                if errors:
+                    problems[str(ch.get("name") or ch.get("type", ""))] = errors
+        return problems
+
+
+def _channel_destination_errors(channels: Any, *, full_document: bool) -> list[str]:
+    """Refuse enabled channels whose destination the notifier would refuse.
+
+    Static checks only (no DNS), shared with the notifier: scheme and port,
+    literal and ScarGuard-internal hosts, and the per-channel
+    ``allow_internal`` LAN opt-in. Loopback, link-local/metadata and the
+    Docker bridge / compose networks are refused even with
+    ``allow_internal``. The notifier re-resolves and re-checks every send.
+    Messages name channel and field, never the (secret) value.
+
+    The structured form posts channels without ``allow_internal`` (the
+    stored value is merged in afterwards), so a missing key is only treated
+    as "off" when a whole document is validated.
+    """
+    errors: list[str] = []
+    if isinstance(channels, list):
+        for ch in channels:
+            if isinstance(ch, dict) and ch.get("enabled", True) is not False:
+                errors.extend(
+                    channel_destination_errors(ch, missing_allow_internal=not full_document),
+                )
+    return errors
+
 
 class TLSConfig(BaseModel):
     """TLS settings for the Caddy reverse proxy.
@@ -645,6 +684,29 @@ class StructuredConfigPayload(BaseModel):
     deterrent: ActuationConfig = ActuationConfig()
     training: TrainingConfig = TrainingConfig()
 
+    @model_validator(mode="before")
+    @classmethod
+    def notification_destinations_must_be_safe(cls, data: Any, info: ValidationInfo) -> Any:
+        """Refuse unsafe notification destinations on save (form and full document).
+
+        Runs on raw input only: the config page builds this model from an
+        already-parsed ``NotificationsConfig`` (routes/config._parse_cfg) and
+        must still render a stored config the notifier would refuse - the
+        template lists those problems via ``destination_problems``.
+        """
+        if not isinstance(data, dict):
+            return data
+        notifications = data.get("notifications")
+        if not isinstance(notifications, dict):
+            return data
+        full_document = bool(info.context and info.context.get("full_document"))
+        errors = _channel_destination_errors(
+            notifications.get("channels"), full_document=full_document,
+        )
+        if errors:
+            raise ValueError("notifications.channels: " + "; ".join(errors))
+        return data
+
 
 def _error_location(loc: tuple[Any, ...]) -> str:
     return ".".join(str(part) for part in loc) or "config"
@@ -670,7 +732,9 @@ def validate_full_config(cfg: Any) -> list[str]:
         # Restore and raw-YAML callers persist the original mapping, so do not
         # allow Pydantic coercion to make an invalid source document appear
         # valid (for example, ``system.armed: "false"`` becoming ``False``).
-        StructuredConfigPayload.model_validate(sections, strict=True)
+        StructuredConfigPayload.model_validate(
+            sections, strict=True, context={"full_document": True},
+        )
     except ValidationError as exc:
         for err in exc.errors(include_input=False, include_url=False):
             errors.append(f"{_error_location(tuple(err['loc']))}: {err['msg']}")
