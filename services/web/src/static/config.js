@@ -7,6 +7,7 @@
     var d = JSON.parse(el.textContent);
     window._availableModels = d.availableModels || [];
     window.SCARGUARD_READ_ONLY = d.readOnly || false;
+    window._tlsFallbackUnchanged = d.tlsFallback || false;
   }
   var ge = document.getElementById('groups-data');
   if (ge) window._availableGroups = JSON.parse(ge.textContent);
@@ -598,6 +599,7 @@ function readForm() {
       cert_path: document.getElementById("tls-cert-path").value.trim(),
       key_path: document.getElementById("tls-key-path").value.trim(),
     },
+    tls_unchanged: window._tlsFallbackUnchanged === true,
     deterrent: {
       enabled: document.getElementById("deterrent-enabled").checked,
     },

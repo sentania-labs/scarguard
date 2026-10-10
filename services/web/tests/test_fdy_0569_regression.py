@@ -190,6 +190,22 @@ def test_restore_refuses_schema_invalid_backup(env, http):
     assert len(_backups(env)) == 1
 
 
+@pytest.mark.parametrize("write_path", ["raw", "restore"])
+def test_full_config_writes_reject_quoted_boolean(env, http, write_path):
+    """Known schema fields must not be accepted through coercion."""
+    before = env["config_path"].read_bytes()
+    bad = _cfg_with(system={**BASE_CFG["system"], "armed": "false"})
+    doc = yaml.safe_dump(bad)
+    if write_path == "raw":
+        r = http.post("/config", data={"raw_yaml": doc})
+        assert "Config not saved" in r.text
+    else:
+        name = _write_backup(env, "scarguard_20260101T000000Z_manual.yml", doc)
+        r = http.post(f"/admin/backups/{name}/restore")
+        assert r.status_code == 422
+    assert env["config_path"].read_bytes() == before
+
+
 def test_restore_encrypts_plaintext_secrets_with_existing_key(env, http):
     import secret_box
 
@@ -371,11 +387,14 @@ def test_structured_save_keeps_invalid_stored_tls_instead_of_wiping_it(env, http
     env["config_path"].write_text(yaml.safe_dump(_cfg_with(tls=stored_tls)))
     page = http.get("/config")
     assert page.status_code == 200
-    r = http.post("/config/structured", json=_structured(
+    assert '"tlsFallback": true' in page.text
+    payload = _structured(
         {"mode": "off", "domain": "", "cert_path": "/config/certs/cert.pem",
          "key_path": "/config/certs/key.pem"},
         armed=False,
-    ))
+    )
+    payload["tls_unchanged"] = True
+    r = http.post("/config/structured", json=payload)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["tls_changed"] is False
@@ -383,6 +402,28 @@ def test_structured_save_keeps_invalid_stored_tls_instead_of_wiping_it(env, http
     on_disk = yaml.safe_load(env["config_path"].read_text())
     assert on_disk["tls"] == stored_tls
     assert on_disk["system"]["armed"] is False
+
+
+def test_structured_save_can_replace_invalid_tls_with_defaults(env, http):
+    stored_tls = {"mode": "auto", "domain": "192.168.1.10"}
+    env["config_path"].write_text(yaml.safe_dump(_cfg_with(tls=stored_tls)))
+    r = http.post(
+        "/config/structured",
+        json=_structured({
+            "mode": "off",
+            "domain": "",
+            "cert_path": "/config/certs/cert.pem",
+            "key_path": "/config/certs/key.pem",
+        }),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["tls_changed"] is True
+    assert yaml.safe_load(env["config_path"].read_text())["tls"] == {
+        "mode": "off",
+        "domain": "",
+        "cert_path": "/config/certs/cert.pem",
+        "key_path": "/config/certs/key.pem",
+    }
 
 
 @pytest.mark.parametrize("path", MALICIOUS_CERT_PATHS)

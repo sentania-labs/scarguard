@@ -185,6 +185,12 @@ async def config_page(request: Request) -> Response:
 
     raw_cfg = config_store.load()
     is_admin = has_admin_access(request)
+    raw_tls = raw_cfg.get("tls", {}) if isinstance(raw_cfg, dict) else {}
+    try:
+        TLSConfig.model_validate(raw_tls)
+        tls_fallback = False
+    except ValidationError:
+        tls_fallback = True
 
     # Parse from the unredacted dict so structural validation (e.g.
     # `CameraConfig.rtsp_url` requiring an rtsp:// scheme) succeeds.  The
@@ -218,6 +224,7 @@ async def config_page(request: Request) -> Response:
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
             "read_only": not is_admin,
+            "tls_fallback": tls_fallback,
         },
     )
 
@@ -499,7 +506,7 @@ async def save_structured_config(request: Request) -> Response:
         existing_tls_valid = True
     except ValidationError:
         existing_tls_valid = False
-    if not existing_tls_valid and payload.tls == TLSConfig():
+    if not existing_tls_valid and payload.tls_unchanged:
         # The form rendered defaults because the on-disk tls section no
         # longer passes validation (_parse_cfg fallback). Saving those
         # defaults would silently switch HTTPS off on an unrelated save, so

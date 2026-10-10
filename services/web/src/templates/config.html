@@ -193,7 +193,7 @@
         <script id="groups-data" type="application/json">
           {{ groups_json | safe }}
         </script>
-        <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}}</script>
+        <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}, "tlsFallback": {{ tls_fallback|default(false)|tojson }}}</script>
         <div id="cameras-list"></div>
         {% if not read_only %}
         <button type="button" class="btn-add" data-requires-admin id="add-camera-btn">+ Add Camera</button>

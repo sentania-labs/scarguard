@@ -638,6 +638,10 @@ class StructuredConfigPayload(BaseModel):
     detection: DetectionConfig = DetectionConfig()
     notifications: NotificationsConfig = NotificationsConfig()
     tls: TLSConfig = TLSConfig()
+    # Set by the browser only when an invalid on-disk TLS section was rendered
+    # as defaults and none of the TLS controls have subsequently been edited.
+    # This is transport metadata, not part of scarguard.yml.
+    tls_unchanged: bool = False
     deterrent: ActuationConfig = ActuationConfig()
     training: TrainingConfig = TrainingConfig()
 
@@ -663,7 +667,10 @@ def validate_full_config(cfg: Any) -> list[str]:
     sections = {k: v for k, v in cfg.items() if k in known and v is not None}
     errors: list[str] = []
     try:
-        StructuredConfigPayload.model_validate(sections)
+        # Restore and raw-YAML callers persist the original mapping, so do not
+        # allow Pydantic coercion to make an invalid source document appear
+        # valid (for example, ``system.armed: "false"`` becoming ``False``).
+        StructuredConfigPayload.model_validate(sections, strict=True)
     except ValidationError as exc:
         for err in exc.errors(include_input=False, include_url=False):
             errors.append(f"{_error_location(tuple(err['loc']))}: {err['msg']}")

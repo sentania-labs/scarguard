@@ -124,7 +124,10 @@ codec support or inference. No production/device validation was performed.
   failure. `system.config_api.enabled` no longer routes writes to the 501 config-api
   scaffold: Caddy ignores it and web refuses to set it. The FDY-0568 upload
   request-body caps are rendered by the same generator, so the upload-limit
-  regression test now drives `caddy_config.py generate`. Regression tests:
+  regression test now drives `caddy_config.py generate`. Full-document writes
+  reject coerced known-schema values such as quoted booleans, and the structured
+  form distinguishes untouched fallback TLS values from an operator's explicit
+  reset to defaults. Regression tests:
   `services/web/tests/test_fdy_0569_regression.py`. Not yet exercised against a
   real `caddy` binary or a running stack (tests use a stub `caddy`; CI builds the image).
 
