@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sqlite3
+import tempfile
 import threading
 import time
 import uuid
@@ -16,6 +18,14 @@ import numpy as np
 from detector import Detection
 
 logger = logging.getLogger(__name__)
+
+# Maximum length for a safe snapshot filename component (camera name, class name).
+# Keeps names human-readable while preventing extreme path bloat.
+_MAX_FILENAME_COMPONENT = 64
+
+# Pattern to strip anything that could escape the snapshot directory.
+# Allows alphanumeric, underscore, hyphen.
+_SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_-]")
 
 
 class EventProcessor:
@@ -80,7 +90,6 @@ class EventProcessor:
                 self._last_event[key] = now
             timestamp = datetime.now(timezone.utc)
             snapshot_path = self._save_snapshot(frame, det, camera_name, timestamp)
-            feedback_token = uuid.uuid4().hex
             # None  → action rules exist but no rule matched (suppress)
             # []    → no action rules configured (notify all channels)
             # [...]→ matched rule with specific channels
@@ -92,10 +101,14 @@ class EventProcessor:
                 list(groups_by_class.get(det.class_name, []))
                 if groups_by_class is not None else []
             )
-            self._persist(
+            # Generate a feedback token to store in the DB, but only expose it
+            # for notifications if persistence actually succeeds.
+            db_feedback_token: str | None = uuid.uuid4().hex if snapshot_path is not None else None
+            persisted = self._persist(
                 timestamp, det, camera_name, snapshot_path,
-                actions_triggered, frame_size, feedback_token,
+                actions_triggered, frame_size, db_feedback_token,
             )
+            feedback_token = db_feedback_token if persisted else None
 
             logger.info(
                 "[%s] %s detected (conf=%.2f)",
@@ -168,23 +181,57 @@ class EventProcessor:
         camera_name: str,
         timestamp: datetime,
     ) -> str | None:
-        """Save a clean (unannotated) snapshot frame to disk.
+        """Save a clean (unannotated) snapshot frame to disk atomically.
 
         BBox data is persisted separately in the database; the browser
         renders the overlay using stored coordinates.
+
+        Uses staging (write to temp file then rename) so partial writes
+        never produce a corrupt snapshot at the public filename.
+        Returns ``None`` on any failure so the caller can treat the
+        event as unrecoverable.
         """
         try:
             # Import lazily so unit tests can run in environments without OpenCV system libs.
             import cv2
 
-            safe_name = re.sub(r'[^\w\-]', '_', camera_name)
-            filename = (
-                f"{safe_name}_{det.class_name}_{timestamp.strftime('%Y%m%dT%H%M%SZ')}.jpg"
+            # Confine camera name and class name to safe characters only.
+            safe_cam = _SAFE_NAME_RE.sub("_", camera_name)[:_MAX_FILENAME_COMPONENT]
+            safe_class = _SAFE_NAME_RE.sub("_", det.class_name)[:_MAX_FILENAME_COMPONENT]
+            ts_str = timestamp.strftime("%Y%m%dT%H%M%SZ")
+            filename = f"{safe_cam}_{safe_class}_{ts_str}.jpg"
+            target_path = self._snapshot_dir / filename
+
+            # Stage in the same directory so rename is atomic.
+            # Use a random prefix and .jpg extension so cv2.imwrite can
+            # find the codec, then rename to the final name with os.replace.
+            fd, staging_path = tempfile.mkstemp(
+                dir=str(self._snapshot_dir), prefix="._tmp_", suffix=".jpg"
             )
-            path = self._snapshot_dir / filename
-            cv2.imwrite(str(path), frame)
-            logger.debug("Snapshot saved: %s", path)
-            return str(path)
+            try:
+                with os.fdopen(fd, "wb"):
+                    # os.fdopen() closes the fd; we just need the handle closed.
+                    pass
+                written = cv2.imwrite(staging_path, frame)
+                if written is False:
+                    logger.error(
+                        "cv2.imwrite returned False for %s – snapshot not saved",
+                        target_path,
+                    )
+                    os.unlink(staging_path)
+                    return None
+
+                os.replace(staging_path, str(target_path))
+            except BaseException:
+                # Clean up the staging file on any error.
+                try:
+                    os.unlink(staging_path)
+                except OSError:
+                    pass
+                raise
+
+            logger.debug("Snapshot saved: %s", target_path)
+            return str(target_path)
         except Exception:
             logger.exception("Failed to save snapshot")
             return None
@@ -315,20 +362,40 @@ class EventProcessor:
         actions_triggered: list[str] | None,
         frame_size: tuple[int, int] | None = None,
         feedback_token: str | None = None,
-    ) -> None:
-        with self._db_lock:
-            try:
-                self._insert_event(
-                    timestamp, det, camera_name, snapshot_path,
-                    actions_triggered, frame_size, feedback_token,
-                )
-                self._conn.commit()
-            except Exception:
-                logger.exception("Failed to persist detection event to database")
+        max_retries: int = 3,
+    ) -> bool:
+        """Persist a detection event to SQLite with bounded retry.
+
+        Returns ``True`` when the row was committed successfully,
+        ``False`` when all retries were exhausted.  Callers that need
+        a feedback token to be meaningful **must** check the return value
+        before issuing the token.
+        """
+        for attempt in range(1, max_retries + 1):
+            with self._db_lock:
                 try:
-                    self._reset_connection_locked()
+                    self._insert_event(
+                        timestamp, det, camera_name, snapshot_path,
+                        actions_triggered, frame_size, feedback_token,
+                    )
+                    self._conn.commit()
+                    return True
                 except Exception:
-                    logger.exception("Failed to recover SQLite connection after write error")
+                    logger.warning(
+                        "DB persist attempt %d/%d failed for %s/%s",
+                        attempt, max_retries, camera_name, det.class_name,
+                    )
+                    try:
+                        self._reset_connection_locked()
+                    except Exception:
+                        logger.exception(
+                            "Failed to recover SQLite connection after write error"
+                        )
+        logger.error(
+            "All %d DB persist attempts failed for %s/%s – event lost",
+            max_retries, camera_name, det.class_name,
+        )
+        return False
 
     def _insert_event(
         self,

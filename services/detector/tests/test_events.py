@@ -39,7 +39,7 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
     det = Detection(class_name="heron", confidence=0.9, bbox=(1, 2, 3, 4))
 
     original_insert = processor._insert_event
-    state = {"fail_once": True}
+    state = {"fail_count": 2}
 
     def flaky_insert(
         timestamp: datetime,
@@ -50,8 +50,8 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
         frame_size: tuple[int, int] | None = None,
         feedback_token: str | None = None,
     ) -> None:
-        if state["fail_once"]:
-            state["fail_once"] = False
+        if state["fail_count"] > 0:
+            state["fail_count"] -= 1
             raise sqlite3.OperationalError("simulated insert failure")
         original_insert(
             timestamp, det_arg, camera_name, snapshot_path,
@@ -60,12 +60,18 @@ def test_persist_recovers_after_write_exception(monkeypatch, tmp_path):
 
     monkeypatch.setattr(processor, "_insert_event", flaky_insert)
 
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    # First call fails twice, succeeds on third attempt → succeeds.
+    assert processor._persist(
+        datetime.now(timezone.utc), det, "cam-a", None, None
+    ) is True
+    # Second call succeeds immediately.
+    assert processor._persist(
+        datetime.now(timezone.utc), det, "cam-a", None, None
+    ) is True
     processor.close()
 
-    # First insert fails and triggers a connection reset; second insert succeeds.
-    assert _count_rows(str(db_path)) == 1
+    # Both calls eventually committed.
+    assert _count_rows(str(db_path)) == 2
 
 
 def test_persist_swallows_reset_connection_errors(monkeypatch, tmp_path):
@@ -87,7 +93,8 @@ def test_persist_swallows_reset_connection_errors(monkeypatch, tmp_path):
     monkeypatch.setattr(processor, "_reset_connection_locked", fail_reset)
 
     # _persist should never raise, even if recovery fails.
-    processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    result = processor._persist(datetime.now(timezone.utc), det, "cam-a", None, None)
+    assert result is False
     processor.close()
 
 

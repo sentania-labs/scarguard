@@ -52,6 +52,7 @@ class StatsCollector(threading.Thread):
         self._stop = stop_event
         self._health_tracker = health_tracker
         self._metrics_store = metrics_store
+        self._health_alert_buffer: list[dict] = []
 
         # Previous /proc/stat sample for CPU delta calculation
         self._prev_cpu: tuple[float, float] | None = None
@@ -467,8 +468,12 @@ class StatsCollector(threading.Thread):
                 # Check for camera health alerts
                 if self._health_tracker is not None:
                     alerts = self._health_tracker.check_alerts()
-                    for alert in alerts:
-                        client.publish("scarguard:health", json.dumps(alert, default=str))
+                    self._health_alert_buffer.extend(alerts)
+
+                while self._health_alert_buffer:
+                    alert = self._health_alert_buffer[0]
+                    client.publish("scarguard:health", json.dumps(alert, default=str))
+                    self._health_alert_buffer.pop(0)
             except redis_lib.RedisError:
                 logger.warning("StatsCollector failed to write to Redis", exc_info=True)
             except Exception:

@@ -551,3 +551,9 @@ writes; allow space for approximately two copies of a maximum-size file.
 A memory-backed `/tmp` consumes RAM for the spool: provision disk-backed
 temporary storage for large uploads. Limits bound individual requests, not
 aggregate disk use from concurrent authorized uploads.
+
+## Reliability & Failure Handling
+
+If saving a snapshot frame to disk or recording an event to the SQLite database fails, the detection event is still published to Redis to ensure safety alerts are not silently suppressed. However, the event will not contain a `feedback_token` and its `snapshot_path` will be null, and downstream notification templates will omit those components. Feedback tokens are only issued for fully persisted events.
+
+During Redis connectivity outages, detection events and health alerts are buffered locally. Buffered detection events are dropped if they remain un-published for more than 60 seconds (a stale-event window) to avoid flooding the downstream channels with outdated motion alerts once connectivity is restored. Health alerts, however, are kept pending indefinitely until publication succeeds, ensuring no offline transitions are lost.
