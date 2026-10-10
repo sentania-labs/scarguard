@@ -278,17 +278,27 @@ def _peek_pool_names(pool: Any | None, abs_path: str) -> Any | None:
 def _names_from_pt_cpu(abs_path: str) -> Any | None:
     """Extract ``model.names`` from a ``.pt`` checkpoint without a GPU load.
 
-    Returns ``None`` on any failure so the caller can fall through to the
+    Uses ``torch.serialization.safe_load`` (PyTorch 2.0+) when available
+    for restricted unpickling; falls back to ``torch.load`` for checkpoints
+    that contain custom classes (standard Ultralytics format).  Returns
+    ``None`` on any failure so the caller can fall through to the
     full-ultralytics path.
+
+    Path confinement has already been verified by ``_safe_model_path``
+    before this function is reached.
     """
     try:
-        import torch
+        from safe_load import _load_torch_safe
     except ImportError:
         return None
+
     try:
-        ckpt = torch.load(abs_path, map_location="cpu", weights_only=True)
+        ckpt = _load_torch_safe(abs_path, map_location="cpu")
+    except ImportError:
+        # torch not installed - fall through to the YOLO path
+        return None
     except Exception:
-        logger.debug("CPU-only torch.load failed for %s - falling back", abs_path)
+        logger.debug("Safe torch.load failed for %s - falling back", abs_path)
         return None
     # Checkpoints may store the model under "model" (typical ultralytics
     # format) or be the model object itself.

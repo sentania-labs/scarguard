@@ -10,8 +10,6 @@ Findings addressed: SG-04, SG-36.
 """
 
 import io
-import pickle
-import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -36,14 +34,34 @@ class MaliciousSentinel:
         return (_malicious_explode, ())
 
 
-def _make_pt_file(tmp_path: Path, name: str, payload: object) -> Path:
-    """Create a .pt file (PyTorch zip format) without torch installed.
+def _make_real_pt_file(tmp_path: Path, name: str, payload: object) -> Path:
+    """Create a real PyTorch checkpoint using torch.save.
 
-    PyTorch serialises checkpoints as a zip archive containing a
-    'global_tensor.pkl' file that holds the pickled data.  This reproduces
-    the format so that the real ``torch.load()`` path inside ultralytics
+    This produces a valid ``.pt`` archive (a zip with ``data.pkl``) so that
+    the real ``torch.load()`` code path inside ultralytics actually
+    encounters a well-formed checkpoint file.
+    """
+    try:
+        import torch
+    except ImportError:
+        raise pytest.skip("torch not installed") from None
+
+    path = tmp_path / name
+    torch.save(payload, path)
+    return path
+
+
+def _make_legacy_pt_file(tmp_path: Path, name: str, payload: object) -> Path:
+    """Create a legacy-style .pt file (zip with global_tensor.pkl).
+
+    PyTorch checkpoints serialise as a zip archive containing
+    ``data.pkl`` (modern) or ``global_tensor.pkl`` (legacy).  This reproduces
+    the legacy format so that the real ``torch.load()`` path inside ultralytics
     actually encounters a valid .pt file.
     """
+    import pickle
+    import zipfile
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("global_tensor.pkl", pickle.dumps(payload))
@@ -70,14 +88,12 @@ class TestArbitraryCodeExecution:
         _introspect method.  If the safe-load guard is working, the malicious
         code must NOT fire and the handler must return an error dict.
         """
-        # This test only runs when torch is available (CI environment)
-        pytest.importorskip("torch")
-
         # Create a malicious checkpoint that fires code on unpickle
-        malicious_path = _make_pt_file(tmp_path, "malicious.pt", MaliciousSentinel())
+        # Uses real torch.save so the checkpoint structure is valid.
+        malicious_path = _make_real_pt_file(tmp_path, "malicious.pt", MaliciousSentinel())
 
         # Create a compatible fixture (just plain data, no custom classes)
-        compatible_path = _make_pt_file(
+        compatible_path = _make_real_pt_file(
             tmp_path,
             "compatible.pt",
             {"weights": b"\x00\x00\x00\x00\x00\x00\x80\x3f"},
@@ -206,16 +222,23 @@ class TestPathSafety:
 class TestSafeLoadImport:
     """Tests that safe_load module patches are in place."""
 
-    def test_safe_load_monkeypatches_torch_load(self) -> None:
-        """Verify safe_load patched torch.load with weights_only=True."""
+    def test_safe_load_exposes_safe_load_fn(self) -> None:
+        """Verify safe_load exposes _load_torch_safe entry-point."""
         import safe_load  # noqa: F401
 
         try:
-            import torch
-            # safe_load monkeypatches torch.load
-            assert hasattr(torch, "load"), "torch.load must exist"
+            import torch  # noqa: F401  # noqa: F401 - verifies torch is present
         except ImportError:
             pytest.skip("torch not installed")
+
+        assert hasattr(safe_load, "_load_torch_safe"), (
+            "safe_load must expose _load_torch_safe"
+        )
+        # safe_load no longer monkeypatches torch.load globally;
+        # the monkey-patch was removed because it broke YOLO checkpoint
+        # loading (weights_only=True rejects Ultralytics custom classes).
+        # Safe loading is now done via the _load_torch_safe() helper
+        # which uses torch.serialization.safe_load when available.
 
     def test_safe_load_blocks_uploads(self) -> None:
         """Verify safe_load blocks ultralytics automatic downloads."""

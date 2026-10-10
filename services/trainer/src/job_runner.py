@@ -1176,25 +1176,36 @@ def _run_train(ctx: JobContext) -> dict:
         except (ValueError, OSError) as exc:
             return {"error": f"Invalid resume checkpoint: {exc}", "log_path": str(ctx.log_path)}
 
-    # Bare checkpoint names resolve against MODELS_DIR when staged there,
-    # so a local yolov8n.pt is used instead of a GitHub download.
-    base_model_raw = str(
-        ctx.params.get("base_model", defaults.get("base_model", "yolov8n.pt")) or "yolov8n.pt"
-    )
-    from path_safety import validate_model_path
-    try:
-        base_model_path = validate_model_path(base_model_raw, MODELS_DIR)
-        base_model = str(base_model_path)
-    except ValueError as exc:
-        return {"error": f"Invalid base model path: {exc}", "log_path": str(ctx.log_path)}
+    # Resolve the base model path for training.  When resuming from a
+    # checkpoint, the resume path itself is used by the training script
+    # (``--resume-from``), so a separate ``--base-model`` is unnecessary.
+    # Skip validation in that case to allow interrupted runs to continue
+    # even when the original base model has been replaced or removed.
+    base_model: str | None = None
+    if not resume_from:
+        base_model_raw = str(
+            ctx.params.get("base_model", defaults.get("base_model", "yolov8n.pt")) or "yolov8n.pt"
+        )
+        from path_safety import validate_model_path
+        try:
+            base_model_path = validate_model_path(base_model_raw, MODELS_DIR)
+            base_model = str(base_model_path)
+        except ValueError as exc:
+            return {"error": f"Invalid base model path: {exc}", "log_path": str(ctx.log_path)}
 
-    cmd = [
+    cmd: list[str] = [
         "python3",
         str(SCRIPTS_DIR / "train.py"),
         "--data",
         str(data_yaml),
-        "--base-model",
-        base_model,
+    ]
+
+    # Only include --base-model for fresh training; resume jobs use
+    # the checkpoint's own architecture.
+    if base_model is not None:
+        cmd += ["--base-model", base_model]
+
+    cmd += [
         "--output",
         str(output_path),
         "--project",
