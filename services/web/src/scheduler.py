@@ -159,8 +159,9 @@ class ArmScheduler:
             cfg.setdefault("system", {})["armed"] = True
             config_store.save(cfg)
 
-            import auth
             import audit
+            import auth
+
             db = auth.get_db(auth.AUTH_DB_PATH)
             try:
                 audit.record(
