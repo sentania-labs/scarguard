@@ -25,6 +25,7 @@ from deterrent_safety import MAX_ACTUATION_SEC
 from event_signing import load_key_from_env
 from off_controller import OffOnlyCloudController
 from pydantic import BaseModel
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
@@ -155,7 +156,7 @@ def main() -> None:
         raise RuntimeError("Tuya credentials are required for OFF watchdog")
     client = redis.Redis(
         host=redis_cfg.get("host", "redis"), port=int(redis_cfg.get("port", 6379)),
-        password=os.environ.get("REDIS_PASSWORD", "") or None,
+        **redis_auth(),
         decode_responses=True, socket_connect_timeout=2, socket_timeout=2,
     )
     shutdown = threading.Event()

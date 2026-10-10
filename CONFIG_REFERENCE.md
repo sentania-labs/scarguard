@@ -121,6 +121,46 @@ redis:
   port: 6379
 ```
 
+### Redis access control (v1.16, FDY-0563)
+
+`redis.host` / `redis.port` are the only Redis settings in `scarguard.yml`.
+Credentials come from `.env`: `REDIS_PASSWORD` is the admin (`default` user)
+credential and is delivered to the redis container only; every other service
+receives `REDIS_USERNAME=<service>` plus `REDIS_PASSWORD=${REDIS_PASSWORD_<SERVICE>}`
+and connects as its own Redis ACL user. The policy lives in
+`config/redis-acl.conf` and is applied by `config/redis-entrypoint.sh`, which
+writes an aclfile containing SHA-256 digests only.
+
+| User | May do | Notably denied |
+|---|---|---|
+| detector | publish `scarguard:detections`/`health`, own state/stats/eval keys, read trainer heartbeat | lease keys, log buffers |
+| web | subscribe to live channels, read detector state, own quota/SSE keys, publish only request channels | PUBLISH on `scarguard:detections`, lease/heartbeat keys, FLUSH/CONFIG |
+| notifier | subscribe `detections`, `health`, `notify:request` | any PUBLISH, any key |
+| deterrent | subscribe detections + control requests, publish actuations/stuck/results/`notify:request`, lease keys | PUBLISH on `scarguard:detections`, every other key |
+| off-watchdog | read/scan/delete lease keys | channels, other keys |
+| backup | `backup:trigger` / `backup:status` channels | any key |
+| log-streamer | `scarguard:logs:*` keys and channels | detections, safety state |
+| training-controller | read trainer heartbeat | everything else |
+| trainer | heartbeat and `training:job:*` keys, job notify channel | detector state, leases |
+
+"Send test notification" and "share snapshot" from the web UI are published on
+`scarguard:notify:request`, which only the notifier subscribes to; web can no
+longer publish anything on `scarguard:detections`.
+
+Fail-closed behaviour: a service whose `REDIS_PASSWORD_<SERVICE>` is empty while
+`REDIS_PASSWORD` is set gets a disabled Redis user and cannot connect; its name
+is logged by the redis container. Rate-limit quotas use one atomic Lua
+`INCR`+`EXPIRE` script and deny the request (HTTP 429) when Redis is
+unreachable, refuses the command or is out of memory. Pause state, the trainer
+heartbeat, `scarguard:rearm_at`, quotas and activation leases live in a
+non-evicting Redis, so they can only disappear by expiring. When
+`REDIS_PASSWORD` is empty (CI smoke test, local dev) users are created with
+`nopass` but keep the same command, key and channel limits.
+
+Migration: `setup.sh` (or `scripts/migrate-redis-acl.sh .env`) backfills the
+per-service credentials without printing them; `--apply` recreates redis first
+and then the other services. See INFRASTRUCTURE.md for limitations.
+
 ## Detection Logic
 
 1. Pull frames from each RTSP stream (OpenCV `VideoCapture`)
@@ -408,9 +448,10 @@ device at startup, then sends OFF when a valid lease expires. It has no
 activation API or true-valued cloud command. Successful normal OFF clears only
 the matching lease, so it cannot erase a newer activation.
 
-Lease records are non-expiring Redis keys protected by the stack's
-`volatile-lru` policy; a separate expiring deadline marker makes eviction
-fail-safe (a missing marker means OFF). The watchdog also tracks each observed
+Lease records are non-expiring Redis keys and the stack runs Redis with
+`maxmemory-policy noeviction`, so neither the lease nor its separate expiring
+deadline marker can be evicted; a missing marker still means OFF. Under memory
+pressure the lease write fails and the activation is denied. The watchdog also tracks each observed
 lease against a monotonic deadline, so a backward wall-clock correction cannot
 make an activation indefinite. Startup OFF covers watchdog restarts.
 

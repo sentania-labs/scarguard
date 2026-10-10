@@ -13,12 +13,12 @@ importing this module doesn't block on Redis availability.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Callable
 
 import redis as redis_lib
 from fastapi import HTTPException, Request
 from rate_limit import RateLimiter
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,8 @@ def _get_limiter() -> RateLimiter | None:
         redis_cfg = config_store.load_cached().get("redis", {}) or {}
         host = redis_cfg.get("host", "redis")
         port = int(redis_cfg.get("port", 6379))
-        password = os.environ.get("REDIS_PASSWORD", "") or None
         client = redis_lib.Redis(
-            host=host, port=port, password=password, decode_responses=True,
+            host=host, port=port, **redis_auth(), decode_responses=True,
             socket_connect_timeout=2, socket_timeout=2,
         )
         _limiter = RateLimiter(client)

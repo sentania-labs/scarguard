@@ -20,32 +20,35 @@ _MIN_RECONNECT_DELAY: float = 5
 _MAX_RECONNECT_DELAY: float = 60
 
 
-def _resolve_params(
-    redis_cfg: dict[str, Any] | None = None,
-    redis_user: str | None = None,
-) -> dict[str, Any]:
-    """Build common connection kwargs from a config dict + env.
+def redis_auth() -> dict[str, Any]:
+    """Return the ``username``/``password`` kwargs for this service's ACL user.
 
-    *redis_user* enables per-service ACL authentication: if set, the
-    client connects as that named user instead of using the admin
-    password.  Services should set this to their service name so that
-    the principle of least privilege applies.
+    Each container receives only its own credential: ``REDIS_USERNAME`` names
+    the service's Redis ACL user (see ``config/redis-acl.conf``) and
+    ``REDIS_PASSWORD`` carries that user's secret. When the username is set but
+    the secret is empty, the client still authenticates as the named user, so a
+    deployment that has not run ``scripts/migrate-redis-acl.sh`` fails closed
+    with an authentication error instead of silently gaining admin access.
     """
+    params: dict[str, Any] = {}
+    username = os.environ.get("REDIS_USERNAME", "") or None
+    password = os.environ.get("REDIS_PASSWORD", "") or None
+    if username:
+        params["username"] = username
+    if password:
+        params["password"] = password
+    return params
+
+
+def _resolve_params(redis_cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build common connection kwargs from a config dict + env."""
     cfg = redis_cfg or {}
     params: dict[str, Any] = {
         "host": cfg.get("host", "redis"),
         "port": int(cfg.get("port", 6379)),
         "decode_responses": True,
     }
-    if redis_user:
-        # ACL user auth: pass username explicitly; password from service-specific var.
-        params["username"] = redis_user
-        params["password"] = os.environ.get(
-            f"{redis_user.upper()}_REDIS_PASSWORD", ""
-        ) or os.environ.get("REDIS_PASSWORD", "") or None
-    else:
-        # Legacy admin-password auth (backwards compatibility).
-        params["password"] = os.environ.get("REDIS_PASSWORD", "") or None
+    params.update(redis_auth())
     return params
 
 
@@ -55,19 +58,14 @@ def make_sync_client(
     socket_connect_timeout: int = 5,
     socket_timeout: int | None = None,
     retry_on_timeout: bool = True,
-    redis_user: str | None = None,
     **extra: Any,
 ) -> redis_lib.Redis:
     """Create a configured synchronous Redis client.
 
-    *redis_user* enables per-service ACL authentication.  Pass the
-    service name (e.g. ``"detector"``) so the client connects under that
-    ACL user's permissions.
-
     Sensible defaults: 5s connect timeout, ``retry_on_timeout=True``.
     Extra kwargs are forwarded to :class:`redis.Redis`.
     """
-    params = _resolve_params(redis_cfg, redis_user=redis_user)
+    params = _resolve_params(redis_cfg)
     params.update(
         socket_connect_timeout=socket_connect_timeout,
         retry_on_timeout=retry_on_timeout,
@@ -80,7 +78,6 @@ def make_sync_client(
 
 def make_async_client(
     redis_cfg: dict[str, Any] | None = None,
-    redis_user: str | None = None,
     **extra: Any,
 ) -> Any:
     """Create an async Redis client (``redis.asyncio.Redis``).
@@ -89,7 +86,7 @@ def make_async_client(
     """
     import redis.asyncio as aioredis
 
-    params = _resolve_params(redis_cfg, redis_user=redis_user)
+    params = _resolve_params(redis_cfg)
     params.update(extra)
     return aioredis.Redis(**params)
 
@@ -102,7 +99,6 @@ def reconnect_loop(
     *,
     log: logging.Logger | None = None,
     health_path: str | None = None,
-    redis_user: str | None = None,
 ) -> None:
     """Common sync pubsub reconnect loop with exponential backoff.
 
@@ -114,8 +110,6 @@ def reconnect_loop(
     If *health_path* is given, touches the file after every successful
     subscribe and every received message so Docker healthchecks can detect
     liveness.
-
-    *redis_user* enables per-service ACL authentication.
     """
     import json
     import pathlib
@@ -127,7 +121,7 @@ def reconnect_loop(
         client: redis_lib.Redis | None = None
         pubsub: redis_lib.client.PubSub | None = None
         try:
-            client = make_sync_client(redis_cfg, redis_user=redis_user)
+            client = make_sync_client(redis_cfg)
             pubsub = client.pubsub()
             pubsub.subscribe(*channels)
             _log.info("Subscribed to Redis channel(s): %s", ", ".join(channels))

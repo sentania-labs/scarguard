@@ -21,6 +21,7 @@ from email_notifier import EmailNotifier
 from healthcheck import start_heartbeat
 from notification_queue import WORKER_INTERVAL, NotificationQueue
 from ntfy import NtfyNotifier
+from redis_client import redis_auth
 from webhook import WebhookNotifier
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ logger = logging.getLogger(__name__)
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")
 CHANNEL = "scarguard:detections"
 HEALTH_CHANNEL = "scarguard:health"
+# Web-originated test notifications / snapshot shares (never seen by deterrent).
+NOTIFY_REQUEST_CHANNEL = "scarguard:notify:request"
 
 # How long to wait before retrying a failed Redis connection (seconds).
 _REDIS_RECONNECT_DELAY = 5
@@ -231,8 +234,12 @@ def subscribe_loop(
             "DETECTION_HMAC_KEY not set - dispatching unsigned events.",
         )
         derived_key: bytes | None = None
+        notify_key: bytes | None = None
     else:
         derived_key = derive_channel_key(hmac_key, CHANNEL)
+        notify_key = derive_channel_key(hmac_key, NOTIFY_REQUEST_CHANNEL)
+    # Channels whose messages must carry a valid signature when a key is set.
+    verify_keys: dict[str, bytes | None] = {CHANNEL: derived_key, NOTIFY_REQUEST_CHANNEL: notify_key}
     # Per-service replay cache for detection events.  4096 entries at
     # a 60 s TTL means ~68 events/s sustained before evictions start.
     replay_cache = _ReplayCache(capacity=4096, ttl_seconds=60)
@@ -245,11 +252,12 @@ def subscribe_loop(
         client: redis_lib.Redis | None = None
         pubsub: redis_lib.client.PubSub | None = None
         try:
-            redis_password = os.environ.get("REDIS_PASSWORD", "") or None
-            client = redis_lib.Redis(host=host, port=port, password=redis_password, decode_responses=True)
+            client = redis_lib.Redis(host=host, port=port, **redis_auth(), decode_responses=True)
             pubsub = client.pubsub()
-            pubsub.subscribe(CHANNEL, HEALTH_CHANNEL)
-            logger.info("Subscribed to Redis channels: %s, %s", CHANNEL, HEALTH_CHANNEL)
+            pubsub.subscribe(CHANNEL, HEALTH_CHANNEL, NOTIFY_REQUEST_CHANNEL)
+            logger.info(
+                "Subscribed to Redis channels: %s, %s, %s", CHANNEL, HEALTH_CHANNEL, NOTIFY_REQUEST_CHANNEL,
+            )
             delay = _REDIS_RECONNECT_DELAY  # reset backoff on successful connect
             pathlib.Path("/tmp/healthy").touch(exist_ok=True)
 
@@ -273,11 +281,12 @@ def subscribe_loop(
                     # Signature verification (detection channel only - health alerts
                     # come from the detector's health publisher, not the detection
                     # publisher, and aren't signed today).
-                    if message["channel"] == CHANNEL and derived_key is not None:
+                    channel_key = verify_keys.get(message["channel"])
+                    if channel_key is not None:
                         if not verify_event(
                             event,
-                            derived_key,
-                            channel=CHANNEL,
+                            channel_key,
+                            channel=message["channel"],
                             cache=replay_cache,
                         ):
                             if not invalid_warned:
@@ -292,7 +301,7 @@ def subscribe_loop(
                             else:
                                 logger.debug("Invalid-signature event rejected")
                             continue
-                    elif message["channel"] == CHANNEL and hmac_key is None and not unsigned_warned:
+                    elif message["channel"] in verify_keys and hmac_key is None and not unsigned_warned:
                         unsigned_warned = True
                         logger.warning(
                             "Accepting unsigned detection event. Further unsigned events at DEBUG.",

@@ -172,6 +172,7 @@ def _gpu_lease_holder() -> str | None:
     """Read the shared Redis lease without adding a general Redis dependency."""
     host = os.environ.get("REDIS_HOST", "redis")
     port = int(os.environ.get("REDIS_PORT", "6379"))
+    username = os.environ.get("REDIS_USERNAME", "")
     password = os.environ.get("REDIS_PASSWORD", "")
 
     def _command(stream: Any, *parts: str) -> bytes | None:
@@ -196,7 +197,10 @@ def _gpu_lease_holder() -> str | None:
     try:
         with socket.create_connection((host, port), timeout=1) as client:
             stream = client.makefile("rwb")
-            if password:
+            if username:
+                # Named ACL user (config/redis-acl.conf): read-only lease access.
+                _command(stream, "AUTH", username, password)
+            elif password:
                 _command(stream, "AUTH", password)
             value = _command(stream, "GET", GPU_LEASE_KEY)
             return value.decode(errors="replace") if value else None

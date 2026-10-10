@@ -37,6 +37,7 @@ from model_classes_handler import ModelClassesHandler
 from model_pool import ModelPool
 from pause_handler import PauseHandler
 from publisher import RedisPublisher
+from redis_client import redis_auth
 from scheduler import ArmScheduler
 from snapshot_grabber import SnapshotGrabber
 from stats_collector import StatsCollector
@@ -446,11 +447,9 @@ def _camera_worker(
     """
     name = camera_cfg["name"]
 
-    redis_password = os.environ.get("REDIS_PASSWORD", "")
     publisher = RedisPublisher(
         host=redis_cfg.get("host", "redis"),
         port=int(redis_cfg.get("port", 6379)),
-        password=redis_password or None,
     )
     stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"], stop_event=stop_event)
 
@@ -665,11 +664,10 @@ def main() -> None:
     def _make_redis():
         import redis
 
-        _pw = os.environ.get("REDIS_PASSWORD", "") or None
         return redis.Redis(
             host=redis_cfg.get("host", "redis"),
             port=int(redis_cfg.get("port", 6379)),
-            password=_pw,
+            **redis_auth(),
             decode_responses=True,
         )
 

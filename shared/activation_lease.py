@@ -63,9 +63,11 @@ class RedisActivationLeases:
         signed = sign_event(lease.model_dump(), self._key)
         deadline_ttl = max(1, math.ceil(lease.expires_at - now))
         pipe = self._client.pipeline(transaction=True)
-        # The signed lease intentionally has no Redis TTL. With volatile-lru it
-        # cannot be evicted; the small deadline marker may disappear early,
-        # which causes a safe early OFF. The watchdog deletes both after OFF.
+        # The signed lease intentionally has no Redis TTL and Redis runs with
+        # maxmemory-policy noeviction, so neither the lease nor its deadline
+        # marker can be evicted; a missing marker still means a safe early
+        # OFF. Under memory pressure SET fails instead, which denies the
+        # activation. The watchdog deletes both after OFF.
         pipe.set(self.redis_key(device_id), json.dumps(signed))
         pipe.set(self.deadline_key(device_id), lease.nonce, ex=deadline_ttl)
         results = pipe.execute()

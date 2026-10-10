@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import redis as redis_lib
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +74,10 @@ class ModelClassesHandler(threading.Thread):
             client: redis_lib.Redis | None = None
             pubsub: redis_lib.client.PubSub | None = None
             try:
-                pw = os.environ.get("REDIS_PASSWORD", "") or None
                 client = redis_lib.Redis(
                     host=self._redis_cfg.get("host", "redis"),
                     port=int(self._redis_cfg.get("port", 6379)),
-                    password=pw,
+                    **redis_auth(),
                     decode_responses=True,
                     socket_connect_timeout=5,
                     retry_on_timeout=True,

@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 from pathlib import Path
 
 import config_store
@@ -11,6 +10,7 @@ from config_redact import redact_yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from redis_client import redis_auth
 from route_auth import has_admin_access, require_admin, require_viewer
 from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
@@ -59,7 +59,7 @@ def _redis_params() -> dict:
     return {
         "host": redis_cfg.get("host", "redis"),
         "port": int(redis_cfg.get("port", 6379)),
-        "password": os.environ.get("REDIS_PASSWORD", "") or None,
+        **redis_auth(),
         "decode_responses": True,
     }
 

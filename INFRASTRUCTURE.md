@@ -442,7 +442,7 @@ Defaults are sized for a Jetson Orin Nano:
 | training-controller | 64 MB | 0.25 | detector-only Docker API boundary |
 | trainer | 6 GB | 4.0 | limit includes child; unified-memory admission still applies |
 | backup | 128 MB | 0.5 | periodic cycle, mostly idle |
-| redis | 256 MB | 0.5 | + `--maxmemory 200mb --maxmemory-policy allkeys-lru` |
+| redis | 256 MB | 0.5 | + `--maxmemory 200mb --maxmemory-policy noeviction`, per-service ACL users |
 | caddy | 128 MB | 0.5 | keeps NET_BIND_SERVICE for 80/443 |
 | docker-socket-proxy | 64 MB | 0.25 | tecnativa proxy; exposes only CONTAINERS + EVENTS |
 
@@ -451,10 +451,42 @@ Override via a `docker-compose.override.yml` if you're on beefier hardware.
 Every service also runs with `security_opt: no-new-privileges:true`
 and `cap_drop: [ALL]` (Caddy re-adds only `NET_BIND_SERVICE`).
 
-Redis uses `volatile-lru`: expiring caches remain evictable, while the bounded,
-signed OFF-watchdog lease records are not. Their separate expiring deadline
-markers may be evicted under pressure; that is fail-safe because the watchdog
-treats a missing marker as an expired lease and sends OFF.
+Redis uses `noeviction` (v1.16, FDY-0563): pause/rearm state, the trainer
+heartbeat, rate-limit quotas and the signed OFF-watchdog leases (with their
+deadline markers) can never be evicted. All stored data is bounded (TTLs,
+`LTRIM`med log buffers), so the 200 MB cap is a safety limit; if it is ever
+reached, writes fail and callers fail closed (activation denied, quota request
+denied, lease write rejected) instead of state silently disappearing.
+
+### Redis ACL users (v1.16, FDY-0563)
+
+`config/redis-acl.conf` defines one least-privilege user per service;
+`config/redis-entrypoint.sh` (bind-mounted read-only into the stock
+`redis:7-alpine` image) turns it plus the `REDIS_PASSWORD_<SERVICE>` variables
+into `/data/scarguard.acl` holding SHA-256 digests only, then starts
+`redis-server --aclfile ... --maxmemory-policy noeviction`. Each container
+gets `REDIS_USERNAME` and only its own credential; `REDIS_PASSWORD` (admin,
+`default` user) is given to the redis container alone, for the healthcheck and
+`docker exec redis redis-cli -a` operator sessions. `DETECTION_HMAC_KEY` is
+delivered only to detector, notifier, deterrent, backup and web (redis,
+log-streamer and config-api no longer receive it).
+
+Upgrade: `sudo bash setup.sh` backfills the credentials (it calls
+`scripts/migrate-redis-acl.sh .env`, which never prints a value) and recreates
+the stack. Running `docker compose up -d` without the backfill starts Redis
+with those service users disabled and names them in `docker compose logs
+redis`; nothing falls back to the shared admin password. With an empty
+`REDIS_PASSWORD` (CI smoke test) users are `nopass` but still ACL-limited.
+
+Evidence limitations: Redis ACL semantics (selectors, `%R~` key patterns,
+channel patterns) require Redis 7. The regression test
+`services/web/tests/test_fdy_0563_regression.py` boots a disposable
+redis-server through the real entrypoint and proves allowed/denied operations
+per identity when a `redis-server` binary is on `PATH` (or named by
+`SCARGUARD_REDIS_SERVER`); otherwise those cases skip and only the artifact,
+entrypoint (with a stub server), migration-script and handler-level cases run.
+The CI web test image has no redis-server, so the live cases are expected to
+skip there; run them on a host with Redis 7 before release.
 
 ### Trusted Proxies
 
@@ -501,7 +533,9 @@ is v1.15 work (tracked in ROADMAP.md).
 
 `DETECTION_HMAC_KEY` (signs detection events on Redis),
 `TRAINING_CONTROLLER_TOKEN` (authenticates the allowlisted detector lifecycle
-API), and `REDIS_PASSWORD`:
+API), `REDIS_PASSWORD` (admin) and the per-service `REDIS_PASSWORD_<SERVICE>`
+credentials (delete the line and re-run `scripts/migrate-redis-acl.sh .env` to
+rotate one):
 
 1. Regenerate in `.env`: either re-run `setup.sh` (backfill path)
    or edit the values directly. See `.env.example` for generation

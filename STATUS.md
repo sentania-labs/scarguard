@@ -62,7 +62,7 @@ codec support or inference. No production/device validation was performed.
 - **Non-root containers:** All service Dockerfiles run as `scarguard` user (detector adds `video` group for GPU access).
 - **Dependency pinning:** All `requirements.txt` files pin exact versions.
 - **Log-streamer sidecar:** Dedicated container tails Docker logs and publishes to Redis pub/sub, with resilient reconnect handling and health reporting. See [INFRASTRUCTURE.md](INFRASTRUCTURE.md) for the operational contract.
-- **Redis authentication:** `requirepass` with `REDIS_PASSWORD` env var across all services.
+- **Redis authentication:** per-service ACL users (`config/redis-acl.conf`); each container holds only its own credential, `REDIS_PASSWORD` is the redis-container-only admin credential.
 - **FairLock inference scheduling:** FIFO lock prevents camera thread starvation when multiple cameras share a YOLO model.
 - **Caddy reverse proxy:** TLS termination, automatic HTTPS via Let's Encrypt or manual certs.
 - **Physical deterrence (v0.13.0):** Deterrent service controls Tuya smart devices (sprinklers, lights, sirens, plugs) via Cloud API. Opt-in via `deterrent.enabled`.
@@ -108,6 +108,18 @@ codec support or inference. No production/device validation was performed.
   includes every service's tests. The full web suite passed twice consecutively.
 
 ## Recently Fixed (unreleased)
+
+- **Per-service Redis access (FDY-0563, SG-02/SG-03/SG-26).** Every service
+  now connects as its own least-privilege Redis ACL user with a dedicated
+  credential; web and log-streamer can no longer publish detector events or
+  touch pause/heartbeat/lease state, and web test notifications and deterrent battery alerts moved to
+  `scarguard:notify:request` (notifier-only). Redis runs with `noeviction`,
+  the rate limiter uses one atomic `INCR`+`EXPIRE` script and denies on Redis
+  errors. Migration is `setup.sh` / `scripts/migrate-redis-acl.sh` (no
+  credential printed); a missing credential disables that user. Known
+  limitation: the live allowed/denied proof needs a Redis 7 binary and skips
+  where none is available (the CI web image, and the worker that produced
+  this change); validate on a Redis 7 host before release.
 
 - **Independent deterrent OFF watchdog (FDY-0556).** Every activation is
   preceded by a signed, finite Redis lease. A separate OFF-only container

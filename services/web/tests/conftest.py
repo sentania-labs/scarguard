@@ -79,9 +79,13 @@ def isolated_rate_limiter(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
         counts[key] = counts.get(key, 0) + 1
         return counts[key]
 
-    redis.incr.side_effect = incr
-    redis.expire.side_effect = lambda key, seconds: expiries.setdefault(key, seconds)
-    redis.ttl.side_effect = lambda key: expiries.get(key, -1)
+    def eval_script(script: str, numkeys: int, key: str, window: int) -> list[int]:
+        # Test double for the limiter's single atomic INCR+EXPIRE script.
+        count = incr(key)
+        expiries.setdefault(key, int(window))
+        return [count, expiries[key]]
+
+    redis.eval.side_effect = eval_script
     monkeypatch.setattr("rate_limit_dep._limiter", RateLimiter(redis))
     return redis
 

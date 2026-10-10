@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
+from redis_client import redis_auth
 from route_auth import require_admin, require_viewer
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.responses import Response
@@ -195,7 +196,7 @@ def _redis_params() -> dict[str, Any]:
     return {
         "host": redis_cfg.get("host", "redis"),
         "port": int(redis_cfg.get("port", 6379)),
-        "password": os.environ.get("REDIS_PASSWORD", "") or None,
+        **redis_auth(),
         "decode_responses": True,
     }
 

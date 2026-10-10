@@ -9,6 +9,7 @@ from collections import deque
 
 import redis as redis_lib
 from event_signing import derive_channel_key, load_key_from_env, sign_event
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +21,9 @@ _BUFFER_MAX = 256
 
 
 class RedisPublisher:
-    def __init__(self, host: str, port: int, password: str | None = None) -> None:
+    def __init__(self, host: str, port: int) -> None:
         self._client = redis_lib.Redis(
-            host=host, port=port, password=password, decode_responses=True,
+            host=host, port=port, **redis_auth(), decode_responses=True,
         )
         self._buffer: deque[str] = deque(maxlen=_BUFFER_MAX)
         # v1.14: sign every published event so subscribers can authenticate.

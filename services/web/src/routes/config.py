@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import shutil
@@ -32,8 +31,10 @@ from config_redact import (
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from notify_request import sign_notify_request
 from pydantic import ValidationError
 from rate_limit_dep import rate_limit
+from redis_client import redis_auth
 from route_auth import has_admin_access, require_admin, require_viewer
 from starlette.responses import Response
 from template_json import safe_json_dumps
@@ -783,7 +784,10 @@ async def upload_tls_cert(
 
 _SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", "/data/snapshots"))
 _TEST_IMAGE = Path(__file__).resolve().parent.parent / "static" / "test-fish.png"
-_DETECTIONS_CHANNEL = "scarguard:detections"
+# Web is not a detection publisher: the Redis ACL denies it PUBLISH on
+# scarguard:detections. Test notifications travel on a request channel that
+# only the notifier subscribes to, signed with its own channel-derived key.
+_NOTIFY_REQUEST_CHANNEL = "scarguard:notify:request"
 
 
 @router.post("/test-notification", response_class=JSONResponse)
@@ -843,11 +847,11 @@ async def send_test_notification(request: Request) -> Response:
     client = aioredis.Redis(
         host=host,
         port=port,
-        password=os.environ.get("REDIS_PASSWORD", "") or None,
+        **redis_auth(),
         decode_responses=True,
     )
     try:
-        await client.publish(_DETECTIONS_CHANNEL, json.dumps(event))
+        await client.publish(_NOTIFY_REQUEST_CHANNEL, sign_notify_request(event, _NOTIFY_REQUEST_CHANNEL))
     finally:
         await client.close()
 

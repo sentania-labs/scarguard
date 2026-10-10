@@ -202,6 +202,9 @@ if [[ -f ".env" ]]; then
         bash infra/backfill-training-controller-token.sh .env
         info "Backfilled TRAINING_CONTROLLER_TOKEN (protects detector lifecycle API)"
     fi
+    # v1.16 (FDY-0563): one Redis ACL credential per service. The shared
+    # REDIS_PASSWORD stays the admin credential of the redis container only.
+    bash scripts/migrate-redis-acl.sh .env
     # v1.15 (FDY-0558): Inject the host Docker GID so the training-controller
     # can open the Docker socket on any distro.  setup.sh writes it into .env
     # so docker compose expands it at run-time.
@@ -252,6 +255,9 @@ else
     # with web, detector, notifier, deterrent, or other Compose peers.
     CONTROLLER_TOKEN=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
     sed -i "s|^TRAINING_CONTROLLER_TOKEN=.*|TRAINING_CONTROLLER_TOKEN=${CONTROLLER_TOKEN}|" .env
+
+    # v1.16 (FDY-0563): per-service Redis ACL credentials (never printed).
+    bash scripts/migrate-redis-acl.sh .env
 
     # v1.15 (FDY-0558): Inject the host Docker GID so the training-controller
     # can open the Docker socket on any distro.

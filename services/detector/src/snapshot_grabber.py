@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import redis as redis_lib
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +48,10 @@ class SnapshotGrabber(threading.Thread):
             client: redis_lib.Redis | None = None
             pubsub = None
             try:
-                _pw = os.environ.get("REDIS_PASSWORD", "") or None
                 client = redis_lib.Redis(
                     host=self._redis_cfg.get("host", "redis"),
                     port=int(self._redis_cfg.get("port", 6379)),
-                    password=_pw,
+                    **redis_auth(),
                     decode_responses=True,
                     socket_connect_timeout=5,
                     retry_on_timeout=True,

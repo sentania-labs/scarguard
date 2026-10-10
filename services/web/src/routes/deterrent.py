@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import os
 import time as _time
 import uuid
 from pathlib import Path
@@ -28,6 +27,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
+from redis_client import redis_auth
 from route_auth import has_admin_access, require_admin, require_viewer
 from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
@@ -319,7 +319,7 @@ def _redis_params() -> dict[str, Any]:
     return {
         "host": redis_cfg.get("host", "redis"),
         "port": int(redis_cfg.get("port", 6379)),
-        "password": os.environ.get("REDIS_PASSWORD", "") or None,
+        **redis_auth(),
         "decode_responses": True,
     }
 
@@ -549,7 +549,7 @@ async def stuck_stream(request: Request) -> StreamingResponse:
     async def generator():
         client = aioredis.Redis(
             host=host, port=port,
-            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            **redis_auth(),
             decode_responses=True,
         )
         try:

@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import date as dt_date
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
@@ -14,6 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from rate_limit_dep import rate_limit
+from redis_client import redis_auth
 from route_auth import current_role, has_admin_access
 
 log = logging.getLogger(__name__)
@@ -34,11 +34,10 @@ def _redis_client(cfg: dict) -> Any:
         import redis.asyncio as aioredis
 
         rc = cfg.get("redis", {})
-        pw = os.environ.get("REDIS_PASSWORD", "") or None
         return aioredis.Redis(
             host=rc.get("host", "redis"),
             port=int(rc.get("port", 6379)),
-            password=pw,
+            **redis_auth(),
             decode_responses=True,
         )
     except Exception:

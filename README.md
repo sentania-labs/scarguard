@@ -346,8 +346,11 @@ sudo bash setup.sh
 ```
 
 `setup.sh` preserves the existing configuration, backfills credentials added by
-newer releases (including `TRAINING_CONTROLLER_TOKEN`), pulls the updated
-images, and recreates the services. HTTP continues to work on the existing port
+newer releases (including `TRAINING_CONTROLLER_TOKEN` and, since v1.16, one
+`REDIS_PASSWORD_<SERVICE>` Redis ACL credential per service), pulls the updated
+images, and recreates the services. Skipping `setup.sh` on the v1.16 upgrade
+leaves those Redis users disabled; run `scripts/migrate-redis-acl.sh .env`
+then `docker compose up -d`. HTTP continues to work on the existing port
 with no config changes.
 
 #### Breaking change in v1.14.2: non-root containers (handled automatically)

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import shutil
 import subprocess
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import redis as redis_lib
+from redis_client import redis_auth
 
 if TYPE_CHECKING:
     from camera_health import CameraHealthTracker
@@ -437,11 +437,10 @@ class StatsCollector(threading.Thread):
         )
 
         # Redis client is lazy - actual connection happens on first command.
-        _pw = os.environ.get("REDIS_PASSWORD", "") or None
         client = redis_lib.Redis(
             host=self._redis_cfg.get("host", "redis"),
             port=int(self._redis_cfg.get("port", 6379)),
-            password=_pw,
+            **redis_auth(),
             decode_responses=True,
             socket_connect_timeout=5,
             retry_on_timeout=True,

@@ -65,21 +65,28 @@ services:
       volume-init:
         condition: service_completed_successfully
     restart: unless-stopped
-    # v1.14: --maxmemory caps Redis at 200MB and evicts least-recently-used
-    # keys when full. Pre-v1.14 Redis would grow unbounded; a misbehaving
-    # publisher (or a bug in the rate-limit counters) could slowly OOM the
-    # host. volatile-lru protects the OFF watchdog's non-expiring lease records;
-    # their expiring deadline markers and cache/rate-limit keys remain evictable.
-    # An early deadline-marker eviction is fail-safe because it triggers OFF.
-    command: >-
-      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
-        exec redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 200mb --maxmemory-policy volatile-lru;
-      else
-        exec redis-server --maxmemory 200mb --maxmemory-policy volatile-lru;
-      fi'
+    # v1.16 (FDY-0563): per-service ACL users. config/redis-entrypoint.sh
+    # turns config/redis-acl.conf plus the REDIS_PASSWORD_<SERVICE> secrets
+    # below into an aclfile (SHA-256 digests only) and starts redis-server
+    # with --maxmemory 200mb --maxmemory-policy noeviction. Pause/rearm,
+    # trainer heartbeat, rate-limit quotas and OFF-watchdog leases therefore
+    # can never be evicted; under memory pressure writes fail and callers
+    # fail closed. REDIS_PASSWORD is the "default" (admin) user and is given
+    # to no other container; the healthcheck and operator `docker exec`
+    # sessions use it. A missing service credential disables that user
+    # (fail closed) - run scripts/migrate-redis-acl.sh.
+    command: ["sh", "/scarguard/redis-entrypoint.sh"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+      REDIS_PASSWORD_DETECTOR: ${REDIS_PASSWORD_DETECTOR:-}
+      REDIS_PASSWORD_WEB: ${REDIS_PASSWORD_WEB:-}
+      REDIS_PASSWORD_NOTIFIER: ${REDIS_PASSWORD_NOTIFIER:-}
+      REDIS_PASSWORD_DETERRENT: ${REDIS_PASSWORD_DETERRENT:-}
+      REDIS_PASSWORD_OFF_WATCHDOG: ${REDIS_PASSWORD_OFF_WATCHDOG:-}
+      REDIS_PASSWORD_BACKUP: ${REDIS_PASSWORD_BACKUP:-}
+      REDIS_PASSWORD_LOG_STREAMER: ${REDIS_PASSWORD_LOG_STREAMER:-}
+      REDIS_PASSWORD_TRAINING_CONTROLLER: ${REDIS_PASSWORD_TRAINING_CONTROLLER:-}
+      REDIS_PASSWORD_TRAINER: ${REDIS_PASSWORD_TRAINER:-}
     healthcheck:
       test: >-
         sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
@@ -92,6 +99,8 @@ services:
       retries: 10
     volumes:
       - redis-data:/data
+      - ./config/redis-entrypoint.sh:/scarguard/redis-entrypoint.sh:ro
+      - ./config/redis-acl.conf:/scarguard/redis-acl.conf:ro
     mem_limit: 256m
     cpus: 0.5
     pids_limit: 100
@@ -165,7 +174,8 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       DB_PATH: /data/scarguard.db
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: detector
+      REDIS_PASSWORD: ${REDIS_PASSWORD_DETECTOR:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     # v1.14: active healthcheck - pre-v1.14 was `test -f /tmp/healthy`,
     # which a crashed-but-not-exited process passed forever (the file was
@@ -220,7 +230,8 @@ services:
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
       DETERRENT_DB_PATH: /data/deterrent.db
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: web
+      REDIS_PASSWORD: ${REDIS_PASSWORD_WEB:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
@@ -263,7 +274,8 @@ services:
       DB_PATH: /data/scarguard.db       # read-only - digest reports query events/metrics
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: notifier
+      REDIS_PASSWORD: ${REDIS_PASSWORD_NOTIFIER:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
@@ -308,7 +320,8 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-deterrent:${IMAGE_TAG:-latest}
     environment:
       CONFIG_PATH: /config/scarguard.yml
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: deterrent
+      REDIS_PASSWORD: ${REDIS_PASSWORD_DETERRENT:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
       OFF_WATCHDOG_HMAC_KEY: ${OFF_WATCHDOG_HMAC_KEY:-}
       DETERRENT_DB_PATH: /data/deterrent.db
@@ -356,7 +369,8 @@ services:
     image: ghcr.io/${GHCR_OWNER:-sentania-labs}/scarguard-off-watchdog:${IMAGE_TAG:-latest}
     environment:
       CONFIG_PATH: /config/scarguard.yml
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: off-watchdog
+      REDIS_PASSWORD: ${REDIS_PASSWORD_OFF_WATCHDOG:-}
       OFF_WATCHDOG_HMAC_KEY: ${OFF_WATCHDOG_HMAC_KEY:-}
     healthcheck:
       test: ["CMD-SHELL", "find /tmp/healthy -mmin -1 | grep -q ."]
@@ -396,7 +410,8 @@ services:
     environment:
       CONFIG_PATH: /config/scarguard.yml
       DATA_DIR: /data
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: backup
+      REDIS_PASSWORD: ${REDIS_PASSWORD_BACKUP:-}
       DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     volumes:
       - scarguard-config:/config:ro
@@ -461,14 +476,14 @@ services:
       # Override via .env if Redis is moved off-container.
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
+      REDIS_USERNAME: log-streamer
+      REDIS_PASSWORD: ${REDIS_PASSWORD_LOG_STREAMER:-}
       # docker.from_env() picks up DOCKER_HOST automatically.
       DOCKER_HOST: tcp://docker-socket-proxy:2375
     healthcheck:
       # Exec form (JSON array) avoids YAML folded-scalar indentation bugs
       # that broke the previous inline python -c form.
-      test: ["CMD", "python3", "-c", "import os,redis,sys; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=int(os.environ.get('REDIS_PORT','6379')), password=os.environ.get('REDIS_PASSWORD') or None); sys.exit(0 if r.get('scarguard:logs:health')==b'ok' else 1)"]
+      test: ["CMD", "python3", "-c", "import os,redis,sys; r=redis.Redis(host=os.environ.get('REDIS_HOST','redis'), port=int(os.environ.get('REDIS_PORT','6379')), username=os.environ.get('REDIS_USERNAME') or None, password=os.environ.get('REDIS_PASSWORD') or None); sys.exit(0 if r.get('scarguard:logs:health')==b'ok' else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -509,8 +524,6 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-      DETECTION_HMAC_KEY: ${DETECTION_HMAC_KEY:-}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
       interval: 30s
@@ -563,7 +576,8 @@ services:
       DETECTOR_COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME:-scarguard}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_USERNAME: training-controller
+      REDIS_PASSWORD: ${REDIS_PASSWORD_TRAINING_CONTROLLER:-}
       # setup.sh backfills this credential on the documented upgrade path.
       TRAINING_CONTROLLER_TOKEN: ${TRAINING_CONTROLLER_TOKEN:-}
     volumes:
@@ -629,7 +643,8 @@ services:
       - TRAINING_WORKSPACE_DIR=/data/training_workspace
       - TRAINING_CONTROLLER_URL=http://training-controller:8090
       - TRAINING_CONTROLLER_TOKEN=${TRAINING_CONTROLLER_TOKEN:-}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_USERNAME=trainer
+      - REDIS_PASSWORD=${REDIS_PASSWORD_TRAINER:-}
     depends_on:
       redis:
         condition: service_healthy

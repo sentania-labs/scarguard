@@ -1,7 +1,6 @@
 import html as _html
 import json
 import math
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -14,6 +13,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, StrictInt, field_validator
+from redis_client import redis_auth
 from route_auth import current_role
 from sse_limiter import SSETooManyStreams, sse_connection
 
@@ -220,7 +220,7 @@ async def event_stream(request: Request):
     user_id = user.get("user_id", "anon")
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+        client = aioredis.Redis(host=host, port=port, **redis_auth(), decode_responses=True)
         try:
             async with sse_connection(client, user_id):
                 pubsub = client.pubsub()

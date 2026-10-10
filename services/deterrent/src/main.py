@@ -35,6 +35,7 @@ from event_signing import _ReplayCache, load_key_from_env, verify_event
 from group_fire import execute_plan, resolve_group_devices
 from healthcheck import start_heartbeat
 from randomizer import pick_group_window
+from redis_client import redis_auth
 from request_handler import (
     JOB_TEST_FIRE,
     JOB_TEST_FIRE_GROUP,
@@ -710,9 +711,8 @@ def _publish_raw(
         if client is None:
             host = redis_cfg.get("host", "redis")
             port = int(redis_cfg.get("port", 6379))
-            password = os.environ.get("REDIS_PASSWORD", "") or None
             client = redis_lib.Redis(
-                host=host, port=port, password=password, decode_responses=True,
+                host=host, port=port, **redis_auth(), decode_responses=True,
             )
             holder[0] = client
         client.publish(channel, json.dumps(body))
@@ -741,9 +741,8 @@ def _publish_stuck(
         if client is None:
             host = redis_cfg.get("host", "redis")
             port = int(redis_cfg.get("port", 6379))
-            password = os.environ.get("REDIS_PASSWORD", "") or None
             client = redis_lib.Redis(
-                host=host, port=port, password=password, decode_responses=True,
+                host=host, port=port, **redis_auth(), decode_responses=True,
             )
             holder[0] = client
         client.publish(STUCK_CHANNEL, json.dumps(payload))
@@ -1036,9 +1035,8 @@ def _metrics_publisher(
             if client is None:
                 host = redis_cfg.get("host", "redis")
                 port = int(redis_cfg.get("port", 6379))
-                password = os.environ.get("REDIS_PASSWORD", "") or None
                 client = redis_lib.Redis(
-                    host=host, port=port, password=password,
+                    host=host, port=port, **redis_auth(),
                     decode_responses=True,
                 )
                 holder[0] = client
@@ -1064,8 +1062,7 @@ def _publish_actuation(
         if client is None:
             host = redis_cfg.get("host", "redis")
             port = int(redis_cfg.get("port", 6379))
-            password = os.environ.get("REDIS_PASSWORD", "") or None
-            client = redis_lib.Redis(host=host, port=port, password=password, decode_responses=True)
+            client = redis_lib.Redis(host=host, port=port, **redis_auth(), decode_responses=True)
             holder[0] = client
         client.publish(ACTUATION_CHANNEL, event.model_dump_json())
     except Exception:
@@ -1111,9 +1108,8 @@ def subscribe_loop(
         client: redis_lib.Redis | None = None
         pubsub: redis_lib.client.PubSub | None = None
         try:
-            redis_password = os.environ.get("REDIS_PASSWORD", "") or None
             client = redis_lib.Redis(
-                host=host, port=port, password=redis_password, decode_responses=True,
+                host=host, port=port, **redis_auth(), decode_responses=True,
             )
             pubsub = client.pubsub()
             pubsub.subscribe(CHANNEL)
@@ -1229,7 +1225,7 @@ def main() -> None:
             redis_lib.Redis(
                 host=redis_cfg.get("host", "redis"),
                 port=int(redis_cfg.get("port", 6379)),
-                password=os.environ.get("REDIS_PASSWORD", "") or None,
+                **redis_auth(),
                 decode_responses=True,
                 socket_connect_timeout=2,
                 socket_timeout=2,
@@ -1265,11 +1261,10 @@ def main() -> None:
     # Battery monitor
     battery_monitor: BatteryMonitor | None = None
     if controller is not None:
-        redis_password = os.environ.get("REDIS_PASSWORD", "") or None
         batt_redis = redis_lib.Redis(
             host=redis_cfg.get("host", "redis"),
             port=int(redis_cfg.get("port", 6379)),
-            password=redis_password,
+            **redis_auth(),
             decode_responses=True,
         )
         battery_monitor = BatteryMonitor(controller, batt_redis)
@@ -1315,11 +1310,10 @@ def main() -> None:
 
             # Create or update battery monitor with new controller
             if new_controller is not None and battery_monitor is None:
-                redis_password = os.environ.get("REDIS_PASSWORD", "") or None
                 batt_redis = redis_lib.Redis(
                     host=redis_cfg.get("host", "redis"),
                     port=int(redis_cfg.get("port", 6379)),
-                    password=redis_password,
+                    **redis_auth(),
                     decode_responses=True,
                 )
                 battery_monitor = BatteryMonitor(new_controller, batt_redis)

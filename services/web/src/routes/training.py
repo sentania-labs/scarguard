@@ -20,6 +20,7 @@ from event_signing import derive_channel_key, load_key_from_env, sign_event
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from redis_client import redis_auth
 from route_auth import require_admin, require_viewer
 from starlette.responses import Response
 
@@ -315,7 +316,7 @@ async def start_evaluation(
     else:
         publish_data = json.dumps(eval_request)
 
-    client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+    client = aioredis.Redis(host=host, port=port, **redis_auth(), decode_responses=True)
     try:
         await client.publish(EVAL_REQUEST_CHANNEL, publish_data)
     finally:
@@ -344,7 +345,7 @@ async def evaluate_stream(request: Request) -> Response:
     max_poll_seconds = 600  # 10-minute timeout
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+        client = aioredis.Redis(host=host, port=port, **redis_auth(), decode_responses=True)
         try:
             yield ": connected\n\n"
             elapsed = 0.0
