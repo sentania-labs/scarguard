@@ -45,7 +45,7 @@
       <td>{{ f.size_mb }} MB</td>
       <td class="model-provenance" data-status="{{ f.provenance.status }}">
         {% if f.provenance.status == "recorded" %}
-          {{ f.provenance.action }}{% if f.provenance.candidate_id %} of candidate <code>{{ f.provenance.candidate_id[:12] }}</code> ({{ f.provenance.source }}){% endif %}
+          {{ f.provenance.action }}{% if f.provenance.candidate_id %} of candidate <code>{{ f.provenance.candidate_id[:12] }}</code> ({{ f.provenance.source }}){% elif f.provenance.rollback_id %} of copy <code>{{ f.provenance.rollback_id[:12] }}</code>{% endif %}
           by {{ f.provenance.actor }} at {{ f.provenance.at }}
         {% else %}
           <span class="muted">unresolved</span>
@@ -132,7 +132,7 @@
     <tr class="rollback-row" data-id="{{ r.id }}">
       <td><code>{{ r.target_name }}</code><br><small class="muted">{{ r.reason }}</small></td>
       <td><small><code>{{ r.sha256[:16] }}…</code></small></td>
-      <td>{% if r.provenance.status == "recorded" %}{{ r.provenance.action }}{% if r.provenance.candidate_id %} of <code>{{ r.provenance.candidate_id[:12] }}</code>{% endif %}{% else %}<span class="muted">unresolved</span>{% endif %}</td>
+      <td>{% if r.provenance.status == "recorded" %}{{ r.provenance.action }}{% if r.provenance.candidate_id %} of <code>{{ r.provenance.candidate_id[:12] }}</code>{% elif r.provenance.rollback_id %} of copy <code>{{ r.provenance.rollback_id[:12] }}</code>{% endif %}{% else %}<span class="muted">unresolved</span>{% endif %}</td>
       <td><small>{{ r.created_at }}</small></td>
       {% if is_admin %}
       <td>

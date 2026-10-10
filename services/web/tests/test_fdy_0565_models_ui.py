@@ -100,6 +100,41 @@ def test_upload_is_candidate_and_promotion_rollback_render(client: Any, dirs: di
     assert live.read_bytes() == LEGACY
     assert "<strong>rollback</strong>" in restored.text
     assert dirs["audits"][-1]["action"] == "model.rollback"
+    # The live row attributes the bytes to the copy that was restored, not to
+    # the snapshot the restore took of the promoted file it replaced.
+    row = restored.text.split('data-name="best.pt"', 1)[1].split("</tr>", 1)[0]
+    assert 'data-status="recorded"' in row and f"of copy <code>{rollback_id[:12]}" in row
+    new_copies = set(re.findall(r'action="/models/rollback/([0-9a-f]{32})"', restored.text))
+    (candidate_copy,) = new_copies - {rollback_id}
+    assert candidate_copy[:12] not in row
+    assert dirs["audits"][-1]["details"]["restored_rollback_id"] == rollback_id
+
+
+def test_discard_ledger_failure_keeps_candidate_listed(
+    client: Any, dirs: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from routes import models as models_mod
+
+    (candidate_id,) = _candidate_ids(_upload(client, "pond.pt", checkpoint()).text)
+    real_store = models_mod._store
+
+    def failing_store() -> Any:
+        store = real_store()
+        monkeypatch.setattr(store, "_append_history", _raise_unwritable, raising=False)
+        return store
+
+    monkeypatch.setattr(models_mod, "_store", failing_store)
+    page = client.post(f"/models/candidates/{candidate_id}/discard")
+    assert page.status_code == 400
+    assert "Discard failed" in page.text
+    assert _candidate_ids(page.text) == [candidate_id]
+    assert (dirs["store"] / "candidates" / candidate_id / "manifest.json").is_file()
+    assert not (dirs["store"] / "history.jsonl").exists()
+    assert dirs["audits"][-1]["action"] == "model.candidate_upload"
+
+
+def _raise_unwritable(_record: dict) -> None:
+    raise OSError("history not writable")
 
 
 def test_malicious_upload_rejected_and_not_stored(client: Any, dirs: dict) -> None:

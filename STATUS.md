@@ -17,6 +17,19 @@ Ultralytics models:
 - storages whose declared size matches their zip record, and tensor views
   that fit inside their storage.
 
+Before any archive member is inflated, the end-of-central-directory record is
+checked (at most 16384 members, central directory at most 8 MiB) and the
+declared uncompressed total may not exceed 1 GiB or eight times the file size
+(4 MiB floor); torch.save stores members uncompressed, so real checkpoints
+expand to about their own size. The pickle is read with a length bound, so a
+member whose declared size lies small costs no more than it declares. A
+discard appends its ledger record before any file is removed and removes the
+manifest last, so a discard whose ledger write fails leaves the candidate
+untouched and one whose removal fails leaves it listed with a
+`discard_failed` record. A restored file's provenance names the rollback copy
+it was restored from (`rollback_id`, shown as "rollback of copy") and the
+snapshot of the file it replaced (`replaced_rollback_id`).
+
 It also refuses to let a container change after it has been used. The checks
 also cover data Ultralytics interprets later:
 - a model's `yaml` (its `activation` is passed to `eval` and its layer names are

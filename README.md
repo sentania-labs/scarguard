@@ -623,11 +623,11 @@ ScarGuard supports three model formats:
 
 **Uploading a model:**
 
-Go to **Admin → Models** and choose your model file. The upload is validated and stored as a candidate under `/data/model_store`, not in `/models`. Uploading a file with the same name as the live model therefore does not touch the live model. `.pt` files must be PyTorch zip checkpoints whose pickle references only allowlisted Ultralytics/PyTorch globals; `.onnx` and `.engine` files get structural checks only.
+Go to **Admin → Models** and choose your model file. The upload is validated and stored as a candidate under `/data/model_store`, not in `/models`. Uploading a file with the same name as the live model therefore does not touch the live model. `.pt` files must be PyTorch zip checkpoints whose pickle references only allowlisted Ultralytics/PyTorch globals, with at most 16384 members and no more than 1 GiB (or eight times the file size) of declared uncompressed data; `.onnx` and `.engine` files get structural checks only.
 
 **Promoting and rolling back (admin only):**
 
-Each candidate shows its source (training job or uploader), SHA256 and validation result. **Promote** re-checks the SHA256, copies the previous file of the target name into a rollback slot, then atomically replaces the target. **Restore** on a rollback copy reverses a promotion; it keeps a copy of the file it replaces too. Every promotion, rollback and discard is written to `/data/model_store/history.jsonl` and to the audit log. Live files with no recorded promotion show provenance `unresolved`. Promoting onto the name the detector is already using takes effect the next time the detector reloads the model, for example on a restart.
+Each candidate shows its source (training job or uploader), SHA256 and validation result. **Promote** re-checks the SHA256, copies the previous file of the target name into a rollback slot, then atomically replaces the target. **Restore** on a rollback copy reverses a promotion; it keeps a copy of the file it replaces too. Every promotion, rollback and discard is written to `/data/model_store/history.jsonl` and to the audit log; a discard is recorded before its files are removed. A restored file shows `rollback of copy <id>`, naming the copy it was restored from. Live files with no recorded promotion show provenance `unresolved`. Promoting onto the name the detector is already using takes effect the next time the detector reloads the model, for example on a restart.
 
 **Inspecting a model's class list (v0.13.4+):**
 

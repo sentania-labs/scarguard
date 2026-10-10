@@ -778,3 +778,250 @@ def test_real_ultralytics_checkpoint_passes_validation(tmp_path: Path) -> None:
     torch.save(checkpoint, path)
     with pytest.raises(model_store.CandidateValidationError, match="activation"):
         model_store.validate_model_file(path, ".pt")
+
+
+# ── correction round: archive bounds, discard audit order, restore provenance ─
+
+
+def _bounded_zip(tmp_path: Path, members: list[tuple[str, bytes, int | None]]) -> Path:
+    """Zip whose central directory may declare sizes other than the real ones."""
+    path = tmp_path / "model.pt"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data, declared in members:
+            info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, data)
+            if declared is not None:
+                # writestr set the real size; the central directory is written
+                # on close from this object, so this is what zipfile will trust.
+                info.file_size = declared
+    return path
+
+
+@pytest.fixture()
+def no_inflation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail the test if any archive member is inflated or CRC-tested."""
+
+    real_open = zipfile.ZipFile.open
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("archive member inflated before bounds were checked")
+
+    def guarded_open(self: zipfile.ZipFile, name: object, mode: str = "r", *a: object, **k: object) -> object:
+        if mode != "w":  # the fixtures themselves are still written through here
+            refuse()
+        return real_open(self, name, mode, *a, **k)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(model_store.zipfile.ZipFile, "testzip", refuse)
+    monkeypatch.setattr(model_store.zipfile.ZipFile, "read", refuse)
+    monkeypatch.setattr(model_store.zipfile.ZipFile, "open", guarded_open)
+
+
+def test_deflate_bomb_is_rejected_before_any_member_is_inflated(
+    tmp_path: Path, no_inflation: None
+) -> None:
+    # 48 MiB of zeros deflates to about 48 KiB: honest sizes, huge ratio.
+    pickle_bytes = pickle.dumps({"model": OrderedDict(w=[0.5])}, protocol=2)
+    path = _bounded_zip(
+        tmp_path,
+        [("best/data.pkl", pickle_bytes, None), ("best/data/0", b"\x00" * (48 << 20), None)],
+    )
+    assert path.stat().st_size < (1 << 20)
+    with pytest.raises(model_store.CandidateValidationError, match="expands too far"):
+        model_store.validate_model_file(path, ".pt")
+
+
+def test_declared_expansion_over_absolute_cap_is_rejected(
+    tmp_path: Path, no_inflation: None
+) -> None:
+    # Two members that together declare more than the absolute cap, from a
+    # file of a few hundred bytes.  Nothing is read to find that out.
+    pickle_bytes = pickle.dumps({"model": OrderedDict(w=[0.5])}, protocol=2)
+    half = model_store._MAX_ZIP_UNCOMPRESSED_BYTES // 2 + 1
+    path = _bounded_zip(
+        tmp_path,
+        [("best/data.pkl", pickle_bytes, None), ("best/data/0", b"\x00" * 64, half),
+         ("best/data/1", b"\x00" * 64, half)],
+    )
+    with pytest.raises(model_store.CandidateValidationError, match="expands too far"):
+        model_store.validate_model_file(path, ".pt")
+
+
+def test_oversized_data_pickle_is_rejected_before_inflation(
+    tmp_path: Path, no_inflation: None
+) -> None:
+    # Padded so the expansion ratio is fine; only the pickle bound can reject it.
+    path = _bounded_zip(
+        tmp_path,
+        [("best/data.pkl", b"\x80\x02N.", model_store._MAX_PICKLE_BYTES + 1),
+         ("best/data/0", os.urandom(10 << 20), None)],
+    )
+    with pytest.raises(model_store.CandidateValidationError, match="pickle is too large"):
+        model_store.validate_model_file(path, ".pt")
+
+
+def test_too_many_archive_members_are_rejected_before_inflation(
+    tmp_path: Path, no_inflation: None
+) -> None:
+    path = tmp_path / "model.pt"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("best/data.pkl", b"\x80\x02N.")
+        for index in range(model_store._MAX_ZIP_MEMBERS):
+            archive.writestr(f"best/data/{index}", b"")
+    with pytest.raises(model_store.CandidateValidationError, match="too many members"):
+        model_store.validate_model_file(path, ".pt")
+
+
+def test_stored_checkpoint_shape_passes_the_bounds(tmp_path: Path) -> None:
+    # torch.save writes members uncompressed, so a checkpoint whose weights
+    # dominate its size has an expansion ratio near one and passes the bounds
+    # (small here; the ratio argument holds for any stored archive).
+    path = tmp_path / "model.pt"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("archive/data.pkl", _tensor_pickle(65535, 65535))
+        archive.writestr("archive/data/0", os.urandom(65535 * 4))  # float32 values
+        archive.writestr("archive/version", "3\n")
+    assert model_store.validate_model_file(path, ".pt")["ok"] is True
+
+
+def test_member_that_lies_small_is_inflated_only_to_its_declared_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A deflated data.pkl whose central directory declares 4 bytes (and the
+    # CRC of those 4 bytes) but inflates to 64 MiB.  Every declared total is
+    # tiny, testzip passes, and ZipFile.read would still ask zlib for 1 GiB.
+    real = pickle.dumps(None, protocol=2)  # b"\x80\x02N."
+    bomb = real + b"\x00" * (64 << 20)
+    path = tmp_path / "model.pt"
+    with zipfile.ZipFile(path, "w") as archive:
+        info = zipfile.ZipInfo("best/data.pkl", (2026, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        archive.writestr(info, bomb)
+        info.file_size = len(real)
+        info.CRC = zipfile.crc32(real)
+    assert path.stat().st_size < (1 << 20)
+
+    import zlib
+
+    asked: list[int] = []
+    real_factory = zlib.decompressobj
+
+    class Watched:
+        def __init__(self, *args: object) -> None:
+            self._inner = real_factory(*args)  # type: ignore[arg-type]
+
+        def decompress(self, data: bytes, max_length: int = 0) -> bytes:
+            asked.append(max_length)
+            return self._inner.decompress(data, max_length)
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._inner, name)
+
+    monkeypatch.setattr(model_store.zipfile.zlib, "decompressobj", Watched)
+    assert model_store.validate_model_file(path, ".pt")["ok"] is True
+    # zipfile inflates testzip in 1 MiB chunks; the pickle read must be bounded
+    # by its declared size, never the 1 GiB ZipFile.read default.
+    assert asked and max(asked) <= (1 << 20)
+
+
+def test_central_directory_bounds_are_checked_before_parsing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A valid archive whose end-of-central-directory record claims far more
+    # entries than zipfile should be asked to build ZipInfo objects for.
+    path = _pt_with_pickle(tmp_path / "model.pt", b"\x80\x02N.")
+    raw = bytearray(path.read_bytes())
+    eocd = raw.rfind(b"PK\x05\x06")
+    raw[eocd + 8 : eocd + 12] = (model_store._MAX_ZIP_MEMBERS + 1).to_bytes(2, "little") * 2
+    path.write_bytes(raw)
+
+    def not_parsed(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("ZipFile built before the central directory was bounded")
+
+    monkeypatch.setattr(model_store.zipfile, "ZipFile", not_parsed)
+    with pytest.raises(model_store.CandidateValidationError, match="too many members"):
+        model_store.validate_model_file(path, ".pt")
+
+    raw[eocd + 8 : eocd + 12] = (1).to_bytes(2, "little") * 2
+    raw[eocd + 12 : eocd + 16] = (model_store._MAX_ZIP_CENTRAL_DIR_BYTES + 1).to_bytes(4, "little")
+    path.write_bytes(raw)
+    with pytest.raises(model_store.CandidateValidationError, match="central directory"):
+        model_store.validate_model_file(path, ".pt")
+
+
+def test_discard_is_recorded_before_removal_and_kept_when_ledger_fails(
+    env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, manifest = _store_with_candidate(env)
+    candidate_dir = env["store"] / "candidates" / manifest["id"]
+
+    def unwritable(_record: dict) -> None:
+        raise OSError("history not writable")
+
+    with pytest.MonkeyPatch.context() as broken:
+        broken.setattr(store, "_append_history", unwritable)
+        with pytest.raises(OSError, match="history not writable"):
+            store.discard_candidate(manifest["id"], actor="pond-admin")
+    # No ledger record, so the candidate and its bytes must still be there.
+    assert (candidate_dir / manifest["file"]).read_bytes() == checkpoint_bytes()
+    assert [c["id"] for c in store.list_candidates()] == [manifest["id"]]
+    assert store.history() == []
+
+    record = store.discard_candidate(manifest["id"], actor="pond-admin")
+    assert not candidate_dir.exists()
+    assert store.list_candidates() == []
+    assert store.history() == [record]
+    assert record["action"] == "discard" and record["sha256"] == manifest["sha256"]
+    _live_untouched(env)
+
+
+def test_discard_removal_failure_leaves_an_audit_record(
+    env: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, manifest = _store_with_candidate(env)
+    real_unlink = os.unlink
+
+    def busy(path: object, *args: object, **kwargs: object) -> None:
+        if Path(str(path)).name == manifest["file"]:
+            raise OSError("EBUSY: candidate model file in use")
+        real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(model_store.os, "unlink", busy)
+    with pytest.raises(model_store.ModelStoreError, match="recorded but"):
+        store.discard_candidate(manifest["id"], actor="pond-admin")
+    assert [h["action"] for h in store.history()] == ["discard_failed", "discard"]
+    assert store.history()[0]["reason"].startswith("EBUSY")
+    # The manifest is removed last, so the candidate is still listed for a retry.
+    assert [c["id"] for c in store.list_candidates()] == [manifest["id"]]
+    monkeypatch.undo()
+    store.discard_candidate(manifest["id"], actor="pond-admin")
+    assert store.list_candidates() == []
+
+
+def test_restored_model_provenance_names_the_restored_copy(env: dict) -> None:
+    store, manifest = _store_with_candidate(env)
+    live = env["models"] / "trained.pt"
+    legacy_sha = model_store.sha256_file(live)
+
+    promoted = store.promote(manifest["id"], "trained.pt", actor="pond-admin")
+    legacy_copy = promoted["rollback_id"]  # snapshot of the legacy bytes
+
+    restored = store.rollback(legacy_copy, actor="pond-admin")
+    assert live.read_bytes() == LIVE_BYTES
+    candidate_copy = restored["rollback_id"]  # snapshot of the candidate bytes
+    assert candidate_copy != legacy_copy
+    assert restored["restored_rollback_id"] == legacy_copy
+
+    prov = store.live_provenance("trained.pt", legacy_sha)
+    assert prov["status"] == "recorded" and prov["action"] == "rollback"
+    # The bytes now live came from the restored copy, not from the snapshot
+    # that the restore took of the file it replaced.
+    assert prov["rollback_id"] == legacy_copy
+    assert prov["replaced_rollback_id"] == candidate_copy
+    assert prov["candidate_id"] is None
+    assert store.get_rollback(legacy_copy)["sha256"] == legacy_sha
+
+    # Promotion provenance is unchanged: the candidate supplied the bytes.
+    prov = store.live_provenance("trained.pt", manifest["sha256"])
+    assert prov["action"] == "promote" and prov["candidate_id"] == manifest["id"]
+    assert prov["rollback_id"] is None and prov["replaced_rollback_id"] == legacy_copy

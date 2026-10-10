@@ -44,6 +44,7 @@ import pickletools
 import re
 import shutil
 import stat
+import struct
 import time
 import uuid
 import zipfile
@@ -63,6 +64,14 @@ _ID_RE = re.compile(r"^[a-f0-9]{32}$")
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _COPY_CHUNK = 1024 * 1024
 _MAX_PICKLE_BYTES = 64 * 1024 * 1024
+# Archive bounds, all read from the central directory before any member is
+# inflated.  torch.save stores members uncompressed, so a real checkpoint
+# expands to about its own size; a deflate bomb declares far more.
+_MAX_ZIP_MEMBERS = 16384
+_MAX_ZIP_CENTRAL_DIR_BYTES = _MAX_ZIP_MEMBERS * 512  # zipfile reads it whole
+_MAX_ZIP_UNCOMPRESSED_BYTES = 1024 * 1024 * 1024
+_MAX_ZIP_EXPANSION_RATIO = 8
+_ZIP_EXPANSION_FLOOR_BYTES = 4 * 1024 * 1024  # tiny archives: ratio does not apply
 _SECRET_KEY_TOKENS = ("password", "secret", "token", "api_key")
 
 # Checkpoint pickle policy (see audit_pickle).  Kinds of global:
@@ -865,6 +874,73 @@ def scan_pickle_globals(data: bytes) -> list[tuple[str, str]]:
     return audit_pickle(data)[0]
 
 
+def _check_central_directory(path: Path) -> None:
+    """Bound the central directory before ``zipfile.ZipFile`` parses all of it.
+
+    ``ZipFile`` reads the whole central directory into memory and builds a
+    ZipInfo per entry, so the entry count and directory size are taken from
+    the end-of-central-directory record first (a zip64 record is consulted
+    when the classic fields are saturated).
+    """
+    with open(path, "rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        window = min(size, 22 + 0xFFFF + 20 + 56 + 4096)  # EOCD, comment, zip64 records
+        handle.seek(size - window)
+        tail = handle.read(window)
+    eocd = tail.rfind(b"PK\x05\x06")
+    if eocd < 0 or len(tail) - eocd < 22:
+        raise CandidateValidationError("Checkpoint archive has no end-of-central-directory record")
+    entries, directory_bytes = struct.unpack_from("<HI", tail, eocd + 10)
+    if entries == 0xFFFF or directory_bytes == 0xFFFFFFFF:
+        zip64 = tail.rfind(b"PK\x06\x06", 0, eocd)
+        if zip64 < 0 or eocd - zip64 < 56:
+            raise CandidateValidationError("Checkpoint archive has a truncated zip64 record")
+        entries, directory_bytes = struct.unpack_from("<QQ", tail, zip64 + 32)
+    if entries > _MAX_ZIP_MEMBERS:
+        raise CandidateValidationError(
+            f"Checkpoint archive has too many members ({entries} > {_MAX_ZIP_MEMBERS})"
+        )
+    if directory_bytes > _MAX_ZIP_CENTRAL_DIR_BYTES:
+        raise CandidateValidationError("Checkpoint archive central directory is too large")
+
+
+def _check_archive_bounds(members: list[zipfile.ZipInfo], archive_bytes: int) -> None:
+    """Reject archives whose central directory declares more than we will inflate.
+
+    ``testzip`` inflates in bounded chunks and stops at each member's declared
+    ``file_size``, so the declared total bounds its work; the pickle itself is
+    read with ``_read_member``, which bounds inflation even when the declared
+    size lies small.
+    """
+    if len(members) > _MAX_ZIP_MEMBERS:
+        raise CandidateValidationError(
+            f"Checkpoint archive has too many members ({len(members)} > {_MAX_ZIP_MEMBERS})"
+        )
+    declared = sum(max(info.file_size, 0) for info in members)
+    allowed = max(_MAX_ZIP_EXPANSION_RATIO * archive_bytes, _ZIP_EXPANSION_FLOOR_BYTES)
+    if declared > _MAX_ZIP_UNCOMPRESSED_BYTES or declared > allowed:
+        raise CandidateValidationError(
+            "Checkpoint archive expands too far: declares "
+            f"{declared} uncompressed bytes from a {archive_bytes}-byte file"
+        )
+
+
+def _read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
+    """Read one member, inflating no more than its declared size plus one byte.
+
+    ``ZipFile.read`` asks zlib for up to 1 GiB per call and only afterwards
+    truncates to the declared size, so a member whose central-directory size
+    (and CRC) lies small could still cost that much memory.  Passing a length
+    to ``read`` makes zipfile hand zlib a matching ``max_length``.
+    """
+    with archive.open(info) as handle:
+        data = handle.read(info.file_size + 1)
+    if len(data) != info.file_size:
+        raise CandidateValidationError(f"Checkpoint member {info.filename!r} is truncated")
+    return data
+
+
 def _validate_torch_zip(path: Path) -> dict[str, Any]:
     with open(path, "rb") as handle:
         magic = handle.read(4)
@@ -874,8 +950,11 @@ def _validate_torch_zip(path: Path) -> dict[str, Any]:
         raise CandidateValidationError(
             "Only PyTorch zip-format .pt checkpoints are accepted (legacy pickle format rejected)"
         )
+    _check_central_directory(path)
+    archive_bytes = os.stat(path).st_size
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
+        _check_archive_bounds(members, archive_bytes)
         names = [info.filename for info in members]
         if not members or min(info.header_offset for info in members) != 0:
             raise CandidateValidationError("Checkpoint archive has data before its first member")
@@ -885,13 +964,15 @@ def _validate_torch_zip(path: Path) -> dict[str, Any]:
         data_pickles = [i for i in pickles if i.filename.split("/")[-1] == "data.pkl"]
         if len(data_pickles) != 1 or len(pickles) != 1:
             raise CandidateValidationError("Checkpoint must contain exactly one pickle, data.pkl")
-        corrupt = archive.testzip()
-        if corrupt is not None:
-            raise CandidateValidationError(f"Checkpoint archive member {corrupt!r} is corrupt")
         info = data_pickles[0]
         if info.file_size > _MAX_PICKLE_BYTES:
             raise CandidateValidationError("Checkpoint pickle is too large")
-        found, problems, storages = _audit(archive.read(info))
+        # Only now is any member inflated: the bounds above cap what testzip
+        # and the pickle read can produce from a small upload.
+        corrupt = archive.testzip()
+        if corrupt is not None:
+            raise CandidateValidationError(f"Checkpoint archive member {corrupt!r} is corrupt")
+        found, problems, storages = _audit(_read_member(archive, info))
         rejected = list(problems)
         rejected += [f"{m}.{n}" for m, n in found if not _global_allowed(m, n)]
         # torch sizes each storage from the pickle's numel, not from the record,
@@ -939,6 +1020,21 @@ def validate_model_file(path: Path, suffix: str) -> dict[str, Any]:
 
 
 # ── store ───────────────────────────────────────────────────────────────────
+
+
+def _remove_candidate_dir(directory: Path) -> None:
+    """Delete a candidate directory, its manifest last, then the directory."""
+    manifest = directory / MANIFEST_NAME
+    for entry in directory.iterdir():
+        if entry == manifest:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            os.unlink(entry)
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(manifest)
+    directory.rmdir()
 
 
 class StagedModel:
@@ -1154,11 +1250,18 @@ class ModelStore:
             ) in failed:
                 continue
             key = (str(record.get("target_name")), str(record.get("result_sha256")))
+            action = _INSTALL_ACTIONS[str(record["action"])]
             index[key] = {
                 "status": "recorded",
-                "action": _INSTALL_ACTIONS[str(record["action"])],
+                "action": action,
+                # The artifact whose bytes were installed.  A rollback record's
+                # own ``rollback_id`` is the snapshot taken of the file it
+                # replaced, so the restored copy is ``restored_rollback_id``.
                 "candidate_id": record.get("candidate_id"),
-                "rollback_id": record.get("rollback_id"),
+                "rollback_id": (
+                    record.get("restored_rollback_id") if action == "rollback" else None
+                ),
+                "replaced_rollback_id": record.get("rollback_id"),
                 "source": record.get("source"),
                 "at": record.get("at"),
                 "actor": record.get("actor"),
@@ -1396,11 +1499,16 @@ class ModelStore:
             )
 
     def discard_candidate(self, candidate_id: str, *, actor: str) -> dict[str, Any]:
-        """Delete an unwanted candidate; live models are never affected."""
+        """Delete an unwanted candidate; live models are never affected.
+
+        The ledger record is appended (and fsynced) before any file is removed,
+        so a candidate is never gone without an audit record.  If the ledger
+        write fails the candidate is untouched and still listed; if the removal
+        fails afterwards, a ``discard_failed`` record follows; the manifest is
+        removed last, so the candidate stays listed for a retry.
+        """
         with self._locked():
             manifest = self.get_candidate(candidate_id)
-            shutil.rmtree(self.candidates_dir / candidate_id)
-            _fsync_dir(self.candidates_dir)
             record = {
                 "action": "discard",
                 "at": _now(),
@@ -1409,4 +1517,20 @@ class ModelStore:
                 "sha256": manifest.get("sha256"),
             }
             self._append_history(record)
+            try:
+                _remove_candidate_dir(self.candidates_dir / candidate_id)
+            except OSError as exc:
+                with contextlib.suppress(Exception):
+                    self._append_history(
+                        {**record, "action": "discard_failed", "reason": str(exc)[:500]}
+                    )
+                raise ModelStoreError(
+                    f"Discard was recorded but candidate {candidate_id} could not be removed: "
+                    f"{exc}"
+                ) from exc
+            try:
+                _fsync_dir(self.candidates_dir)
+            except OSError:
+                logger.warning("fsync of %s failed after discarding %s", self.candidates_dir,
+                               candidate_id)
             return record
