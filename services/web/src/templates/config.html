@@ -376,6 +376,60 @@
           Discord webhooks, email addresses, or custom HTTP endpoints. Each channel has a unique
           name used by action rules.
         </p>
+        <p class="hint" id="channel-destination-policy">
+          Destinations are checked on save and again on every send: the notifier resolves the
+          host once and connects only to the checked address, and never follows redirects.
+          Loopback, link-local / cloud metadata (169.254.169.254) and the Docker networks
+          (172.17.0.0/16, 172.24.0.0/16) are always refused. A webhook, ntfy server or SMTP relay
+          on your LAN (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7) needs
+          <code>allow_internal: true</code> on that channel. Email requires TLS: implicit TLS on
+          port 465, STARTTLS with a verified certificate on any other port. A relay with a private
+          CA can set <code>smtp_ca_file</code> (a PEM path, e.g. under <code>/config/certs</code>);
+          an intentional plaintext relay needs <code>smtp_insecure_plaintext: true</code>.
+          Set these per channel with the "Allow LAN destination", "Trusted CA file" and
+          "INSECURE: allow plaintext SMTP" fields on each channel card below (all off by default).
+          Saving refuses a channel the notifier would refuse and names the channel and field.
+          The table below shows each channel's saved settings and anything the notifier will
+          refuse. Snapshots are attached only when they are real JPEG/PNG images inside the
+          snapshot directory.
+        </p>
+        {% set _sec_channels = cfg.notifications.channels | selectattr("type", "defined") | list %}
+        {% set _sec_problems = cfg.notifications.destination_problems() %}
+        {% if _sec_channels %}
+        <table id="channel-security" style="margin-bottom:0.75rem;">
+          <thead>
+            <tr><th>Channel</th><th>Type</th><th>LAN destinations</th><th>Transport security</th><th>Destination check</th></tr>
+          </thead>
+          <tbody>
+            {% for ch in _sec_channels %}
+            <tr data-channel="{{ ch.name }}">
+              <td>{{ ch.name }}{% if ch.enabled is false %} <span class="hint">(disabled)</span>{% endif %}</td>
+              <td>{{ ch.type }}</td>
+              <td>
+                {% if ch.type == "discord" %}-{% elif ch.allow_internal is true %}<strong>allowed</strong> (allow_internal){% else %}refused{% endif %}
+              </td>
+              <td>
+                {% if ch.type == "email" %}
+                  {% if (ch.smtp_port | default(587) | int) == 465 %}implicit TLS, verified
+                  {% elif ch.smtp_insecure_plaintext is true %}<strong style="color:#e53e3e;">INSECURE: plaintext SMTP (smtp_insecure_plaintext)</strong>
+                  {% else %}STARTTLS required, verified{% endif %}
+                  {% if ch.smtp_ca_file %} - trusted CA: <code>{{ ch.smtp_ca_file }}</code>{% endif %}
+                {% else %}HTTPS verified when the URL is https; redirects refused{% endif %}
+              </td>
+              <td>
+                {% set _key = (ch.name or ch.type) | string %}
+                {% if _sec_problems.get(_key) %}
+                  <strong style="color:#e53e3e;">Notifier will disable this channel:</strong>
+                  <ul style="margin:0.2em 0 0;padding-left:1.2em;">
+                    {% for p in _sec_problems.get(_key) %}<li>{{ p }}</li>{% endfor %}
+                  </ul>
+                {% elif ch.enabled is false %}-{% else %}ok{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
         <script id="channels-data" type="application/json">{{ channels_json | safe }}</script>
         <div id="channels-list"></div>
         <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">

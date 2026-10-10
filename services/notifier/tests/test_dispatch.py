@@ -4,7 +4,18 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from conftest import SAMPLE_EVENT
+from conftest import SAMPLE_EVENT, write_image
+
+DISCORD_HOST = "discord.example"
+DISCORD_IP = "162.159.135.232"
+
+
+@pytest.fixture()
+def discord_server(net, http_server):
+    """discord.example resolves to a public IP routed to the local fixture server."""
+    net.dns[DISCORD_HOST] = [DISCORD_IP]
+    net.routes[(DISCORD_IP, 80)] = ("127.0.0.1", http_server.port)
+    return http_server
 
 
 class TestDiscordNotifier:
@@ -12,94 +23,76 @@ class TestDiscordNotifier:
         from discord import DiscordNotifier
 
         cfg = {
-            "webhook_url": "https://discord.com/api/webhooks/test/token",
+            "webhook_url": f"http://{DISCORD_HOST}/api/webhooks/test/token",
             "mention_role": "",
             "include_snapshot": True,
             **overrides,
         }
         return DiscordNotifier(cfg)
 
-    def test_sends_text_message_when_no_snapshot(self):
+    def test_sends_text_message_when_no_snapshot(self, discord_server):
         notifier = self._make()
-        with patch("requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=204, raise_for_status=lambda: None)
-            notifier.send(SAMPLE_EVENT)
-        mock_post.assert_called_once()
-        _, kwargs = mock_post.call_args
-        payload = kwargs["json"]
+        notifier.send(SAMPLE_EVENT)
+        assert len(discord_server.requests) == 1
+        req = discord_server.requests[0]
+        assert req.method == "POST"
+        assert req.path == "/api/webhooks/test/token"
+        assert req.headers["Host"] == DISCORD_HOST
+        payload = json.loads(req.body)
         assert "Great Blue Heron" in payload["content"]
         assert "pond-north" in payload["content"]
         assert "87%" in payload["content"]
 
-    def test_message_includes_mention_role(self):
+    def test_message_includes_mention_role(self, discord_server):
         notifier = self._make(mention_role="123456789")
-        with patch("requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=204, raise_for_status=lambda: None)
-            notifier.send(SAMPLE_EVENT)
-        content = mock_post.call_args[1]["json"]["content"]
+        notifier.send(SAMPLE_EVENT)
+        content = json.loads(discord_server.requests[0].body)["content"]
         assert "<@&123456789>" in content
 
-    def test_no_mention_when_role_empty(self):
+    def test_no_mention_when_role_empty(self, discord_server):
         notifier = self._make(mention_role="")
-        with patch("requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=204, raise_for_status=lambda: None)
-            notifier.send(SAMPLE_EVENT)
-        content = mock_post.call_args[1]["json"]["content"]
+        notifier.send(SAMPLE_EVENT)
+        content = json.loads(discord_server.requests[0].body)["content"]
         assert "<@&" not in content
 
-    def test_sends_multipart_when_snapshot_exists(self, tmp_path):
-        snap = tmp_path / "frame.jpg"
-        snap.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)  # minimal JPEG header
-
+    def test_sends_multipart_when_snapshot_exists(self, discord_server, snapshot_dir):
+        snap = write_image(snapshot_dir / "frame.jpg")
         event = {**SAMPLE_EVENT, "snapshot_path": str(snap)}
         notifier = self._make()
+        notifier.send(event)
 
-        with patch("requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=204, raise_for_status=lambda: None)
-            notifier.send(event)
+        req = discord_server.requests[0]
+        # Multipart upload carries payload_json plus the image file
+        assert req.headers["Content-Type"].startswith("multipart/form-data")
+        assert b'name="payload_json"' in req.body
+        assert b'filename="frame.jpg"' in req.body
+        assert snap.read_bytes() in req.body
+        assert b"attachment://frame.jpg" in req.body
 
-        _, kwargs = mock_post.call_args
-        # Multipart upload uses data= not json=
-        assert "files" in kwargs
-        assert "payload_json" in kwargs["data"]
-        embed_payload = json.loads(kwargs["data"]["payload_json"])
-        assert "embeds" in embed_payload
-        assert "attachment://frame.jpg" in embed_payload["embeds"][0]["image"]["url"]
-
-    def test_falls_back_to_text_when_snapshot_missing(self):
-        event = {**SAMPLE_EVENT, "snapshot_path": "/nonexistent/frame.jpg"}
+    def test_falls_back_to_text_when_snapshot_missing(self, discord_server, snapshot_dir):
+        event = {**SAMPLE_EVENT, "snapshot_path": str(snapshot_dir / "missing.jpg")}
         notifier = self._make()
+        notifier.send(event)
+        req = discord_server.requests[0]
+        # Missing file → text-only path (JSON body, no multipart)
+        assert req.headers["Content-Type"] == "application/json"
+        assert "embeds" not in json.loads(req.body)
 
-        with patch("requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=204, raise_for_status=lambda: None)
-            notifier.send(event)
-
-        _, kwargs = mock_post.call_args
-        # Missing file → text-only path (json=, no files=)
-        assert "json" in kwargs
-        assert "files" not in kwargs
-
-    def test_raises_on_request_error(self):
+    def test_raises_on_request_error(self, net):
         import requests as req_lib
 
+        net.dns[DISCORD_HOST] = [DISCORD_IP]  # no route → connection refused
         notifier = self._make()
-        with patch("requests.post", side_effect=req_lib.ConnectionError("timeout")):
-            # Propagates so the dispatch layer can enqueue for retry
-            with pytest.raises(req_lib.ConnectionError):
-                notifier.send(SAMPLE_EVENT)
+        # Propagates so the dispatch layer can enqueue for retry
+        with pytest.raises(req_lib.ConnectionError):
+            notifier.send(SAMPLE_EVENT)
 
-    def test_include_snapshot_false_skips_file(self, tmp_path):
-        snap = tmp_path / "frame.jpg"
-        snap.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)
+    def test_include_snapshot_false_skips_file(self, discord_server, snapshot_dir):
+        snap = write_image(snapshot_dir / "frame.jpg")
         event = {**SAMPLE_EVENT, "snapshot_path": str(snap)}
         notifier = self._make(include_snapshot=False)
-
-        with patch("requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=204, raise_for_status=lambda: None)
-            notifier.send(event)
-
-        _, kwargs = mock_post.call_args
-        assert "files" not in kwargs
+        notifier.send(event)
+        assert discord_server.requests[0].headers["Content-Type"] == "application/json"
 
 
 class TestEmailNotifier:
@@ -141,9 +134,8 @@ class TestEmailNotifier:
         assert "pond-north" in plain_body
         assert "87%" in plain_body
 
-    def test_attaches_snapshot_when_include_true(self, tmp_path):
-        snap = tmp_path / "frame.jpg"
-        snap.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)
+    def test_attaches_snapshot_when_include_true(self, snapshot_dir):
+        snap = write_image(snapshot_dir / "frame.jpg")
         event = {**SAMPLE_EVENT, "snapshot_path": str(snap)}
         notifier = self._make(include_snapshot=True)
 
@@ -231,70 +223,67 @@ class TestDispatchRouting:
         assert notifiers == []
 
 
+NTFY_HOST = "ntfy.example"
+NTFY_IP = "159.203.148.75"
+
+
+@pytest.fixture()
+def ntfy_server(net, http_server):
+    net.dns[NTFY_HOST] = [NTFY_IP]
+    net.routes[(NTFY_IP, 80)] = ("127.0.0.1", http_server.port)
+    return http_server
+
+
 class TestNtfyNotifier:
     def _make(self, **overrides):
         from ntfy import NtfyNotifier
 
         cfg = {
             "topic": "scarguard-test",
-            "server": "https://ntfy.sh",
+            "server": f"http://{NTFY_HOST}",
             "include_snapshot": True,
             **overrides,
         }
         return NtfyNotifier(cfg)
 
-    def test_sends_text_message(self):
+    def test_sends_text_message(self, ntfy_server):
         notifier = self._make()
-        with patch("ntfy.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-            notifier.send(SAMPLE_EVENT)
-        mock_post.assert_called_once()
-        _, kwargs = mock_post.call_args
-        assert b"pond-north" in kwargs["data"]
-        assert b"87%" in kwargs["data"]
+        notifier.send(SAMPLE_EVENT)
+        assert len(ntfy_server.requests) == 1
+        req = ntfy_server.requests[0]
+        assert (req.method, req.path) == ("POST", "/scarguard-test")
+        assert b"pond-north" in req.body
+        assert b"87%" in req.body
 
-    def test_sends_with_snapshot(self, tmp_path):
-        snap = tmp_path / "frame.jpg"
-        snap.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)
+    def test_sends_with_snapshot(self, ntfy_server, snapshot_dir):
+        snap = write_image(snapshot_dir / "frame.jpg")
         event = {**SAMPLE_EVENT, "snapshot_path": str(snap)}
         notifier = self._make()
+        notifier.send(event)
+        req = ntfy_server.requests[0]
+        assert req.method == "PUT"
+        assert req.headers["Filename"] == "frame.jpg"
+        assert req.body == snap.read_bytes()
 
-        with patch("ntfy.requests.put") as mock_put:
-            mock_put.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-            notifier.send(event)
-        mock_put.assert_called_once()
-        headers = mock_put.call_args[1]["headers"]
-        assert headers["Filename"] == "frame.jpg"
-
-    def test_include_snapshot_false_skips_file(self, tmp_path):
-        snap = tmp_path / "frame.jpg"
-        snap.write_bytes(b"\xff\xd8\xff" + b"\x00" * 100)
+    def test_include_snapshot_false_skips_file(self, ntfy_server, snapshot_dir):
+        snap = write_image(snapshot_dir / "frame.jpg")
         event = {**SAMPLE_EVENT, "snapshot_path": str(snap)}
         notifier = self._make(include_snapshot=False)
-
-        with patch("ntfy.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-            notifier.send(event)
+        notifier.send(event)
         # Should use POST (text), not PUT (file)
-        mock_post.assert_called_once()
+        assert [r.method for r in ntfy_server.requests] == ["POST"]
 
-    def test_auth_token_in_headers(self):
+    def test_auth_token_in_headers(self, ntfy_server):
         notifier = self._make(token="tk_mytoken")
-        with patch("ntfy.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-            notifier.send(SAMPLE_EVENT)
-        headers = mock_post.call_args[1]["headers"]
-        assert headers["Authorization"] == "Bearer tk_mytoken"
+        notifier.send(SAMPLE_EVENT)
+        assert ntfy_server.requests[0].headers["Authorization"] == "Bearer tk_mytoken"
 
-    def test_basic_auth_in_headers(self):
+    def test_basic_auth_in_headers(self, ntfy_server):
         import base64
         notifier = self._make(username="user", password="pass")
-        with patch("ntfy.requests.post") as mock_post:
-            mock_post.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-            notifier.send(SAMPLE_EVENT)
-        headers = mock_post.call_args[1]["headers"]
+        notifier.send(SAMPLE_EVENT)
         expected = f"Basic {base64.b64encode(b'user:pass').decode()}"
-        assert headers["Authorization"] == expected
+        assert ntfy_server.requests[0].headers["Authorization"] == expected
 
     def test_priority_clamped(self):
         notifier = self._make(priority=10)
@@ -302,12 +291,12 @@ class TestNtfyNotifier:
         notifier2 = self._make(priority=0)
         assert notifier2._priority == 1
 
-    def test_raises_on_request_error(self):
+    def test_raises_on_request_error(self, net):
         import requests as req_lib
+        net.dns[NTFY_HOST] = [NTFY_IP]  # no route → connection refused
         notifier = self._make()
-        with patch("ntfy.requests.post", side_effect=req_lib.ConnectionError("timeout")):
-            with pytest.raises(req_lib.ConnectionError):
-                notifier.send(SAMPLE_EVENT)
+        with pytest.raises(req_lib.ConnectionError):
+            notifier.send(SAMPLE_EVENT)
 
     def test_build_notifiers_ntfy_channel(self):
         from main import build_notifiers

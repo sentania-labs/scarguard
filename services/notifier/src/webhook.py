@@ -5,8 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import requests
-from url_safety import UnsafeURLError, validate_external_url
+import safe_http
+from url_safety import channel_destination_errors
 
 logger = logging.getLogger(__name__)
 
@@ -35,19 +35,14 @@ class WebhookNotifier:
         self._tz_name: str = tz_name
         if self._auth_token:
             self._headers.setdefault("Authorization", f"Bearer {self._auth_token}")
-        # SSRF defence-in-depth - Pydantic validates at config save, but a
-        # raw-YAML edit would bypass that. Validate again here so an
-        # internal-pointing URL never reaches requests.request().
-        allow_internal = bool(cfg.get("allow_internal", False))
-        try:
-            validate_external_url(self._url, allow_internal=allow_internal)
-            self._enabled = True
-        except UnsafeURLError as exc:
-            logger.error(
-                "Webhook [%s] disabled - unsafe URL %r: %s",
-                self._name, self._url, exc,
-            )
-            self._enabled = False
+        # SSRF defence-in-depth - the web config validator checks this at
+        # save, but a hand-edited file bypasses that. Static checks here
+        # disable the channel; safe_http re-resolves and pins every send.
+        self._allow_internal: bool = cfg.get("allow_internal") is True
+        errors = channel_destination_errors({**cfg, "type": "webhook"})
+        for err in errors:
+            logger.error("Webhook [%s] disabled - %s", self._name, err)
+        self._enabled = not errors
 
     @property
     def name(self) -> str:
@@ -74,17 +69,18 @@ class WebhookNotifier:
             "display_time": _to_local(str(event.get("timestamp", "")), self._tz_name),
         }
 
-        resp = requests.request(
+        resp = safe_http.send(
             self._method,
             self._url,
+            allow_internal=self._allow_internal,
             json=payload,
             headers=self._headers,
             timeout=10,
         )
         resp.raise_for_status()
         logger.info(
-            "Webhook [%s] %s %s → %d",
-            self._name, self._method, self._url, resp.status_code,
+            "Webhook [%s] %s → %d",
+            self._name, self._method, resp.status_code,
         )
 
     def _send_digest(self, report: dict) -> None:
@@ -106,9 +102,9 @@ class WebhookNotifier:
             "storage": report.get("storage"),
             "training": report.get("training"),
         }
-        resp = requests.request(
-            self._method, self._url, json=payload,
-            headers=self._headers, timeout=15,
+        resp = safe_http.send(
+            self._method, self._url, allow_internal=self._allow_internal,
+            json=payload, headers=self._headers, timeout=15,
         )
         resp.raise_for_status()
         logger.info("Webhook [%s] digest sent → %d", self._name, resp.status_code)

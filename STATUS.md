@@ -169,6 +169,24 @@ codec support or inference. No production/device validation was performed.
 
 ## Recently Fixed (unreleased)
 
+- **Notification destinations, SMTP TLS and attachments (FDY-0571; SG-19, SG-20,
+  SG-28).** Webhook, ntfy, Discord and SMTP destinations are checked on save and
+  on every send (`shared/url_safety.py`): the notifier resolves once, checks every
+  address and connects only to those, refuses redirects and ignores proxy env vars.
+  Loopback, metadata and the Docker networks are always refused; LAN addresses need
+  the per-channel `allow_internal` checkbox (default off). Email verifies
+  certificates everywhere (implicit TLS on 465, STARTTLS required on any other
+  port) with an optional `smtp_ca_file` and an explicit, UI-visible
+  `smtp_insecure_plaintext` opt-in; relays that previously sent plaintext on port
+  25 need one of these. Snapshots are attached only when they resolve inside
+  `SNAPSHOT_DIR` and are real JPEG/PNG of the matching suffix. The structured save
+  is strict: the channel card's settings are stored as sent. See
+  CONFIG_REFERENCE.md "Notification destinations and attachments". Regression
+  tests: `services/notifier/tests/test_fdy_0571_regression.py` (local HTTP, HTTPS
+  and SMTP fixture servers) and `services/web/tests/test_fdy_0571_*.py`. Not
+  exercised against real Discord, ntfy.sh, a production SMTP relay or the UI in a
+  browser (the channel editor is driven under Node with a DOM stand-in).
+
 - **Config restore, TLS values and the config-api switch (FDY-0569; SG-17, SG-24,
   SG-30).** Config backup restore now parses the backup, validates it against the
   full config schema, encrypts plaintext secrets with the existing key (refusing
