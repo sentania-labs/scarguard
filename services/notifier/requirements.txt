@@ -1,7 +1,7 @@
 redis==7.4.0
 pyyaml==6.0.3
 pydantic==2.12.5
-requests==2.33.1
+requests==2.34.2
 tzdata==2025.3
 Pillow==12.3.0
 cryptography==50.0.1
