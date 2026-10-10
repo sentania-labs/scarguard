@@ -532,11 +532,13 @@ async def save_structured_config(request: Request) -> Response:
             "orphan_warnings": len(warnings),
         },
     )
+    new_revision = existing.get("system", {}).get("revision", 0)
     return JSONResponse(
         {
             "ok": True,
             "tls_changed": tls_changed,
             "warnings": warnings,
+            "revision": new_revision,
         }
     )
 

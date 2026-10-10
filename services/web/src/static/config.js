@@ -753,6 +753,11 @@ async function saveConfig() {
         : "Config saved. Changes take effect within ~10 seconds.";
       const warnings = Array.isArray(result.warnings) ? result.warnings : [];
       _showBanner(warnings.length ? "warn" : "ok", base, warnings);
+      // Update the hidden revision so subsequent saves don't get 409.
+      if (result.revision != null) {
+        var revEl = document.getElementById("sys-revision");
+        if (revEl) revEl.value = String(result.revision);
+      }
       // Refresh the Advanced/Raw YAML textarea so it reflects the saved config
       // (redacted - secrets are never in the default response).
       try {
