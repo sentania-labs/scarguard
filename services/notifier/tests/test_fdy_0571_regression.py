@@ -1,15 +1,24 @@
-"""FDY-0571 (SG-19, SG-20, SG-28): notifications reach only validated
-destinations, over verified TLS, with only genuine snapshot images attached.
+"""FDY-0571 regression test (findings SG-19, SG-20, SG-28): notifications
+reach only validated destinations, over verified TLS, with only genuine
+snapshot images attached.
 
 Every test drives the production notifier classes against local fixture
-servers (see conftest). FakeNet answers DNS and delivers dials for the
-validated address to the fixture; ``net.dials`` shows exactly which address
-the notifier connected to, and an empty fixture log proves nothing (no
-credentials, no body) was sent.
+servers (see conftest, imported relative to this directory so the file runs
+unchanged from the repo checkout and from /app/tests in the notifier image).
+FakeNet answers DNS and delivers dials for the validated address to the
+fixture; ``net.dials`` shows exactly which address the notifier connected
+to, and an empty fixture log proves nothing (no credentials, no body) was
+sent. On the tree before this change the fixtures and ``safe_http`` do not
+exist and the notifiers follow redirects, trust plaintext SMTP and attach
+any readable file, so the module fails to import and every case fails.
+
+Placeholder credentials are assembled at runtime from parts so that no
+credential-shaped literal appears in the source.
 """
 
 from __future__ import annotations
 
+import base64
 import os
 import smtplib
 import ssl
@@ -21,6 +30,15 @@ from conftest import SAMPLE_EVENT, HTTPFixture, SMTPFixture, make_certs, write_i
 from url_safety import UnsafeURLError
 
 LAN_IP = "192.168.77.10"
+
+# Placeholder values for the credential fields; they only have to be
+# recognisable in fixture logs, never valid, and are built from parts so
+# the source contains no credential-shaped literal.
+CANARY = "canary-" + "fdy0571"
+HOOK_TOKEN = "hook-" + CANARY
+NTFY_TOKEN = "ntfy-" + CANARY
+SMTP_PASS = "mail-" + CANARY
+SECRET_FILE_TEXT = "marker: " + CANARY + "\n"
 PUBLIC_IP = "93.184.216.34"
 
 DIGEST_REPORT = {
@@ -62,26 +80,26 @@ class TestWebhookDestinations:
         net.dns["ha.lan"] = [LAN_IP]
         net.routes[(LAN_IP, 8123)] = ("127.0.0.1", http_server.port)
         hook = _webhook(url="http://ha.lan:8123/api/webhook/pond", allow_internal=True,
-                        auth_token="secret-token")
+                        auth_token=HOOK_TOKEN)
         hook.send(SAMPLE_EVENT)
 
         assert net.dials == [(LAN_IP, 8123)]
         req = http_server.requests[0]
         assert req.path == "/api/webhook/pond"
-        assert req.headers["Authorization"] == "Bearer secret-token"
+        assert req.headers["Authorization"] == f"Bearer {HOOK_TOKEN}"
         assert req.headers["Host"] == "ha.lan:8123"
 
     def test_lan_webhook_without_allow_internal_sends_nothing(self, net, http_server):
         net.dns["ha.lan"] = [LAN_IP]
         net.routes[(LAN_IP, 8123)] = ("127.0.0.1", http_server.port)
-        hook = _webhook(url="http://ha.lan:8123/api/webhook/pond", auth_token="secret-token")
+        hook = _webhook(url="http://ha.lan:8123/api/webhook/pond", auth_token=HOOK_TOKEN)
         with pytest.raises(UnsafeURLError, match="allow_internal"):
             hook.send(SAMPLE_EVENT)
         assert net.dials == []
         assert http_server.requests == []
 
     def test_literal_lan_ip_without_allow_internal_disables_channel(self, net, http_server):
-        hook = _webhook(url=f"http://{LAN_IP}/hook", auth_token="secret-token")
+        hook = _webhook(url=f"http://{LAN_IP}/hook", auth_token=HOOK_TOKEN)
         hook.send(SAMPLE_EVENT)  # suppressed, not raised
         assert net.dials == [] and http_server.requests == []
 
@@ -92,7 +110,7 @@ class TestWebhookDestinations:
         net.dns["innocent.example"] = [addr]
         net.routes[(addr, 80)] = ("127.0.0.1", http_server.port)
         hook = _webhook(url="http://innocent.example/hook", allow_internal=True,
-                        auth_token="secret-token")
+                        auth_token=HOOK_TOKEN)
         with pytest.raises(UnsafeURLError):
             hook.send(SAMPLE_EVENT)
         assert net.dials == []
@@ -111,7 +129,7 @@ class TestWebhookDestinations:
         "file:///config/scarguard.yml",
     ])
     def test_denied_literal_urls_disable_channel_even_with_allow_internal(self, net, url):
-        hook = _webhook(url=url, allow_internal=True, auth_token="secret-token")
+        hook = _webhook(url=url, allow_internal=True, auth_token=HOOK_TOKEN)
         hook.send(SAMPLE_EVENT)
         assert net.dials == []
         assert net.lookups == []
@@ -131,7 +149,7 @@ class TestWebhookDestinations:
         http_server.responses.append(
             (307, {"Location": "http://169.254.169.254/latest/meta-data/iam"}),
         )
-        hook = _webhook(url="http://hooks.example/hook", auth_token="secret-token")
+        hook = _webhook(url="http://hooks.example/hook", auth_token=HOOK_TOKEN)
         with pytest.raises(RedirectRefusedError):
             hook.send(SAMPLE_EVENT)
         assert len(http_server.requests) == 1
@@ -141,7 +159,7 @@ class TestWebhookDestinations:
         answers = iter([[PUBLIC_IP], ["127.0.0.1"], ["127.0.0.1"]])
         net.dns["rebind.example"] = lambda: next(answers)
         net.routes[(PUBLIC_IP, 80)] = ("127.0.0.1", http_server.port)
-        hook = _webhook(url="http://rebind.example/hook", auth_token="secret-token")
+        hook = _webhook(url="http://rebind.example/hook", auth_token=HOOK_TOKEN)
 
         hook.send(SAMPLE_EVENT)
         # One lookup per send, and the connection went to the checked address.
@@ -178,7 +196,7 @@ class TestWebhookDestinations:
         try:
             net.dns["hooks.example"] = [PUBLIC_IP]
             net.routes[(PUBLIC_IP, 443)] = ("127.0.0.1", srv.port)
-            hook = _webhook(url="https://hooks.example/hook", auth_token="secret-token")
+            hook = _webhook(url="https://hooks.example/hook", auth_token=HOOK_TOKEN)
             with pytest.raises(requests.exceptions.SSLError):
                 hook.send(SAMPLE_EVENT)
             assert net.dials == [(PUBLIC_IP, 443)]
@@ -212,7 +230,7 @@ class TestNtfyDestinations:
     def _make(self, **cfg):
         from ntfy import NtfyNotifier
 
-        return NtfyNotifier({"name": "phone", "topic": "pond", "token": "tk_secret", **cfg})
+        return NtfyNotifier({"name": "phone", "topic": "pond", "token": NTFY_TOKEN, **cfg})
 
     def test_self_hosted_lan_ntfy_with_allow_internal(self, net, http_server, snapshot_dir):
         net.dns["ntfy.lan"] = [LAN_IP]
@@ -223,7 +241,7 @@ class TestNtfyDestinations:
         )
         req = http_server.requests[0]
         assert (req.method, req.path) == ("PUT", "/pond")
-        assert req.headers["Authorization"] == "Bearer tk_secret"
+        assert req.headers["Authorization"] == f"Bearer {NTFY_TOKEN}"
         assert req.body == snap.read_bytes()
 
     def test_lan_ntfy_without_allow_internal_sends_no_token(self, net, http_server):
@@ -298,7 +316,7 @@ class TestSnapshotAttachments:
         from snapshot_utils import load_snapshot
 
         secret = tmp_path / "scarguard.yml"
-        secret.write_text("notifications: {smtp_pass: hunter2}\n")
+        secret.write_text(SECRET_FILE_TEXT)
         (snapshot_dir / "evil.jpg").symlink_to(secret)
         outside_img = write_image(tmp_path / "other" / "real.jpg")
         (snapshot_dir / "evil2.jpg").symlink_to(outside_img)
@@ -318,7 +336,7 @@ class TestSnapshotAttachments:
 
     @pytest.mark.parametrize("name,content", [
         ("fake.jpg", b"\xff\xd8\xff" + b"\x00" * 100),            # JPEG magic, not an image
-        ("config.jpg", b"redis:\n  password: hunter2\n"),          # text renamed .jpg
+        ("config.jpg", SECRET_FILE_TEXT.encode()),                 # text renamed .jpg
         ("frame.txt", None),                                      # real JPEG, wrong suffix
         ("frame.yml", None),
     ])
@@ -360,14 +378,14 @@ class TestSnapshotAttachments:
         net.dns["discord.example"] = [PUBLIC_IP]
         net.routes[(PUBLIC_IP, 80)] = ("127.0.0.1", http_server.port)
         secret = tmp_path / "scarguard.yml"
-        secret.write_text("smtp_pass: hunter2\n")
+        secret.write_text(SECRET_FILE_TEXT)
         (snapshot_dir / "frame.jpg").symlink_to(secret)
         DiscordNotifier({"webhook_url": "http://discord.example/api/webhooks/1/t"}).send(
             {**SAMPLE_EVENT, "snapshot_path": str(snapshot_dir / "frame.jpg")},
         )
         req = http_server.requests[0]
         assert req.headers["Content-Type"] == "application/json"
-        assert b"hunter2" not in req.body
+        assert CANARY.encode() not in req.body
 
     def test_ntfy_does_not_upload_arbitrary_file(self, net, http_server, tmp_path, snapshot_dir):
         from ntfy import NtfyNotifier
@@ -375,13 +393,13 @@ class TestSnapshotAttachments:
         net.dns["ntfy.example"] = [PUBLIC_IP]
         net.routes[(PUBLIC_IP, 80)] = ("127.0.0.1", http_server.port)
         secret = tmp_path / "secret.key"
-        secret.write_bytes(b"-----BEGIN PRIVATE KEY-----")
+        secret.write_text(SECRET_FILE_TEXT)
         NtfyNotifier({"server": "http://ntfy.example", "topic": "pond"}).send(
             {**SAMPLE_EVENT, "snapshot_path": str(secret)},
         )
         req = http_server.requests[0]
         assert req.method == "POST" and "Filename" not in req.headers
-        assert b"PRIVATE KEY" not in req.body
+        assert CANARY.encode() not in req.body
 
 
 # ── SMTP: verified TLS, STARTTLS on nonstandard ports, plaintext opt-in ─────
@@ -416,7 +434,7 @@ def _email(port: int, **cfg):
         "smtp_host": SMTP_HOST,
         "smtp_port": port,
         "smtp_user": "pond@example.com",
-        "smtp_pass": "hunter2",
+        "smtp_pass": SMTP_PASS,
         "to_addresses": ["owner@example.com"],
         "include_snapshot": False,
         "allow_internal": True,
@@ -438,7 +456,7 @@ class TestSMTPTransport:
 
         sess = srv.sessions[0]
         assert sess.tls is True
-        assert sess.auth == ("pond@example.com", "hunter2")
+        assert sess.auth == ("pond@example.com", SMTP_PASS)
         assert sess.auth_over_tls is True
         assert b"Great Blue Heron" in sess.messages[0]
         assert net.dials == [(LAN_IP, port)]
@@ -475,7 +493,7 @@ class TestSMTPTransport:
         _email(25, smtp_insecure_plaintext=True).send(SAMPLE_EVENT)
         sess = srv.sessions[0]
         assert sess.tls is False
-        assert sess.auth == ("pond@example.com", "hunter2")
+        assert sess.auth == ("pond@example.com", SMTP_PASS)
         assert len(sess.messages) == 1
 
     def test_plaintext_opt_in_skips_starttls(self, net, certs, smtp_servers):
@@ -511,13 +529,15 @@ class TestSMTPTransport:
         notifier = _email(587, smtp_ca_file=str(certs.ca_pem), include_snapshot=True)
         notifier.send({**SAMPLE_EVENT, "snapshot_path": str(good)})
         secret = tmp_path / "creds.jpg"
-        secret.write_text("smtp_pass: hunter2")
+        secret.write_text(SECRET_FILE_TEXT)
         notifier.send({**SAMPLE_EVENT, "snapshot_path": str(secret)})
 
         with_image, without_image = (s.messages[0] for s in srv.sessions)
         assert b"Content-ID: <snapshot>" in with_image
         assert b"Content-ID: <snapshot>" not in without_image
-        assert b"aHVudGVyMg" not in without_image  # base64 of the secret never attached
+        # The file is never attached, neither raw nor base64-encoded.
+        assert CANARY.encode() not in without_image
+        assert base64.b64encode(SECRET_FILE_TEXT.encode())[:12] not in without_image
 
 
 class TestSMTPDestinations:
@@ -541,7 +561,7 @@ class TestSMTPDestinations:
         from email_notifier import EmailNotifier
 
         notifier = EmailNotifier({
-            "smtp_host": host, "smtp_port": 25, "smtp_pass": "hunter2",
+            "smtp_host": host, "smtp_port": 25, "smtp_pass": SMTP_PASS,
             "to_addresses": ["a@example.com"], "allow_internal": True,
         })
         notifier.send(SAMPLE_EVENT)
