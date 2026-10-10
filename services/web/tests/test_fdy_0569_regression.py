@@ -24,9 +24,11 @@ from typing import Any
 import pytest
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-CADDY_CONFIG_PY = REPO_ROOT / "config" / "caddy_config.py"
-SHARED_DIR = REPO_ROOT / "shared"
+TEST_FILE = Path(__file__).resolve()
+REPO_ROOT = next(
+    (parent for parent in TEST_FILE.parents if (parent / "config" / "caddy_config.py").is_file()),
+    None,
+)
 
 # Dummy, obviously fake secret material - never real credentials.
 FAKE_SECRET = "placeholder-value-for-tests"
@@ -456,7 +458,10 @@ def test_raw_yaml_save_valid_still_works(env, http):
 
 
 def _load_caddy_config():
-    spec = importlib.util.spec_from_file_location("caddy_config_under_test", CADDY_CONFIG_PY)
+    if REPO_ROOT is None:
+        pytest.skip("repository Caddy artifacts are not included in the web runtime image")
+    caddy_config_py = REPO_ROOT / "config" / "caddy_config.py"
+    spec = importlib.util.spec_from_file_location("caddy_config_under_test", caddy_config_py)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -512,6 +517,10 @@ def _stub_caddy(tmp_path: Path, log: Path) -> Path:
 def _run_caddy_config(
     tmp_path: Path, action: str, cfg_text: str, *, validate_exit: int = 0, reload_exit: int = 0,
 ) -> tuple[subprocess.CompletedProcess[str], Path, list[str]]:
+    if REPO_ROOT is None:
+        pytest.skip("repository Caddy artifacts are not included in the web runtime image")
+    caddy_config_py = REPO_ROOT / "config" / "caddy_config.py"
+    shared_dir = REPO_ROOT / "shared"
     config = tmp_path / "scarguard.yml"
     config.write_text(cfg_text)
     caddyfile = tmp_path / "Caddyfile"
@@ -522,11 +531,11 @@ def _run_caddy_config(
         "CADDY_BIN": str(_stub_caddy(tmp_path, log)),
         "CADDY_STUB_VALIDATE_EXIT": str(validate_exit),
         "CADDY_STUB_RELOAD_EXIT": str(reload_exit),
-        "PYTHONPATH": os.pathsep.join([str(SHARED_DIR), os.environ.get("PYTHONPATH", "")]),
+        "PYTHONPATH": os.pathsep.join([str(shared_dir), os.environ.get("PYTHONPATH", "")]),
         "HTTPS_PORT": "443",
     }
     proc = subprocess.run(
-        [sys.executable, str(CADDY_CONFIG_PY), action, str(config), str(caddyfile)],
+        [sys.executable, str(caddy_config_py), action, str(config), str(caddyfile)],
         capture_output=True, text=True, env=env, timeout=60,
     )
     return proc, caddyfile, log.read_text().split("\n")[:-1]
