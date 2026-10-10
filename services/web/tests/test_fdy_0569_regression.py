@@ -452,6 +452,7 @@ def test_structured_save_auto_mode_requires_domain(env, http):
 
 
 def test_structured_save_valid_tls_still_works(env, http):
+    import secret_box
     r = http.post(
         "/config/structured",
         json=_structured({"mode": "auto", "domain": "Pond.Example.com"}),
@@ -461,7 +462,8 @@ def test_structured_save_valid_tls_still_works(env, http):
     on_disk = yaml.safe_load(env["config_path"].read_text())
     assert on_disk["tls"]["domain"] == "pond.example.com"
     # The redacted camera URL placeholder kept the stored secret.
-    assert on_disk["cameras"][0]["rtsp_url"] == "rtsp://localhost/test"
+    key = secret_box.try_load_key()
+    assert secret_box.decrypt(on_disk["cameras"][0]["rtsp_url"], key) == "rtsp://localhost/test"
 
     # A later save carries the revision the previous response returned, as
     # the config form does (FDY-0566 optimistic concurrency).
