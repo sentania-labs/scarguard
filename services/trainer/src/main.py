@@ -56,7 +56,7 @@ def _decrypt_secrets(cfg: dict) -> None:
         return
     try:
         secret_box.decrypt_in_place(cfg, key)
-    except secret_box.SecretKeyMissing:
+    except (secret_box.SecretKeyMissing, ValueError):
         logger.error("Failed to decrypt trainer secrets - wrong key on disk?")
 
 

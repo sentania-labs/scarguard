@@ -182,6 +182,12 @@ def try_load_key(path: str | None = None) -> bytes | None:
     except SecretKeyMissing as exc:
         logger.warning("%s - secrets will be read as plaintext", exc)
         return None
+    except OSError as exc:
+        logger.error(
+            "Secret key at %s is unreadable (%s) - encrypted fields stay encrypted",
+            path or DEFAULT_KEY_PATH, type(exc).__name__,
+        )
+        return None
 
 
 # ── Walking helpers ─────────────────────────────────────────────────────────

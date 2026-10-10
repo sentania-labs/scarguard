@@ -234,7 +234,8 @@ def migrate_plaintext_secrets() -> str:
 
     * ``"clean"`` - nothing to migrate;
     * ``"migrated"`` - plaintext fields were re-saved encrypted;
-    * ``"pending_key"`` - plaintext fields remain because no key is available;
+    * ``"pending_key"`` - no key is available, so plaintext stays plaintext and
+      encrypted values cannot be verified;
     * ``"undecryptable"`` - stored ``enc:v1:`` values do not decrypt with the
       key on disk, so the file is left untouched rather than mixing keys.
 
@@ -255,7 +256,7 @@ def migrate_plaintext_secrets() -> str:
     try:
         require_encrypted_secrets(raw, key)
     except SecretEncryptionError:
-        state = "pending_key" if key is None and plaintext else "undecryptable"
+        state = "pending_key" if key is None else "undecryptable"
     else:
         if plaintext:
             save(load())
@@ -264,8 +265,8 @@ def migrate_plaintext_secrets() -> str:
         logger.info("Encrypted plaintext sensitive config fields at rest")
     elif state == "pending_key":
         logger.warning(
-            "Sensitive config fields remain plaintext: the secret key is unavailable "
-            "(migration pending)",
+            "The secret key is unavailable: plaintext sensitive fields stay plaintext "
+            "and encrypted ones cannot be verified (migration pending)",
         )
     elif state == "undecryptable":
         logger.error(

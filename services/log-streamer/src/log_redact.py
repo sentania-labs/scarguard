@@ -24,8 +24,10 @@ import re
 
 MASK = "***"
 
+# Prefixes are bounded and anchored at a word start so a long run of
+# ``-``/``_``/letters cannot make the scan quadratic (this runs on every line).
 _URL_USERINFO_RE = re.compile(
-    r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*://)"
+    r"(?<![A-Za-z0-9+.\-])(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]{0,31}://)"
     r"(?:(?P<user>[^:/?#@\s]*):)?(?P<secret>[^/?#@\s]+)@",
 )
 _DISCORD_RE = re.compile(
@@ -33,8 +35,8 @@ _DISCORD_RE = re.compile(
 )
 _AUTH_SCHEME_RE = re.compile(r"(?P<prefix>\b(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=\-]+")
 _KEY_VALUE_RE = re.compile(
-    r"(?P<prefix>(?<![A-Za-z0-9])[\"']?"
-    r"(?:[A-Za-z_\-]*(?:password|passwd|secret|token|api[_\-]?key|smtp_pass|access[_\-]?key))"
+    r"(?P<prefix>(?<![A-Za-z0-9_\-])[\"']?"
+    r"(?:[A-Za-z_\-]{0,32}?(?:password|passwd|secret|token|api[_\-]?key|smtp_pass|access[_\-]?key))"
     r"[\"']?\s*[:=]\s*[\"']?)"
     r"(?P<value>[^\s\"'&,;}\]]+)",
     re.IGNORECASE,
