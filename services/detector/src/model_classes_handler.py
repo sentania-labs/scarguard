@@ -233,27 +233,23 @@ class ModelClassesHandler(threading.Thread):
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
+import safe_load  # noqa: F401, E402 - enforces safe globals globally
+from path_safety import validate_model_path  # noqa: E402
+
+
 def _safe_model_path(model_path: str) -> Path | None:
     """Validate *model_path* and return it as a resolved Path, or None.
 
     Rejects: empty/traversal strings, paths outside ``MODELS_DIR``, paths
     with unsupported suffixes, and non-existent files.
     """
-    if not model_path or not isinstance(model_path, str):
-        return None
     try:
-        candidate = Path(model_path).resolve()
-    except (OSError, ValueError):
-        return None
-    try:
-        candidate.relative_to(_MODELS_ROOT)
+        candidate = validate_model_path(model_path, _MODELS_ROOT)
+        if candidate.suffix.lower() not in _ALLOWED_SUFFIXES:
+            return None
+        return candidate
     except ValueError:
         return None
-    if candidate.suffix.lower() not in _ALLOWED_SUFFIXES:
-        return None
-    if not candidate.is_file():
-        return None
-    return candidate
 
 
 def _peek_pool_names(pool: Any | None, abs_path: str) -> Any | None:
@@ -282,17 +278,27 @@ def _peek_pool_names(pool: Any | None, abs_path: str) -> Any | None:
 def _names_from_pt_cpu(abs_path: str) -> Any | None:
     """Extract ``model.names`` from a ``.pt`` checkpoint without a GPU load.
 
-    Returns ``None`` on any failure so the caller can fall through to the
+    Uses ``torch.serialization.safe_load`` (PyTorch 2.0+) when available
+    for restricted unpickling; falls back to ``torch.load`` for checkpoints
+    that contain custom classes (standard Ultralytics format).  Returns
+    ``None`` on any failure so the caller can fall through to the
     full-ultralytics path.
+
+    Path confinement has already been verified by ``_safe_model_path``
+    before this function is reached.
     """
     try:
-        import torch
+        from safe_load import _load_torch_safe
     except ImportError:
         return None
+
     try:
-        ckpt = torch.load(abs_path, map_location="cpu", weights_only=True)
+        ckpt = _load_torch_safe(abs_path, map_location="cpu")
+    except ImportError:
+        # torch not installed - fall through to the YOLO path
+        return None
     except Exception:
-        logger.debug("CPU-only torch.load failed for %s - falling back", abs_path)
+        logger.debug("Safe torch.load failed for %s - falling back", abs_path)
         return None
     # Checkpoints may store the model under "model" (typical ultralytics
     # format) or be the model object itself.

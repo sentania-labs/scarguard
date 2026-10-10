@@ -216,6 +216,8 @@ def main() -> None:
     print(f"Patience: {args.patience}, Device: {args.device}, Workers: {args.workers}")
     print()
 
+    import safe_load  # noqa: F401
+
     # Load base model and train
     model = YOLO(str(resume_from) if resume_from else args.base_model)
     try:

@@ -178,7 +178,10 @@ def test_detector_restored_on_every_train_result(
     data_yaml.parent.mkdir(parents=True)
     data_yaml.write_text("names: []\n")
     monkeypatch.setattr(job_runner, "WORKSPACE_DIR", workspace)
-    monkeypatch.setattr(job_runner, "MODELS_DIR", str(tmp_path / "models"))
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(exist_ok=True)
+    (models_dir / "yolov8n.pt").touch()
+    monkeypatch.setattr(job_runner, "MODELS_DIR", str(models_dir))
     monkeypatch.setattr(job_runner, "_resource_snapshot", abundant_snapshot)
     monkeypatch.setattr(job_runner, "_newest_checkpoint_since", lambda _started: None)
     monkeypatch.setattr(
