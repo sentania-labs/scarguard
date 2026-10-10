@@ -16,12 +16,8 @@ Operator-triggered manual backups arrive via the
 updates are published to ``scarguard:backup:status`` so the UI can
 surface progress.
 
-Cycles are serialized by ``backup_lock``: a manual trigger that arrives
-while the scheduled cycle runs waits for it (publishing a ``queued``
-status) instead of being dropped. Retention keeps one scheduled
-snapshot per calendar day for ``retention_daily`` days plus weekly
-samples, and bounds manual snapshots separately (``MANUAL_RETENTION``),
-so neither kind can evict the other.
+v1.15 verifies HMAC signatures on manual trigger requests so a
+compromised container cannot trigger arbitrary backups.
 """
 
 from __future__ import annotations
@@ -53,6 +49,47 @@ BACKUP_ROOT = DATA_DIR / "backups"
 
 TRIGGER_CHANNEL = "scarguard:backup:trigger"
 STATUS_CHANNEL = "scarguard:backup:status"
+
+# Signing key for backup trigger requests (web → backup sidecar).
+_TRIGGER_KEY: bytes | None = None
+_VERIFY_TRIGGER = None
+_CHANNEL_TRIGGER = None
+_DERIVE_KEY = None
+
+try:
+    from event_signing import (
+        CHANNEL_FIELD as _EF_CF,
+    )
+    from event_signing import (
+        _ReplayCache,
+        load_key_from_env,
+    )
+    from event_signing import (
+        derive_channel_key as _EF_DK,
+    )
+    from event_signing import (
+        verify_event as _EF_VE,
+    )
+    _TRIGGER_KEY = load_key_from_env()
+    _DERIVE_KEY = _EF_DK
+    _VERIFY_TRIGGER = _EF_VE
+    _CHANNEL_TRIGGER = _EF_CF
+    _TRIGGER_CACHE = _ReplayCache(capacity=4096, ttl_seconds=60) if _TRIGGER_KEY else None
+except ImportError:
+    _TRIGGER_CACHE = None
+
+
+def _verify_trigger(payload: dict) -> bool:
+    """Return True if *payload* is a valid signed backup trigger."""
+    if _TRIGGER_KEY is None or _TRIGGER_CACHE is None:
+        return True
+    if _CHANNEL_TRIGGER is None or _VERIFY_TRIGGER is None:
+        return True
+    ch = payload.get(_CHANNEL_TRIGGER)
+    if isinstance(ch, str) and ch != TRIGGER_CHANNEL:
+        return False
+    channel_key = _DERIVE_KEY(_TRIGGER_KEY, TRIGGER_CHANNEL) if _DERIVE_KEY else _TRIGGER_KEY
+    return _VERIFY_TRIGGER(payload, channel_key, TRIGGER_CHANNEL, _TRIGGER_CACHE)  # type: ignore[arg-type]
 
 DEFAULT_INTERVAL_HOURS = 24
 DEFAULT_RETENTION_DAILY = 14
@@ -410,6 +447,19 @@ def trigger_listener(
                     break
                 if message["type"] != "message":
                     continue
+                try:
+                    payload = json.loads(message["data"])
+                    if not isinstance(payload, dict):
+                        logger.warning("Malformed backup trigger (not a dict)")
+                        continue
+                except json.JSONDecodeError:
+                    logger.warning("Malformed backup trigger: invalid JSON")
+                    continue
+
+                if not _verify_trigger(payload):
+                    logger.warning("Rejected unsigned/malformed backup trigger")
+                    continue
+
                 logger.info("Manual backup triggered via Redis")
                 run_backup_cycle(
                     cfg_holder["cfg"], client, triggered_by="manual",

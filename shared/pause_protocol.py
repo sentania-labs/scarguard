@@ -63,6 +63,19 @@ class PauseClient:
         from redis_client import make_sync_client
         return make_sync_client(self._redis_cfg)
 
+    def _build_payload(self, action: str, **extra: Any) -> str:
+        """Build a JSON payload, signing it if the key is available."""
+        payload: dict[str, Any] = {"action": action, **extra}
+        try:
+            from event_signing import load_key_from_env, sign_event
+            _key = load_key_from_env()
+            if _key is not None:
+                envelope = sign_event(payload, _key, COMMAND_CHANNEL)
+                return json.dumps(envelope)
+        except ImportError:
+            pass
+        return json.dumps(payload)
+
     def pause(
         self,
         timeout: int = DEFAULT_PAUSE_TIMEOUT,
@@ -75,12 +88,7 @@ class PauseClient:
         request_id = uuid.uuid4().hex[:12]
         client = self._make_client()
         try:
-            payload = json.dumps({
-                "action": "pause",
-                "request_id": request_id,
-                "timeout": timeout,
-            })
-            client.publish(COMMAND_CHANNEL, payload)
+            client.publish(COMMAND_CHANNEL, self._build_payload("pause", request_id=request_id, timeout=timeout))
             logger.info("Pause request sent (request_id=%s, timeout=%ds)", request_id, timeout)
             return self._wait_for_state(client, "paused", request_id, wait_timeout)
         finally:
@@ -94,11 +102,7 @@ class PauseClient:
         request_id = uuid.uuid4().hex[:12]
         client = self._make_client()
         try:
-            payload = json.dumps({
-                "action": "resume",
-                "request_id": request_id,
-            })
-            client.publish(COMMAND_CHANNEL, payload)
+            client.publish(COMMAND_CHANNEL, self._build_payload("resume", request_id=request_id))
             logger.info("Resume request sent (request_id=%s)", request_id)
             return self._wait_for_state(client, "running", request_id, wait_timeout)
         finally:
