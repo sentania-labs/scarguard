@@ -263,8 +263,10 @@ class TestStalledEmailDoesNotBlockOthers:
         # Discord completes while the relay still holds the email connection open.
         assert wait_until(lambda: len(discord_server.requests) == 1, 3)
         assert wait_until(lambda: len(stalled_smtp.connections) == 1, 3)
+        # The fixture records the request before it replies; the worker counts
+        # the delivery once the reply is in, so wait for the counter too.
+        assert wait_until(lambda: dispatcher.snapshot()["discord"]["delivered"] == 1, 3)
         snap = dispatcher.snapshot()
-        assert snap["discord"]["delivered"] == 1
         assert snap["email"]["delivered"] == 0
         assert b"Great Blue Heron" in discord_server.requests[0].body
 
@@ -345,6 +347,7 @@ class TestStalledEmailDoesNotBlockOthers:
             assert wait_until(lambda: len(consumed) == total, 3)
             assert consumed[-1] - consumed[0] < 2.0
             assert wait_until(lambda: len(discord_server.requests) == total, 5)
+            assert wait_until(lambda: dispatcher.snapshot()["discord"]["delivered"] == total, 3)
             assert wait_until(lambda: len(stalled_smtp.connections) == 1, 3)
             email_worker = dispatcher.worker("email")
             assert email_worker is not None
@@ -456,9 +459,8 @@ class TestDeadline:
             assert wait_until(lambda: queue.depth == 0, 3)
             assert read_queue_file(path) == []
             assert wait_until(lambda: "retry cancelled" in caplog.text, 3)
-            snap = dispatcher.snapshot()
-            assert snap["email"]["delivered"] == 1
-            assert snap["email"]["stalled"] is False
+            assert wait_until(lambda: dispatcher.snapshot()["email"]["stalled"] is False, 3)
+            assert dispatcher.snapshot()["email"]["delivered"] == 1
             assert relay.sessions[0].tls is True
             dispatcher.stop()
         finally:
@@ -614,11 +616,16 @@ class TestHealthyFlows:
         assert session.auth == ("guard@example.com", SMTP_PASS) and session.auth_over_tls
         assert b"Subject: ScarGuard: Great Blue Heron detected" in session.messages[0]
         assert json.loads(discord_server.requests[0].body)["content"].startswith("**Great Blue Heron")
+        # Both fixture servers record a message before replying; the workers
+        # count the delivery once the reply is in.
+        assert wait_until(
+            lambda: all(dispatcher.snapshot()[c]["delivered"] == 1 for c in ("email", "discord")), 5,
+        )
+        snap = dispatcher.snapshot()
+        assert snap["email"]["failed"] == snap["email"]["timed_out"] == 0
+        assert snap["discord"]["failed"] == snap["discord"]["timed_out"] == 0
         assert queue.depth == 0
         assert not path.exists()
-        snap = dispatcher.snapshot()
-        assert snap["email"]["delivered"] == 1 and snap["discord"]["delivered"] == 1
-        assert snap["email"]["failed"] == snap["email"]["timed_out"] == 0
         dispatcher.stop()
 
     def test_rules_still_route_to_named_channels_only(
@@ -653,6 +660,9 @@ class TestHealthyFlows:
         worker = dispatcher.worker("email")
         assert worker is not None
         assert wait_until(lambda: worker.depth == 2, 3)
+        # Event 0 is in flight on the relay (not merely taken off the queue)
+        # before the channel is retired, so it is the one send still running.
+        assert wait_until(lambda: len(stalled_smtp.connections) == 1, 3)
 
         # Reload without the email channel: its waiting events are persisted,
         # the Discord worker keeps running with the new sender object.
@@ -671,6 +681,7 @@ class TestHealthyFlows:
         assert dispatcher.worker("email") is None
         assert discord_worker.notifier is discord_after
         assert wait_until(lambda: len(discord_server.requests) == 2, 3)
+        assert wait_until(lambda: discord_worker.snapshot()["delivered"] == 2, 3)
         assert sorted(e["event"]["seq"] for e in read_queue_file(path)) == [1, 2, 7]
         dispatcher.stop()
         # The retired channel's in-flight send is persisted at stop as well.
@@ -778,9 +789,13 @@ class TestDeliveryBoundsFromConfig:
             # The configured bound governs: one send hangs on the relay, one
             # event waits, the third spills to the retry queue.
             lock = threading.Lock()
-            for n in range(3):
-                dispatch(_event(n), [worker.notifier], lock, harness.queue, dispatcher)
-            assert wait_until(lambda: len(stalled_smtp.connections) == 1 and worker.depth == 1, 3)
+            dispatch(_event(0), [worker.notifier], lock, harness.queue, dispatcher)
+            # The first event is in flight (its connection is on the relay)
+            # before the next two arrive, so exactly one of them can wait.
+            assert wait_until(lambda: len(stalled_smtp.connections) == 1, 3)
+            dispatch(_event(1), [worker.notifier], lock, harness.queue, dispatcher)
+            dispatch(_event(2), [worker.notifier], lock, harness.queue, dispatcher)
+            assert worker.depth == 1
             seen["snapshot"] = dispatcher.snapshot()["email"]
             stalled_smtp.close()
 
@@ -884,18 +899,24 @@ class TestScheduledDigest:
             seen["result"] = list(result)
             # Discord delivers while the email relay is still hanging.
             seen["discord"] = wait_until(lambda: len(discord_server.requests) == 1, 3)
-            seen["email_connections"] = len(stalled_smtp.connections)
+            seen["email_connected"] = wait_until(lambda: len(stalled_smtp.connections) == 1, 3)
             # The relay goes away: the email digest fails and lands on the retry queue.
             stalled_smtp.close()
             seen["retry"] = wait_until(lambda: harness.queue.depth_by_type().get("email") == 1, 5)
+            seen["settled"] = wait_until(
+                lambda: dispatcher.snapshot()["discord"]["delivered"] == 1
+                and dispatcher.snapshot()["email"]["failed"] == 1,
+                3,
+            )
             seen["snapshot"] = dispatcher.snapshot()
 
         harness.run(monkeypatch, scenario)
         assert seen["result"] == [True]
         assert seen["elapsed"] < 2.0, "the digest must not wait on the stalled SMTP relay"
         assert seen["discord"] is True
-        assert seen["email_connections"] == 1
+        assert seen["email_connected"] is True
         assert seen["retry"] is True
+        assert seen["settled"] is True
         assert seen["snapshot"]["discord"]["delivered"] == 1
         assert seen["snapshot"]["email"]["failed"] == 1
         stored = read_queue_file(harness.queue_path)
