@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import actuation_db
+import log_redact
 import redis as redis_lib
 import yaml
 from activation_lease import LEASE_KEY_ENV, RedisActivationLeases
@@ -160,6 +161,7 @@ def setup_logging(log_level: str) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
+    log_redact.install()
 
 
 def parse_actuation_config(cfg: dict[str, Any]) -> ActuationConfig:

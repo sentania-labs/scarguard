@@ -10,6 +10,7 @@ import threading
 import time
 from typing import Any
 
+import log_redact
 import redis
 import secret_box
 import yaml
@@ -148,6 +149,7 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
+    log_redact.install()
     signing_key = load_key_from_env(LEASE_KEY_ENV)
     if signing_key is None:
         raise RuntimeError("OFF watchdog signing key is required")

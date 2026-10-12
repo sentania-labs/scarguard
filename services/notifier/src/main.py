@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+import log_redact
 import redis as redis_lib
 import yaml
 from atomic_ref import AtomicRef
@@ -83,6 +84,7 @@ def setup_logging(log_level: str) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
+    log_redact.install()
 
 
 def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifier | EmailNotifier | WebhookNotifier | NtfyNotifier]:
@@ -110,7 +112,7 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
                 seen_names.add(ch_name)
             elif ch_type == "webhook" and ch.get("url"):
                 notifiers.append(WebhookNotifier(ch, tz_name))
-                logger.info("Webhook channel [%s] enabled → %s", ch_name, ch["url"])
+                logger.info("Webhook channel [%s] enabled", ch_name)
                 seen_names.add(ch_name)
             elif ch_type == "ntfy" and ch.get("topic"):
                 notifiers.append(NtfyNotifier(ch, tz_name))

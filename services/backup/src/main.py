@@ -90,7 +90,7 @@ def _verify_trigger(payload: dict) -> bool:
     if isinstance(ch, str) and ch != TRIGGER_CHANNEL:
         return False
     channel_key = _DERIVE_KEY(_TRIGGER_KEY, TRIGGER_CHANNEL) if _DERIVE_KEY else _TRIGGER_KEY
-    return _VERIFY_TRIGGER(payload, channel_key, TRIGGER_CHANNEL, _TRIGGER_CACHE)  # type: ignore[arg-type]
+    return _VERIFY_TRIGGER(payload, channel_key, TRIGGER_CHANNEL, _TRIGGER_CACHE)
 
 DEFAULT_INTERVAL_HOURS = 24
 DEFAULT_RETENTION_DAILY = 14

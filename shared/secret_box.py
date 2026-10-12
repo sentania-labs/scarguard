@@ -24,7 +24,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -33,13 +33,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_KEY_PATH = os.environ.get("SECRET_KEY_PATH", "/data/secret_key")
 PREFIX = "enc:v1:"
 
-# Structural paths (tuple of dict keys) for sensitive fields outside the
-# heterogeneous channels list. Format matches config_redact._STRUCTURAL_PATHS
-# but excludes ``cameras[].rtsp_url`` - encrypting that requires teaching
-# the detector container to decrypt at boot, which is deferred.
+# Structural paths (tuple of dict keys, ``"[]"`` = every list item) for
+# sensitive fields outside the heterogeneous channels list. Matches
+# config_redact._STRUCTURAL_PATHS. Every reader of these fields (web,
+# detector, trainer, notifier, deterrent, off-watchdog) decrypts at load.
 SENSITIVE_FIELD_PATHS: tuple[tuple[str, ...], ...] = (
+    ("cameras", "[]", "rtsp_url"),
     ("deterrent", "tuya", "api_key"),
     ("deterrent", "tuya", "api_secret"),
+    ("training", "sources", "roboflow", "api_key"),
 )
 
 # Per-channel sensitive keys. Channels under ``notifications.channels`` are
@@ -47,11 +49,27 @@ SENSITIVE_FIELD_PATHS: tuple[tuple[str, ...], ...] = (
 # encrypted regardless of type. Mirrors config_redact._CHANNEL_SENSITIVE_KEYS.
 SENSITIVE_CHANNEL_KEYS: frozenset[str] = frozenset({
     "webhook_url",
+    "url",
     "smtp_pass",
     "auth_token",
     "token",
     "password",
 })
+
+SENSITIVE_HEADER_PATTERNS: tuple[str, ...] = (
+    "auth",
+    "token",
+    "key",
+    "secret",
+    "cookie",
+    "password",
+)
+
+
+def is_sensitive_header_name(name: object) -> bool:
+    """Return whether an HTTP header name conventionally carries credentials."""
+    lowered = str(name).lower()
+    return any(pattern in lowered for pattern in SENSITIVE_HEADER_PATTERNS)
 
 
 class SecretKeyMissing(RuntimeError):
@@ -180,118 +198,86 @@ def try_load_key(path: str | None = None) -> bytes | None:
     except SecretKeyMissing as exc:
         logger.warning("%s - secrets will be read as plaintext", exc)
         return None
+    except OSError as exc:
+        logger.error(
+            "Secret key at %s is unreadable (%s) - encrypted fields stay encrypted",
+            path or DEFAULT_KEY_PATH, type(exc).__name__,
+        )
+        return None
 
 
 # ── Walking helpers ─────────────────────────────────────────────────────────
 
-def _safe_get(cfg: Any, path: tuple[str, ...]) -> Any:
-    cur = cfg
-    for seg in path:
-        if not isinstance(cur, dict) or seg not in cur:
-            return None
-        cur = cur[seg]
-    return cur
+def _path_leaves(cfg: Any, path: tuple[str, ...]) -> Iterator[tuple[dict, str]]:
+    """Yield ``(container, key)`` for every leaf at *path* (``"[]"`` fans out)."""
+    if not path:
+        return
+    head, rest = path[0], path[1:]
+    if head == "[]":
+        if isinstance(cfg, list):
+            for item in cfg:
+                yield from _path_leaves(item, rest)
+        return
+    if not isinstance(cfg, dict) or head not in cfg:
+        return
+    if not rest:
+        yield cfg, head
+    else:
+        yield from _path_leaves(cfg[head], rest)
 
 
-def _walk_and_apply(
-    cfg: Any,
-    path: tuple[str, ...],
-    apply_fn: Callable[[str], str],
-) -> bool:
-    """Apply *apply_fn* to the leaf at *path* in *cfg*. Returns True if applied."""
-    if not path or not isinstance(cfg, dict):
-        return False
-    head = path[0]
-    if head not in cfg:
-        return False
-    if len(path) == 1:
-        v = cfg[head]
+def _sensitive_leaves(cfg: Any) -> Iterator[tuple[dict, str]]:
+    """Yield ``(container, key)`` for every sensitive field present in *cfg*."""
+    for path in SENSITIVE_FIELD_PATHS:
+        yield from _path_leaves(cfg, path)
+    notifications = cfg.get("notifications") if isinstance(cfg, dict) else None
+    channels = notifications.get("channels") if isinstance(notifications, dict) else None
+    if isinstance(channels, list):
+        for channel in channels:
+            if not isinstance(channel, dict):
+                continue
+            for k in sorted(SENSITIVE_CHANNEL_KEYS):
+                if k in channel:
+                    yield channel, k
+            headers = channel.get("headers")
+            if isinstance(headers, dict):
+                for name in sorted(headers, key=str):
+                    if is_sensitive_header_name(name):
+                        yield headers, name
+
+
+def _apply(cfg: Any, apply_fn: Callable[[str], str | None]) -> int:
+    count = 0
+    for container, k in _sensitive_leaves(cfg):
+        v = container[k]
         if isinstance(v, str) and v:
-            cfg[head] = apply_fn(v)
-            return True
-        return False
-    return _walk_and_apply(cfg[head], path[1:], apply_fn)
+            new_v = apply_fn(v)
+            if new_v is not None:
+                container[k] = new_v
+                count += 1
+    return count
 
 
 def encrypt_in_place(cfg: dict, key: bytes) -> int:
     """Walk *cfg* and encrypt every plaintext sensitive field. Returns count
     of newly-encrypted fields. Already-encrypted values are left as-is."""
-    count = 0
-
-    for path in SENSITIVE_FIELD_PATHS:
-        leaf = _safe_get(cfg, path)
-        if isinstance(leaf, str) and leaf and not is_encrypted(leaf):
-            if _walk_and_apply(cfg, path, lambda v: encrypt(v, key)):
-                count += 1
-
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
-            if not isinstance(channel, dict):
-                continue
-            for k in SENSITIVE_CHANNEL_KEYS:
-                v = channel.get(k)
-                if isinstance(v, str) and v and not is_encrypted(v):
-                    channel[k] = encrypt(v, key)
-                    count += 1
-
-    return count
+    return _apply(cfg, lambda v: None if is_encrypted(v) else encrypt(v, key))
 
 
 def decrypt_in_place(cfg: dict, key: bytes) -> int:
     """Walk *cfg* and decrypt every encrypted sensitive field. Returns count
     of newly-decrypted fields. Plaintext values are left as-is."""
-    count = 0
-
-    for path in SENSITIVE_FIELD_PATHS:
-        leaf = _safe_get(cfg, path)
-        if is_encrypted(leaf):
-            _walk_and_apply(cfg, path, lambda v: decrypt(v, key))
-            count += 1
-
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
-            if not isinstance(channel, dict):
-                continue
-            for k in SENSITIVE_CHANNEL_KEYS:
-                v = channel.get(k)
-                if isinstance(v, str) and is_encrypted(v):
-                    channel[k] = decrypt(v, key)
-                    count += 1
-
-    return count
+    return _apply(cfg, lambda v: decrypt(v, key) if is_encrypted(v) else None)
 
 
 def has_plaintext_secrets(cfg: dict) -> bool:
     """True iff any sensitive field is plaintext (i.e. needs migration)."""
-    for path in SENSITIVE_FIELD_PATHS:
-        v = _safe_get(cfg, path)
-        if isinstance(v, str) and v and not is_encrypted(v):
-            return True
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
-            if not isinstance(channel, dict):
-                continue
-            for k in SENSITIVE_CHANNEL_KEYS:
-                v = channel.get(k)
-                if isinstance(v, str) and v and not is_encrypted(v):
-                    return True
-    return False
+    return any(
+        isinstance(c[k], str) and c[k] and not is_encrypted(c[k])
+        for c, k in _sensitive_leaves(cfg)
+    )
 
 
 def has_encrypted_secrets(cfg: dict) -> bool:
     """True iff any sensitive field holds an ``enc:v1:`` value."""
-    for path in SENSITIVE_FIELD_PATHS:
-        if is_encrypted(_safe_get(cfg, path)):
-            return True
-    channels = _safe_get(cfg, ("notifications", "channels"))
-    if isinstance(channels, list):
-        for channel in channels:
-            if not isinstance(channel, dict):
-                continue
-            for k in SENSITIVE_CHANNEL_KEYS:
-                if is_encrypted(channel.get(k)):
-                    return True
-    return False
+    return any(is_encrypted(c[k]) for c, k in _sensitive_leaves(cfg))

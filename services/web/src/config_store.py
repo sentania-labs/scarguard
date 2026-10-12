@@ -223,6 +223,60 @@ def save(cfg: dict, *, require_encryption: bool = False) -> None:
         _cache_loaded_at = time.monotonic()
 
 
+# Outcome of the last :func:`migrate_plaintext_secrets` run (``None`` = not run).
+secret_migration_state: str | None = None
+
+
+def migrate_plaintext_secrets() -> str:
+    """Encrypt plaintext sensitive fields on disk when the existing key allows.
+
+    Returns (and records in :data:`secret_migration_state`) one of:
+
+    * ``"clean"`` - nothing to migrate;
+    * ``"migrated"`` - plaintext fields were re-saved encrypted;
+    * ``"pending_key"`` - no key is available, so plaintext stays plaintext and
+      encrypted values cannot be verified;
+    * ``"undecryptable"`` - stored ``enc:v1:`` values do not decrypt with the
+      key on disk, so the file is left untouched rather than mixing keys.
+
+    The unresolved states never rewrite the file; they are logged and retried
+    on the next start or the next config save.
+    """
+    global secret_migration_state
+    try:
+        with CONFIG_PATH.open() as f:
+            raw = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    key = secret_box.try_load_key()
+    plaintext = secret_box.has_plaintext_secrets(raw)
+    state = "clean"
+    try:
+        require_encrypted_secrets(raw, key)
+    except SecretEncryptionError:
+        state = "pending_key" if key is None else "undecryptable"
+    else:
+        if plaintext:
+            save(load())
+            state = "migrated"
+    if state == "migrated":
+        logger.info("Encrypted plaintext sensitive config fields at rest")
+    elif state == "pending_key":
+        logger.warning(
+            "The secret key is unavailable: plaintext sensitive fields stay plaintext "
+            "and encrypted ones cannot be verified (migration pending)",
+        )
+    elif state == "undecryptable":
+        logger.error(
+            "Stored encrypted config fields do not decrypt with the current secret key; "
+            "leaving scarguard.yml unchanged",
+        )
+    secret_migration_state = state
+    return state
+
+
 def set_armed(armed: bool) -> None:
     cfg = load()
     cfg.setdefault("system", {})["armed"] = armed

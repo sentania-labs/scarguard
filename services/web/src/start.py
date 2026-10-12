@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 
+import log_redact
 import uvicorn
 import yaml
 
@@ -16,6 +17,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
     stream=sys.stdout,
 )
+log_redact.install()
 log = logging.getLogger("start")
 
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "/config/scarguard.yml")

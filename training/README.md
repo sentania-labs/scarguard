@@ -121,9 +121,11 @@ class scheme with a train/val split. The trainer service runs this same
 script for on-device `prepare_dataset` / `prepare_and_train` jobs.
 
 ```bash
+# The Roboflow key is read from an owner-only file, never passed on argv.
+(umask 077 && printf '%s' "$ROBOFLOW_API_KEY" > roboflow.key)
 python prepare_dataset.py \
     --orin-host scott@orin \
-    --roboflow-key YOUR_KEY \
+    --roboflow-key-file ./roboflow.key \
     --output ./merged_dataset
 
 # Custom class list (order defines model class indices):

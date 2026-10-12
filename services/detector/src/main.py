@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import log_redact
+import secret_box
 import yaml
 from atomic_ref import AtomicRef
 from camera_health import CameraHealthTracker
@@ -76,7 +78,24 @@ def load_config() -> dict:
     if not isinstance(cfg, dict):
         raise ValueError("Detector config must be a mapping")
     _validate_frame_skip(cfg.get("detection", {}).get("frame_skip", 2))
+    _decrypt_secrets(cfg)
     return cfg
+
+
+def _decrypt_secrets(cfg: dict) -> None:
+    """Decrypt sensitive fields (camera RTSP URLs) in place when the key is present.
+
+    Without the key, plaintext passes through (migration pending) and an
+    ``enc:v1:`` value stays as-is, so the stream fails to open rather than
+    the detector crashing.
+    """
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except (secret_box.SecretKeyMissing, ValueError):
+        logger.error("Failed to decrypt detector secrets - wrong key on disk?")
 
 
 def setup_logging(log_level: str) -> None:
@@ -85,6 +104,7 @@ def setup_logging(log_level: str) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
+    log_redact.install()
 
 
 def _match_notification_rules(class_name: str, rules: list[dict]) -> list[str] | None:
@@ -833,6 +853,7 @@ def main() -> None:
     # ---- Config hot-reload ----------------------------------------------------
     def _on_config_change(new_cfg: dict) -> None:
         nonlocal known_channels, known_groups
+        _decrypt_secrets(new_cfg)
         new_sys = new_cfg.get("system", {})
         new_det = new_cfg.get("detection", {})
         try:

@@ -66,6 +66,7 @@ async def _startup() -> None:
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _ensure_secret_key()
+    _migrate_plaintext_secrets()
     _ensure_bootstrap_token()
     _check_db_integrity()
     _ensure_training_tables()
@@ -196,6 +197,18 @@ def _ensure_secret_key() -> None:
             )
     except Exception as exc:
         log.error("Failed to create secret key: %s", exc)
+
+
+def _migrate_plaintext_secrets() -> None:
+    """Encrypt pre-existing plaintext secrets once the key exists (never fatal)."""
+    import logging
+
+    import config_store
+
+    try:
+        config_store.migrate_plaintext_secrets()
+    except Exception as exc:
+        logging.getLogger("startup").error("Secret migration failed: %s", type(exc).__name__)
 
 
 # ── Auth middleware ────────────────────────────────────────────────────────────

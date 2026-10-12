@@ -181,6 +181,15 @@ codec support or inference. No production/device validation was performed.
   where none is available (the CI web image, and the worker that produced
   this change); validate on a Redis 7 host before release.
 
+- **Credentials kept out of logs, viewer pages and permissive files (FDY-0570;
+  SG-18, SG-35).** Log lines are masked at the source and again in the
+  log-streamer and log viewer; camera RTSP URLs and the Roboflow key are now
+  encrypted at rest (detector and trainer decrypt), and the web service migrates
+  remaining plaintext at start when the key exists, recording `pending_key` or
+  `undecryptable` otherwise. The Roboflow key reaches `prepare_dataset.py`
+  through a 0600 file instead of argv. `setup.sh` runs under `umask 077` and
+  re-applies `chmod 0600 .env` on every run.
+
 - **Slow notification channels no longer block the others (FDY-0572; SG-33).**
   Notifications used to be sent inline on the Redis subscriber thread, one
   channel after another, and one retry thread served every channel, so an SMTP

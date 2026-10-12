@@ -5,10 +5,19 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import requests
 import safe_http
 from url_safety import channel_destination_errors
 
 logger = logging.getLogger(__name__)
+
+
+def _without_url(exc: requests.RequestException, message: str) -> requests.RequestException:
+    """Same exception type, but without the request URL (it may carry a token)."""
+    try:
+        return type(exc)(message)
+    except Exception:  # noqa: BLE001 - an unusual constructor; keep the base type
+        return requests.RequestException(message)
 
 
 def _to_local(iso_str: str, tz_name: str) -> str:
@@ -69,15 +78,18 @@ class WebhookNotifier:
             "display_time": _to_local(str(event.get("timestamp", "")), self._tz_name),
         }
 
-        resp = safe_http.send(
-            self._method,
-            self._url,
-            allow_internal=self._allow_internal,
-            json=payload,
-            headers=self._headers,
-            timeout=10,
-        )
-        resp.raise_for_status()
+        try:
+            resp = safe_http.send(
+                self._method,
+                self._url,
+                allow_internal=self._allow_internal,
+                json=payload,
+                headers=self._headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise _without_url(exc, "Webhook request failed") from None
         logger.info(
             "Webhook [%s] %s → %d",
             self._name, self._method, resp.status_code,
@@ -102,9 +114,12 @@ class WebhookNotifier:
             "storage": report.get("storage"),
             "training": report.get("training"),
         }
-        resp = safe_http.send(
-            self._method, self._url, allow_internal=self._allow_internal,
-            json=payload, headers=self._headers, timeout=15,
-        )
-        resp.raise_for_status()
+        try:
+            resp = safe_http.send(
+                self._method, self._url, allow_internal=self._allow_internal,
+                json=payload, headers=self._headers, timeout=15,
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise _without_url(exc, "Webhook digest request failed") from None
         logger.info("Webhook [%s] digest sent → %d", self._name, resp.status_code)

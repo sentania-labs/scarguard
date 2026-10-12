@@ -349,7 +349,10 @@ PR to main (ci.yml + build.yml - full validation)
   │   ├── pytest - notifier
   │   ├── pytest - deterrent
   │   └── pytest - training runtime (trainer + lifecycle controller,
-  │       fake children/cgroups/Docker backend - never touches the Orin)
+  │       fake children/cgroups/Docker backend - never touches the Orin;
+  │       installs services/trainer/requirements.txt on Python 3.11 while
+  │       the trainer image runs Python 3.10, so trainer pins must install
+  │       on both - e.g. numpy stays on a 3.10-capable release)
   │
   ├── GitHub-hosted ubuntu-latest (parallel):
   │   ├── Build web image (multi-arch) + amd64 test + Trivy

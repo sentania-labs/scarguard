@@ -12,7 +12,7 @@ Prerequisites:
 Usage:
     python prepare_dataset.py \
         --orin-host scott@orin \
-        --roboflow-key YOUR_KEY \
+        --roboflow-key-file ./roboflow.key \
         --output ./merged_dataset
 
     # Then train:
@@ -154,8 +154,9 @@ def _parse_args() -> argparse.Namespace:
         help="Pre-downloaded ScarGuard export zip (skips SSH pull)",
     )
     p.add_argument(
-        "--roboflow-key", default="",
-        help="Roboflow API key for downloading Universe datasets",
+        "--roboflow-key-file", default="",
+        help="File holding the Roboflow API key (chmod 600). Read from a file, "
+        "never argv, so the key stays out of ps and /proc/<pid>/cmdline",
     )
     p.add_argument(
         "--output", default="./merged_dataset",
@@ -569,6 +570,19 @@ def pull_training_uploads(
 # ── Roboflow pull ──────────────────────────────────────────────────────────
 
 
+def _read_key_file(path: str) -> str:
+    """Read an API key from *path* without echoing it; exit on an empty/missing file."""
+    try:
+        key = Path(path).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        print(f"ERROR: cannot read the Roboflow key file: {exc.strerror}", file=sys.stderr)
+        sys.exit(1)
+    if not key:
+        print("ERROR: the Roboflow key file is empty", file=sys.stderr)
+        sys.exit(1)
+    return key
+
+
 def pull_roboflow(api_key: str, work_dir: Path) -> list[Sample]:
     """Download Roboflow Universe datasets and return remapped samples."""
     try:
@@ -940,9 +954,12 @@ def main() -> None:
         sys.exit(1)
     set_active_classes(classes)
 
-    if not args.skip_roboflow and not args.roboflow_key:
-        print("ERROR: --roboflow-key is required (or use --skip-roboflow)", file=sys.stderr)
-        sys.exit(1)
+    roboflow_key = ""
+    if not args.skip_roboflow:
+        if not args.roboflow_key_file:
+            print("ERROR: --roboflow-key-file is required (or use --skip-roboflow)", file=sys.stderr)
+            sys.exit(1)
+        roboflow_key = _read_key_file(args.roboflow_key_file)
 
     with tempfile.TemporaryDirectory(prefix="sg_train_") as tmp:
         work_dir = Path(tmp)
@@ -959,7 +976,7 @@ def main() -> None:
                 )
 
         if not args.skip_roboflow:
-            samples.extend(pull_roboflow(args.roboflow_key, work_dir))
+            samples.extend(pull_roboflow(roboflow_key, work_dir))
 
         if not args.skip_oid:
             samples.extend(

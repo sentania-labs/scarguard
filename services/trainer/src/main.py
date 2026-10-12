@@ -20,7 +20,9 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+import log_redact
 import redis
+import secret_box
 import yaml
 from redis_client import redis_auth
 
@@ -37,7 +39,26 @@ POLL_INTERVAL = 30
 
 def _load_config() -> dict:
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f) or {}
+        cfg = yaml.safe_load(f) or {}
+    if isinstance(cfg, dict):
+        _decrypt_secrets(cfg)
+    return cfg
+
+
+def _decrypt_secrets(cfg: dict) -> None:
+    """Decrypt sensitive fields (the Roboflow key) in place when the key is present.
+
+    Without the key, plaintext passes through (migration pending) and an
+    ``enc:v1:`` value stays as-is, so the job fails visibly instead of
+    sending ciphertext to Roboflow.
+    """
+    key = secret_box.try_load_key()
+    if key is None:
+        return
+    try:
+        secret_box.decrypt_in_place(cfg, key)
+    except (secret_box.SecretKeyMissing, ValueError):
+        logger.error("Failed to decrypt trainer secrets - wrong key on disk?")
 
 
 def _connect_db() -> sqlite3.Connection:
@@ -184,6 +205,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
         stream=sys.stdout,
     )
+    log_redact.install()
     logger.info("ScarGuard trainer starting")
 
     Path("/tmp/healthy").touch(exist_ok=True)

@@ -80,7 +80,7 @@ class TestRedactConfig:
         assert channels["push"]["token"] == REDACTED_PLACEHOLDER
         assert channels["push"]["password"] == REDACTED_PLACEHOLDER
         # Non-secret fields stay visible
-        assert channels["home-assistant"]["url"] == "https://ha.local/webhook"
+        assert channels["home-assistant"]["url"] == REDACTED_PLACEHOLDER
         assert channels["push"]["topic"] == "my-alerts"
         assert channels["push"]["server"] == "https://ntfy.sh"
 

@@ -8,6 +8,8 @@
 #  Usage:  bash setup.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
+# Everything setup.sh creates (.env, generated keys) is owner-only.
+umask 077
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,6 +163,7 @@ fi
 step "Setting up environment (.env)"
 
 if [[ -f ".env" ]]; then
+    chmod 0600 .env
     info ".env already exists - loading."
     set -a
     # shellcheck disable=SC1091
@@ -237,6 +240,7 @@ else
     fi
 
     cp .env.example .env
+    chmod 0600 .env
 
     # Generate a random Redis password for inter-service auth
     REDIS_PASS=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
@@ -280,6 +284,10 @@ else
 
     info "Created .env (HTTP_PORT=${HTTP_PORT_VALUE}, platform=${PLATFORM})"
 fi
+
+# .env holds the Redis password and HMAC keys: owner-only on creation AND on
+# every rerun (an older install may have left it 0644).
+chmod 0600 .env
 
 # Read HTTP_PORT for use in the final message
 HTTP_PORT_FINAL=$(grep -E '^HTTP_PORT=' .env | cut -d= -f2 || echo "80")

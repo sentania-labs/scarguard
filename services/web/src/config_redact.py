@@ -18,6 +18,7 @@ import copy
 from typing import Any
 
 import yaml
+from secret_box import is_sensitive_header_name
 
 REDACTED_PLACEHOLDER = "***REDACTED***"
 
@@ -37,6 +38,7 @@ _STRUCTURAL_PATHS: tuple[tuple[str, ...], ...] = (
 # builders in services/web/src/static/config.js and the notifier modules.
 _CHANNEL_SENSITIVE_KEYS: frozenset[str] = frozenset({
     "webhook_url",   # discord channels
+    "url",           # generic webhook capability URL
     "smtp_pass",     # email channels
     "auth_token",    # webhook channels (bearer token)
     "token",         # ntfy channels (bearer)
@@ -47,16 +49,6 @@ _CHANNEL_SENSITIVE_KEYS: frozenset[str] = frozenset({
 # credential.  Used by the ``headers`` dict walker below so non-sensitive
 # routing headers (Content-Type, X-Source, etc.) stay visible while
 # Authorization / X-API-Key / Cookie / Token headers get masked.
-_HEADER_SENSITIVE_PATTERNS: tuple[str, ...] = (
-    "auth",
-    "token",
-    "key",
-    "secret",
-    "cookie",
-    "password",
-)
-
-
 def redact_config(
     cfg: dict[str, Any],
     *,
@@ -110,14 +102,13 @@ def _mask_header_values(
     """Return a copy of *headers* with credential-looking values masked.
 
     A header value is masked when its key (case-insensitive) contains any of
-    the ``_HEADER_SENSITIVE_PATTERNS`` substrings.  This keeps routing /
+    a sensitive credential pattern. This keeps routing /
     diagnostic headers (Content-Type, X-Source, Accept) visible while
     ensuring Authorization, X-API-Key, Cookie, etc. are hidden.
     """
     out: dict[str, Any] = {}
     for name, value in headers.items():
-        key = str(name).lower()
-        if any(p in key for p in _HEADER_SENSITIVE_PATTERNS) and value:
+        if is_sensitive_header_name(name) and value:
             out[name] = placeholder
         else:
             out[name] = value

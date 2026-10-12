@@ -8,6 +8,7 @@ import threading
 
 import cv2
 import numpy as np
+from log_redact import redact_text
 
 
 def _ensure_ffmpeg_socket_timeout(
@@ -90,7 +91,9 @@ class RTSPStream:
             logger.info("[%s] Connected to RTSP stream", self.name)
             return True
 
-        logger.warning("[%s] Failed to open RTSP stream: %s", self.name, self.rtsp_url)
+        logger.warning(
+            "[%s] Failed to open RTSP stream: %s", self.name, redact_text(self.rtsp_url),
+        )
         return False
 
     def _reconnect(self) -> bool:
