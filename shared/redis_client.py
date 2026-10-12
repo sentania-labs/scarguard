@@ -31,11 +31,12 @@ def redis_auth() -> dict[str, Any]:
     with an authentication error instead of silently gaining admin access.
     """
     params: dict[str, Any] = {}
-    username = os.environ.get("REDIS_USERNAME", "") or None
-    password = os.environ.get("REDIS_PASSWORD", "") or None
+    username = os.environ.get("REDIS_USERNAME", "")
+    password = os.environ.get("REDIS_PASSWORD", "")
     if username:
         params["username"] = username
-    if password:
+        params["password"] = password
+    elif password:
         params["password"] = password
     return params
 

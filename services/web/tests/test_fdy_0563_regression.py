@@ -82,10 +82,27 @@ def test_shared_client_authenticates_as_named_service_user(monkeypatch: pytest.M
     kwargs = make_sync_client({"host": "h", "port": 1}).connection_pool.connection_kwargs
     assert (kwargs["username"], kwargs["password"], kwargs["host"]) == ("web", token, "h")
 
-    # Fail closed: a named user with no credential still authenticates as that
-    # user (and is rejected by Redis) instead of silently becoming admin.
+    # Fail closed / nopass: preserve the empty password whenever REDIS_USERNAME is
+    # set so clients issue two-argument AUTH <username> "" (finding 01M4Q5PZPMDTQVGKREH9GCBT01).
     monkeypatch.setenv("REDIS_PASSWORD", "")
-    assert _resolve_params()["username"] == "web" and "password" not in _resolve_params()
+    assert redis_auth() == {"username": "web", "password": ""}
+    assert _resolve_params()["username"] == "web" and _resolve_params()["password"] == ""
+    kwargs_empty = make_sync_client({"host": "h", "port": 1}).connection_pool.connection_kwargs
+    assert kwargs_empty["username"] == "web" and kwargs_empty["password"] == ""
+
+    monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+    assert redis_auth() == {"username": "web", "password": ""}
+    assert _resolve_params()["username"] == "web" and _resolve_params()["password"] == ""
+
+    # Legacy / unauthenticated modes without REDIS_USERNAME.
+    monkeypatch.delenv("REDIS_USERNAME", raising=False)
+    monkeypatch.setenv("REDIS_PASSWORD", token)
+    assert redis_auth() == {"password": token}
+    assert "username" not in _resolve_params() and _resolve_params()["password"] == token
+
+    monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+    assert redis_auth() == {}
+    assert "username" not in _resolve_params() and "password" not in _resolve_params()
 
 
 def test_rate_limiter_is_atomic_and_fails_closed() -> None:
