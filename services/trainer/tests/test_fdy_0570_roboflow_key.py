@@ -8,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import job_runner
+import pytest
+import secret_box
 
 # Stand-in for scripts/prepare_dataset.py, run by the real _run_subprocess:
 # it records its own kernel-visible argv and the key file's mode and content
@@ -96,3 +98,61 @@ def test_roboflow_key_is_a_private_file_not_argv(tmp_path: Path, monkeypatch) ->
     assert not Path(seen["key_path"]).exists()
     assert key not in ctx.log_path.read_text()
     assert key not in json.dumps(executions)
+
+
+def test_encrypted_roboflow_key_is_rejected_before_file_or_subprocess(monkeypatch) -> None:
+    training = {
+        "sources": {"roboflow": {"api_key": secret_box.PREFIX + "unresolved"}}
+    }
+    ctx = SimpleNamespace(
+        cfg={"training": training},
+        params={},
+        training_config=lambda: training,
+    )
+    monkeypatch.setattr(
+        job_runner,
+        "_write_secret_file",
+        lambda *_args, **_kwargs: pytest.fail("must not create a key file"),
+    )
+    monkeypatch.setattr(
+        job_runner,
+        "_run_subprocess",
+        lambda *_args, **_kwargs: pytest.fail("must not launch the downloader"),
+    )
+
+    result = job_runner._run_prepare_dataset(ctx)
+
+    assert result == {
+        "error": "Roboflow source requires a decrypted API key; check the trainer secret key"
+    }
+
+
+def test_roboflow_key_file_is_removed_when_command_construction_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    key = f"sentinel{uuid.uuid4().hex}"
+    training = {
+        "sources": {
+            "roboflow": {"api_key": key},
+            "open_images": None,
+        }
+    }
+    ctx = SimpleNamespace(
+        cfg={"training": training},
+        params={},
+        training_config=lambda: training,
+    )
+    key_path = tmp_path / "private-input"
+
+    def write_key(value: str, *, prefix: str) -> str:
+        assert value == key
+        assert prefix == "roboflow-key-"
+        key_path.write_text(value)
+        return str(key_path)
+
+    monkeypatch.setattr(job_runner, "_write_secret_file", write_key)
+
+    with pytest.raises(AttributeError):
+        job_runner._run_prepare_dataset(ctx)
+
+    assert not key_path.exists()

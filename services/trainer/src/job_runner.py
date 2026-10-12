@@ -28,6 +28,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+import secret_box
 from detector_controller import DetectorControllerClient
 from model_store import (
     ModelStore,
@@ -651,36 +652,41 @@ def _run_prepare_dataset(ctx: JobContext) -> dict:
     rf_key = rf_cfg.get("api_key", "")
     roboflow_key_missing = False
     rf_key_path: str | None = None
-    if rf_key and not ctx.params.get("skip_roboflow"):
-        # The key goes to a private 0600 file, never argv: argv is visible
-        # in /proc/<pid>/cmdline, `ps` and the persisted command evidence.
-        rf_key_path = _write_secret_file(rf_key, prefix="roboflow-key-")
-        cmd += ["--roboflow-key-file", rf_key_path]
-    else:
-        cmd.append("--skip-roboflow")
-        if not ctx.params.get("skip_roboflow"):
-            roboflow_key_missing = True
-            ctx.append_log(
-                "WARNING: Roboflow source skipped - training.sources.roboflow.api_key "
-                "is not set in scarguard.yml. Heron coverage depends on Roboflow; "
-                "expect low annotation counts."
-            )
-
-    if ctx.params.get("skip_orin"):
-        cmd.append("--skip-orin")
-    if ctx.params.get("skip_oid"):
-        cmd.append("--skip-oid")
-    if ctx.params.get("skip_training_uploads"):
-        cmd.append("--skip-training-uploads")
-
-    oid_cfg = sources.get("open_images", {})
-    cmd += [
-        "--max-oid-per-class",
-        str(ctx.params.get("max_oid_per_class", oid_cfg.get("max_per_class", 1500))),
-    ]
-    cmd += ["--oid-workers", str(oid_cfg.get("workers", 16))]
-
     try:
+        if rf_key and not ctx.params.get("skip_roboflow"):
+            if secret_box.is_encrypted(rf_key):
+                return {
+                    "error": "Roboflow source requires a decrypted API key; "
+                    "check the trainer secret key"
+                }
+            # The key goes to a private 0600 file, never argv: argv is visible
+            # in /proc/<pid>/cmdline, `ps` and the persisted command evidence.
+            rf_key_path = _write_secret_file(rf_key, prefix="roboflow-key-")
+            cmd += ["--roboflow-key-file", rf_key_path]
+        else:
+            cmd.append("--skip-roboflow")
+            if not ctx.params.get("skip_roboflow"):
+                roboflow_key_missing = True
+                ctx.append_log(
+                    "WARNING: Roboflow source skipped - training.sources.roboflow.api_key "
+                    "is not set in scarguard.yml. Heron coverage depends on Roboflow; "
+                    "expect low annotation counts."
+                )
+
+        if ctx.params.get("skip_orin"):
+            cmd.append("--skip-orin")
+        if ctx.params.get("skip_oid"):
+            cmd.append("--skip-oid")
+        if ctx.params.get("skip_training_uploads"):
+            cmd.append("--skip-training-uploads")
+
+        oid_cfg = sources.get("open_images", {})
+        cmd += [
+            "--max-oid-per-class",
+            str(ctx.params.get("max_oid_per_class", oid_cfg.get("max_per_class", 1500))),
+        ]
+        cmd += ["--oid-workers", str(oid_cfg.get("workers", 16))]
+
         result = _run_subprocess(ctx, cmd, phase="prepare_dataset")
     finally:
         if rf_key_path is not None:
