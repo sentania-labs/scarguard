@@ -6,9 +6,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+ACTIONLINT_DIR=$(mktemp -d /tmp/actionlint.XXXXXXXXXX)
+trap 'rm -rf "$ACTIONLINT_DIR"' EXIT
+
 # ── 1. actionlint ──────────────────────────────────────────────────────────
-# actionlint is a Go binary downloaded to an ephemeral location; add it
-# to PATH if available (set by CI or local setup).
 ACTIONLINT="${ACTIONLINT:-$(which actionlint 2>/dev/null || true)}"
 if [ -z "$ACTIONLINT" ]; then
   # Check common local installations
@@ -20,8 +21,21 @@ if [ -z "$ACTIONLINT" ]; then
   done
 fi
 if [ -z "$ACTIONLINT" ]; then
-  echo "ERROR: actionlint not found. Install it (go install github.com/rhysd/actionlint/cmd/actionlint@latest) or set ACTIONLINT=/path/to/actionlint" >&2
-  exit 1
+  # Download a pinned release of actionlint.
+  # Version: 1.7.12   SHA-256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+  ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+  EXPECTED_SHA="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  TARBALL="${ACTIONLINT_DIR}/actionlint.tar.gz"
+  BINARY="${ACTIONLINT_DIR}/actionlint"
+
+  curl -fsSL -o "$TARBALL" -H "User-Agent: scarguard-ci" "$ACTIONLINT_URL"
+  ACTUAL_SHA=$(sha256sum "$TARBALL" | awk '{print $1}')
+  if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+    echo "ERROR: actionlint checksum mismatch: expected $EXPECTED_SHA, got $ACTUAL_SHA" >&2
+    exit 1
+  fi
+  tar xzf "$TARBALL" -C "$ACTIONLINT_DIR"
+  ACTIONLINT="$BINARY"
 fi
 
 # Known pre-existing issues that are not caused by this change:
