@@ -1,42 +1,84 @@
 version: 2
 updates:
+  # 34 single-bump PRs on 2026-10-09 showed this repo needs grouped dependabot
+  # PRs so weekly updates arrive as one PR per service, not 34 scattered ones.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      docker-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/web"
     schedule:
       interval: "weekly"
+    groups:
+      web-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/notifier"
     schedule:
       interval: "weekly"
+    groups:
+      notifier-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/detector"
     schedule:
       interval: "weekly"
+    groups:
+      detector-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/deterrent"
     schedule:
       interval: "weekly"
+    groups:
+      deterrent-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/backup"
     schedule:
       interval: "weekly"
+    groups:
+      backup-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/config-api"
     schedule:
       interval: "weekly"
+    groups:
+      config-api-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/log-streamer"
     schedule:
       interval: "weekly"
+    groups:
+      log-streamer-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/trainer"
     schedule:
       interval: "weekly"
+    groups:
+      trainer-pip-updates:
+        patterns:
+          - "*"
   - package-ecosystem: "pip"
     directory: "/services/training-controller"
     schedule:
       interval: "weekly"
+    groups:
+      training-controller-pip-updates:
+        patterns:
+          - "*"
