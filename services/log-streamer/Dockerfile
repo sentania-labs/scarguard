@@ -19,8 +19,9 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip uninstall -y pip setuptools wheel
 
 COPY services/log-streamer/src/ ./src/
+COPY shared/ ./shared/
 
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app/src:/app/shared
 ENV PYTHONUNBUFFERED=1
 
 # v1.14: drop to non-root. Docker socket access is mediated by

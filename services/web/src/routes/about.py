@@ -6,7 +6,6 @@ import platform
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import config_store
 import db
@@ -14,6 +13,7 @@ import redis as redis_lib
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from redis_client import redis_auth
 
 log = logging.getLogger(__name__)
 
@@ -30,9 +30,8 @@ def _redis_conn(cfg: dict) -> redis_lib.Redis:
     redis_cfg = cfg.get("redis", {})
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
-    pw = os.environ.get("REDIS_PASSWORD", "") or None
     return redis_lib.Redis(
-        host=host, port=port, password=pw,
+        host=host, port=port, **redis_auth(),
         socket_timeout=2, socket_connect_timeout=2,
     )
 
@@ -50,8 +49,8 @@ def _check_log_streamer(cfg: dict) -> bool:
     """Return True if the log-streamer sidecar has populated any ring buffers."""
     try:
         r = _redis_conn(cfg)
-        keys: Any = r.keys("scarguard:logs:buffer:*")
-        return bool(keys)
+        first = next(r.scan_iter(match="scarguard:logs:buffer:*", count=100), None)
+        return first is not None
     except Exception:
         return False
 

@@ -24,6 +24,7 @@ import log_redact
 import redis
 import secret_box
 import yaml
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,10 @@ def _connect_db() -> sqlite3.Connection:
 
 def _get_redis(cfg: dict) -> redis.Redis:
     redis_cfg = cfg.get("redis", {})
-    pw = os.environ.get("REDIS_PASSWORD", "") or None
     return redis.Redis(
         host=redis_cfg.get("host", "redis"),
         port=int(redis_cfg.get("port", 6379)),
-        password=pw,
+        **redis_auth(),
         decode_responses=True,
     )
 

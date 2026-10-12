@@ -1,12 +1,12 @@
 """Periodic battery monitoring for Tuya devices.
 
 Polls device status via the Cloud API on a configurable interval and
-publishes low-battery alerts to the ``scarguard:notifications`` Redis channel.
+publishes low-battery alerts as signed notification requests on
+``scarguard:notify:request`` (notifier-only; deterrent cannot publish detections).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 from datetime import datetime, timezone
@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import redis as redis_lib
 from actuation_models import ActuationConfig, DeviceConfig
 from cloud_controller import TuyaCloudController
+from notify_request import NOTIFY_REQUEST_CHANNEL, sign_notify_request
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class BatteryMonitor:
             ),
         }
         try:
-            self._redis.publish("scarguard:detections", json.dumps(alert))
+            self._redis.publish(NOTIFY_REQUEST_CHANNEL, sign_notify_request(alert, NOTIFY_REQUEST_CHANNEL))
             logger.warning(
                 "Low battery alert: %s at %d%% (threshold %d%%)",
                 device.name, battery, threshold,
