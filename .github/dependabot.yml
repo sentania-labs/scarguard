@@ -82,3 +82,11 @@ updates:
       training-controller-pip-updates:
         patterns:
           - "*"
+  - package-ecosystem: "pip"
+    directory: "/services/off-watchdog"
+    schedule:
+      interval: "weekly"
+    groups:
+      off-watchdog-pip-updates:
+        patterns:
+          - "*"

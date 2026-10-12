@@ -64,7 +64,7 @@ fi
   -color .github/workflows/*.yml
 
 # ── 2. YAML parse of dependabot.yml ───────────────────────────────────────
-uv run --with pyyaml -- python3 -c "
+uv run --no-project --with pyyaml -- python3 -c "
 import yaml, sys
 d = yaml.safe_load(open('.github/dependabot.yml'))
 assert all('groups' in u for u in d['updates']), 'ungrouped ecosystem'
@@ -73,7 +73,7 @@ print(f'grouped {len(d[\"updates\"])}')
 
 # ── 3. Every docker/login-action step in build.yml must have the push guard
 #     (the condition github.actor != 'dependabot[bot]').
-uv run --with pyyaml -- python3 -c "
+uv run --no-project --with pyyaml -- python3 -c "
 import yaml, sys
 
 with open('.github/workflows/build.yml') as f:
