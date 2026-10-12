@@ -142,19 +142,21 @@ redis:
   before writing. Errors name the field and rule, never the value.
 - **Encrypted fields at rest.** `cameras[].rtsp_url`, `deterrent.tuya.api_key`,
   `deterrent.tuya.api_secret`, `training.sources.roboflow.api_key` and the
-  channel fields `webhook_url`, `smtp_pass`, `auth_token`, `token` and
-  `password` are stored as `enc:v1:` values under `/data/secret_key`. Web,
+  channel fields `webhook_url`, `url`, `smtp_pass`, `auth_token`, `token` and
+  `password`, plus credential-bearing custom header values, are stored as
+  `enc:v1:` values under `/data/secret_key`. Web,
   detector, trainer, notifier, deterrent and off-watchdog decrypt them at load.
   On start the web service encrypts any remaining plaintext fields when the key
   exists; without the key (state `pending_key`) or when stored values were made
   with another key (`undecryptable`) it leaves `scarguard.yml` untouched and
   logs the state instead.
-- **Credentials in logs.** Every service masks URL passwords, Discord webhook
+- **Credentials in logs.** Every service removes RTSP paths and queries and
+  masks URL passwords, Discord webhook
   tokens, `Bearer`/`Basic` values and `password`/`token`/`api_key`-style
   `key=value` pairs before a log line is written; the log-streamer masks again
   before publishing to Redis and the admin log viewer masks replayed buffers
-  written before this change. A secret embedded in a webhook URL *path* that
-  matches none of these shapes is not detected; notifier logs only the host.
+  written before this change. Notifier status logs omit generic webhook paths
+  and queries entirely.
 - **Roboflow key.** The trainer passes the key to `prepare_dataset.py` as a
   temporary owner-only (0600) file (`--roboflow-key-file`), deleted after the
   step, never on the command line.

@@ -18,7 +18,7 @@ def test_parsed_lines_are_redacted_before_publish_or_buffer() -> None:
     lines = main._parse_log_chunk(chunk, "abc123")
 
     assert [line.text for line in lines] == [
-        "Failed to open RTSP stream: rtsp://viewer:***@192.0.2.10/s1",
+        "Failed to open RTSP stream: rtsp://192.0.2.10",
         "POST https://ntfy.example.com/pond?token=***",
     ]
     assert all(secret not in line.identity for line in lines)

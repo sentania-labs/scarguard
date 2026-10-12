@@ -49,11 +49,27 @@ SENSITIVE_FIELD_PATHS: tuple[tuple[str, ...], ...] = (
 # encrypted regardless of type. Mirrors config_redact._CHANNEL_SENSITIVE_KEYS.
 SENSITIVE_CHANNEL_KEYS: frozenset[str] = frozenset({
     "webhook_url",
+    "url",
     "smtp_pass",
     "auth_token",
     "token",
     "password",
 })
+
+SENSITIVE_HEADER_PATTERNS: tuple[str, ...] = (
+    "auth",
+    "token",
+    "key",
+    "secret",
+    "cookie",
+    "password",
+)
+
+
+def is_sensitive_header_name(name: object) -> bool:
+    """Return whether an HTTP header name conventionally carries credentials."""
+    lowered = str(name).lower()
+    return any(pattern in lowered for pattern in SENSITIVE_HEADER_PATTERNS)
 
 
 class SecretKeyMissing(RuntimeError):
@@ -223,6 +239,11 @@ def _sensitive_leaves(cfg: Any) -> Iterator[tuple[dict, str]]:
             for k in sorted(SENSITIVE_CHANNEL_KEYS):
                 if k in channel:
                     yield channel, k
+            headers = channel.get("headers")
+            if isinstance(headers, dict):
+                for name in sorted(headers, key=str):
+                    if is_sensitive_header_name(name):
+                        yield headers, name
 
 
 def _apply(cfg: Any, apply_fn: Callable[[str], str | None]) -> int:

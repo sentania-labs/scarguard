@@ -8,7 +8,7 @@ admin log viewer. The log-streamer keeps a byte-identical copy in
 
 Masks:
 
-* URL userinfo (``rtsp://user:pass@host`` -> ``rtsp://user:***@host``);
+* RTSP URLs down to scheme plus host/port, removing userinfo, paths and queries;
 * Discord webhook tokens (``/api/webhooks/<id>/<token>``);
 * ``Bearer``/``Basic`` authorization values;
 * ``key=value`` / ``key: value`` pairs whose key names a credential
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import urlsplit
 
 MASK = "***"
 
@@ -30,6 +31,7 @@ _URL_USERINFO_RE = re.compile(
     r"(?<![A-Za-z0-9+.\-])(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]{0,31}://)"
     r"(?:(?P<user>[^:/?#@\s]*):)?(?P<secret>[^/?#@\s]+)@",
 )
+_RTSP_URL_RE = re.compile(r"(?<![A-Za-z0-9+.-])rtsps?://[^\s\"'<>]+", re.IGNORECASE)
 _DISCORD_RE = re.compile(
     r"(?P<prefix>/api/webhooks/\d+/)[A-Za-z0-9_\-]+",
 )
@@ -52,11 +54,28 @@ def _userinfo(match: re.Match[str]) -> str:
     return f"{match.group('scheme')}{user}:{MASK}@"
 
 
+def _rtsp_endpoint(match: re.Match[str]) -> str:
+    """Keep only the non-secret scheme, host and port of an RTSP URL."""
+    try:
+        parsed = urlsplit(match.group(0))
+    except ValueError:
+        return f"rtsp://{MASK}"
+    if parsed.hostname is None:
+        return f"{parsed.scheme}://{MASK}"
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    try:
+        port = f":{parsed.port}" if parsed.port is not None else ""
+    except ValueError:
+        port = ""
+    return f"{parsed.scheme}://{host}{port}"
+
+
 def redact_text(text: str) -> str:
     """Return *text* with credential-shaped substrings masked."""
     if not text:
         return text
-    out = _URL_USERINFO_RE.sub(_userinfo, text)
+    out = _RTSP_URL_RE.sub(_rtsp_endpoint, text)
+    out = _URL_USERINFO_RE.sub(_userinfo, out)
     out = _DISCORD_RE.sub(lambda m: f"{m.group('prefix')}{MASK}", out)
     out = _AUTH_SCHEME_RE.sub(lambda m: f"{m.group('prefix')}{MASK}", out)
     out = _FLAG_RE.sub(lambda m: f"{m.group('prefix')}{MASK}", out)

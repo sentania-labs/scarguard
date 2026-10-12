@@ -25,7 +25,10 @@ def _sentinel() -> str:
 
 @pytest.fixture()
 def secrets() -> dict[str, str]:
-    return {name: _sentinel() for name in ("rtsp", "roboflow", "hook", "ntfy")}
+    return {
+        name: _sentinel()
+        for name in ("rtsp", "roboflow", "hook", "ntfy", "hook_url", "header")
+    }
 
 
 def _plaintext_cfg(s: dict[str, str]) -> dict[str, Any]:
@@ -41,8 +44,13 @@ def _plaintext_cfg(s: dict[str, str]) -> dict[str, Any]:
         "training": {"sources": {"roboflow": {"api_key": s["roboflow"]}}},
         "notifications": {
             "channels": [
-                {"name": "hook", "type": "webhook", "url": "https://hooks.example.com/x",
-                 "auth_token": s["hook"]},
+                {
+                    "name": "hook",
+                    "type": "webhook",
+                    "url": f"https://hooks.example.com/{s['hook_url']}",
+                    "auth_token": s["hook"],
+                    "headers": {"X-API-Key": s["header"], "X-Source": "scarguard"},
+                },
                 {"name": "push", "type": "ntfy", "topic": "pond", "token": s["ntfy"]},
             ]
         },
@@ -83,6 +91,10 @@ def test_rtsp_and_roboflow_fields_are_encrypted_at_rest(store, secrets) -> None:
     raw = yaml.safe_load(on_disk)
     assert secret_box.is_encrypted(raw["cameras"][0]["rtsp_url"])
     assert secret_box.is_encrypted(raw["training"]["sources"]["roboflow"]["api_key"])
+    hook = raw["notifications"]["channels"][0]
+    assert secret_box.is_encrypted(hook["url"])
+    assert secret_box.is_encrypted(hook["headers"]["X-API-Key"])
+    assert hook["headers"]["X-Source"] == "scarguard"
     # Readers decrypt: integrations still get the working value.
     loaded = config_store.load()
     assert loaded["cameras"][0]["rtsp_url"].endswith("@192.0.2.10:554/stream1")
@@ -213,8 +225,8 @@ def test_log_viewer_masks_replayed_and_live_lines(client, monkeypatch, secrets) 
 
     assert resp.status_code == 200
     assert _absent(resp.text, secrets)
-    # Legitimate status survives: host, path and the event text stay readable.
-    assert "rtsp://viewer:***@192.0.2.10/s1" in resp.text
+    # Legitimate status survives: the endpoint and event text stay readable.
+    assert "rtsp://192.0.2.10" in resp.text
     assert "https://ntfy.example.com/pond?token=***" in resp.text
 
 
@@ -241,8 +253,32 @@ def test_source_log_filter_masks_before_any_handler_output(secrets) -> None:
 
     out = stream.getvalue()
     assert _absent(out, secrets)
-    assert "rtsp://viewer:***@cam/s1" in out
+    assert "rtsp://cam" in out
     assert "send failed" in out
+
+
+def test_unifi_rtsp_path_credential_is_removed_from_source_log(secrets) -> None:
+    """The detector's redactor keeps endpoint status, never the stream path."""
+    import log_redact
+
+    line = log_redact.redact_text(
+        f"Failed to open RTSP stream: rtsp://192.0.2.10:7447/{secrets['rtsp']}?mode=live",
+    )
+
+    assert secrets["rtsp"] not in line
+    assert line == "Failed to open RTSP stream: rtsp://192.0.2.10:7447"
+
+    parameterized = log_redact.redact_text(
+        f"Failed: rtsp://192.0.2.10:7447/stream;{secrets['rtsp']}",
+    )
+    assert secrets["rtsp"] not in parameterized
+    assert parameterized == "Failed: rtsp://192.0.2.10:7447"
+
+
+def test_malformed_rtsp_url_cannot_break_failure_logging() -> None:
+    import log_redact
+
+    assert log_redact.redact_text("Failed: rtsp://[broken/path") == "Failed: rtsp://***"
 
 
 def test_unsafe_url_error_does_not_echo_the_url(secrets, monkeypatch) -> None:

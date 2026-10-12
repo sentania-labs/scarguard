@@ -76,14 +76,17 @@ class WebhookNotifier:
             "display_time": _to_local(str(event.get("timestamp", "")), self._tz_name),
         }
 
-        resp = requests.request(
-            self._method,
-            self._url,
-            json=payload,
-            headers=self._headers,
-            timeout=10,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.request(
+                self._method,
+                self._url,
+                json=payload,
+                headers=self._headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except requests.RequestException:
+            raise RuntimeError("Webhook request failed") from None
         logger.info(
             "Webhook [%s] %s %s → %d",
             self._name, self._method, urlparse(self._url).hostname, resp.status_code,
@@ -108,9 +111,12 @@ class WebhookNotifier:
             "storage": report.get("storage"),
             "training": report.get("training"),
         }
-        resp = requests.request(
-            self._method, self._url, json=payload,
-            headers=self._headers, timeout=15,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.request(
+                self._method, self._url, json=payload,
+                headers=self._headers, timeout=15,
+            )
+            resp.raise_for_status()
+        except requests.RequestException:
+            raise RuntimeError("Webhook digest request failed") from None
         logger.info("Webhook [%s] digest sent → %d", self._name, resp.status_code)

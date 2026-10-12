@@ -108,7 +108,7 @@ def build_notifiers(notif_cfg: dict, tz_name: str = "UTC") -> list[DiscordNotifi
                 seen_names.add(ch_name)
             elif ch_type == "webhook" and ch.get("url"):
                 notifiers.append(WebhookNotifier(ch, tz_name))
-                logger.info("Webhook channel [%s] enabled → %s", ch_name, ch["url"])
+                logger.info("Webhook channel [%s] enabled", ch_name)
                 seen_names.add(ch_name)
             elif ch_type == "ntfy" and ch.get("topic"):
                 notifiers.append(NtfyNotifier(ch, tz_name))
