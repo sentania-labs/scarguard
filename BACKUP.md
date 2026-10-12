@@ -22,7 +22,7 @@ Three SQLite databases live on the shared `scarguard-data` Docker volume:
 |---|---|
 | `/data/snapshots/*.jpg` | Bulky and short-lived. Re-snapshot on next detection. |
 | `/models/*.pt` / `.engine` | Rebuildable from the training script or the upstream YOLO repo. |
-| `scarguard.yml` | Separate config-snapshot system at `/admin/backups` (v0.9 feature). Secrets encryption (v1.14) means file-copy backups are also safe to move between hosts as long as `/data/secret_key` comes with them. |
+| `scarguard.yml` | Separate config-snapshot system at `/admin/backups` (v0.9 feature). Secrets encryption (v1.14) means file-copy backups are also safe to move between hosts as long as `/data/secret_key` comes with them. Restores are schema-validated, re-encrypted under the existing key, preceded by a pre-restore backup and written atomically; see [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md#validation-before-a-config-replaces-the-live-one-fdy-0569). |
 | `/data/secret_key` | **Your responsibility** to back up out-of-band. See below. |
 
 ## Schedule and retention

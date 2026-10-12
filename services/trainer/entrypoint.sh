@@ -7,8 +7,8 @@ if [ "$(id -u)" = "0" ]; then
     else
         chown scarguard:scarguard /data /config /models 2>/dev/null || true
     fi
-    mkdir -p /tmp/runs/predict /data/training_workspace /data/training_uploads
-    chown -R scarguard:scarguard /tmp/runs /data/training_workspace /data/training_uploads 2>/dev/null || true
+    mkdir -p /tmp/runs/predict /data/training_workspace /data/training_uploads /data/model_store
+    chown -R scarguard:scarguard /tmp/runs /data/training_workspace /data/training_uploads /data/model_store 2>/dev/null || true
     exec gosu scarguard "$@"
 fi
 exec "$@"

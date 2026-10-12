@@ -279,3 +279,19 @@ def has_plaintext_secrets(cfg: dict) -> bool:
                 if isinstance(v, str) and v and not is_encrypted(v):
                     return True
     return False
+
+
+def has_encrypted_secrets(cfg: dict) -> bool:
+    """True iff any sensitive field holds an ``enc:v1:`` value."""
+    for path in SENSITIVE_FIELD_PATHS:
+        if is_encrypted(_safe_get(cfg, path)):
+            return True
+    channels = _safe_get(cfg, ("notifications", "channels"))
+    if isinstance(channels, list):
+        for channel in channels:
+            if not isinstance(channel, dict):
+                continue
+            for k in SENSITIVE_CHANNEL_KEYS:
+                if is_encrypted(channel.get(k)):
+                    return True
+    return False

@@ -3,12 +3,11 @@
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import requests
-from snapshot_utils import annotate_snapshot
-from url_safety import UnsafeURLError, validate_external_url
+import safe_http
+from snapshot_utils import annotate_bytes, load_snapshot
+from url_safety import channel_destination_errors
 
 logger = logging.getLogger(__name__)
 
@@ -35,16 +34,13 @@ class DiscordNotifier:
         self._tz_name: str = tz_name
         # SSRF defence-in-depth - Discord's URL is a fixed pattern but we
         # validate anyway: an admin (or stolen session) could swap in a
-        # private-IP URL and turn the channel into an SSRF probe.
-        try:
-            validate_external_url(self._webhook_url, allow_internal=False)
-            self._enabled = True
-        except UnsafeURLError as exc:
-            logger.error(
-                "Discord [%s] disabled - unsafe webhook URL: %s",
-                self._name, exc,
-            )
-            self._enabled = False
+        # private-IP URL and turn the channel into an SSRF probe. Discord is
+        # never a LAN destination, so allow_internal is always off; safe_http
+        # re-resolves and pins every send.
+        errors = channel_destination_errors({**cfg, "type": "discord", "name": self._name})
+        for err in errors:
+            logger.error("Discord [%s] disabled - unsafe webhook URL: %s", self._name, err)
+        self._enabled = not errors
 
     @property
     def name(self) -> str:
@@ -85,16 +81,15 @@ class DiscordNotifier:
 
         payload: dict[str, object] = {"content": content}
 
-        snapshot_bytes: bytes | None = None
-        if self._include_snapshot and snapshot_path:
-            data = annotate_snapshot(snapshot_path, event.get("bbox"), event.get("frame_size"))
-            snapshot_bytes = data if data else None
+        snap = load_snapshot(snapshot_path) if self._include_snapshot and snapshot_path else None
 
-        if snapshot_bytes and snapshot_path:
+        if snap is not None:
+            snapshot_bytes = annotate_bytes(snap.data, event.get("bbox"), event.get("frame_size"))
             # Embed the image in a Discord embed so it renders inline.
-            filename = Path(snapshot_path).name
+            filename = snap.filename
             payload["embeds"] = [{"image": {"url": f"attachment://{filename}"}}]
-            resp = requests.post(
+            resp = safe_http.send(
+                "POST",
                 self._webhook_url,
                 data={"payload_json": json.dumps(payload)},
                 files={"file": (filename, snapshot_bytes, "image/jpeg")},
@@ -103,7 +98,8 @@ class DiscordNotifier:
             resp.raise_for_status()
             logger.info("Discord notification sent with snapshot")
         else:
-            resp = requests.post(
+            resp = safe_http.send(
+                "POST",
                 self._webhook_url,
                 json=payload,
                 timeout=10,
@@ -119,6 +115,6 @@ class DiscordNotifier:
         from digest import format_discord_embed
 
         payload = format_discord_embed(report)
-        resp = requests.post(self._webhook_url, json=payload, timeout=15)
+        resp = safe_http.send("POST", self._webhook_url, json=payload, timeout=15)
         resp.raise_for_status()
         logger.info("Discord digest sent")

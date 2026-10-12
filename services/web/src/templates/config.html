@@ -53,6 +53,7 @@
     </div>
     <div class="config-section-body">
       <div class="card">
+        <input type="hidden" id="sys-revision" value="{{ cfg.system.revision or 0 }}">
         <div class="field-row">
           <div class="field-group">
             <label class="toggle-label">
@@ -192,7 +193,7 @@
         <script id="groups-data" type="application/json">
           {{ groups_json | safe }}
         </script>
-        <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}}</script>
+        <script type="application/json" id="config-page-data">{"availableModels": {{ available_models | tojson }}, "readOnly": {{ read_only|default(false)|tojson }}, "tlsFallback": {{ tls_fallback|default(false)|tojson }}}</script>
         <div id="cameras-list"></div>
         {% if not read_only %}
         <button type="button" class="btn-add" data-requires-admin id="add-camera-btn">+ Add Camera</button>
@@ -375,6 +376,60 @@
           Discord webhooks, email addresses, or custom HTTP endpoints. Each channel has a unique
           name used by action rules.
         </p>
+        <p class="hint" id="channel-destination-policy">
+          Destinations are checked on save and again on every send: the notifier resolves the
+          host once and connects only to the checked address, and never follows redirects.
+          Loopback, link-local / cloud metadata (169.254.169.254) and the Docker networks
+          (172.17.0.0/16, 172.24.0.0/16) are always refused. A webhook, ntfy server or SMTP relay
+          on your LAN (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7) needs
+          <code>allow_internal: true</code> on that channel. Email requires TLS: implicit TLS on
+          port 465, STARTTLS with a verified certificate on any other port. A relay with a private
+          CA can set <code>smtp_ca_file</code> (a PEM path, e.g. under <code>/config/certs</code>);
+          an intentional plaintext relay needs <code>smtp_insecure_plaintext: true</code>.
+          Set these per channel with the "Allow LAN destination", "Trusted CA file" and
+          "INSECURE: allow plaintext SMTP" fields on each channel card below (all off by default).
+          Saving refuses a channel the notifier would refuse and names the channel and field.
+          The table below shows each channel's saved settings and anything the notifier will
+          refuse. Snapshots are attached only when they are real JPEG/PNG images inside the
+          snapshot directory.
+        </p>
+        {% set _sec_channels = cfg.notifications.channels | selectattr("type", "defined") | list %}
+        {% set _sec_problems = cfg.notifications.destination_problems() %}
+        {% if _sec_channels %}
+        <table id="channel-security" style="margin-bottom:0.75rem;">
+          <thead>
+            <tr><th>Channel</th><th>Type</th><th>LAN destinations</th><th>Transport security</th><th>Destination check</th></tr>
+          </thead>
+          <tbody>
+            {% for ch in _sec_channels %}
+            <tr data-channel="{{ ch.name }}">
+              <td>{{ ch.name }}{% if ch.enabled is false %} <span class="hint">(disabled)</span>{% endif %}</td>
+              <td>{{ ch.type }}</td>
+              <td>
+                {% if ch.type == "discord" %}-{% elif ch.allow_internal is true %}<strong>allowed</strong> (allow_internal){% else %}refused{% endif %}
+              </td>
+              <td>
+                {% if ch.type == "email" %}
+                  {% if (ch.smtp_port | default(587) | int) == 465 %}implicit TLS, verified
+                  {% elif ch.smtp_insecure_plaintext is true %}<strong style="color:#e53e3e;">INSECURE: plaintext SMTP (smtp_insecure_plaintext)</strong>
+                  {% else %}STARTTLS required, verified{% endif %}
+                  {% if ch.smtp_ca_file %} - trusted CA: <code>{{ ch.smtp_ca_file }}</code>{% endif %}
+                {% else %}HTTPS verified when the URL is https; redirects refused{% endif %}
+              </td>
+              <td>
+                {% set _key = (ch.name or ch.type) | string %}
+                {% if _sec_problems.get(_key) %}
+                  <strong style="color:#e53e3e;">Notifier will disable this channel:</strong>
+                  <ul style="margin:0.2em 0 0;padding-left:1.2em;">
+                    {% for p in _sec_problems.get(_key) %}<li>{{ p }}</li>{% endfor %}
+                  </ul>
+                {% elif ch.enabled is false %}-{% else %}ok{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
         <script id="channels-data" type="application/json">{{ channels_json | safe }}</script>
         <div id="channels-list"></div>
         <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
@@ -382,6 +437,38 @@
           <button type="button" class="btn-add" data-requires-admin data-add-channel="email">+ Email</button>
           <button type="button" class="btn-add" data-requires-admin data-add-channel="webhook">+ Webhook</button>
           <button type="button" class="btn-add" data-requires-admin data-add-channel="ntfy">+ Ntfy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Notification Delivery (per-channel queues, FDY-0572) ──────────────────── #}
+  <div class="config-section expert-only" id="section-notification-delivery" data-subtab="notifications">
+    <div class="config-section-header" data-toggle-section="section-notification-delivery">
+      <span class="config-section-label">Notification Delivery</span>
+      <span class="config-section-chevron">▾</span>
+    </div>
+    <div class="config-section-body">
+      <div class="card">
+        <p class="hint">
+          Every channel is delivered by its own queue, so a slow or hanging destination (for example
+          an SMTP relay that never answers) delays only that channel. Events that do not fit in a
+          channel's queue, or whose send runs past the deadline, go to the notifier's retry queue
+          instead of being dropped. Applied by the notifier on save, without a restart.
+        </p>
+        <div class="field-row">
+          <div class="field-group">
+            <label for="notif-delivery-queue-size">Queue size per channel (events)</label>
+            <input type="number" id="notif-delivery-queue-size" min="1" max="1000"
+                   value="{{ cfg.notifications.delivery.queue_size }}">
+            <p class="hint">Undelivered events one channel may hold before further ones go to the retry queue (1-1000)</p>
+          </div>
+          <div class="field-group">
+            <label for="notif-delivery-send-deadline">Send deadline (seconds)</label>
+            <input type="number" id="notif-delivery-send-deadline" min="5" max="600"
+                   value="{{ cfg.notifications.delivery.send_deadline_seconds }}">
+            <p class="hint">Longest one send may run before the event is queued for retry; the channel then waits for that send to end before trying again (5-600). Below about 20 s, healthy but slow sends (snapshot uploads, a slow SMTP relay) may be counted as timed out and retried</p>
+          </div>
         </div>
       </div>
     </div>

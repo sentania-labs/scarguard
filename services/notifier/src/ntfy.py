@@ -2,10 +2,11 @@
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import requests
+import safe_http
+from snapshot_utils import load_snapshot
+from url_safety import channel_destination_errors
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,23 @@ class NtfyNotifier:
         self._priority: int = min(max(int(cfg.get("priority", 3)), 1), 5)
         self._include_snapshot: bool = cfg.get("include_snapshot", True)
         self._tz_name: str = tz_name
+        # Self-hosted ntfy on the LAN needs an explicit allow_internal: true.
+        # Static checks disable the channel; safe_http re-resolves and pins
+        # every send so credentials only reach a validated server.
+        self._allow_internal: bool = cfg.get("allow_internal") is True
+        errors = channel_destination_errors({**cfg, "type": "ntfy", "server": self._server})
+        for err in errors:
+            logger.error("Ntfy [%s] disabled - %s", self._name, err)
+        self._enabled = not errors
 
     @property
     def name(self) -> str:
         return self._name
 
     def send(self, event: dict) -> None:
+        if not self._enabled:
+            logger.warning("Ntfy [%s] suppressed - channel disabled at construction", self._name)
+            return
         if event.get("_digest"):
             self._send_digest(event)
             return
@@ -74,15 +86,21 @@ class NtfyNotifier:
 
         self._add_auth_headers(headers)
 
-        # Send with snapshot attachment if configured and file exists
-        snap_file = Path(snapshot_path) if snapshot_path else None
-        if self._include_snapshot and snap_file and snap_file.is_file():
-            headers["Filename"] = snap_file.name
+        # Send with snapshot attachment if configured and the file is a
+        # validated image inside the snapshot directory.
+        snap = load_snapshot(snapshot_path) if self._include_snapshot and snapshot_path else None
+        if snap is not None:
+            headers["Filename"] = snap.filename
             headers["Message"] = message
-            with open(snap_file, "rb") as f:
-                resp = requests.put(url, data=f, headers=headers, timeout=10)
+            resp = safe_http.send(
+                "PUT", url, allow_internal=self._allow_internal,
+                data=snap.data, headers=headers, timeout=10,
+            )
         else:
-            resp = requests.post(url, data=message.encode(), headers=headers, timeout=10)
+            resp = safe_http.send(
+                "POST", url, allow_internal=self._allow_internal,
+                data=message.encode(), headers=headers, timeout=10,
+            )
 
         resp.raise_for_status()
         logger.info("Ntfy [%s] → %s/%s (%d)", self._name, self._server, self._topic, resp.status_code)
@@ -99,7 +117,10 @@ class NtfyNotifier:
             "Tags": "chart_with_upwards_trend",
         }
         self._add_auth_headers(headers)
-        resp = requests.post(url, data=text.encode(), headers=headers, timeout=15)
+        resp = safe_http.send(
+            "POST", url, allow_internal=self._allow_internal,
+            data=text.encode(), headers=headers, timeout=15,
+        )
         resp.raise_for_status()
         logger.info("Ntfy [%s] digest sent", self._name)
 

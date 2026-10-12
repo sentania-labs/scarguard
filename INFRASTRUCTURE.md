@@ -1,8 +1,10 @@
 # ScarGuard: Infrastructure
 
-The active `config/caddy-entrypoint.sh` generator now reads
-`system.uploads.model_mb` and `system.uploads.dataset_mb` and applies Caddy
-`request_body max_size` caps, including 1 MiB multipart envelope allowance.
+The active Caddyfile generator (`config/caddy_config.py`, run by
+`config/caddy-entrypoint.sh`) reads `system.uploads.model_mb` and
+`system.uploads.dataset_mb` and applies Caddy `request_body max_size` caps,
+including 1 MiB multipart envelope allowance; out-of-range or non-numeric
+values fall back to the 500 MiB default, also in the HTTP-only fallback config.
 Other paths have a 1 MiB request cap. The reference template mirrors defaults;
 changing only the template has no runtime effect. Application counters enforce
 actual received bytes independently of Content-Length. Large uploads need
@@ -27,8 +29,9 @@ scarguard/
 ├── .env.example
 ├── config/
 │   ├── scarguard.example.yml
-│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy-entrypoint.sh
-│   └── caddy-entrypoint.sh          # Reads tls/* from scarguard.yml, generates Caddyfile at runtime
+│   ├── Caddyfile.template           # REFERENCE ONLY - active Caddyfile is rendered by caddy_config.py
+│   ├── caddy_config.py              # Validates tls/* (shared/tls_safety.py), renders the Caddyfile, `caddy validate` before atomic reload
+│   └── caddy-entrypoint.sh          # Generates the Caddyfile at start, polls scarguard.yml and calls caddy_config.py reload
 ├── services/
 │   ├── detector/                    # RTSP ingestion + YOLO inference
 │   │   ├── Dockerfile               # Jetson/L4T (ARM64)
@@ -123,6 +126,7 @@ scarguard/
 │   │   │   ├── webhook.py
 │   │   │   ├── ntfy.py
 │   │   │   ├── notification_queue.py
+│   │   │   ├── channel_dispatcher.py  # Per-channel bounded delivery queues (FDY-0572)
 │   │   │   ├── snapshot_utils.py
 │   │   │   ├── digest.py            # Daily/weekly/monthly summary formatter
 │   │   │   ├── digest_db.py
@@ -143,7 +147,7 @@ scarguard/
 │   │   │   └── actuation_models.py  # Pydantic actuation event schema
 │   │   └── tests/
 │   ├── caddy/                       # Reverse proxy (TLS termination)
-│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh at build time
+│   │   └── Dockerfile               # Copies config/caddy-entrypoint.sh, caddy_config.py and shared/tls_safety.py
 │   ├── log-streamer/                # Sidecar - tails Docker logs, publishes to Redis
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
@@ -218,12 +222,18 @@ All application data is stored in Docker named volumes (not bind mounts). This s
 | Volume | Service(s) | Access | Purpose |
 |--------|-----------|--------|---------|
 | `scarguard-config` | all application containers | rw (web, caddy-data), ro (detector, notifier, deterrent, off-watchdog) | `scarguard.yml` config + manual TLS certs (`certs/` subdirectory) |
-| `scarguard-data` | detector, web, notifier, deterrent, off-watchdog, trainer | rw (detector, web, deterrent, trainer), ro (notifier, off-watchdog) | SQLite DBs, snapshots, training workspace, durable logs, and the config decryption key |
-| `scarguard-models` | detector, web, notifier | rw (web: model upload), ro (detector, notifier: storage size for digests) | YOLO model files (`.pt`, `.engine`) |
+| `scarguard-data` | detector, web, notifier, deterrent, off-watchdog, trainer | rw (detector, web, deterrent, trainer), ro (notifier, off-watchdog) | SQLite DBs, snapshots, training workspace, durable logs, the config decryption key, and the model candidate store (`/data/model_store`: candidates, rollback copies, `history.jsonl`) |
+| `scarguard-models` | detector, web, notifier, trainer | rw (web: admin promotion/rollback only), ro (detector; notifier for digest storage size; trainer for base models) | Live YOLO model files (`.pt`, `.engine`, `.onnx`) |
 | `scarguard-notifier` | notifier | rw | Notifier retry queue state |
 | `scarguard-caddy-data` | caddy | rw | Caddy Let's Encrypt cert storage |
 | `scarguard-redis-data` | redis | rw | Redis persistence |
 | `training-controller-state` | training-controller | rw | Detector lease ownership and crash-recovery state |
+
+Model candidates (FDY-0565): the trainer mounts `scarguard-models` read-only and publishes
+weights to `/data/model_store/candidates`. Only the web service's admin promotion and
+rollback routes write `/models`. Both services share `/data`, so the store's ledger and
+manifests are no more trustworthy than the trainer container. Promotion re-hashes and
+re-validates the candidate bytes regardless. Rollback copies are kept until removed by hand.
 
 Docker access is mediated as follows (never mounted into web or trainer):
 

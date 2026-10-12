@@ -34,6 +34,7 @@ from routes import (
 )
 from routes import auth as auth_routes
 from routes import users as users_routes
+from scheduler import ArmScheduler
 from upload_limits import RequestLimitMiddleware
 
 app = FastAPI(title="ScarGuard")
@@ -57,9 +58,11 @@ app.mount("/model-files", StaticFiles(directory=MODELS_DIR), name="model-files")
 
 # ── Startup ────────────────────────────────────────────────────────────────────
 
+arm_scheduler: ArmScheduler | None = None
+
 @app.on_event("startup")
 async def _startup() -> None:
-    global backup_manager
+    global backup_manager, arm_scheduler
     auth_module.AUTH_DB_PATH = AUTH_DB_PATH
     auth_module.init_db(AUTH_DB_PATH)
     _ensure_secret_key()
@@ -68,6 +71,8 @@ async def _startup() -> None:
     _ensure_training_tables()
     backup_manager = ConfigBackupManager()
     backup_manager.start()
+    arm_scheduler = ArmScheduler()
+    arm_scheduler.start()
 
 
 def _ensure_training_tables() -> None:

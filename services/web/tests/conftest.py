@@ -13,6 +13,7 @@ os.environ["CONFIG_PATH"] = "/tmp/sg-test.yml"
 os.environ["DB_PATH"] = "/tmp/sg-test.db"
 os.environ["SNAPSHOT_DIR"] = "/tmp/sg-test-snapshots"
 os.environ["MODELS_DIR"] = "/tmp/sg-test-models"
+os.environ["MODEL_STORE_DIR"] = "/tmp/sg-test-model-store"
 os.environ["AUTH_DB_PATH"] = "/tmp/sg-test-auth.db"
 
 Path("/tmp/sg-test-snapshots").mkdir(exist_ok=True)

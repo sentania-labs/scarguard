@@ -549,6 +549,8 @@ def _result_view(result: dict | None, raw_execution: str | None = None) -> dict:
         "final_exception": final_exception,
         "traceback": execution.get("final_traceback"),
         "model_path": effective.get("model_path"),
+        "candidate_id": effective.get("candidate_id"),
+        "candidate_name": effective.get("candidate_name"),
         "checkpoint_path": effective.get("checkpoint_path") or execution.get("checkpoint_path"),
         "resume_from": effective.get("resume_from"),
         "log_path": log_path,

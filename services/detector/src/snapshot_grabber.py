@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -139,12 +140,39 @@ class SnapshotGrabber(threading.Thread):
                 }))
                 return
 
-            # Sanitize camera name for filesystem safety
+            # Sanitize camera name for filesystem safety (allow only
+            # alphanumeric, underscore, hyphen — blocks path traversal).
             safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", camera_name)
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             filename = f"{safe_name}_snapshot_{ts}.jpg"
             filepath = SNAPSHOT_DIR / filename
-            cv2.imwrite(str(filepath), frame)
+
+            # Stage the write so partial saves never corrupt a snapshot.
+            # Use a random prefix and .jpg extension so cv2.imwrite can
+            # find the codec, then rename to the final name with os.replace.
+            fd, staging_path = tempfile.mkstemp(
+                dir=str(SNAPSHOT_DIR), prefix="._tmp_", suffix=".jpg"
+            )
+            try:
+                with os.fdopen(fd, "wb"):
+                    # os.fdopen closes the fd.
+                    pass
+                written = cv2.imwrite(staging_path, frame)
+                if written is False:
+                    client.publish(
+                        result_channel,
+                        json.dumps({"ok": False, "error": "imwrite returned False"}),
+                    )
+                    os.unlink(staging_path)
+                    logger.exception("Snapshot grab imwrite failed: %s", filename)
+                    return
+                os.replace(staging_path, str(filepath))
+            except BaseException:
+                try:
+                    os.unlink(staging_path)
+                except OSError:
+                    pass
+                raise
 
             client.publish(result_channel, json.dumps({
                 "ok": True, "snapshot_path": str(filepath), "filename": filename,

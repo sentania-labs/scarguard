@@ -13,14 +13,18 @@ import db
 import redis.asyncio as aioredis
 import yaml
 from config_model import (
+    CONFIG_API_UNSUPPORTED,
     ActuationConfig,
     CameraConfig,
     DetectionConfig,
+    NotificationDeliveryConfig,
     NotificationsConfig,
     StructuredConfigPayload,
     SystemConfig,
     TLSConfig,
     TrainingConfig,
+    notification_destination_errors,
+    validate_full_config,
 )
 from config_redact import (
     _CHANNEL_SENSITIVE_KEYS,
@@ -82,6 +86,18 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
             )
             return model_cls()
 
+    def _notifications_section(data: Any) -> NotificationsConfig:
+        # A bad hand-edited delivery bound must not discard the channels the
+        # page's destination-security table reports on: fall back on
+        # ``delivery`` alone.
+        if isinstance(data, dict) and "delivery" in data:
+            try:
+                NotificationDeliveryConfig.model_validate(data["delivery"])
+            except Exception as exc:
+                log.warning("Config section notifications.delivery failed validation, using defaults: %s", exc)
+                data = {k: v for k, v in data.items() if k != "delivery"}
+        return _section(NotificationsConfig, data)
+
     if not isinstance(raw_cfg, dict):
         return StructuredConfigPayload()
 
@@ -104,7 +120,7 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         system=_section(SystemConfig, raw_cfg.get("system", {})),
         cameras=cameras,
         detection=_section(DetectionConfig, raw_cfg.get("detection", {})),
-        notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
+        notifications=_notifications_section(raw_cfg.get("notifications", {})),
         tls=_section(TLSConfig, raw_cfg.get("tls", {})),
         deterrent=_section(ActuationConfig, raw_cfg.get("deterrent", {})),
         training=_section(TrainingConfig, raw_cfg.get("training", {})),
@@ -184,6 +200,12 @@ async def config_page(request: Request) -> Response:
 
     raw_cfg = config_store.load()
     is_admin = has_admin_access(request)
+    raw_tls = raw_cfg.get("tls", {}) if isinstance(raw_cfg, dict) else {}
+    try:
+        TLSConfig.model_validate(raw_tls)
+        tls_fallback = False
+    except ValidationError:
+        tls_fallback = True
 
     # Parse from the unredacted dict so structural validation (e.g.
     # `CameraConfig.rtsp_url` requiring an rtsp:// scheme) succeeds.  The
@@ -217,6 +239,7 @@ async def config_page(request: Request) -> Response:
             "timezones": _TIMEZONES,
             "available_models": _list_models(),
             "read_only": not is_admin,
+            "tls_fallback": tls_fallback,
         },
     )
 
@@ -343,6 +366,27 @@ async def get_secrets(request: Request) -> Response:
     return JSONResponse(result)
 
 
+# Per-type destination-security settings owned by the channel editor
+# (static/config.js); see save_structured_config.
+_DESTINATION_SECURITY_KEYS: dict[str, tuple[str, ...]] = {
+    "webhook": ("allow_internal",),
+    "ntfy": ("allow_internal",),
+    "email": ("allow_internal", "smtp_insecure_plaintext", "smtp_ca_file"),
+}
+
+
+def _destination_error_response(errors: list[str], req_id: str) -> JSONResponse:
+    log.warning("config save refused unsafe notification destination [%s]: %s", req_id, errors)
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "Unsafe notification destination: " + "; ".join(errors),
+            "request_id": req_id,
+        },
+        status_code=422,
+    )
+
+
 @router.post(
     "/structured",
     response_class=JSONResponse,
@@ -372,6 +416,17 @@ async def save_structured_config(request: Request) -> Response:
         # py/stack-trace-exposure (issue #95).
         req_id = uuid.uuid4().hex[:8]
         log.warning("config save validation error [%s]: %s", req_id, exc)
+        # Destination messages carry channel and field names, the scheme and
+        # at most an IP literal or internal service name - never a URL path,
+        # query or credential - so the operator can be told which channel to
+        # fix. When the payload also fails for another reason, only the
+        # destination problem is reported; the next save reports the rest.
+        notif = body.get("notifications") if isinstance(body, dict) else None
+        dest_errors = notification_destination_errors(
+            notif.get("channels") if isinstance(notif, dict) else None,
+        )
+        if dest_errors:
+            return _destination_error_response(dest_errors, req_id)
         return JSONResponse(
             {"ok": False, "error": "Invalid config payload", "request_id": req_id},
             status_code=422,
@@ -384,7 +439,24 @@ async def save_structured_config(request: Request) -> Response:
             status_code=400,
         )
 
+    # Web owns configuration writes. The config-api service is a 501
+    # scaffold, so a save that switched routing to it would break every
+    # later save; refuse it rather than persist it. A value already on disk
+    # is left alone - the Caddy entrypoint ignores it.
+    if payload.system.config_api.enabled:
+        return JSONResponse(
+            {"ok": False, "error": CONFIG_API_UNSUPPORTED},
+            status_code=422,
+        )
+
     existing = config_store.load()
+
+    existing_revision = existing.get("system", {}).get("revision", 0)
+    if payload.system.revision != existing_revision:
+        return JSONResponse(
+            {"ok": False, "error": "Config was modified by another user. Reload to see latest changes."},
+            status_code=409,
+        )
 
     # Merge system settings so omitted structured-form fields are preserved.
     # The nested schedule dict is handled specially: merge it too so partial
@@ -460,8 +532,51 @@ async def save_structured_config(request: Request) -> Response:
             merged_ch = {**existing_channels_by_name[prev_name], **cleaned}
         else:
             merged_ch = cleaned
+        # The channel editor always sends the destination-security settings
+        # of the channel types that have them, so the form is authoritative:
+        # what it sends is stored, and an empty CA path means none. A payload
+        # that omits a setting the stored channel has turned on (a cached
+        # pre-FDY-0571 config.js, or an API client) is refused instead of
+        # silently dropping a LAN opt-in a hostname destination depends on.
+        ch_type = str(merged_ch.get("type", "")).lower()
+        stale: list[str] = []
+        for key in _DESTINATION_SECURITY_KEYS.get(ch_type, ()):
+            if key not in cleaned:
+                if merged_ch.get(key) not in (None, False, ""):
+                    stale.append(
+                        f"channel {str(ch_name or ch_type)!r} ({ch_type}): {key} was not sent; "
+                        "reload the config page and save again",
+                    )
+                merged_ch.pop(key, None)
+            elif cleaned[key] in ("", None):
+                merged_ch.pop(key, None)
+        if ch_type == "discord":
+            # Not a Discord setting and not on its card; drop a hand-edited one.
+            merged_ch.pop("allow_internal", None)
+        if stale:
+            return _destination_error_response(stale, uuid.uuid4().hex[:8])
         merged_channels.append(merged_ch)
+    # Re-check after the merge: a redacted or stored value the payload did
+    # not carry is judged together with the flags the form sent.
+    dest_errors = notification_destination_errors(merged_channels)
+    if dest_errors:
+        return _destination_error_response(dest_errors, uuid.uuid4().hex[:8])
     existing["notifications"]["channels"] = merged_channels
+    # Delivery bounds: written only when the form sent them, so a client
+    # without the fields (cached page, API caller) keeps the stored values.
+    # A partial delivery object only changes the fields it carries.
+    if "delivery" in payload.notifications.model_fields_set:
+        stored_delivery = existing["notifications"].get("delivery")
+        merged_delivery = {
+            **(stored_delivery if isinstance(stored_delivery, dict) else {}),
+            **payload.notifications.delivery.model_dump(exclude_unset=True),
+        }
+        try:
+            delivery = NotificationDeliveryConfig.model_validate(merged_delivery)
+        except ValidationError:
+            # The stored value is itself invalid (hand-edited): use what was sent.
+            delivery = payload.notifications.delivery
+        existing["notifications"]["delivery"] = delivery.model_dump()
 
     # TLS - detect changes so we can tell the UI that Caddy will reload.
     def _normalize_tls(raw: dict) -> dict:
@@ -472,10 +587,29 @@ async def save_structured_config(request: Request) -> Response:
             "key_path": raw.get("key_path", "/config/certs/key.pem"),
         }
 
-    tls_changed = _normalize_tls(existing.get("tls", {})) != _normalize_tls(
-        payload.tls.model_dump()
-    )
-    existing["tls"] = payload.tls.model_dump()
+    tls_warning: str | None = None
+    existing_tls = existing.get("tls", {})
+    if not isinstance(existing_tls, dict):
+        existing_tls = {}
+    try:
+        TLSConfig.model_validate(existing_tls)
+        existing_tls_valid = True
+    except ValidationError:
+        existing_tls_valid = False
+    if not existing_tls_valid and payload.tls_unchanged:
+        # The form rendered defaults because the on-disk tls section no
+        # longer passes validation (_parse_cfg fallback). Saving those
+        # defaults would silently switch HTTPS off on an unrelated save, so
+        # keep the stored section; Caddy refuses it until it is fixed.
+        log.warning("Keeping stored tls section that fails validation; fix it in the TLS form")
+        tls_warning = (
+            "The stored TLS settings are invalid and were left unchanged; Caddy will "
+            "not apply them. Set them again in the TLS section or the raw YAML editor."
+        )
+        tls_changed = False
+    else:
+        tls_changed = _normalize_tls(existing_tls) != _normalize_tls(payload.tls.model_dump())
+        existing["tls"] = payload.tls.model_dump()
 
     # Merge deterrent: the config page only sends ``enabled``; the full
     # device list and credentials live on the dedicated /admin/deterrent page.
@@ -516,6 +650,8 @@ async def save_structured_config(request: Request) -> Response:
 
     config_store.save(existing)
     warnings = _find_orphan_references(existing)
+    if tls_warning:
+        warnings.append(tls_warning)
     audit.record_request(
         request,
         action="config.save",
@@ -526,11 +662,13 @@ async def save_structured_config(request: Request) -> Response:
             "orphan_warnings": len(warnings),
         },
     )
+    new_revision = existing.get("system", {}).get("revision", 0)
     return JSONResponse(
         {
             "ok": True,
             "tls_changed": tls_changed,
             "warnings": warnings,
+            "revision": new_revision,
         }
     )
 
@@ -598,6 +736,14 @@ def _find_orphan_references(cfg: dict[str, Any]) -> list[str]:
 _MAX_RAW_YAML_BYTES = 1_000_000  # 1 MB ceiling on raw-YAML uploads
 
 
+class _RawConfigInvalid(ValueError):
+    """Raw YAML that parsed but failed validate_full_config."""
+
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
 @router.post(
     "",
     response_class=HTMLResponse,
@@ -648,6 +794,12 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
             raw_cfg = yaml.safe_load(raw_yaml)
             if not isinstance(raw_cfg, dict):
                 raise ValueError("Config must be a YAML mapping")
+            # Check the whole document against the schema before it can
+            # replace the working config (TLS values reach the Caddyfile).
+            # Messages name fields and rules, never values.
+            validation_errors = validate_full_config(raw_cfg)
+            if validation_errors:
+                raise _RawConfigInvalid(validation_errors)
             config_store.save(raw_cfg)
             saved = True
             raw_yaml = yaml.dump(raw_cfg, default_flow_style=False, sort_keys=False)
@@ -658,6 +810,11 @@ async def save_config(request: Request, raw_yaml: str = Form(...)) -> Response:
                 resource="scarguard.yml",
                 details={"form": "raw_yaml", "orphan_warnings": len(warnings)},
             )
+        except _RawConfigInvalid as exc:
+            log.warning("raw YAML config save refused: %s", "; ".join(exc.errors))
+            error = "Config not saved - fix these fields first: " + "; ".join(exc.errors)
+        except yaml.YAMLError:
+            error = "Config not saved - the YAML could not be parsed"
         except Exception:
             # Same scrubbing pattern as save_structured_config - don't surface raw
             # exception text in the rendered template. Admin-only endpoint, but

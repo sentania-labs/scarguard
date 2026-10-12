@@ -226,6 +226,7 @@ services:
       CONFIG_PATH: /config/scarguard.yml
       SNAPSHOT_DIR: /data/snapshots
       MODELS_DIR: /models
+      MODEL_STORE_DIR: /data/model_store  # candidates, rollback copies, promotion ledger
       TRAINING_WORKSPACE_DIR: /data/training_workspace
       DB_PATH: /data/scarguard.db
       AUTH_DB_PATH: /data/auth.db
@@ -241,7 +242,7 @@ services:
       start_period: 15s
     volumes:
       - scarguard-config:/config        # rw - config editor writes scarguard.yml
-      - scarguard-models:/models        # rw - model upload endpoint writes here
+      - scarguard-models:/models        # rw - only admin promotion/rollback writes here
       - scarguard-data:/data            # rw - reads SQLite + serves snapshots + writes auth.db
     depends_on:
       redis:
@@ -508,12 +509,13 @@ services:
     tmpfs:
       - /tmp:size=32m
 
-  # ── Config API (optional - behind "config-api" profile) ──────────────────
-  # v1.15: separate config-write service.  Only starts when launched with
-  #   docker compose --profile config-api up
-  # When inactive, the web service handles all config writes as before.
-  # Enable via system.config_api.enabled: true in scarguard.yml AND the
-  # compose profile flag.
+  # ── Config API (scaffold only - behind "config-api" profile) ─────────────
+  # v1.15 scaffold for a future config-write service. Every write route
+  # returns 501 and nothing authenticates, so it is NOT wired into Caddy:
+  # web is the configuration owner and handles every config write.
+  # system.config_api.enabled is ignored by the Caddy entrypoint and refused
+  # by web saves until an authorized implementation exists. Starting this
+  # profile only runs the idle container.
   config-api:
     build:
       context: .
@@ -633,12 +635,13 @@ services:
     user: "0:0"
     volumes:
       - scarguard-config:/config:ro
-      - scarguard-models:/models
+      - scarguard-models:/models:ro     # ro - training publishes candidates, never live models
       - scarguard-data:/data
     environment:
       - CONFIG_PATH=/config/scarguard.yml
       - DB_PATH=/data/scarguard.db
       - MODELS_DIR=/models
+      - MODEL_STORE_DIR=/data/model_store
       - TRAINING_UPLOADS_DIR=/data/training_uploads
       - TRAINING_WORKSPACE_DIR=/data/training_workspace
       - TRAINING_CONTROLLER_URL=http://training-controller:8090

@@ -4,8 +4,11 @@ import logging
 import threading
 from collections.abc import Callable
 from datetime import date, datetime, time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+if TYPE_CHECKING:
+    from channel_dispatcher import ChannelDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +29,11 @@ class DigestScheduler:
         dispatch_fn: Callable[..., Any],
         notifiers: list,
         notifiers_lock: threading.Lock,
+        dispatcher: "ChannelDispatcher | None" = None,
     ) -> None:
         self._dispatch_fn = dispatch_fn
+        # ChannelDispatcher: when set, digests are queued per channel like live alerts.
+        self._dispatcher = dispatcher
         self._notifiers = notifiers
         self._notifiers_lock = notifiers_lock
 
@@ -137,7 +143,7 @@ class DigestScheduler:
             report["snapshot_path"] = None
 
             self._dispatch_fn(
-                report, self._notifiers, self._notifiers_lock, None
+                report, self._notifiers, self._notifiers_lock, None, self._dispatcher
             )
             logger.info("Digest report dispatched to: %s", ", ".join(channels))
             return True
