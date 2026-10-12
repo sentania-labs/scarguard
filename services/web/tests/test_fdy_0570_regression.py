@@ -284,7 +284,11 @@ def test_malformed_rtsp_url_cannot_break_failure_logging() -> None:
 def test_unsafe_url_error_does_not_echo_the_url(secrets, monkeypatch) -> None:
     import url_safety
 
-    monkeypatch.setattr(url_safety, "_resolve", lambda _host: ["10.0.0.5"])
+    monkeypatch.setattr(
+        url_safety.socket,
+        "getaddrinfo",
+        lambda *_a, **_k: [(url_safety.socket.AF_INET, 0, 0, "", ("10.0.0.5", 443))],
+    )
     with pytest.raises(url_safety.UnsafeURLError) as info:
         url_safety.validate_external_url(
             f"https://internal.example/hook/{secrets['hook']}", allow_internal=False,

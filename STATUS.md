@@ -82,7 +82,7 @@ codec support or inference. No production/device validation was performed.
 - **Docker Compose stack:** All seven services (redis, caddy, detector, web, notifier, deterrent, log-streamer) start and communicate correctly.
 - **Config hot-reload:** Detector and notifier poll config and apply changes in-process (no service restart required).
 - **External data directory:** Application assets (config, data, models, snapshots) stored externally to the project repo.
-- **Notifier resilience:** Internet interruptions handled with per-notifier retry queue and exponential backoff.
+- **Notifier resilience:** Each channel is delivered by its own bounded queue and thread with a per-attempt deadline, so a hanging SMTP relay cannot block Discord or the Redis subscriber; failures, timeouts and overflow go to the disk-backed retry queue (atomic writes, exponential backoff, reloaded on restart).
 - **Detection exclusion zones:** Per-camera normalized polygon zones drawn in the config editor canvas; detections inside are excluded.
 - **Notification rules:** Per-camera, per-class channel routing. First-match-wins rules are stored in YAML and editable in the config GUI.
 - **Enhanced event log:** Filter by camera, class, date range. `actions_triggered` column shows which channels were notified.
@@ -177,6 +177,51 @@ codec support or inference. No production/device validation was performed.
   `undecryptable` otherwise. The Roboflow key reaches `prepare_dataset.py`
   through a 0600 file instead of argv. `setup.sh` runs under `umask 077` and
   re-applies `chmod 0600 .env` on every run.
+
+- **Slow notification channels no longer block the others (FDY-0572; SG-33).**
+  Notifications used to be sent inline on the Redis subscriber thread, one
+  channel after another, and one retry thread served every channel, so an SMTP
+  relay that accepted the connection and then hung held Discord, ntfy, webhooks
+  and the subscriber for the whole socket timeout. Each enabled channel now has
+  its own bounded queue and delivery thread (`channel_dispatcher.py`): the
+  subscriber never waits on a sender, a delivery attempt has a finite deadline (60 s
+  default) after which the event goes to the retry queue and the channel is
+  marked stalled until the attempt ends, a full queue (50 default) spills to the
+  retry queue rather than dropping, and each channel retries only its own
+  entries. Both bounds are `scarguard.yml` settings (`notifications.delivery`),
+  editable on the config page's Notifications tab and applied on reload.
+  Scheduled digests use the same per-channel queues and retry queue. The retry file is written atomically (temp file, fsync, rename) and
+  shutdown persists waiting and in-flight events (including a failure whose
+  outcome is still being recorded when the grace ends) so a restart delivers them.
+  Every outcome is logged with the channel name and a running counter. Email and
+  Discord senders and their channel configuration are unchanged. See CONFIG_REFERENCE.md
+  "Notification delivery queues". Regression test:
+  `services/notifier/tests/test_fdy_0572_regression.py` (stalled and delayed
+  local SMTP relays, local Discord fixture, the real subscribe loop, interrupted
+  saves, restart from the file, start-up and reload through the real `main()`,
+  scheduled digests) and `services/web/tests/test_fdy_0572_delivery_config.py`
+  (config page, save and form). Not exercised against a production relay or
+  Discord, nor with the container's SIGTERM path end to end; a stalled attempt
+  still holds its thread until the sender's socket timeouts fire.
+
+- **Notification destinations, SMTP TLS and attachments (FDY-0571; SG-19, SG-20,
+  SG-28).** Webhook, ntfy, Discord and SMTP destinations are checked on save and
+  on every send (`shared/url_safety.py`): the notifier resolves once, checks every
+  address and connects only to those, refuses redirects and ignores proxy env vars.
+  Loopback, metadata and the Docker networks are always refused; LAN addresses need
+  the per-channel `allow_internal` checkbox (default off). Email verifies
+  certificates everywhere (implicit TLS on 465, STARTTLS required on any other
+  port) with an optional `smtp_ca_file` and an explicit, UI-visible
+  `smtp_insecure_plaintext` opt-in; relays that previously sent plaintext on port
+  25 need one of these. Snapshots are attached only when they resolve inside
+  `SNAPSHOT_DIR` and are real JPEG/PNG of the matching suffix. The structured save
+  is strict: the channel card's settings are stored as sent. See
+  CONFIG_REFERENCE.md "Notification destinations and attachments". Regression
+  tests: `services/notifier/tests/test_fdy_0571_regression.py` (local HTTP, HTTPS
+  and SMTP fixture servers) and `services/web/tests/test_fdy_0571_*.py`. Not
+  exercised against real Discord, ntfy.sh, a production SMTP relay or the UI in a
+  browser (the channel editor is driven under Node with a DOM stand-in).
+
 - **Config restore, TLS values and the config-api switch (FDY-0569; SG-17, SG-24,
   SG-30).** Config backup restore now parses the backup, validates it against the
   full config schema, encrypts plaintext secrets with the existing key (refusing

@@ -18,11 +18,13 @@ from config_model import (
     ActuationConfig,
     CameraConfig,
     DetectionConfig,
+    NotificationDeliveryConfig,
     NotificationsConfig,
     StructuredConfigPayload,
     SystemConfig,
     TLSConfig,
     TrainingConfig,
+    notification_destination_errors,
     validate_full_config,
 )
 from config_redact import (
@@ -83,6 +85,18 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
             )
             return model_cls()
 
+    def _notifications_section(data: Any) -> NotificationsConfig:
+        # A bad hand-edited delivery bound must not discard the channels the
+        # page's destination-security table reports on: fall back on
+        # ``delivery`` alone.
+        if isinstance(data, dict) and "delivery" in data:
+            try:
+                NotificationDeliveryConfig.model_validate(data["delivery"])
+            except Exception as exc:
+                log.warning("Config section notifications.delivery failed validation, using defaults: %s", exc)
+                data = {k: v for k, v in data.items() if k != "delivery"}
+        return _section(NotificationsConfig, data)
+
     if not isinstance(raw_cfg, dict):
         return StructuredConfigPayload()
 
@@ -105,7 +119,7 @@ def _parse_cfg(raw_cfg: dict) -> StructuredConfigPayload:
         system=_section(SystemConfig, raw_cfg.get("system", {})),
         cameras=cameras,
         detection=_section(DetectionConfig, raw_cfg.get("detection", {})),
-        notifications=_section(NotificationsConfig, raw_cfg.get("notifications", {})),
+        notifications=_notifications_section(raw_cfg.get("notifications", {})),
         tls=_section(TLSConfig, raw_cfg.get("tls", {})),
         deterrent=_section(ActuationConfig, raw_cfg.get("deterrent", {})),
         training=_section(TrainingConfig, raw_cfg.get("training", {})),
@@ -351,6 +365,27 @@ async def get_secrets(request: Request) -> Response:
     return JSONResponse(result)
 
 
+# Per-type destination-security settings owned by the channel editor
+# (static/config.js); see save_structured_config.
+_DESTINATION_SECURITY_KEYS: dict[str, tuple[str, ...]] = {
+    "webhook": ("allow_internal",),
+    "ntfy": ("allow_internal",),
+    "email": ("allow_internal", "smtp_insecure_plaintext", "smtp_ca_file"),
+}
+
+
+def _destination_error_response(errors: list[str], req_id: str) -> JSONResponse:
+    log.warning("config save refused unsafe notification destination [%s]: %s", req_id, errors)
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "Unsafe notification destination: " + "; ".join(errors),
+            "request_id": req_id,
+        },
+        status_code=422,
+    )
+
+
 @router.post(
     "/structured",
     response_class=JSONResponse,
@@ -380,6 +415,17 @@ async def save_structured_config(request: Request) -> Response:
         # py/stack-trace-exposure (issue #95).
         req_id = uuid.uuid4().hex[:8]
         log.warning("config save validation error [%s]: %s", req_id, exc)
+        # Destination messages carry channel and field names, the scheme and
+        # at most an IP literal or internal service name - never a URL path,
+        # query or credential - so the operator can be told which channel to
+        # fix. When the payload also fails for another reason, only the
+        # destination problem is reported; the next save reports the rest.
+        notif = body.get("notifications") if isinstance(body, dict) else None
+        dest_errors = notification_destination_errors(
+            notif.get("channels") if isinstance(notif, dict) else None,
+        )
+        if dest_errors:
+            return _destination_error_response(dest_errors, req_id)
         return JSONResponse(
             {"ok": False, "error": "Invalid config payload", "request_id": req_id},
             status_code=422,
@@ -485,8 +531,51 @@ async def save_structured_config(request: Request) -> Response:
             merged_ch = {**existing_channels_by_name[prev_name], **cleaned}
         else:
             merged_ch = cleaned
+        # The channel editor always sends the destination-security settings
+        # of the channel types that have them, so the form is authoritative:
+        # what it sends is stored, and an empty CA path means none. A payload
+        # that omits a setting the stored channel has turned on (a cached
+        # pre-FDY-0571 config.js, or an API client) is refused instead of
+        # silently dropping a LAN opt-in a hostname destination depends on.
+        ch_type = str(merged_ch.get("type", "")).lower()
+        stale: list[str] = []
+        for key in _DESTINATION_SECURITY_KEYS.get(ch_type, ()):
+            if key not in cleaned:
+                if merged_ch.get(key) not in (None, False, ""):
+                    stale.append(
+                        f"channel {str(ch_name or ch_type)!r} ({ch_type}): {key} was not sent; "
+                        "reload the config page and save again",
+                    )
+                merged_ch.pop(key, None)
+            elif cleaned[key] in ("", None):
+                merged_ch.pop(key, None)
+        if ch_type == "discord":
+            # Not a Discord setting and not on its card; drop a hand-edited one.
+            merged_ch.pop("allow_internal", None)
+        if stale:
+            return _destination_error_response(stale, uuid.uuid4().hex[:8])
         merged_channels.append(merged_ch)
+    # Re-check after the merge: a redacted or stored value the payload did
+    # not carry is judged together with the flags the form sent.
+    dest_errors = notification_destination_errors(merged_channels)
+    if dest_errors:
+        return _destination_error_response(dest_errors, uuid.uuid4().hex[:8])
     existing["notifications"]["channels"] = merged_channels
+    # Delivery bounds: written only when the form sent them, so a client
+    # without the fields (cached page, API caller) keeps the stored values.
+    # A partial delivery object only changes the fields it carries.
+    if "delivery" in payload.notifications.model_fields_set:
+        stored_delivery = existing["notifications"].get("delivery")
+        merged_delivery = {
+            **(stored_delivery if isinstance(stored_delivery, dict) else {}),
+            **payload.notifications.delivery.model_dump(exclude_unset=True),
+        }
+        try:
+            delivery = NotificationDeliveryConfig.model_validate(merged_delivery)
+        except ValidationError:
+            # The stored value is itself invalid (hand-edited): use what was sent.
+            delivery = payload.notifications.delivery
+        existing["notifications"]["delivery"] = delivery.model_dump()
 
     # TLS - detect changes so we can tell the UI that Caddy will reload.
     def _normalize_tls(raw: dict) -> dict:

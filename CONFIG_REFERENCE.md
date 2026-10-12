@@ -105,17 +105,37 @@ notifications:
       priority: 3                      # 1 (min) to 5 (max/urgent)
       include_snapshot: true
       enabled: true
+    - name: lan-ntfy                   # self-hosted ntfy on the LAN
+      type: ntfy
+      server: "http://192.168.1.60:8080"
+      topic: "scarguard-alerts"
+      allow_internal: true             # LAN destination opt-in (default false)
+      enabled: false
     - name: deterrent-webhook          # points to a downstream system (e.g. Scar's Revenge)
       type: webhook
       url: "http://192.168.1.x/api/fire"
       method: POST
       auth_token: "YOUR_TOKEN"         # optional Bearer token
+      allow_internal: true             # LAN destination opt-in (default false)
       enabled: false
     - name: home-assistant
       type: webhook
       url: "http://homeassistant.local:8123/api/webhook/scarguard"
       method: POST
+      allow_internal: true             # resolves to a LAN address
       enabled: false
+    - name: lan-relay                  # SMTP relay with a private CA
+      type: email
+      smtp_host: "mail.lan.example"
+      smtp_port: 587                   # 465 = implicit TLS; any other port = STARTTLS required
+      smtp_ca_file: /config/certs/smtp-ca.pem   # optional extra trusted CA (PEM)
+      allow_internal: true
+      # smtp_insecure_plaintext: true  # INSECURE opt-in: plaintext relay, no TLS
+      to_addresses: [you@example.com]
+      enabled: false
+  delivery:                            # per-channel delivery queues (FDY-0572); UI: Notifications tab
+    queue_size: 50                     # events one channel may hold before spilling to the retry queue (1-1000)
+    send_deadline_seconds: 60          # longest one send may run before the event is queued for retry (5-600)
 redis:
   host: redis
   port: 6379
@@ -185,6 +205,154 @@ redis:
   settings writes to it would break every save. Caddy ignores the flag (and
   logs that it did), and web refuses saves and restores that set it to `true`;
   a value already on disk does not block structured-form saves.
+
+### Notification destinations and attachments (FDY-0571)
+
+Notification channels send credentials (Discord webhook tokens, bearer
+tokens, ntfy and SMTP passwords) and snapshot images, so every destination
+and attachment is checked.
+
+**Destination policy** (`shared/url_safety.py`, the same rules at save and
+at send):
+
+| Destination | Policy |
+|---|---|
+| Loopback (127/8, ::1), link-local incl. cloud metadata (169.254.169.254 and other known metadata IPs), multicast, unspecified/reserved, the Docker bridge 172.17.0.0/16, the ScarGuard compose network 172.24.0.0/16, ScarGuard's own service names (`redis`, `web`, ...) and `localhost` | **Always refused**, even with `allow_internal: true` |
+| LAN ranges 10/8, 172.16/12, 192.168/16, 100.64/10 (CGNAT, e.g. Tailscale), IPv6 ULA fc00::/7 | Refused unless the channel sets `allow_internal: true` |
+| Globally routable addresses | Allowed |
+
+- Webhook and ntfy URLs must be `http`/`https`; SMTP and URL ports must be 1-65535.
+- **Save time**: the structured form, raw-YAML editor and backup restore refuse
+  an enabled channel the notifier would refuse. These checks are static (no
+  DNS): scheme, port, literal and legacy IP forms, service names, flag types
+  and an absolute `smtp_ca_file` path. A hostname such as
+  `homeassistant.local` passes the save check and is judged by address at
+  send time. Errors name the channel and field (and at most an IP literal or
+  service name); they never echo a URL path, query or credential. When a
+  structured save fails for a destination and another reason at once, only
+  the destination problem is reported.
+- **Send time**: the notifier resolves the host once, checks every returned
+  address, then connects only to those addresses (TLS SNI and certificate
+  hostname checks still use the configured name). A DNS answer that changes
+  between check and connect (DNS rebinding) therefore cannot redirect the
+  request. HTTP redirects are never followed and proxy environment
+  variables are ignored. A channel whose stored destination fails the
+  static check is disabled at notifier start (logged); a send whose
+  resolved address is refused is dropped and logged.
+- Discord channels never accept `allow_internal` (Discord is always public).
+
+**Per-channel settings** (all configurable on the channel card in
+Settings > Notifications, all off by default):
+
+| Key | Channel types | Meaning |
+|---|---|---|
+| `allow_internal` | webhook, ntfy, email | `true` permits LAN destinations listed above. Must be a boolean: a string like `"yes"` is refused on save, and a hand-edited one makes the notifier disable the whole channel (logged). |
+| `smtp_ca_file` | email | Absolute path to an extra trusted CA certificate (PEM) for a relay with a private CA, e.g. `/config/certs/smtp-ca.pem` (the notifier mounts the config volume read-only at `/config`). Added to the system trust store and certifi; the notifier disables the channel (logged) if the file is missing or is not a readable PEM certificate. |
+| `smtp_insecure_plaintext` | email | **INSECURE** explicit opt-in for an intentional plaintext relay: STARTTLS is skipped and mail plus the SMTP password are sent unencrypted. Shown as an INSECURE badge on the config page; the notifier logs a warning. Has no effect on port 465. |
+
+**SMTP transport**: port 465 uses implicit TLS; every other port (587, 25,
+2525, ...) requires STARTTLS before AUTH, and a server that does not offer it
+is refused before any credential is sent unless `smtp_insecure_plaintext` is
+`true`. Certificates and hostnames are always verified; a self-signed or
+private-CA relay needs `smtp_ca_file`. Previously only port 587 used
+STARTTLS (without certificate verification) and other non-465 ports such as
+25 sent plaintext; such relays now need STARTTLS with a verifiable certificate (or `smtp_ca_file`), or the
+explicit plaintext opt-in.
+
+**Structured save is strict**: the channel editor always sends
+`allow_internal` (webhook, ntfy, email) and `smtp_ca_file` /
+`smtp_insecure_plaintext` (email), and what it sends is stored: unticking a
+box stores `false` and an empty CA path removes `smtp_ca_file`. An omitted
+setting is never read as "keep what was stored": with nothing stored it means
+off, and when the stored channel has it turned on the save is refused with
+"was not sent; reload the config page" (a browser still running a cached
+older `config.js`). A LAN channel saved without the opt-in is refused with a
+message naming the channel and `allow_internal`. A hand-edited
+`allow_internal` on a Discord channel is dropped on the next structured save.
+
+**Snapshot attachments**: a snapshot is attached only if it resolves
+(symlinks included) to a regular file inside `SNAPSHOT_DIR`
+(`/data/snapshots`), has a `.jpg`/`.jpeg`/`.png` suffix, really is a JPEG or
+PNG of that type (Pillow verifies the bytes), and is at most 20 MB and 40
+megapixels. Anything else is refused and the notification is sent without an
+image.
+
+**Limitations**: the save-time check cannot resolve hostnames, so a
+hostname that resolves to a refused address is only caught at send time
+(logged by the notifier, not shown on save). The config page's
+destination-security table shows each channel's saved settings and static
+problems.
+
+### Notification delivery queues (FDY-0572)
+
+Each enabled channel in `notifications.channels` is delivered by its own
+bounded queue and thread (`services/notifier/src/channel_dispatcher.py`).
+The Redis subscriber never waits on a sender or the network - it hands each
+event to the channel queues (and, when a queue is full, writes it to the
+local retry file) - so an SMTP relay that accepts the connection and then
+hangs delays that email channel alone: Discord, ntfy and webhook channels,
+and the subscriber itself, keep going. Within a channel, a live alert is
+delivered before the channel continues through its retry backlog. The
+channel cards are unchanged; the Discord and email senders and their
+settings are the ones validated before.
+
+| Bound | Default | Behaviour when reached |
+|---|---|---|
+| Live queue per channel | 50 events (`notifications.delivery.queue_size`, 1-1000) | The event is written to the disk retry queue instead of being dropped (logged as `delivery queue full`, counter `overflowed`). |
+| Delivery attempt deadline | 60 s (`notifications.delivery.send_deadline_seconds`, 5-600) | The event is queued for retry (`timed_out`) and the channel is *stalled* until that attempt ends on its own (the senders' socket timeouts guarantee it does). While stalled, further events for the channel go to the retry queue without a send (`deferred`), so connections never pile up on a hanging relay. If the late attempt still succeeds its retry entry is cancelled; a duplicate alert is possible only if the retry already fired. |
+| Retry queue (`notification_queue.json` on the `scarguard-notifier` volume) | 500 entries, 24 h | Unchanged: oldest entry dropped when full (logged), entries older than 24 h discarded; backoff 30 s doubling to a 10-minute cap. Each channel's thread retries only its own entries, so one channel's retries never wait on another's. |
+
+Both bounds are ordinary `scarguard.yml` settings under
+`notifications.delivery`, edited on the config page (Notifications tab,
+"Notification Delivery", expert mode). The web save refuses values outside
+the ranges above and changes only the bounds a save carries (a save without
+them keeps the stored values); a deadline below about 20 s can count
+healthy but slow sends (snapshot uploads, a slow relay) as timed out; the notifier applies them at start and on every config
+reload without a restart (a smaller queue keeps events already waiting and
+refuses new ones until it drains below the bound; a new deadline applies to
+the next attempt), and falls back to the default, with a warning naming the
+key, for a hand-edited value that is not a whole number in range.
+
+**Retry file**: every save writes `notification_queue.json.tmp` next to the
+queue file, fsyncs it and renames it into place, so a crash, `docker stop`
+timeout or power loss during a save leaves the previous complete queue, not
+a truncated file that would have discarded every pending retry on the next
+start. A leftover `.tmp` is ignored and removed at start.
+
+**Shutdown and restart**: on SIGTERM the dispatcher immediately writes every
+waiting event to the retry queue (one file write per channel), waits up to
+5 s for sends already in progress and writes those too (an event that then
+completes late cancels its own entry); this fits inside Compose's default
+10 s stop grace. A send that finishes inside that window is only treated as
+finished once its outcome (delivered, or failed and queued for retry) has
+been recorded - shutdown waits for that recording rather than skipping the
+attempt, so a failure in the last moments of the grace is not lost. On the next start the file is loaded (`Resuming with N
+notification(s) pending in retry queue: email=N`) and each channel's thread
+delivers its entries once they are due. A channel removed from the config
+has its waiting events persisted the same way; they wait in the retry queue
+until a channel of that name is enabled again or they expire. An event for
+a channel that has no delivery worker (removed by a reload that raced the
+event) is written to the retry queue as well, never sent with the old
+settings.
+
+**Observability**: every outcome is logged with the channel name and the
+running counter (`[email] delivery attempt exceeded 60s deadline - event
+queued for retry`, `[email] channel stalled ...`, `[email] persisted N
+pending notification(s) ...`, `Notification dispatcher stopped - retry
+queue depth N: email={...}`); the per-channel counters are `submitted`,
+`delivered`, `failed`, `timed_out`, `deferred`, `overflowed`, `retried`,
+`persisted`. There is no UI for them yet.
+
+**Limitations**: a send cannot be interrupted, so a stalled attempt holds
+its thread until the sender's own socket timeouts fire (15 s per SMTP
+command, 10 s per HTTP alert request, 15 s for digest requests) - the
+deadline bounds when the event is handed to retry, not when the socket
+closes. Scheduled digest reports (`system.summary_report`) go through the
+same per-channel queues as live alerts: a stalled channel delays only its
+own copy, and a failed or timed-out digest is queued for retry like any
+alert. Verified with local fixture
+relays (`services/notifier/tests/test_fdy_0572_regression.py`), not against
+a production SMTP server or Discord.
 
 ## Detection Logic
 
@@ -622,3 +790,5 @@ aggregate disk use from concurrent authorized uploads.
 If saving a snapshot frame to disk or recording an event to the SQLite database fails, the detection event is still published to Redis to ensure safety alerts are not silently suppressed. However, the event will not contain a `feedback_token` and its `snapshot_path` will be null, and downstream notification templates will omit those components. Feedback tokens are only issued for fully persisted events.
 
 During Redis connectivity outages, detection events and health alerts are buffered locally. Buffered detection events are dropped if they remain un-published for more than 60 seconds (a stale-event window) to avoid flooding the downstream channels with outdated motion alerts once connectivity is restored. Health alerts, however, are kept pending indefinitely until publication succeeds, ensuring no offline transitions are lost.
+
+On the notifier side each channel is delivered by its own bounded queue with a per-attempt deadline, and failed, timed-out or overflowed events go to the disk-backed retry queue, which is written atomically and reloaded on restart. See "Notification delivery queues (FDY-0572)" above for the bounds and what each outcome looks like in the logs.

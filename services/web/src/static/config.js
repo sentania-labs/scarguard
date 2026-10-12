@@ -592,6 +592,10 @@ function readForm() {
     },
     notifications: {
       channels: readChannels(),
+      delivery: {
+        queue_size: (v => isNaN(v) ? 50 : v)(parseInt(document.getElementById("notif-delivery-queue-size").value, 10)),
+        send_deadline_seconds: (v => isNaN(v) ? 60 : v)(parseInt(document.getElementById("notif-delivery-send-deadline").value, 10)),
+      },
     },
     tls: {
       mode: document.getElementById("tls-mode").value,
@@ -677,6 +681,12 @@ function validate(data) {
   const tw = data.training.defaults.workers;
   if (!Number.isInteger(tw) || tw < 0 || tw > 4)
     errors.push("Training: data-loader workers must be from 0 through 4 on Jetson Orin");
+
+  const delivery = data.notifications.delivery;
+  if (delivery.queue_size < 1 || delivery.queue_size > 1000)
+    errors.push("Notification delivery: queue size must be from 1 through 1000");
+  if (delivery.send_deadline_seconds < 5 || delivery.send_deadline_seconds > 600)
+    errors.push("Notification delivery: send deadline must be from 5 through 600 seconds");
 
   const sched = data.system.schedule;
   const timeRe = /^\d{2}:\d{2}$/;
@@ -820,11 +830,15 @@ const _CHANNEL_FIELDS = {
     { id: "smtp_pass", label: "SMTP password", type: "password", placeholder: "" },
     { id: "to_addresses", label: "Recipients (one per line)", type: "textarea", placeholder: "you@example.com" },
     { id: "include_snapshot", label: "Attach snapshot image", type: "checkbox", default: true },
+    { id: "smtp_ca_file", label: "Trusted CA file (optional, PEM path for a relay with a private CA)", type: "text", placeholder: "/config/certs/smtp-ca.pem" },
+    { id: "allow_internal", label: "Allow LAN destination (allow_internal): private addresses such as 192.168.x.x only - loopback, cloud metadata and Docker networks are always refused", type: "checkbox", default: false, strict: true },
+    { id: "smtp_insecure_plaintext", label: "INSECURE: allow plaintext SMTP (smtp_insecure_plaintext) - mail and the SMTP password are sent unencrypted", type: "checkbox", default: false, strict: true },
   ],
   webhook: [
     { id: "url", label: "URL", type: "text", placeholder: "https://example.com/webhook" },
     { id: "method", label: "HTTP method", type: "select", options: ["POST", "PUT"], default: "POST" },
     { id: "auth_token", label: "Bearer token (optional)", type: "password", placeholder: "" },
+    { id: "allow_internal", label: "Allow LAN destination (allow_internal): private addresses such as 192.168.x.x only - loopback, cloud metadata and Docker networks are always refused", type: "checkbox", default: false, strict: true },
   ],
   ntfy: [
     { id: "server", label: "Server URL", type: "text", placeholder: "https://ntfy.sh", default: "https://ntfy.sh" },
@@ -834,6 +848,7 @@ const _CHANNEL_FIELDS = {
     { id: "password", label: "Password (optional)", type: "password", placeholder: "" },
     { id: "priority", label: "Priority", type: "select", options: ["1", "2", "3", "4", "5"], default: "3" },
     { id: "include_snapshot", label: "Attach snapshot image", type: "checkbox", default: true },
+    { id: "allow_internal", label: "Allow LAN destination (allow_internal): private addresses such as 192.168.x.x only - loopback, cloud metadata and Docker networks are always refused", type: "checkbox", default: false, strict: true },
   ],
 };
 
@@ -851,7 +866,10 @@ function buildChannelCard(ch) {
   const fieldsHtml = fields.map(f => {
     const val = ch[f.id] !== undefined ? ch[f.id] : (f.default !== undefined ? f.default : "");
     if (f.type === "checkbox") {
-      return `<label class="toggle-label"><input type="checkbox" class="ch-field" data-field="${f.id}" ${val ? "checked" : ""}><span class="toggle-track"></span> ${f.label}</label>`;
+      // Security opt-ins render checked only for a stored boolean true, the
+      // same test the notifier applies - "yes" or 1 never turns them on.
+      const on = f.strict ? val === true : val;
+      return `<label class="toggle-label"><input type="checkbox" class="ch-field" data-field="${f.id}" ${on ? "checked" : ""}><span class="toggle-track"></span> ${f.label}</label>`;
     }
     if (f.type === "textarea") {
       const lines = Array.isArray(val) ? val.join("\n") : (val || "");

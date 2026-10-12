@@ -12,7 +12,6 @@ from webhook import WebhookNotifier
 
 def test_webhook_request_error_does_not_retain_url(monkeypatch: pytest.MonkeyPatch) -> None:
     sentinel = f"sentinel{uuid.uuid4().hex}"
-    monkeypatch.setattr(webhook, "validate_external_url", lambda *_args, **_kwargs: None)
     notifier = WebhookNotifier(
         {
             "name": "hook",
@@ -22,10 +21,12 @@ def test_webhook_request_error_does_not_retain_url(monkeypatch: pytest.MonkeyPat
     )
 
     def fail(*_args: object, **_kwargs: object) -> None:
-        raise requests.RequestException(f"request failed for /{sentinel}")
+        raise requests.exceptions.SSLError(f"request failed for /{sentinel}")
 
-    monkeypatch.setattr(requests, "request", fail)
-    with pytest.raises(RuntimeError) as caught:
+    monkeypatch.setattr(webhook.safe_http, "send", fail)
+    with pytest.raises(requests.exceptions.SSLError) as caught:
         notifier.send({"timestamp": "", "snapshot_path": None})
 
     assert sentinel not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__

@@ -126,6 +126,7 @@ scarguard/
 │   │   │   ├── webhook.py
 │   │   │   ├── ntfy.py
 │   │   │   ├── notification_queue.py
+│   │   │   ├── channel_dispatcher.py  # Per-channel bounded delivery queues (FDY-0572)
 │   │   │   ├── snapshot_utils.py
 │   │   │   ├── digest.py            # Daily/weekly/monthly summary formatter
 │   │   │   ├── digest_db.py
