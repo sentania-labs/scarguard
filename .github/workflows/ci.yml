@@ -212,7 +212,7 @@ jobs:
           cache: pip
 
       - name: Install deps
-        run: pip install pytest redis -r services/training-controller/requirements.txt
+        run: pip install pytest redis -r services/training-controller/requirements.txt -r services/trainer/requirements.txt
 
       - name: Trainer fake-child and evidence tests
         env:
