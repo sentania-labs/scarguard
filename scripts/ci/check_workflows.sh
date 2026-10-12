@@ -21,10 +21,20 @@ if [ -z "$ACTIONLINT" ]; then
   done
 fi
 if [ -z "$ACTIONLINT" ]; then
-  # Download a pinned release of actionlint.
-  # Version: 1.7.12   SHA-256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-  ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
-  EXPECTED_SHA="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  # Download a pinned release of actionlint for the current OS/arch.
+  # Version: 1.7.12
+  UNAME_S=$(uname -s)
+  UNAME_M=$(uname -m)
+  case "$UNAME_S-$UNAME_M" in
+    Linux-arm64|Linux-aarch64)
+      ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_arm64.tar.gz"
+      EXPECTED_SHA="325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+      ;;
+    *)
+      ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+      EXPECTED_SHA="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+      ;;
+  esac
   TARBALL="${ACTIONLINT_DIR}/actionlint.tar.gz"
   BINARY="${ACTIONLINT_DIR}/actionlint"
 
@@ -72,27 +82,31 @@ with open('.github/workflows/build.yml') as f:
 lines = content.split('\n')
 in_login_step = False
 step_name = ''
-has_guard = False
 errors = 0
+REQUIRED_GUARD = \"github.actor != 'dependabot[bot]'\"
 
-for i, line in enumerate(lines, 1):
+for i, line in enumerate(lines):
     stripped = line.strip()
     if stripped.startswith('- name:') and 'Log in to Docker Hub' in stripped:
         in_login_step = True
         step_name = stripped
-        has_guard = False
     elif in_login_step and stripped.startswith('if:'):
-        has_guard = True
-    elif in_login_step and stripped.startswith('uses:') and 'docker/login-action' in stripped:
-        in_login_step = False
-        if not has_guard:
-            print(f'FAIL: {step_name} on line {i-1} has no dependabot guard')
+        guard_value = stripped[len('if:'):].strip()
+        if guard_value == REQUIRED_GUARD:
+            in_login_step = False
+        else:
+            print(f'FAIL: {step_name} on line {i+1} has guard \"{guard_value}\" '
+                  f'instead of \"{REQUIRED_GUARD}\"')
             errors += 1
-    elif in_login_step and not stripped.startswith('with:'):
-        pass
+    elif in_login_step and stripped.startswith('uses:') and 'docker/login-action' in stripped:
+        # Step ended without a valid guard line being parsed
+        if errors == 0:
+            print(f'FAIL: {step_name} on line {i+1} has no valid dependabot guard')
+            errors += 1
+        in_login_step = False
 
 if errors:
-    print(f'{errors} login step(s) missing the github.actor guard')
+    print(f'{errors} login step(s) missing or misconfigured dependabot guard')
     sys.exit(1)
 print('All login steps have the dependabot guard')
 "
