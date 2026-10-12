@@ -39,8 +39,6 @@ def test_old_walk_broken_on_included_router(client) -> None:
     The key assertion is that the *fixed* test-notification lookup works via
     _walk_routes, which is what the regression test uses now.
     """
-    import fastapi
-
     broken_types: list[str] = []
     for r in client.app.routes:
         try:
