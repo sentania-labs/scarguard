@@ -36,10 +36,15 @@ jobs:
   # ── Type check ──────────────────────────────────────────────────────────────
   # Detector is excluded - it requires torch/opencv/ultralytics which are
   # only available on the L4T base image (ARM64, CUDA).
+  # Each service gets its own venv so that differing requirement versions
+  # across services never clash (e.g. redis 7.x vs 8.x from dependabot).
   typecheck:
-    name: Type check (mypy)
+    name: Type check (mypy) - ${{ matrix.service }}
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.owner.login == 'sentania-labs'
+    strategy:
+      matrix:
+        service: [web, notifier, deterrent]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
@@ -48,34 +53,21 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install deps
+      - name: Create isolated venv
+        run: python3 -m venv .venv
+
+      - name: Activate venv and install deps
         run: |
+          source .venv/bin/activate
           pip install mypy types-PyYAML types-requests \
-            -r services/web/requirements.txt \
-            -r services/notifier/requirements.txt \
-            -r services/deterrent/requirements.txt
+            -r services/${{ matrix.service }}/requirements.txt
 
-      - name: mypy - web
+      - name: mypy - ${{ matrix.service }}
         env:
-          MYPYPATH: services/web/src:shared
+          MYPYPATH: services/${{ matrix.service }}/src:shared
+          PATH: "${{ github.workspace }}/.venv/bin:$PATH"
         run: |
-          mypy services/web/src shared \
-            --ignore-missing-imports \
-            --explicit-package-bases
-
-      - name: mypy - notifier
-        env:
-          MYPYPATH: services/notifier/src:shared
-        run: |
-          mypy services/notifier/src shared \
-            --ignore-missing-imports \
-            --explicit-package-bases
-
-      - name: mypy - deterrent
-        env:
-          MYPYPATH: services/deterrent/src:shared
-        run: |
-          mypy services/deterrent/src shared \
+          mypy services/${{ matrix.service }}/src shared \
             --ignore-missing-imports \
             --explicit-package-bases
 

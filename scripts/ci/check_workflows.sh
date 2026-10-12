@@ -2,7 +2,9 @@
 # scripts/ci/check_workflows.sh
 # Run actionlint over all GitHub Actions workflows and verify that every
 # docker/login-action step in build.yml carries the dependabot guard
-# so that PRs triggered by dependabot do not fail on missing repository secrets.
+# so that PRs triggered by dependabot do not fail on missing repository
+# secrets.  Also verify that the typecheck job isolates each service into
+# its own venv so that differing requirement versions never clash.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -110,3 +112,6 @@ if errors:
     sys.exit(1)
 print('All login steps have the dependabot guard')
 "
+
+# ── 4. Typecheck isolation: each service gets its own venv ──────────────────
+bash scripts/ci/check_typecheck_isolation.sh
