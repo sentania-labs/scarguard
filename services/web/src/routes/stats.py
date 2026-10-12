@@ -5,7 +5,6 @@ import csv
 import io
 import json
 import logging
-import os
 from pathlib import Path
 
 import config_store
@@ -14,6 +13,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from redis_client import redis_auth
 from sse_limiter import SSETooManyStreams, sse_connection
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ async def stats_stream(request: Request) -> StreamingResponse:
     user_id = user.get("user_id", "anon")
 
     async def generator():
-        client = aioredis.Redis(host=host, port=port, password=os.environ.get("REDIS_PASSWORD", "") or None, decode_responses=True)
+        client = aioredis.Redis(host=host, port=port, **redis_auth(), decode_responses=True)
         try:
             async with sse_connection(client, user_id):
                 yield ": connected\n\n"

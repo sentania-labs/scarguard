@@ -1,13 +1,15 @@
-"""Simple Redis-backed per-principal rate limiting.
+"""Redis-backed per-principal rate limiting.
 
-Uses a fixed-window counter with atomic ``INCR`` + ``EXPIRE`` rather than
-a true token bucket. The goal here is defence against session-theft
-hammering and misbehaving scripts - not precise QoS - so a fixed window
-is fine and avoids the Lua complexity of a sliding window or bucket.
+Uses a fixed-window counter. The counter increment and its TTL are applied
+in one Lua script so a crash between ``INCR`` and ``EXPIRE`` can never leave
+a window that neither rolls over nor expires, and the script also repairs a
+counter that somehow lost its TTL.
 
-The limiter degrades open on Redis failure: if the Redis call raises, the
-request is allowed and a warning is logged. Better to let legitimate
-traffic through during a Redis outage than to hard-block the UI.
+The limiter fails closed: if Redis is unreachable, refuses the command
+(ACL ``NOPERM``) or is out of memory (``OOM`` under ``noeviction``), the
+request is denied with ``Retry-After`` set to the window. Quota state lives
+in a non-evicting Redis (``maxmemory-policy noeviction``), so a counter can
+only disappear by expiring at the end of its window.
 """
 
 from __future__ import annotations
@@ -21,14 +23,26 @@ logger = logging.getLogger(__name__)
 
 KEY_PREFIX = "rl:v1"
 
+# KEYS[1] = counter key, ARGV[1] = window seconds.
+# Returns {count, ttl_seconds}. The TTL is (re)applied atomically with the
+# first increment of a window and whenever the key has no expiry.
+INCR_WITH_TTL_SCRIPT = (
+    "local count = redis.call('INCR', KEYS[1]) "
+    "local ttl = redis.call('TTL', KEYS[1]) "
+    "if count == 1 or ttl < 0 then "
+    "redis.call('EXPIRE', KEYS[1], ARGV[1]) "
+    "ttl = tonumber(ARGV[1]) "
+    "end "
+    "return {count, ttl}"
+)
+
 
 class RateLimiter:
     """Fixed-window counter backed by Redis.
 
-    Each ``check()`` call is an ``INCR``; when the count first crosses 1
-    we set ``EXPIRE`` on the key so it rolls over. Windows are absolute
-    wall-clock, not sliding - at most ``2 * capacity`` requests over a
-    2-window cusp is possible in the worst case, which is acceptable.
+    Windows are absolute wall-clock, not sliding - at most ``2 * capacity``
+    requests over a 2-window cusp is possible in the worst case, which is
+    acceptable.
     """
 
     def __init__(self, redis_client: redis_lib.Redis) -> None:
@@ -52,26 +66,16 @@ class RateLimiter:
 
         key = f"{KEY_PREFIX}:{scope}:{principal}"
         try:
-            raw: Any = self._redis.incr(key)
-            count = int(raw) if isinstance(raw, (int, float, str, bytes)) else -1
-            if count < 0:
-                return True, 0
-            if count == 1:
-                # First hit of this window - set the TTL.
-                self._redis.expire(key, window_seconds)
-        except (redis_lib.RedisError, ValueError, TypeError) as exc:
-            logger.warning("Rate limiter Redis error (fail-open): %s", exc)
-            return True, 0
+            raw: Any = self._redis.eval(INCR_WITH_TTL_SCRIPT, 1, key, window_seconds)
+            count = int(raw[0])
+            ttl = int(raw[1])
+        except (redis_lib.RedisError, ValueError, TypeError, IndexError) as exc:
+            logger.error(
+                "Rate limiter Redis error (fail-closed, denying %s/%s): %s",
+                scope, principal, exc,
+            )
+            return False, window_seconds
 
         if count <= capacity:
             return True, 0
-
-        # Over the limit - read the TTL for Retry-After. TTL can briefly be
-        # -1 (no expiry yet) or -2 (no key); clamp conservatively.
-        try:
-            ttl_raw: Any = self._redis.ttl(key)
-            ttl = int(ttl_raw) if isinstance(ttl_raw, (int, float)) else window_seconds
-        except redis_lib.RedisError:
-            ttl = window_seconds
-        retry_after = ttl if ttl > 0 else window_seconds
-        return False, retry_after
+        return False, ttl if ttl > 0 else window_seconds

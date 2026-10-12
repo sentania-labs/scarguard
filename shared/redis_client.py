@@ -20,15 +20,37 @@ _MIN_RECONNECT_DELAY: float = 5
 _MAX_RECONNECT_DELAY: float = 60
 
 
+def redis_auth() -> dict[str, Any]:
+    """Return the ``username``/``password`` kwargs for this service's ACL user.
+
+    Each container receives only its own credential: ``REDIS_USERNAME`` names
+    the service's Redis ACL user (see ``config/redis-acl.conf``) and
+    ``REDIS_PASSWORD`` carries that user's secret. When the username is set but
+    the secret is empty, the client still authenticates as the named user, so a
+    deployment that has not run ``scripts/migrate-redis-acl.sh`` fails closed
+    with an authentication error instead of silently gaining admin access.
+    """
+    params: dict[str, Any] = {}
+    username = os.environ.get("REDIS_USERNAME", "")
+    password = os.environ.get("REDIS_PASSWORD", "")
+    if username:
+        params["username"] = username
+        params["password"] = password
+    elif password:
+        params["password"] = password
+    return params
+
+
 def _resolve_params(redis_cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build common connection kwargs from a config dict + env."""
     cfg = redis_cfg or {}
-    return {
+    params: dict[str, Any] = {
         "host": cfg.get("host", "redis"),
         "port": int(cfg.get("port", 6379)),
-        "password": os.environ.get("REDIS_PASSWORD", "") or None,
         "decode_responses": True,
     }
+    params.update(redis_auth())
+    return params
 
 
 def make_sync_client(

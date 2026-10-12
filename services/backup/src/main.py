@@ -40,6 +40,7 @@ from typing import Any
 
 import redis as redis_lib
 import yaml
+from redis_client import redis_auth
 
 logger = logging.getLogger(__name__)
 
@@ -487,9 +488,8 @@ def trigger_listener(
 def _make_redis(redis_cfg: dict[str, Any]) -> redis_lib.Redis:
     host = redis_cfg.get("host", "redis")
     port = int(redis_cfg.get("port", 6379))
-    password = os.environ.get("REDIS_PASSWORD", "") or None
     return redis_lib.Redis(
-        host=host, port=port, password=password, decode_responses=True,
+        host=host, port=port, **redis_auth(), decode_responses=True,
     )
 
 

@@ -450,11 +450,9 @@ def _camera_worker(
     """
     name = camera_cfg["name"]
 
-    redis_password = os.environ.get("REDIS_PASSWORD", "")
     publisher = RedisPublisher(
         host=redis_cfg.get("host", "redis"),
         port=int(redis_cfg.get("port", 6379)),
-        password=redis_password or None,
     )
     stream = RTSPStream(name=name, rtsp_url=camera_cfg["rtsp_url"], stop_event=stop_event)
 

@@ -27,6 +27,7 @@ from typing import Callable, Literal
 import docker
 import redis as redislib
 from pydantic import BaseModel, ConfigDict, Field
+from redis_client import redis_auth
 
 logging.basicConfig(
     level=logging.INFO,
@@ -154,11 +155,10 @@ def _strip_ansi(text: str) -> str:
 def _redis_client() -> redislib.Redis:
     host = os.environ.get("REDIS_HOST", "redis")
     port = int(os.environ.get("REDIS_PORT", "6379"))
-    password = os.environ.get("REDIS_PASSWORD", "") or None
     return redislib.Redis(
         host=host,
         port=port,
-        password=password,
+        **redis_auth(),
         decode_responses=True,
         retry_on_timeout=True,
     )

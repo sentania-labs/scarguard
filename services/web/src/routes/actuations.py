@@ -6,7 +6,6 @@ import html as _html
 import json
 import logging
 import math
-import os
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +16,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from redis_client import redis_auth
 from sse_limiter import SSETooManyStreams, sse_connection
 from starlette.responses import Response
 
@@ -106,7 +106,7 @@ async def actuations_stream(request: Request) -> StreamingResponse:
     async def generator():
         client = aioredis.Redis(
             host=host, port=port,
-            password=os.environ.get("REDIS_PASSWORD", "") or None,
+            **redis_auth(),
             decode_responses=True,
         )
         try:
