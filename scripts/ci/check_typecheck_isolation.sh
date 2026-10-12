@@ -28,18 +28,19 @@ steps = tc.get('steps', [])
 
 for step in steps:
     name = step.get('name', '')
-    if 'install' not in name.lower():
-        continue
-
     run_block = step.get('run', '')
+
+    # Inspect every run block for requirement-file installs.
+    # The isolation check must not depend on the step name being
+    # 'Install deps' -- any name could carry multiple -r flags.
     if '-r services/' not in run_block:
         continue
 
     matches = re.findall(r'-r\s+services/([^/]+)/requirements\.txt', run_block)
     if len(matches) > 1:
         print(
-            f'FAIL: Step \"{name}\" installs requirements for '
-            f'{len(matches)} services ({\", \".join(matches)}) '
+            f'FAIL: Step \"' + name + '\" installs requirements for '
+            f'{len(matches)} services (' + ', '.join(matches) + ') '
             f'into one environment. Each service must have its own '
             f'virtual environment.'
         )
