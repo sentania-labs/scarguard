@@ -145,6 +145,32 @@ class _FakeAsyncRedis:
         return None
 
 
+# ── Version-compatible route walk ──────────────────────────────────────────────────
+# FastAPI 0.143+ changed how included routers appear in app.routes: an _IncludedRouter
+# object sits between app.routes and the actual APIRoute objects.  The _IncludedRouter
+# lacks a .path attribute, so the old pattern ``r.path for r in app.routes`` breaks.
+# This helper walks nested routers (by original_router.routes for new FastAPI,
+# or routes for old Starlette) to find all Route objects.
+
+
+def _walk_routes(routes: list) -> list:
+    """Recursively flatten nested router routes into a single list."""
+    result: list = []
+    for route in routes:
+        # FastAPI 0.143+: _IncludedRouter has original_router with .routes
+        original = getattr(route, "original_router", None)
+        if original is not None and hasattr(original, "routes"):
+            result.extend(_walk_routes(original.routes))
+            continue
+        # Older Starlette: include router has .routes directly
+        sub_routes = getattr(route, "routes", None)
+        if sub_routes is not None:
+            result.extend(_walk_routes(sub_routes))
+            continue
+        result.append(route)
+    return result
+
+
 def test_web_test_notification_never_publishes_a_detection(client, monkeypatch: pytest.MonkeyPatch) -> None:
     """The real /test-notification handler publishes a signed notify request only."""
     from routes import config as config_routes
@@ -161,7 +187,13 @@ def test_web_test_notification_never_publishes_a_detection(client, monkeypatch: 
     monkeypatch.setattr(config_routes, "aioredis", SimpleNamespace(Redis=_FakeAsyncRedis))
     _FakeAsyncRedis.published.clear()
 
-    path = next(r.path for r in client.app.routes if r.path.endswith("/test-notification"))
+    # Walk nested routers (FastAPI 0.143+ puts _IncludedRouter objects in app.routes
+    # that lack .path). Use the version-compatible helper.
+    path = next(
+        r.path
+        for r in _walk_routes(client.app.routes)
+        if r.path.endswith("/test-notification")
+    )
     res = client.post(path, json={"channel": "ops"})
     assert res.status_code == 200, res.text
     assert len(_FakeAsyncRedis.published) == 1
