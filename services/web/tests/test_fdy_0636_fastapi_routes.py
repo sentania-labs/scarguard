@@ -32,12 +32,12 @@ def test_old_walk_broken_on_included_router(client) -> None:
     """Prove the naive walk breaks on FastAPI 0.143+.
 
     On FastAPI 0.143+ an _IncludedRouter sits in app.routes and lacks .path.
-    This test EXPECTS failure on new FastAPI, proving the bug exists.
-    After the fix the naive walk is replaced by _walk_routes, so this test
-    will pass when FastAPI is old and *not* fail when it is new.
+    On old FastAPI (0.135.3) the naive walk works and this test is expected
+    to fail, proving the bug is specific to the new version.
 
-    The key assertion is that the *fixed* test-notification lookup works via
-    _walk_routes, which is what the regression test uses now.
+    The fix (using _walk_routes instead of the naive walk) makes this test
+    pass on new FastAPI by verifying the helper resolves all routes
+    including those behind _IncludedRouter wrappers.
     """
     broken_types: list[str] = []
     for r in client.app.routes:
@@ -46,14 +46,21 @@ def test_old_walk_broken_on_included_router(client) -> None:
         except AttributeError:
             broken_types.append(type(r).__name__)
 
-    if broken_types:
-        # On new FastAPI the naive walk breaks, but the _walk_routes helper works.
-        # Verify the helper can still find the route.
-        all_routes = _walk_routes(client.app.routes)
-        found = [r.path for r in all_routes if r.path.endswith("/test-notification")]
-        assert found == ["/config/test-notification"], (
-            f"Naive walk breaks on {broken_types}, but _walk_routes found {found}"
-        )
+    # FastAPI 0.143+ introduces _IncludedRouter objects that lack .path,
+    # breaking the naive walk.  On old FastAPI broken_types is empty and
+    # the assertion below fails, providing red-before-green evidence.
+    assert broken_types, (
+        "Naive route walk should fail on FastAPI 0.143+ "
+        f"(_IncludedRouter lacks .path); broken_types={broken_types}"
+    )
+
+    # Verify the _walk_routes helper resolves all routes including the
+    # _IncludedRouter children so the fix is actually effective.
+    all_routes = _walk_routes(client.app.routes)
+    found = [r.path for r in all_routes if r.path.endswith("/test-notification")]
+    assert found == ["/config/test-notification"], (
+        f"_walk_routes should find /config/test-notification but found {found}"
+    )
 
 
 def test_walk_finds_notification_route(client) -> None:
