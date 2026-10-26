@@ -175,7 +175,7 @@ scarguard/
 │   └── orin-setup.sh
 └── .github/
     └── workflows/
-        ├── ci.yml                   # Lint, type check, pytest (PR only)
+        ├── ci.yml                   # Lint, type check, pytest (PR and main push)
         ├── build.yml                # Docker image builds (PR: full; main: cache only)
         ├── release.yml              # Build + push to GHCR on tag push
         └── cleanup.yml              # Retired; hosted-only skipped tombstone
@@ -368,9 +368,11 @@ PR to main (ci.yml + build.yml - full validation)
   │
   └── Compose smoke test (after all builds pass)
 
-Merge to main (build.yml - cache warming only)
-  ├── ubuntu-latest: Multi-arch builds only (warms GHA build cache)
-  └── Tests, Trivy, and compose smoke test are SKIPPED (passed on PR)
+Merge to main (ci.yml - tests; build.yml - cache warming only)
+  ├── ci.yml on ubuntu-latest: lint, type check, and every per-service
+  │   pytest job re-run on main's own state (two green PRs can merge red)
+  ├── build.yml on ubuntu-latest: Multi-arch builds only (warms GHA build cache)
+  └── Trivy and compose smoke test are SKIPPED (passed on PR)
 
 Tag push (release.yml)
   ├── GitHub-hosted ubuntu-latest (parallel):
