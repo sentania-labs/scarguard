@@ -7,7 +7,11 @@ WORKDIR /app
 # every other Python service Dockerfile here.  This file was the only one
 # missing the step, so the image shipped the base's unpatched OS packages and
 # the Trivy gate failed on them (util-linux CVE-2026-53612/53613/53614/53615).
-RUN apt-get update && apt-get upgrade -y \
+# APT_CACHE_BUST: CI passes a fresh value per run so the buildx GHA cache
+# never serves this layer with pre-upgrade packages (trips the Trivy gate).
+ARG APT_CACHE_BUST=dev
+RUN echo "apt cache bust: ${APT_CACHE_BUST}" && \
+    apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/*
 
