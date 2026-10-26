@@ -27,8 +27,9 @@ WORKDIR /app
 # Install Python deps before copying source (layer caching)
 # torch / torchvision / torchaudio are provided by the pytorch base image.
 # Do NOT add them here - pip will skip reinstalling compatible versions.
-COPY services/detector/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY services/detector/requirements.txt services/detector/requirements-x86-security.txt ./
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --upgrade -r requirements-x86-security.txt
 
 # Copy application source
 COPY services/detector/src/ ./src/

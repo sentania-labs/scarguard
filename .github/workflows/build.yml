@@ -68,6 +68,7 @@ jobs:
             VERSION=dev-${{ github.sha }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            APT_CACHE_BUST=${{ github.run_id }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
           outputs: type=oci,dest=/tmp/web.tar
@@ -149,6 +150,8 @@ jobs:
         with:
           context: .
           file: services/notifier/Dockerfile
+          build-args: |
+            APT_CACHE_BUST=${{ github.run_id }}
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
@@ -222,6 +225,8 @@ jobs:
         with:
           context: .
           file: services/deterrent/Dockerfile
+          build-args: |
+            APT_CACHE_BUST=${{ github.run_id }}
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
@@ -295,6 +300,8 @@ jobs:
         with:
           context: .
           file: services/backup/Dockerfile
+          build-args: |
+            APT_CACHE_BUST=${{ github.run_id }}
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
@@ -402,6 +409,8 @@ jobs:
         with:
           context: .
           file: services/log-streamer/Dockerfile
+          build-args: |
+            APT_CACHE_BUST=${{ github.run_id }}
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
@@ -472,6 +481,8 @@ jobs:
         with:
           context: .
           file: services/training-controller/Dockerfile
+          build-args: |
+            APT_CACHE_BUST=${{ github.run_id }}
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
@@ -528,6 +539,8 @@ jobs:
         with:
           context: .
           file: services/off-watchdog/Dockerfile
+          build-args: |
+            APT_CACHE_BUST=${{ github.run_id }}
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false

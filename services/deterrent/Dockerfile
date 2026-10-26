@@ -9,7 +9,11 @@ WORKDIR /app
 
 # Upgrade base packages to pick up security fixes not yet in the slim image,
 # then install gosu for entrypoint user-switching.
-RUN apt-get update && apt-get upgrade -y && \
+# APT_CACHE_BUST: CI passes a fresh value per run so the buildx GHA cache
+# never serves this layer with pre-upgrade packages (trips the Trivy gate).
+ARG APT_CACHE_BUST=dev
+RUN echo "apt cache bust: ${APT_CACHE_BUST}" && \
+    apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends gosu && \
     rm -rf /var/lib/apt/lists/*
 

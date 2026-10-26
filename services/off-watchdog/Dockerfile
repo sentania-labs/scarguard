@@ -1,7 +1,11 @@
 FROM docker.io/library/python:3.11-slim@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
 WORKDIR /app
-RUN apt-get update && apt-get upgrade -y && \
+# APT_CACHE_BUST: CI passes a fresh value per run so the buildx GHA cache
+# never serves this layer with pre-upgrade packages (trips the Trivy gate).
+ARG APT_CACHE_BUST=dev
+RUN echo "apt cache bust: ${APT_CACHE_BUST}" && \
+    apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends gosu && \
     rm -rf /var/lib/apt/lists/*
 COPY services/off-watchdog/requirements.lock ./requirements.lock
