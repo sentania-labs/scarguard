@@ -1,6 +1,10 @@
 name: CI
 
 on:
+  # Main push re-runs lint, type check, and the per-service tests so main's
+  # own state is attested (two green PRs can merge into a red main).
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:

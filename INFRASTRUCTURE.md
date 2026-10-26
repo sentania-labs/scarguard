@@ -175,7 +175,7 @@ scarguard/
 │   └── orin-setup.sh
 └── .github/
     └── workflows/
-        ├── ci.yml                   # Lint, type check, pytest (PR only)
+        ├── ci.yml                   # Lint, type check, pytest (PR and main push)
         ├── build.yml                # Docker image builds (PR: full; main: cache only)
         ├── release.yml              # Build + push to GHCR on tag push
         └── cleanup.yml              # Retired; hosted-only skipped tombstone
