@@ -6,16 +6,16 @@
 # job). The image installs requirements.lock, which stays on the
 # Orin-validated numpy 1.26.4 until the lock is regenerated on target.
 numpy==2.2.6
-ultralytics==8.4.174
+ultralytics==8.4.175
 opencv-python-headless==5.0.0.93
 # roboflow and pillow-heif move together. pillow-heif 1.3.0 is the first
 # release clearing GHSA-5gjj-6r7v-ph3x, and 1.x has no register_avif_opener,
 # which roboflow 1.1.61 called on import. roboflow 1.2.0 gets AVIF from
 # pillow-avif-plugin instead, so it imports cleanly against pillow-heif 1.x.
 # This supersedes the pillow-heif==0.22.0 pin from #179.
-roboflow==1.7.0
-pillow-heif==1.8.0
+roboflow==1.7.1
+pillow-heif==1.8.1
 redis==8.1.0
 pyyaml==6.0.3
 requests==2.34.2
-cryptography==50.0.1
+cryptography==50.0.2
