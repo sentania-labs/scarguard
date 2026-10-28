@@ -64,7 +64,7 @@ jobs:
         run: python3 .github/scripts/check-build-status.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BUILD_NAME_FILTER: "Build"
+          BUILD_NAME_FILTER: "^Build .+ image"
 
   release-web:
     name: Release web image
