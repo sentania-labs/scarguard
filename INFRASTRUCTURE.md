@@ -375,6 +375,10 @@ Merge to main (ci.yml - tests; build.yml - cache warming only)
   └── Trivy and compose smoke test are SKIPPED (passed on PR)
 
 Tag push (release.yml)
+  ├── Tag provenance gate, then Build workflow gate
+  │   └── Python queries commit check-runs with GITHUB_TOKEN in its environment
+  │       and job-level checks: read; failed or unfinished builds block release
+  │
   ├── GitHub-hosted ubuntu-latest (parallel):
   │   ├── Build + push web to ghcr.io
   │   ├── Build + push notifier to ghcr.io
