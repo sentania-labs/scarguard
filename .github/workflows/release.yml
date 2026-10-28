@@ -39,6 +39,11 @@ jobs:
       - name: Verify tag is annotated
         run: |
           TAG="${{ github.ref_name }}"
+          # actions/checkout's last step re-fetches the triggering tag as
+          # "+<commit sha>:refs/tags/$TAG", overwriting the annotated tag ref
+          # with a bare commit. Re-fetch the real tag object before checking it.
+          git fetch --no-tags --force origin "refs/tags/$TAG:refs/tags/$TAG" \
+            || { echo "FAIL: could not fetch $TAG from origin" >&2; exit 1; }
           TYPE=$(git cat-file -t "$TAG" 2>/dev/null) || { echo "FAIL: $TAG does not exist" >&2; exit 1; }
           if [ "$TYPE" != "tag" ]; then
             echo "FAIL: $TAG is $TYPE, not an annotated tag" >&2
