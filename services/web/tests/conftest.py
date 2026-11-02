@@ -6,7 +6,7 @@ so these must be set before the first import of those modules.
 
 import os
 import sys
-from importlib import util
+from collections.abc import Generator
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import AsyncMock, MagicMock
@@ -42,38 +42,25 @@ _STEMS = sorted(p.stem for p in SRC_DIR.glob("*.py"))
 _CACHE: dict[str, ModuleType] = {}
 
 
-def _prioritize(dirs: list[str]) -> None:
+def _prioritize() -> None:
     """Move this service's own trees to the front of ``sys.path``."""
-    for _dir in reversed(dirs):
+    for _dir in reversed(_OWN_DIRS):
         if _dir in sys.path:
             sys.path.remove(_dir)
         sys.path.insert(0, _dir)
 
 
-def _load(stem: str) -> ModuleType:
-    """Load ``src/<stem>.py`` for this service once and keep that object."""
-    path = SRC_DIR / f"{stem}.py"
-    existing = _CACHE.get(stem) or sys.modules.get(stem)
-    if existing is not None and str(getattr(existing, "__file__", "")) == str(path):
-        return existing
-    saved = list(sys.path)
-    _prioritize(_OWN_DIRS)
-    try:
-        sys.modules.pop(stem, None)
-        spec = util.spec_from_file_location(stem, path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"cannot load {path}")
-        module = util.module_from_spec(spec)
-        sys.modules[stem] = module
-        try:
-            spec.loader.exec_module(module)
-        except Exception:
-            sys.modules.pop(stem, None)
-            raise
-        _CACHE[stem] = module
-        return module
-    finally:
-        sys.path[:] = saved
+def _own(module: ModuleType) -> bool:
+    _file = getattr(module, "__file__", None)
+    return _file is not None and Path(_file).resolve().parent == SRC_DIR
+
+
+def _harvest() -> None:
+    """Remember the modules of this service that have been imported so far."""
+    for stem in _STEMS:
+        module = sys.modules.get(stem)
+        if module is not None and _own(module):
+            _CACHE[stem] = module
 
 
 def _bind() -> None:
@@ -81,27 +68,39 @@ def _bind() -> None:
 
     Every service ships a top-level ``src/main.py``, so in one process all of
     them compete for the plain name ``main`` (issue #200) and only the first
-    module collected wins.  Each service loads its own modules once and then
-    re-points the shared names at those same objects, so test modules and
-    ``patch("main.x")`` keep seeing the object they were import-bound to.
+    module collected wins.  Nothing is imported here: modules already imported
+    for this service are restored (so test modules and ``patch("main.x")`` keep
+    seeing the object they were import-bound to), and another service's module
+    under the same name is dropped so the next import loads this service's own.
     """
+    _prioritize()
     for stem in _STEMS:
-        sys.modules[stem] = _load(stem)
+        if stem in _CACHE:
+            sys.modules[stem] = _CACHE[stem]
+        elif stem in sys.modules and not _own(sys.modules[stem]):
+            del sys.modules[stem]
 
 
-def pytest_collectstart(collector: pytest.Collector) -> None:
-    """Rebind this package's plain module names before its test modules import."""
+@pytest.hookimpl(hookwrapper=True)
+def pytest_make_collect_report(collector: pytest.Collector) -> Generator[None, None, None]:
+    """Bind this service's names while its test modules are imported."""
     _path = getattr(collector, "path", None)
-    if _path is not None:
-        _this = Path(str(_path))
-        if _this == TESTS_DIR or TESTS_DIR in _this.parents:
-            _bind()
+    _inside = _path is not None and (
+        Path(str(_path)) == TESTS_DIR or TESTS_DIR in Path(str(_path)).parents
+    )
+    if _inside:
+        _bind()
+    yield
+    if _inside:
+        _harvest()
 
 
 @pytest.fixture(autouse=True)
-def _service_modules() -> None:
+def _service_modules() -> Generator[None, None, None]:
     """Keep the shared plain names pointed at this service's own modules."""
     _bind()
+    yield
+    _harvest()
 
 
 MOCK_CONFIG = {
