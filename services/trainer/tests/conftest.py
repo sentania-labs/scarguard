@@ -1,11 +1,16 @@
 import sys
 from pathlib import Path
 
-# Repo checkout: services/trainer/tests -> repo root holds shared/.
-# Service image: /app/tests -> /app holds shared/ and src/.
-HERE = Path(__file__).resolve().parent
-ROOT = next(
-    (a for a in HERE.parents if (a / "shared" / "training_safety.py").is_file()), HERE.parent
+# The shared test-support helper lives in <repo>/shared (repo checkout) or
+# /app/shared (service image), found without any hand-set PYTHONPATH.
+_SHARED = next(
+    p / "shared"
+    for p in Path(__file__).resolve().parents
+    if (p / "shared" / "service_test_isolation.py").is_file()
 )
-sys.path.insert(0, str(HERE.parent / "src"))
-sys.path.insert(0, str(ROOT / "shared"))
+if str(_SHARED) not in sys.path:
+    sys.path.insert(0, str(_SHARED))
+
+from service_test_isolation import isolate  # noqa: E402
+
+pytest_make_collect_report, _service_modules = isolate(__file__)

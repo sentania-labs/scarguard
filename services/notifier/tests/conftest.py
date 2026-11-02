@@ -17,6 +17,7 @@ import datetime as dt
 import io
 import socket
 import ssl
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -25,6 +26,25 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+TESTS_DIR = Path(__file__).resolve().parent
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
+
+# The shared test-support helper lives in <repo>/shared (repo checkout) or
+# /app/shared (service image), found without any hand-set PYTHONPATH.
+_SHARED = next(
+    p / "shared"
+    for p in Path(__file__).resolve().parents
+    if (p / "shared" / "service_test_isolation.py").is_file()
+)
+if str(_SHARED) not in sys.path:
+    sys.path.insert(0, str(_SHARED))
+
+from service_test_isolation import isolate  # noqa: E402
+
+pytest_make_collect_report, _service_modules = isolate(__file__)
+
 
 SAMPLE_EVENT = {
     "timestamp": "2026-03-20T06:00:00+00:00",

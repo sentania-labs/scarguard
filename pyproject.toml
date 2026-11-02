@@ -20,4 +20,7 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 # PYTHONPATH is injected by the CI step; tests live under each service's tests/ dir.
-addopts = "-v"
+# importlib mode is what makes one-process collection of several services work:
+# each test module is imported under its own path-derived name instead of all
+# competing for the shared plain name "main" (issue #200).
+addopts = "-v --import-mode=importlib"
