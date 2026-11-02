@@ -460,8 +460,11 @@ class TestHTTPIntegration:
 
     def test_handler_rejects_body_exceeding_limit(self) -> None:
         src = REPO_ROOT / "services" / "training-controller" / "src"
-        if str(src) not in sys.path:
-            sys.path.insert(0, str(src))
+        # Always (re)insert at the front: another service's conftest may already
+        # have this tree further down sys.path (issue #200).
+        while str(src) in sys.path:
+            sys.path.remove(str(src))
+        sys.path.insert(0, str(src))
         sys.modules.pop("main", None)
         try:
             import main  # noqa: PLC0415
@@ -506,8 +509,11 @@ class TestDetectorRecreation:
         """heartbeat() must look up the detector by label when the stored
         container ID no longer exists."""
         src = REPO_ROOT / "services" / "training-controller" / "src"
-        if str(src) not in sys.path:
-            sys.path.insert(0, str(src))
+        # Always (re)insert at the front: another service's conftest may already
+        # have this tree further down sys.path (issue #200).
+        while str(src) in sys.path:
+            sys.path.remove(str(src))
+        sys.path.insert(0, str(src))
         sys.modules.pop("main", None)
         try:
             import main  # noqa: PLC0415
@@ -563,8 +569,11 @@ class TestDetectorRecreation:
         """When the detector is completely absent, heartbeat should still
         update the heartbeat timestamp."""
         src = REPO_ROOT / "services" / "training-controller" / "src"
-        if str(src) not in sys.path:
-            sys.path.insert(0, str(src))
+        # Always (re)insert at the front: another service's conftest may already
+        # have this tree further down sys.path (issue #200).
+        while str(src) in sys.path:
+            sys.path.remove(str(src))
+        sys.path.insert(0, str(src))
         sys.modules.pop("main", None)
         try:
             import main  # noqa: PLC0415
