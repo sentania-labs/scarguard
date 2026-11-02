@@ -27,7 +27,7 @@ wherever `safe_load` is imported. This needs separate verification and a fix.
 
 Approved scope: page-scoped bulk feedback and persistent snapshot class/box
 correction (#218), read-only config controls (#209), isolated web rate-limit
-tests (#204), service-test lint coverage (#214), and a separate emergency-off
+tests (#204), service-test lint coverage (#214), cross-service test collection (#200), and a separate emergency-off
 command-ordering fix (#212). No schema migration or detector/model change.
 
 Event review is implemented with atomic batches capped at 50 IDs, preserved
@@ -37,7 +37,7 @@ reopening, failed writes, permissions, cancelling inline edits, and overlapping
 live updates. Delivery is tracked in PRs #221 (web/test fixes) and #220
 (emergency-off ordering, including controller replacement during credential reload).
 
-Deferred: #201, #200, #205, #190, #191 and #192. The hardware and model work do
+Deferred: #201, #205, #190, #191 and #192. The hardware and model work do
 not block this focused release.
 
 ---
