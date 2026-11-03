@@ -1,6 +1,6 @@
 # x86 image only: the pytorch/pytorch conda base ships stale copies of these
 # packages that trip the Trivy gate. Upgraded in place over the conda
 # site-packages; torch/CUDA are untouched.
-pillow>=12.3.0
-certifi>=2026.1.1
-Brotli>=1.2.0
+pillow>=13.0.0
+certifi>=2026.10.23
+Brotli>=1.2.1
