@@ -1,5 +1,5 @@
 redis==8.1.0
-pyyaml==6.0.3
-pydantic==2.14.1
-tinytuya==1.20.0
+pyyaml==6.0.4
+pydantic==2.14.4
+tinytuya==1.21.1
 cryptography==50.0.2
